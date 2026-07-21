@@ -527,7 +527,7 @@ def c64_basic_type(text: str, run: bool = False,
 @srv.tool()
 def c64_key_type(text: str, session: str | None = None) -> dict:
     """Type text into the running C64's keyboard buffer (\\n = RETURN).
-    Buffered keys never touch the live key-down state — games reading $97
+    Buffered keys never touch the live current-key state — games reading $CB
     need c64_key_hold."""
     s = _attach(session)
     return key_type(s, text)
@@ -536,11 +536,10 @@ def c64_key_type(text: str, session: str | None = None) -> dict:
 @srv.tool()
 def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
                  session: str | None = None) -> dict:
-    """Hold KEY down for N game ticks by re-poking $97 before each one,
-    running to the frame anchor `at` (label or address executed once per
-    tick) between pokes; the machine ends STOPPED there. KEY is one
-    character or 'space'. BASIC 4 models only ($97 holds a matrix index
-    on BASIC 2)."""
+    """Hold KEY down for N game ticks by re-poking its matrix code into
+    $CB before each one, running to the frame anchor `at` (label or
+    address executed once per tick) between pokes; the machine ends
+    STOPPED there. KEY is one character or 'space'."""
     s = _attach(session)
     labels = session_labels(s)
     addr = _ref(s, at, labels)

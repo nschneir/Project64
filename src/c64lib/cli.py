@@ -1219,7 +1219,7 @@ def key() -> None:
 def key_type(ctx, text):
     """Type TEXT into the running C64 (\\n = RETURN). For whole programs
     prefer `c64 basic type`; this is for interactive input and menus.
-    Buffered keys never touch the live key-down state — games reading $97
+    Buffered keys never touch the live current-key state — games reading $CB
     need `c64 key hold`."""
     s = attach(ctx)
     try:
@@ -1241,13 +1241,13 @@ def key_type(ctx, text):
               help="Per-frame wait limit, seconds.")
 @click.pass_context
 def key_hold(ctx, keyname, at_ref, frames, timeout):
-    """Hold KEY down for N game ticks by re-poking $97 before each one.
+    """Hold KEY down for N game ticks by re-poking $CB before each one.
 
-    Drives games that read the live key-down state: writes the key's
-    PETSCII to $97, runs to REF, repeats — the machine ends STOPPED at
-    REF (continue with `c64 continue`). KEY is one character, or `space`.
-    BASIC 4 models only: $97 holds a matrix index on BASIC 2. For a
-    deterministic first frame, stop at REF first (`c64 until REF`).
+    Drives games that read the live current-key state: writes the key's
+    matrix code to $CB, runs to REF, repeats — the machine ends STOPPED
+    at REF (continue with `c64 continue`). KEY is one character, or
+    `space`. For a deterministic first frame, stop at REF first
+    (`c64 until REF`).
     """
     s = attach(ctx)
     labels = session_labels(s)

@@ -164,8 +164,8 @@ preserved.
 
 Type text into the running C64's keyboard buffer (`\n` = RETURN). Use it to
 answer `INPUT` prompts or drive menus; for typing in whole programs prefer
-`c64 basic type`. Buffered keys never touch the live key-down state at `$97`
-— to steer a game that reads held keys, use `c64 key hold`.
+`c64 basic type`. Buffered keys never touch the live current-key state at
+`$CB` — to steer a game that reads held keys, use `c64 key hold`.
 
 - `TEXT` — the keystrokes (letters are case-folded to the C64's convention).
 
@@ -173,11 +173,12 @@ JSON: `{"typed_chars"}`. Machine state preserved.
 
 ### `c64 key hold`
 
-Hold KEY down for N game ticks by re-poking the key-down byte `$97` before
-each one: write the key's PETSCII, run to the frame anchor, repeat. The
-machine ends **stopped** at the anchor (resume with `c64 continue`). BASIC 4
-models only — `$97` holds a raw matrix index on BASIC 2 machines. For a
-fully deterministic first frame, stop at the anchor first (`c64 until REF`).
+Hold KEY down for N game ticks by re-poking the current-key byte `$CB`
+before each one: write the key's keyboard-matrix code, run to the frame
+anchor, repeat. The machine ends **stopped** at the anchor (resume with
+`c64 continue`). The IRQ keyboard scan rewrites `$CB` every tick (64 = no
+key), which is why the code is re-poked per frame. For a fully
+deterministic first frame, stop at the anchor first (`c64 until REF`).
 
 - `KEY` — one character, or `space`.
 - `--at REF` (required) — the frame anchor: a label or address executed once
@@ -457,13 +458,12 @@ operation; no session required.
 - `--model MODEL` (default `c64`) — selects the BASIC load address and
   is pinned in the reported run command.
 
-The recipient needs only stock VICE: `x64sc -model 4032 game.d64` (or the
+The recipient needs only stock VICE: `x64sc -ntsc game.d64` (or the
 `.prg`) autostarts it, and from inside the emulator `LOAD"NAME",8` then
 `RUN` works the traditional way. No ROMs or c64-tools ship in the artifact.
-The `-model` flag matters: stock x64sc boots its own default model, and ROM
-behavior differs silently between BASIC generations (the `$97` key-down
-byte holds PETSCII on BASIC 4 but a matrix index on BASIC 2 — a shipped
-game's keyboard can go dead with an identical-looking screen).
+The video-standard flag matters for timing-sensitive programs: stock x64sc
+boots its own default machine, so the run command pins `-ntsc` / `-pal` to
+match the profile the program was tested on.
 
 JSON: `{"prg", "image", "title", "run"}` — `run` is the exact command to
 hand to the recipient (model pinned); `image` is `null` for `.prg`-only
@@ -624,7 +624,7 @@ steps:
   - wait:   { mem: "$1000", equals: 42 }    # byte reaches a value
   - until:  { ref: mainloop, count: 3 }     # frame-step to a label; the
                                             #   machine STAYS stopped there
-  - poke:   { addr: "$97", values: [68] }   # write bytes (state-preserving)
+  - poke:   { addr: "$CB", values: [18] }   # write bytes (state-preserving)
   - call:   { routine: add_score, a: 5 }    # JSR one routine in isolation
                                             #   (unit test: poke inputs
                                             #   first, assert results after)

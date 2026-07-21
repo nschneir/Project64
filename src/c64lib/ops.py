@@ -14,10 +14,22 @@ from .screen import read_screen_text
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
 
-#: the key-down byte the IRQ keyboard scanner maintains ($FF = no key).
-#: BASIC 4 stores the decoded PETSCII here; BASIC 2 stores a raw matrix
-#: index — which is why key_hold below is a BASIC 4 (c64) affair.
-KEYDOWN_ADDR = 0x97
+#: the current-key byte the IRQ keyboard scanner maintains (SFDX, $CB):
+#: the keyboard-matrix code of the key held right now, 64 = no key.
+KEYDOWN_ADDR = 0xCB
+
+#: C64 keyboard-matrix codes (the values SCNKEY leaves in $CB), from the
+#: published matrix table. Lowercase only — the matrix has no case.
+MATRIX_CODES = {
+    "\n": 1,
+    "3": 8, "w": 9, "a": 10, "4": 11, "z": 12, "s": 13, "e": 14,
+    "5": 16, "r": 17, "d": 18, "6": 19, "c": 20, "f": 21, "t": 22, "x": 23,
+    "7": 24, "y": 25, "g": 26, "8": 27, "b": 28, "h": 29, "u": 30, "v": 31,
+    "9": 32, "i": 33, "j": 34, "0": 35, "m": 36, "k": 37, "o": 38, "n": 39,
+    "+": 40, "p": 41, "l": 42, "-": 43, ".": 44, ":": 45, "@": 46, ",": 47,
+    "*": 49, ";": 50, "=": 53, "/": 55,
+    "1": 56, "2": 59, " ": 60, "q": 62,
+}
 
 
 def parse_number(s) -> int:
@@ -307,12 +319,14 @@ def key_type(session, text: str) -> dict:
 
 def key_hold(session, key: str, at_addr: int, frames: int = 1,
              timeout: float = 30.0) -> dict:
-    """Hold KEY down for `frames` game ticks: write its PETSCII to $97,
-    run to at_addr, repeat — the machine ends STOPPED at at_addr.
+    """Hold KEY down for `frames` game ticks: write its keyboard-matrix
+    code to $CB, run to at_addr, repeat — the machine ends STOPPED at
+    at_addr.
 
-    This is the poke-$97 debugger protocol as one operation: the IRQ
-    scanner rewrites $97 every tick, so the byte must be re-poked before
-    each frame. BASIC 4 models only ($97 holds a matrix index on BASIC 2).
+    This is the poke-$CB debugger protocol as one operation: the IRQ
+    keyboard scan (SCNKEY) rewrites $CB every tick (64 = no key), so the
+    code must be re-poked before each frame. Programs reading the held
+    key from $CB (or via GETIN after the scan decodes it) see the key.
     For a fully deterministic first frame, be stopped at at_addr already
     (run_until once); mid-flight the first poke can race the next IRQ.
 
@@ -322,7 +336,10 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
     k = " " if key.lower() == "space" else key
     if len(k) != 1:
         raise ValueError(f"key must be one character or 'space', got {key!r}")
-    code = ascii_to_petscii(k)
+    try:
+        code = bytes([MATRIX_CODES[k.lower()]])
+    except KeyError:
+        raise ValueError(f"no matrix code for key {key!r}") from None
     out = {"registers": None}
     for i in range(frames):
         with session.monitor() as mon:

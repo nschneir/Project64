@@ -185,7 +185,18 @@ def test_key_type_feeds_buffer_and_releases():
     assert out == {"typed_chars": 3}
 
 
-def test_key_hold_pokes_97_before_each_frame():
+def test_matrix_codes_cover_game_keys():
+    from c64lib.ops import MATRIX_CODES
+    # spot checks against the published keyboard-matrix table ($CB values)
+    assert MATRIX_CODES[" "] == 60
+    assert MATRIX_CODES["w"] == 9
+    assert MATRIX_CODES["a"] == 10
+    assert MATRIX_CODES["\n"] == 1
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789 ":
+        assert ch in MATRIX_CODES
+
+
+def test_key_hold_pokes_cb_before_each_frame():
     from c64lib.ops import key_hold
     s, mon = _fake_session()
     calls = []
@@ -193,13 +204,13 @@ def test_key_hold_pokes_97_before_each_frame():
 
     def fake_until(*a, **k):
         calls.append(("until",))
-        return {"registers": {"PC": 0x0419}, "reached": 1, "count": 1}
+        return {"registers": {"PC": 0x0819}, "reached": 1, "count": 1}
 
     with patch("c64lib.ops.run_until", side_effect=fake_until) as ru:
-        out = key_hold(s, "d", 0x0419, frames=3, timeout=9.0)
-    assert out["frames"] == 3 and out["registers"] == {"PC": 0x0419}
-    assert calls == [("poke", 0x97, b"D"), ("until",)] * 3
-    ru.assert_called_with(s, 0x0419, timeout=9.0, count=1)
+        out = key_hold(s, "d", 0x0819, frames=3, timeout=9.0)
+    assert out["frames"] == 3 and out["registers"] == {"PC": 0x0819}
+    assert calls == [("poke", 0xCB, bytes([18])), ("until",)] * 3
+    ru.assert_called_with(s, 0x0819, timeout=9.0, count=1)
 
 
 def test_key_hold_space_alias_and_validation():
@@ -208,9 +219,11 @@ def test_key_hold_space_alias_and_validation():
     with patch("c64lib.ops.run_until",
                return_value={"registers": {"PC": 1}, "reached": 1, "count": 1}):
         key_hold(s, "space", 0x1000, frames=1)
-    mon.memory_write.assert_called_once_with(0x97, b" ")
+    mon.memory_write.assert_called_once_with(0xCB, bytes([60]))
     with pytest.raises(ValueError):
         key_hold(s, "dd", 0x1000)
+    with pytest.raises(ValueError, match="no matrix code"):
+        key_hold(s, "~", 0x1000)
 
 
 def test_key_hold_timeout_reports_progress():
