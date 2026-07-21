@@ -1,10 +1,11 @@
 # Cookbook — tested recipes to copy and adapt
 
-Every program here is complete, runs on a PET 4032, and is exercised by
+Every program here is complete, runs on a C64, and is exercised by
 `tests/test_docs_cookbook.py` (the assembly ones are built with real ca65;
 the flagship ones run live on the emulator). Copy a recipe, rename things,
 and build from there — they encode the conventions that trip people up
-(lowercase BASIC, screen codes for pokes, jiffy pacing, the SYS stub).
+(lowercase BASIC, screen codes for pokes, color RAM, jiffy pacing, the SYS
+stub).
 
 ## Contents
 
@@ -14,10 +15,11 @@ BASIC:
 - [Sound: a beep subroutine](#sound-a-beep-subroutine)
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
 - [Score HUD: poke a changing number to the screen](#score-hud-poke-a-changing-number-to-the-screen)
+- [Show a sprite from BASIC](#show-a-sprite-from-basic)
 
 Assembly:
 - [Game loop: poll GETIN, move a ball, pace with the jiffy clock](#game-loop-poll-getin-move-a-ball-pace-with-the-jiffy-clock)
-- [Held-key input: steer with the key-down state at $97](#held-key-input-steer-with-the-key-down-state-at-97)
+- [Held-key input: steer with the current-key state at $CB](#held-key-input-steer-with-the-current-key-state-at-cb)
 - [Sound: a beep from machine code](#sound-a-beep-from-machine-code)
 - [Frame stepping: inspect a game loop one frame at a time](#frame-stepping-inspect-a-game-loop-one-frame-at-a-time)
 - [Cheap pseudo-random byte (8-bit Galois LFSR)](#cheap-pseudo-random-byte-8-bit-galois-lfsr)
@@ -25,7 +27,7 @@ Assembly:
 - [Static text without CHROUT (poke screen codes)](#static-text-without-chrout-poke-screen-codes)
 - [Print a number as decimal digits](#print-a-number-as-decimal-digits)
 - [IRQ wedge: run code 60×/second behind BASIC](#irq-wedge-run-code-60second-behind-basic)
-- [Play a melody from a note table](#play-a-melody-from-a-note-table)
+- [Sprite setup and movement](#sprite-setup-and-movement)
 
 ## BASIC recipes
 
@@ -51,56 +53,61 @@ frame started. Lower the 6 for a faster game.
 
 ### Poke characters at a screen position
 
-Screen RAM starts at 32768 ($8000); the cell at row R (0–24), column C
-(0–39) is `32768 + 40*R + C`. POKE **screen codes**, not PETSCII or CHR$
-values (42 below is the screen code for `*`; letters are 1–26):
+Screen RAM starts at 1024 ($0400); the cell at row R (0–24), column C
+(0–39) is `1024 + 40*R + C`. POKE **screen codes**, not PETSCII or CHR$
+values (42 below is the screen code for `*`; letters are 1–26). On the C64
+every cell also has a color nybble at `55296 + 40*R + C` ($D800) — poke it
+too, or the character can be invisible (same color as the background):
 
 ```basic
 100 rem three stars on row 5, from column 10
 110 for i=0 to 2
-120 poke 32768 + 40*5 + 10 + i, 42
-130 next i
-140 print : print "done"
+120 poke 1024 + 40*5 + 10 + i, 42
+130 poke 55296 + 40*5 + 10 + i, 1 : rem color RAM: white
+140 next i
+150 print : print "done"
 ```
 
 ### Sound: a beep subroutine
 
-Three pokes start a tone, two stop it (see the hardware reference for how
-this works). Keep the subroutine and call it wherever a game needs a beep:
+The SID needs volume, an envelope, a frequency, and a gated waveform (see
+the hardware reference). Keep the subroutine and call it wherever a game
+needs a beep:
 
 ```basic
 100 gosub 900
 110 print "beeped" : end
 900 rem --- beep for a quarter second ---
-910 poke 59467,16 : poke 59466,15 : poke 59464,150
-920 t=ti
-930 if ti-t<15 goto 930
-940 poke 59464,0 : poke 59467,0
-950 return
+910 poke 54296,15 : poke 54277,9 : poke 54278,0
+920 poke 54273,25 : poke 54272,30
+930 poke 54276,17 : rem triangle + gate on
+940 t=ti
+950 if ti-t<15 goto 950
+960 poke 54276,16 : rem gate off (release)
+970 poke 54296,0
+980 return
 ```
 
-Vary 59464 (the pitch: lower = higher note) and the 15-jiffy duration.
+Vary 54273 (the pitch: higher = higher note) and the 15-jiffy duration.
+SID registers are **write-only** — don't try to PEEK them back.
 
 ### Switch character sets: uppercase/graphics vs lowercase
 
-The PET has two character sets, selected by the VIA peripheral control
-register: `poke 59468,12` gives uppercase + graphics (the power-on set);
-`poke 59468,14` gives lowercase + uppercase ("business" mode) — in it,
-unshifted letters render lowercase and shifted ones uppercase. Text
-adventures and anything wordy want mode 14. On the 12-inch-screen
-machines (40xx/80xx, CRTC-based — including the default `pet4032`),
-`print chr$(14)` / `print chr$(142)` switch the same thing from PETSCII
-(and also adjust line spacing); the poke works on every model. Note this
-changes the **glyphs the CRT draws**, not the screen codes in memory — so
-`c64 screen` text (which decodes screen codes case-canonically — see
-petscii.md's "How `c64 screen` decodes the screen" section) looks
-identical either way; check `c64 screen --png` to see the case change.
+The C64 has two character sets, selected by VIC-II memory setup bit 1:
+`poke 53272,21` gives uppercase + graphics (the power-on set);
+`poke 53272,23` gives lowercase + uppercase — in it, unshifted letters
+render lowercase and shifted ones uppercase. Text adventures and anything
+wordy want the lowercase set. `print chr$(14)` / `print chr$(142)` switch
+the same thing from PETSCII. Note this changes the **glyphs drawn**, not
+the screen codes in memory — so `c64 screen` text (which decodes screen
+codes case-canonically — see petscii.md) looks identical either way; check
+`c64 screen --png` to see the case change.
 
 ```basic
 100 rem lowercase (business) character set
-110 poke 59468,14
+110 poke 53272,23
 120 print "hello from business mode"
-130 rem to switch back: poke 59468,12
+130 rem to switch back: poke 53272,21
 ```
 
 ### Score HUD: poke a changing number to the screen
@@ -117,11 +124,33 @@ leaves its old last digit behind, so blank the cell after the digits too:
 110 s=142
 120 s$=str$(s)
 130 for i=2 to len(s$)
-140 poke 32768+30+i-2, asc(mid$(s$,i,1))
-150 next
-160 poke 32768+30+len(s$)-1,32 : rem blank trailing cell
-170 print "done"
+140 poke 1024+30+i-2, asc(mid$(s$,i,1))
+150 poke 55296+30+i-2, 1
+160 next
+170 poke 1024+30+len(s$)-1,32 : rem blank trailing cell
+180 print "done"
 ```
+
+### Show a sprite from BASIC
+
+The minimum sprite: 63 data bytes in a free block, the pointer at 2040,
+enable bit on, and a position. Block 13 = address 832 (the cassette
+buffer — fine for a demo while tape is unused):
+
+```basic
+100 rem solid 24x21 sprite block in the cassette buffer
+110 for i=0 to 62 : poke 832+i,255 : next
+120 poke 2040,13      : rem sprite 0 data pointer: block 13 (832/64)
+130 poke 53287,7      : rem sprite 0 color: yellow
+140 poke 53248,160    : rem x
+150 poke 53249,120    : rem y
+160 poke 53269,1      : rem enable sprite 0
+170 print "sprite on"
+```
+
+Sprites never appear in `c64 screen` text — verify with
+`c64 mem read '$D015' 1` (enable bits) and `c64 screen --png`. Policy and
+testing rules: docs/specs/graphics-and-sprites.md.
 
 ## Assembly recipes
 
@@ -136,15 +165,16 @@ byte. `Q` quits cleanly back to BASIC. A ball sweeps along row 12:
 ; ball.s — a moving ball paced at ~10 steps/second; Q quits.
 CHROUT = $FFD2
 GETIN  = $FFE4
-JIFFLO = $8F                    ; low byte of the jiffy clock (60 Hz)
-ROW12  = $8000 + 40*12          ; screen RAM, row 12
+JIFFLO = $A2                    ; low byte of the jiffy clock (60 Hz)
+ROW12  = $0400 + 40*12          ; screen RAM, row 12
+CROW12 = $D800 + 40*12          ; color RAM, row 12
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -163,6 +193,8 @@ main:   jsr     GETIN           ; key in A, or 0 if none
 nowrap: stx     pos
         lda     #$2A            ; ...and redraw (screen code for *)
         sta     ROW12,x
+        lda     #1              ; color RAM: white, so it's visible
+        sta     CROW12,x
         ldy     #6              ; pace: wait 6 jiffies (1/10 s)
 pace:   lda     JIFFLO
 w1:     cmp     JIFFLO
@@ -177,31 +209,33 @@ pos:    .byte   0
 
 To steer instead of auto-move, compare A against `#'A'`/`#'D'` after GETIN
 and adjust `pos` accordingly; for keys *held down* (no repeat delay), read
-the key-down location `$97` instead — the next recipe.
+the current-key location `$CB` instead — the next recipe.
 
-### Held-key input: steer with the key-down state at $97
+### Held-key input: steer with the current-key state at $CB
 
 GETIN returns *buffered* keypresses — good for menus, wrong for action
 controls, where a held key must move you every frame and releasing must
-stop you. The IRQ keyboard scanner maintains the key held right now at
-`$97` (`$FF` = none). **On BASIC 4 machines the value is the key's
-PETSCII** ('A' reads `$41`); on BASIC 2 it is a raw matrix index — so
-target the 4032 and ship with `x64sc -model 4032` (see zero-page.md). A
-paddle on row 12 that slides while A or D is held:
+stop you. The IRQ keyboard scanner maintains the **matrix code** of the
+key held right now at `$CB` (64 = none) — matrix codes, not PETSCII: A is
+10, D is 18, space is 60 (see zero-page.md). A paddle on row 12 that
+slides while A or D is held:
 
 ```asm
-; keyhold.s — a paddle steered by HELD A/D keys read from $97.
+; keyhold.s — a paddle steered by HELD A/D keys read from $CB.
 CHROUT  = $FFD2
-JIFFLO  = $8F
-KEYDOWN = $97                   ; key down right now (BASIC 4: PETSCII)
-ROW12   = $8000 + 40*12
+JIFFLO  = $A2
+KEYDOWN = $CB                   ; matrix code of the key down now (64 = none)
+KEY_A   = 10
+KEY_D   = 18
+ROW12   = $0400 + 40*12
+CROW12  = $D800 + 40*12
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -210,7 +244,7 @@ start:  lda     #$93
 mainloop:
         ldx     pos
         lda     KEYDOWN
-        cmp     #'A'            ; held A: slide left...
+        cmp     #KEY_A          ; held A: slide left...
         bne     notl
         cpx     #0
         beq     notl            ; ...unless at the wall
@@ -218,7 +252,7 @@ mainloop:
         sta     ROW12,x         ; erase, move
         dex
 notl:   lda     KEYDOWN
-        cmp     #'D'            ; held D: slide right
+        cmp     #KEY_D          ; held D: slide right
         bne     notr
         cpx     #39
         beq     notr
@@ -228,6 +262,8 @@ notl:   lda     KEYDOWN
 notr:   stx     pos
         lda     #81             ; the paddle (screen code: filled circle)
         sta     ROW12,x
+        lda     #1
+        sta     CROW12,x        ; color RAM: white
         ldy     #3              ; pace: ~20 moves/second while held
 pace:   lda     JIFFLO
 pw:     cmp     JIFFLO
@@ -241,50 +277,61 @@ pos:    .byte   20
 
 No key down, no motion; hold a key and it glides. Test it exactly like a
 player holding the key: `c64 run keyhold.s`, then
-`c64 key hold d --frames 5 --at mainloop` — the CLI re-pokes `$97` before
-each frame (the IRQ rewrites it every tick) and frame-steps to your loop
-label; read `c64 mem get pos` between holds. In a `c64 test run` YAML the
-same protocol is the `poke:` + `until:` step pair.
+`c64 key hold d --frames 5 --at mainloop` — the CLI re-pokes the matrix
+code into `$CB` before each frame (the IRQ rewrites it every tick) and
+frame-steps to your loop label; read `c64 mem read pos 1` between holds.
+In a `c64 test run` YAML the same protocol is the `poke:` + `until:` step
+pair.
 
 ### Sound: a beep from machine code
 
-Same three VIA registers as the BASIC version, timed by the jiffy clock:
+Same SID registers as the BASIC version, timed by the jiffy clock:
 
 ```asm
 ; beep.s — quarter-second beep, then OK.
 CHROUT = $FFD2
-JIFFLO = $8F
+JIFFLO = $A2
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
-start:  lda     #$10
-        sta     $E84B           ; shift register free-runs under timer 2
-        lda     #$0F
-        sta     $E84A           ; square-wave bit pattern
-        lda     #150
-        sta     $E848           ; pitch
+start:  lda     #15
+        sta     $D418           ; volume max
+        lda     #9
+        sta     $D405           ; attack/decay
+        lda     #0
+        sta     $D406           ; sustain/release
+        lda     #25
+        sta     $D401           ; frequency high
+        lda     #30
+        sta     $D400           ; frequency low
+        lda     #17
+        sta     $D404           ; triangle + gate on
         ldy     #15             ; ~1/4 second
 bpace:  lda     JIFFLO
 bw:     cmp     JIFFLO
         beq     bw
         dey
         bne     bpace
+        lda     #16
+        sta     $D404           ; gate off (release)
         lda     #0
-        sta     $E848           ; silence...
-        sta     $E84B           ; ...and release CB2
+        sta     $D418           ; volume off
         lda     #'O'
         jsr     CHROUT
         lda     #'K'
         jsr     CHROUT
         rts
 ```
+
+SID registers are write-only — assert on the `OK` text (or your own state
+bytes), never on SID readback.
 
 ### Frame stepping: inspect a game loop one frame at a time
 
@@ -295,16 +342,17 @@ exact number of frames, inspecting between steps. This program bumps
 
 ```asm
 ; frame counter: the smallest "game loop", for frame-stepping practice.
-JIFFLO = $8F
+JIFFLO = $A2
 CHROUT = $FFD2
-SCREEN = $8000
+SCREEN = $0400
+COLOR  = $D800
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -316,6 +364,8 @@ banner: lda     msg,x
         bne     banner
 init:   lda     #0
         sta     FRAMES
+        lda     #1
+        sta     COLOR+39        ; spinner cell: white
 mainloop:
         inc     FRAMES          ; one more frame
         lda     FRAMES
@@ -358,13 +408,13 @@ states, break at a code path that must still execute instead.
 
 ### Cheap pseudo-random byte (8-bit Galois LFSR)
 
-Games need randomness; the PET has no hardware source. A one-byte Galois
+Games need randomness cheaper than calling into BASIC. A one-byte Galois
 LFSR gives a 255-value pseudo-random sequence for three instructions of
 work. **The state must never be zero** — 0 is the LFSR's fixed point and
 locks the generator. Seed once at startup; in a real game seed from the
 jiffy clock so each run differs:
 
-    lda $8f        ; jiffy low byte — changes 60x/second
+    lda $a2        ; jiffy low byte — changes 60x/second
     bne seeded
     lda #1         ; guard the zero lock
     seeded: sta seed
@@ -378,11 +428,11 @@ scratch area: 21, 178, 89).
 ; Call `random`: a fresh pseudo-random byte comes back in A (and `seed`).
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -414,12 +464,11 @@ return address and control unwinds one level too far.
 
 ### Point a pointer at screen row/column (plotaddr)
 
-Everything that draws needs `screen address = $8000 + row*width + col`.
-On 40-column machines `row*40 = row*32 + row*8` — three shifts and an
-add, no lookup table. The pointer lives in zero page ($FB/$FC — see
-zero-page.md) so `(PTR),y` indirection works. On 80-column machines
-(8032/8296) a row is 80 bytes: use `row*64 + row*16` (one more shift
-pair) instead.
+Everything that draws needs `screen address = $0400 + row*40 + col`.
+`row*40 = row*32 + row*8` — three shifts and an add, no lookup table. The
+pointer lives in zero page ($FB/$FC — see zero-page.md) so `(PTR),y`
+indirection works. The same math with a `#$D8` base gives the color-RAM
+cell.
 
 ```asm
 ; plot.s — plotaddr: point PTR ($FB/$FC) at screen row/column.
@@ -427,11 +476,11 @@ pair) instead.
 PTR = $fb
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -467,7 +516,7 @@ nocarry:
         adc     PTR             ; + column
         sta     PTR
         lda     PTR+1
-        adc     #$80            ; + $8000 screen base (carry rides along)
+        adc     #$04            ; + $0400 screen base (carry rides along)
         sta     PTR+1
         rts
 
@@ -489,19 +538,19 @@ already ARE screen codes; letters $41-$5A fold down by $40
 PTR = $fb
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
 start:  lda     #$93
         jsr     $ffd2           ; clear the screen
-        lda     #<($8000 + 2*40 + 5)
+        lda     #<($0400 + 2*40 + 5)
         sta     PTR
-        lda     #>($8000 + 2*40 + 5)
+        lda     #>($0400 + 2*40 + 5)
         sta     PTR+1           ; row 2, column 5
         ldy     #0
 loop:   lda     msg,y
@@ -531,14 +580,14 @@ digit to `#48` before storing if you care.
 
 ```asm
 ; digits.s — poke a byte as three decimal digits (demo: 142 at row 0, col 30).
-POS = $8000 + 0*40 + 30
+POS = $0400 + 0*40 + 30
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -578,30 +627,30 @@ tdone:  pha
 
 ### IRQ wedge: run code 60×/second behind BASIC
 
-The jiffy interrupt enters ROM, pushes A/X/Y, then jumps through the RAM
-vector at `($90)` — repoint it and your code runs every frame while BASIC
-carries on. Rules: install with interrupts disabled (`sei`/`cli`), save
-the old vector and **chain to it** (`jmp (oldvec)`) so the clock and
-keyboard keep working, and keep the wedge short (it steals time from
-every frame). One trap: `jmp (indirect)` has the famous 6502 bug when its
-operand's low byte sits at `$xxFF`, so check that `oldvec` doesn't land
-there — fine in this small demo (it assembles around `$0446`), but verify
-in the label file (`c64 build` emits one) whenever you embed the wedge in
-a bigger program. The demo counts 60 interrupts (~1 second), then
-unhooks itself and stores `$2A` at `$03F1` as a done marker.
+The jiffy interrupt enters ROM at $FF48, pushes A/X/Y, then jumps through
+the RAM vector CINV at `($0314)` — repoint it and your code runs every
+frame while BASIC carries on. Rules: install with interrupts disabled
+(`sei`/`cli`), save the old vector and **chain to it** (`jmp (oldvec)`,
+default $EA31) so the clock and keyboard keep working, and keep the wedge
+short (it steals time from every frame). One trap: `jmp (indirect)` has
+the famous 6502 bug when its operand's low byte sits at `$xxFF`, so check
+that `oldvec` doesn't land there — verify in the label file (`c64 build`
+emits one) whenever you embed the wedge in a bigger program. The demo
+counts 60 interrupts (~1 second), then unhooks itself and stores `$2A` at
+`$03F1` as a done marker.
 
 ```asm
-; wedge.s — hook ($90), count 60 jiffies behind BASIC, unhook, mark done.
-IRQVEC = $90
+; wedge.s — hook CINV ($0314), count 60 jiffies behind BASIC, unhook, mark done.
+CINV   = $0314
 COUNT  = $03F0                  ; cassette-buffer scratch
 DONE   = $03F1
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
@@ -609,14 +658,14 @@ start:  lda     #0
         sta     COUNT
         sta     DONE
         sei                     ; no IRQ while the vector is half-written
-        lda     IRQVEC
+        lda     CINV
         sta     oldvec
-        lda     IRQVEC+1
+        lda     CINV+1
         sta     oldvec+1
         lda     #<wedge
-        sta     IRQVEC
+        sta     CINV
         lda     #>wedge
-        sta     IRQVEC+1
+        sta     CINV+1
         cli
         rts                     ; back to BASIC — the wedge runs underneath
 
@@ -625,9 +674,9 @@ wedge:  inc     COUNT           ; A/X/Y were already pushed by the ROM
         cmp     #60
         bcc     chain
         lda     oldvec          ; one second: put the old vector back...
-        sta     IRQVEC
+        sta     CINV
         lda     oldvec+1
-        sta     IRQVEC+1
+        sta     CINV+1
         lda     #$2a
         sta     DONE            ; ...and leave the marker
 chain:  jmp     (oldvec)        ; ALWAYS continue into the ROM handler
@@ -635,65 +684,63 @@ chain:  jmp     (oldvec)        ; ALWAYS continue into the ROM handler
 oldvec: .word   0
 ```
 
-### Play a melody from a note table
+### Sprite setup and movement
 
-The beep recipes hold one tone; a tune is just a table of timer-2 periods
-played in sequence. Periods come from the chromatic-scale table in the
-hardware reference (hardware.md) — this demo uses `250, 198, 166, 125`,
-and halving a period raises the note an octave. A zero terminates the
-table. As always: zero `$E848` AND `$E84B` at the end or the last note
-plays forever.
+The minimum hardware sprite from machine code: data in a free block,
+pointer, color, position, enable — then move it by rewriting `$D000/$D001`.
+Sprite data goes in its own segment-free block here (the cassette buffer,
+block 13 = $0340); real programs put it in a dedicated `.byte` block (see
+docs/specs/graphics-and-sprites.md for the authoring rules). The demo
+enables sprite 0 as a solid square, sweeps it right across the screen,
+and writes a done marker at `$03F0`:
 
 ```asm
-; tune.s — four-note rising jingle from a period table, then DONE.
-CHROUT = $FFD2
-JIFFLO = $8F
+; sprite.s — enable sprite 0, sweep it right, leave $D015 on and a marker.
+SPDATA = $0340                  ; block 13 (833 = 13*64); tape unused
+JIFFLO = $A2
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
 
         .segment "CODE"
-start:  lda     #$10
-        sta     $E84B           ; sound on: SR free-runs under timer 2
-        lda     #$0F
-        sta     $E84A           ; square wave
-        ldx     #0
-note:   lda     tune,x
-        beq     fin             ; 0 terminates the tune
-        sta     $E848           ; period = pitch
-        ldy     #12             ; ~1/5 s per note
-npace:  lda     JIFFLO
-nw:     cmp     JIFFLO
-        beq     nw              ; spin until the jiffy clock ticks
+start:  ldx     #62
+fill:   lda     #$FF            ; solid 24x21 square
+        sta     SPDATA,x
+        dex
+        bpl     fill
+        lda     #13
+        sta     $07F8           ; sprite 0 pointer: block 13
+        lda     #7
+        sta     $D027           ; sprite 0 color: yellow
+        lda     #120
+        sta     $D001           ; y
+        lda     #1
+        sta     $D015           ; enable sprite 0
+        ldx     #30             ; x sweep: 30 -> 220
+sweep:  stx     $D000
+        ldy     #1              ; pace: 1 jiffy per step
+space:  lda     JIFFLO
+sw:     cmp     JIFFLO
+        beq     sw
         dey
-        bne     npace
+        bne     space
         inx
-        bne     note
-fin:    lda     #0
-        sta     $E848           ; silence...
-        sta     $E84B           ; ...and release CB2
-        ldx     #0
-msg:    lda     text,x
-        beq     bye
-        jsr     CHROUT
-        inx
-        bne     msg
-bye:    rts
-
-tune:   .byte   250, 198, 166, 125, 0
-text:   .byte   "DONE", $0D, $00
+        cpx     #220
+        bne     sweep
+        lda     #$2a
+        sta     $03F0           ; done marker
+        rts                     ; sprite stays on screen (READY. behind it)
 ```
 
-Swap `tune` for your own periods from the table; double a value to drop
-an octave. Durations: change the `ldy #12` per-note wait, or extend the
-table format with a duration byte per note. The cleanup matters beyond
-politeness: a free-running shift register interferes with cassette I/O
-(the PET FAQ's classic warning), so silence it before any tape operation.
+Sprites are drawn by the VIC-II, not stored in screen RAM — `c64 screen`
+text never shows them. Verify with register reads (`$D015`, `$D000/$D001`)
+and `c64 screen --png`; X > 255 additionally needs the MSB bit in `$D010`
+(see hardware.md).
 
 ## Verifying a recipe-based program
 

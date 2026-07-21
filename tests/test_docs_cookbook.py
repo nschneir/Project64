@@ -1,4 +1,4 @@
-"""Every cookbook recipe must build — and run correctly on a real PET."""
+"""Every cookbook recipe must build — and run correctly on a real C64."""
 
 import os
 import re
@@ -49,7 +49,7 @@ def test_asm_recipes_assemble(tmp_path):
         src = tmp_path / f"r{i}.s"
         src.write_text(block)
         res = build_asm(src)
-        assert res.prg.read_bytes()[:2] == b"\x01\x04"
+        assert res.prg.read_bytes()[:2] == b"\x01\x08"
 
 
 # --- live: each recipe runs and behaves as the cookbook promises -----------
@@ -64,18 +64,18 @@ LIVE_RECIPES = [
     ]),
     ("basic-poke-stars", "basic", "three stars", [
         {"wait": {"text": "DONE"}},
-        # 32768 + 40*5 + 10 = $80D2 holds screen code 42 ('*')
-        {"assert": {"mem": "$80D2", "equals": 42}},
+        # 1024 + 40*5 + 10 = $04D2 holds screen code 42 ('*')
+        {"assert": {"mem": "$04D2", "equals": 42}},
     ]),
     ("basic-beep", "basic", "gosub 900", [
         {"wait": {"text": "BEEPED"}},
     ]),
     ("asm-ball", "asm", "ball.s", [
         # the program's first act is a $93 clear, which wipes the boot
-        # banner: home cell $8000 goes '*' ($2A) -> space. Waiting on that
+        # banner: the '*' at row 1, col 4 ($042C) -> space. Waiting on that
         # proves the code is running — the boot screen's own '*'s and
         # READY. would satisfy the next two waits otherwise.
-        {"wait": {"mem": "$8000", "equals": 32}},
+        {"wait": {"mem": "$042C", "equals": 32}},
         {"wait": {"text": "*"}},              # the ball — only '*' left now
         {"key": "q"},
         {"wait": {"text": "READY."}},         # clean exit to BASIC
@@ -88,9 +88,9 @@ LIVE_RECIPES = [
         # is before any draw), then the poke/until pair IS c64 key hold
         {"until": {"ref": "mainloop", "count": 2}},
         {"assert": {"mem": "@12,20", "equals": 81}},
-        {"poke": {"addr": "$97", "values": [68]}},     # hold D ($44)...
+        {"poke": {"addr": "$CB", "values": [18]}},     # hold D (matrix 18)...
         {"until": {"ref": "mainloop"}},
-        {"poke": {"addr": "$97", "values": [68]}},
+        {"poke": {"addr": "$CB", "values": [18]}},
         {"until": {"ref": "mainloop"}},
         {"assert": {"mem": "@12,22", "equals": 81}},   # slid two columns
         {"assert": {"mem": "pos", "equals": 22}},      # symbol addressing
@@ -106,42 +106,46 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$03F1", "equals": 178}},
     ]),
     ("asm-plotaddr", "asm", "plot.s", [
-        # row 10 * 40 + col 20 = 420 -> $8000 + $1A4; '*' is screen code 42
-        {"wait": {"mem": "$81A4", "equals": 42}},
+        # row 10 * 40 + col 20 = 420 -> $0400 + $1A4; '*' is screen code 42
+        {"wait": {"mem": "$05A4", "equals": 42}},
     ]),
     ("asm-poke-text", "asm", "hud.s", [
         {"wait": {"text": "SCORE 000"}},
-        # 'S' folds to screen code 19 at $8000 + 2*40 + 5 = $8055
-        {"assert": {"mem": "$8055", "equals": 19}},
+        # 'S' folds to screen code 19 at $0400 + 2*40 + 5 = $0455
+        {"assert": {"mem": "$0455", "equals": 19}},
     ]),
     ("asm-digits", "asm", "digits.s", [
         {"wait": {"text": "142"}},
-        # '1' = screen code 49, at $8000 + 30
-        {"assert": {"mem": "$801E", "equals": 49}},
-        {"assert": {"mem": "$8020", "equals": 50}},   # '2' = 50
+        # '1' = screen code 49, at $0400 + 30
+        {"assert": {"mem": "$041E", "equals": 49}},
+        {"assert": {"mem": "$0420", "equals": 50}},   # '2' = 50
     ]),
     ("asm-irq-wedge", "asm", "wedge.s", [
         # the wedge unhooks itself after exactly 60 ticks (~1 s)
         {"wait": {"mem": "$03F1", "equals": "$2a", "timeout": 20}},
         {"assert": {"mem": "$03F0", "equals": 60}},
     ]),
-    ("asm-melody", "asm", "tune.s", [
-        {"wait": {"text": "DONE"}},
-        # cleanup rule from hardware.md: the code zeros both $E848 and $E84B.
-        # $E848 is timer-2 low: it free-runs, so a readback returns the live
-        # counter (~46 here), not the written 0 — so we can only assert the
-        # ACR ($E84B), which is a plain register and reads back the 0 we wrote.
-        {"assert": {"mem": "59467", "equals": 0}},   # $E84B ACR: sound off
+    ("asm-sprite", "asm", "sprite.s", [
+        # the sweep takes ~190 jiffies, then writes the done marker
+        {"wait": {"mem": "$03F0", "equals": "$2a", "timeout": 30}},
+        {"assert": {"mem": "$D015", "equals": 1}},    # sprite 0 enabled
+        {"assert": {"mem": "$07F8", "equals": 13}},   # pointer: block 13
+        {"assert": {"mem": "$D000", "equals": 219}},  # last x written
     ]),
     ("basic-charset", "basic", "lowercase (business)", [
         {"wait": {"text": "HELLO FROM BUSINESS MODE"}},   # decoder is case-canonical
-        {"assert": {"mem": "59468", "equals": 14}},        # VIA PCR readback
+        {"assert": {"mem": "53272", "equals": 23}},        # $D018 readback
     ]),
     ("basic-score-hud", "basic", "score digits", [
         {"wait": {"text": "DONE"}},
-        {"assert": {"mem": "$801E", "equals": 49}},   # '1' at $8000+30
-        {"assert": {"mem": "$801F", "equals": 52}},   # '4'
-        {"assert": {"mem": "$8020", "equals": 50}},   # '2'
+        {"assert": {"mem": "$041E", "equals": 49}},   # '1' at $0400+30
+        {"assert": {"mem": "$041F", "equals": 52}},   # '4'
+        {"assert": {"mem": "$0420", "equals": 50}},   # '2'
+    ]),
+    ("basic-sprite", "basic", "solid 24x21 sprite", [
+        {"wait": {"text": "SPRITE ON"}},
+        {"assert": {"mem": "$D015", "equals": 1}},    # sprite 0 enabled
+        {"assert": {"mem": "2040", "equals": 13}},    # pointer: block 13
     ]),
 ]
 
