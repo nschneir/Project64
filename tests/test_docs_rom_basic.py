@@ -8,17 +8,17 @@ import pytest
 from c64lib.romdoc import rom_labels
 from c64lib.text import screen_code_to_char
 
-REF = Path("skills/pet-development/references")
+REF = Path("skills/c64-development/references")
 
 TOKENS = {"end": 0x80, "for": 0x81, "next": 0x82, "data": 0x83,
           "goto": 0x89, "gosub": 0x8D, "rem": 0x8F, "print": 0x99, "sys": 0x9E}
 
 
 def test_rom_routines_covers_label_db():
-    doc = (REF / "rom-routines.md").read_text()
+    doc = (REF / "kernal-routines.md").read_text()
     for name, addr in rom_labels("2.0").items():
-        assert name in doc, f"rom-routines.md missing {name}"
-        assert f"{addr:04x}" in doc.lower(), f"rom-routines.md missing ${addr:04x} for {name}"
+        assert name in doc, f"kernal-routines.md missing {name}"
+        assert f"{addr:04x}" in doc.lower(), f"kernal-routines.md missing ${addr:04x} for {name}"
 
 
 def test_basic_internals_token_table_matches_doc():

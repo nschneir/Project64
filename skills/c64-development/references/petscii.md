@@ -1,6 +1,6 @@
-# PET text encodings: ASCII, PETSCII, screen codes
+# C64 text encodings: ASCII, PETSCII, screen codes
 
-The PET uses three distinct byte encodings. The ground-truth conversion tables
+The C64 uses three distinct byte encodings. The ground-truth conversion tables
 live in `c64lib.text` (`ascii_to_petscii`, `screen_code_to_char`); this doc
 describes them.
 
@@ -9,10 +9,10 @@ describes them.
 - **ASCII** — host files and the CLI.
 - **PETSCII** — the keyboard and ROM I/O routines (CHROUT/CHRIN). RETURN is
   `$0D`; letters use ASCII-uppercase codes.
-- **Screen codes** — the bytes actually stored in screen RAM at `$8000`. These
+- **Screen codes** — the bytes actually stored in screen RAM at `$0400`. These
   are **not** PETSCII.
 
-`c64 screen` decodes screen RAM to text automatically. `c64 mem read '$8000'`
+`c64 screen` decodes screen RAM to text automatically. `c64 mem read '$0400'`
 shows the raw screen codes.
 
 ## Screen-code table (uppercase/graphics set)
@@ -33,7 +33,7 @@ The low 32 letters/symbols spell out, in order:
 
 ## Graphics characters (codes 64–127)
 
-Codes 64–127 are the PET's built-in graphics: line- and box-drawing pieces,
+Codes 64–127 are the C64's built-in graphics: line- and box-drawing pieces,
 block/quadrant fills, shading, playing-card suits, and a few symbols. Codes
 192–255 are the same 64 glyphs in **reverse video** (`code & $7F` gives the
 base glyph; e.g. `$A0` = 160 is a reverse-video space, i.e. a solid block).
@@ -44,9 +44,9 @@ codes to plain ASCII — **64 → `-`**, **66 → `|`**, **91 → `+`**, **96 �
 to a blank space, and can vanish against the background). **Every other
 graphics code decodes to a `·` placeholder**, so text output can't tell them
 apart. To see any glyph exactly, poke it and screenshot the real machine:
-`c64 mem write '$8000' 90` then `c64 screen --png out.png`.
+`c64 mem write '$0400' 90` then `c64 screen --png out.png`.
 
-The table below is read from the PET character ROM (BASIC 4). Row/column
+The table below is read from the character ROM (uppercase/graphics set). Row/column
 positions count 0–7 within the 8×8 cell.
 
 | Code | $hex | Glyph / description                         | Code | $hex | Glyph / description                        |
@@ -91,7 +91,7 @@ converted to PETSCII: `\n` → `$0D` (RETURN), letters → ASCII uppercase. Writ
 lowercase source is the norm because lowercase ASCII → unshifted PETSCII, which
 shows as uppercase on screen.
 
-Only characters in the PET set are available. `ascii_to_petscii` (used by
+Only characters in the PETSCII set are available. `ascii_to_petscii` (used by
 `c64 basic type` and `c64 key type`) rejects anything it can't map rather
 than mangling it — so "smart" typography like the em dash (`—`) or curly
 quotes must be spelled with their plain ASCII equivalents (`-`, `"`).

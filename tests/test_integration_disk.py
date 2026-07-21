@@ -25,7 +25,7 @@ pytestmark = [
 
 
 def _make_disk(tmp_path, image_name):
-    prg = tokenize(Path("tests/programs/hello-basic/program.bas"), tmp_path / "d.prg", "4.0")
+    prg = tokenize(Path("tests/programs/hello-basic/program.bas"), tmp_path / "d.prg", "2.0")
     img = create_image(tmp_path / image_name, label="work", disk_id="01")
     put_file(img, prg, "demo")
     return img, prg
@@ -93,18 +93,23 @@ def test_rom_identify_and_disasm(tmp_path, monkeypatch):
         s.stop()
 
 
-def test_dos_error_codes_via_ds(tmp_path, monkeypatch):
-    """basic-internals.md claims DOPEN of a missing file yields DS=62
-    FILE NOT FOUND — provoke it on a real attached image."""
+def test_dos_error_codes_via_channel15(tmp_path, monkeypatch):
+    """basic-internals.md claims OPENing a missing file and reading the
+    error channel (INPUT#15) yields 62 FILE NOT FOUND — provoke it on a
+    real attached image."""
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     img = create_image(tmp_path / "err.d64", label="err")
     s = Session.launch(model="c64", name="dos", headless=True, warp=True,
                        disk8=str(img))
     try:
         wait_for_text(s, "READY.")
+        # INPUT# is illegal in direct mode — run the probe as a program.
         with s.monitor() as mon:
             try:
-                mon.keyboard_feed(ascii_to_petscii('dopen#1,"nosuch"\nprint ds;ds$\n'))
+                mon.keyboard_feed(ascii_to_petscii(
+                    '10 open 15,8,15\n20 open 2,8,2,"nosuch,s,r"\n'
+                    '30 input#15,e,e$,t,s\n40 print e;e$\n'
+                    '50 close 2:close 15\nrun\n'))
             finally:
                 mon.resume()
         text = wait_for_text(s, "FILE NOT FOUND", timeout=30.0)

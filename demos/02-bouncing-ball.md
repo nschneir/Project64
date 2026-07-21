@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the c64 CLI (see skills/pet-development/SKILL.md and docs/cli.md),
+> Using the c64 CLI (see skills/c64-development/SKILL.md and docs/cli.md),
 > write a Commodore BASIC program for a PET 4032 that animates a ball (`O`)
 > bouncing around the 40×25 screen by poking screen memory at $8000, leaving
 > a border drawn around the screen edge. Let it run for a while, take a

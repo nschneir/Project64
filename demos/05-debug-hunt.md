@@ -8,7 +8,7 @@ Paste this prompt (including the listing) into your agent:
 > 826) that draws a line of `=` across the second row, then list five days
 > of figures and their total. It misbehaves in more than one way.
 >
-> Using the c64 CLI (see skills/pet-development/SKILL.md and docs/cli.md),
+> Using the c64 CLI (see skills/c64-development/SKILL.md and docs/cli.md),
 > run it and find every bug from the machine's actual behavior — the
 > screen, memory, registers, breakpoints, `c64 step` — not by eyeballing
 > the listing. If the machine wedges, work out exactly where it is stuck

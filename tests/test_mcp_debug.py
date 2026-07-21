@@ -15,7 +15,7 @@ def home(tmp_path, monkeypatch):
 def _fake(labels=None):
     s = Mock()
     s.name, s.model, s.labels = "c64", "c64", labels
-    s.profile.basic_version = "4.0"
+    s.profile.basic_version = "2.0"
     s.profile.screen_cols = 40
     mon = Mock()
     s.monitor.return_value.__enter__ = Mock(return_value=mon)

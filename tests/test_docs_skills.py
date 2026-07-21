@@ -5,7 +5,7 @@ import yaml
 
 from tests.doc_helpers import mentioned_commands, valid_mention_paths
 
-SKILLS = [Path("skills/pet-development/SKILL.md"),
+SKILLS = [Path("skills/c64-development/SKILL.md"),
           Path("skills/6502-assembly/SKILL.md"),
           Path("skills/6502-debugging/SKILL.md")]
 

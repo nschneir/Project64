@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the c64 CLI (see skills/pet-development/SKILL.md, the 6502-assembly
+> Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build a complete arcade-style Snake game for a
 > PET 4032 in 6502 assembly, working directly with screen memory at $8000
 > (40×25). I want the whole arcade experience, not just a moving snake:

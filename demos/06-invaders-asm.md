@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the c64 CLI (see skills/pet-development/SKILL.md, the 6502-assembly
+> Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build the closest recreation of the 1978 arcade
 > Space Invaders that a PET 4032 can express — pure 6502 assembly with a
 > BASIC SYS stub, fitting comfortably in 32K, drawing directly to screen
@@ -48,7 +48,7 @@ Paste this prompt into your agent:
 >   three invader classes and the UFO's `? MYSTERY`, and "PRESS ANY KEY
 >   TO PLAY".
 > - **Sound** — the VIA CB2 voice (ACR $E84B, shift register $E84A, T2
->   $E848; see the pet-development hardware reference). The four-note
+>   $E848; see the c64-development hardware reference). The four-note
 >   descending bass heartbeat must be locked to the march tempo so it
 >   accelerates naturally as the formation thins; add distinct shot,
 >   invader-hit, player-explosion, and UFO effects. One voice, so define

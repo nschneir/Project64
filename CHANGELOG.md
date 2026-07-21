@@ -70,7 +70,7 @@ while building Ms. Muncher (demo 07, an arcade-faithful maze chaser in
 - 6502-assembly skill: growing code breaks short branches (prefer `jmp`
   trampolines in blocks expected to grow); ca65 segment state carries
   across `.include` (start every include with an explicit `.segment`).
-  Both hit repeatedly during the dogfood; pet-development cross-references
+  Both hit repeatedly during the dogfood; c64-development cross-references
   the symptoms.
 
 ## [1.1.0] — 2026-07-12
@@ -126,7 +126,7 @@ Invaders in 6502 assembly (demo 06; the playable
 - `$97` semantics corrected in the zero-page and hardware references
   (PETSCII vs matrix index, with the scanner addresses pinned by live
   tests on c64 and pet3032).
-- Warp discipline and wait-polling pitfalls in the pet-development skill;
+- Warp discipline and wait-polling pitfalls in the c64-development skill;
   the BSS-is-not-in-the-.prg gotcha in the 6502-assembly skill.
 - How `c64 screen` decodes graphics/reverse-video, with live-verified
   free zero-page bytes for user ML pointers.
@@ -152,6 +152,6 @@ Initial public release — the complete v1 toolset:
   programs as regression tests (`c64 test programs`).
 - **MCP server** (`c64-tools-mcp`) exposing the same operations as the CLI
   against the same sessions.
-- **AI enablement**: the `pet-development` and `6502-assembly` skills, the
+- **AI enablement**: the `c64-development` and `6502-assembly` skills, the
   machine/zero-page/ROM/PETSCII references, `docs/cli.md`, and the graded
   demo prompts (01–04 dogfooded at release).

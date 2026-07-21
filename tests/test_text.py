@@ -57,6 +57,6 @@ def test_screen_decode_matches_documented_behavior():
 
 def test_petscii_doc_has_decoder_section():
     from pathlib import Path
-    doc = Path("skills/pet-development/references/petscii.md").read_text()
+    doc = Path("skills/c64-development/references/petscii.md").read_text()
     assert "How `c64 screen` decodes" in doc
     assert "$A0" in doc

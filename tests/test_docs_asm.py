@@ -11,8 +11,8 @@ SKILL = Path("skills/6502-assembly/SKILL.md")
 
 
 def test_hardware_doc_base_addresses():
-    doc = Path("skills/pet-development/references/hardware.md").read_text()
-    for needle in ("E810", "E820", "E840", "E880"):
+    doc = Path("skills/c64-development/references/hardware.md").read_text()
+    for needle in ("D000", "D400", "D800", "DC00", "DD00"):
         assert needle in doc
 
 

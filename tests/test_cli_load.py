@@ -10,7 +10,7 @@ from c64lib.cli import main
 def _fake_attached():
     fake = Mock()
     fake.name, fake.model = "c64", "c64"
-    fake.profile.basic_version = "4.0"
+    fake.profile.basic_version = "2.0"
     fake.profile.basic_start = 0x0401
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -54,7 +54,7 @@ def test_run_bas_tokenizes_then_autostarts(tmp_path):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "run", str(src)])
     assert r.exit_code == 0, r.output
-    tok.assert_called_once_with(src.resolve(), src.resolve().with_suffix(".prg"), "4.0")
+    tok.assert_called_once_with(src.resolve(), src.resolve().with_suffix(".prg"), "2.0")
     mon.autostart.assert_called_once_with(prg, run=True)
 
 

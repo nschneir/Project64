@@ -12,7 +12,7 @@ from c64lib.build import build_asm
 from c64lib.testing import run_test
 from tests.doc_helpers import code_blocks
 
-COOKBOOK = Path("skills/pet-development/references/cookbook.md")
+COOKBOOK = Path("skills/c64-development/references/cookbook.md")
 
 
 def _blocks(lang: str) -> list[str]:

@@ -8,7 +8,7 @@ description: Use when writing or debugging 6502 assembly for the Commodore PET w
 Assemble with ca65/ld65 through `c64 build FILE.s` (produces a `.prg` plus a
 VICE label file) or run in one step with `c64 run FILE.s` (assembles, loads,
 and RUNs, registering the labels on the session for symbolic debugging). The
-machine-level reference for addresses and ROM routines is the `pet-development`
+machine-level reference for addresses and ROM routines is the `c64-development`
 skill's reference files (memory map, ROM routines, zero page, PETSCII).
 
 ## The program skeleton
@@ -64,7 +64,7 @@ constants in `RODATA`, and uninitialized storage in `BSS`.
 Define the entry point and `jsr` it. CHROUT (`$FFD2`) prints the PETSCII byte
 in `A` to the current output channel; return to BASIC with `rts`. The full
 kernal jump table (CHRIN, GETIN, STOP, OPEN/CLOSE, …) and register conventions
-are in the `pet-development` skill's ROM-routines reference. CHROUT expects
+are in the `c64-development` skill's ROM-routines reference. CHROUT expects
 **PETSCII**, not a screen code — see that skill's PETSCII reference.
 
 ## 6502 gotchas
@@ -81,7 +81,7 @@ are in the `pet-development` skill's ROM-routines reference. CHROUT expects
   `bne`/`bcc` this way once a routine passes ~120 bytes (the Ms. Muncher
   dogfood hit this three separate times while adding features).
 - Zero page is scarce and shared with BASIC/kernal — see the
-  `pet-development` skill's zero-page reference before claiming zero-page
+  `c64-development` skill's zero-page reference before claiming zero-page
   locations.
 - `jsr` pushes the return address **minus one**; `rts` compensates. This
   matters if you manipulate the stack directly.
@@ -104,7 +104,7 @@ are in the `pet-development` skill's ROM-routines reference. CHROUT expects
   loop bounded by start/end labels.
 
 For complete, tested game-loop and sound programs to copy from, see
-`skills/pet-development/references/cookbook.md` (its assembly recipes are the
+`skills/c64-development/references/cookbook.md` (its assembly recipes are the
 fastest starting point for an action game).
 
 ## Reading the keyboard and timing (game loops)
@@ -115,7 +115,7 @@ fastest starting point for an action game).
 - **Key-down state:** the IRQ's keyboard scan leaves the current key at `$97`
   (`#$FF` = no key) and the shift flag at `$98` — read these for continuous
   movement instead of waiting for key repeat. Details and the repeat-control
-  locations: the `pet-development` skill's hardware and zero-page references.
+  locations: the `c64-development` skill's hardware and zero-page references.
 - **Timing:** the jiffy clock at `$8D-$8F` (MSB first) increments 60×/second
   in the IRQ — compare its low byte for frame pacing, or hook the interrupt
   through the RAM vector at `($90)`.

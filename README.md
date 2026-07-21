@@ -85,7 +85,7 @@ calls. There are two ways an agent can use it — pick either or both:
   interchangeable.
 
 Either way, the agent should read
-[`skills/pet-development/SKILL.md`](skills/pet-development/SKILL.md) (the
+[`skills/c64-development/SKILL.md`](skills/c64-development/SKILL.md) (the
 workflows and pitfalls) before starting — the per-agent steps below make that
 happen automatically.
 
@@ -106,7 +106,7 @@ has moved, check the agent's current MCP documentation.
 
 1. Install (see above) — that's the whole setup.
 2. Start your task prompt with: *"Read docs/cli.md and
-   skills/pet-development/SKILL.md, then …"*
+   skills/c64-development/SKILL.md, then …"*
 
 ### Claude Code
 
@@ -130,7 +130,7 @@ tools describe themselves.
    `~/.codex/config.toml`).
 2. Codex has no skills mechanism, so tell it where the docs are: add one line
    to the repo's `AGENTS.md` — *"For Commodore 64 work, first read
-   skills/pet-development/SKILL.md and docs/cli.md."*
+   skills/c64-development/SKILL.md and docs/cli.md."*
 3. Paste a prompt from [`demos/`](demos/).
 
 ### Cursor
@@ -139,7 +139,7 @@ tools describe themselves.
    containing the JSON block above.
 2. Create a rule (`.cursor/rules/c64.mdc`) — or a plain `AGENTS.md` — with the
    same one-liner: *"For Commodore 64 work, first read
-   skills/pet-development/SKILL.md and docs/cli.md."*
+   skills/c64-development/SKILL.md and docs/cli.md."*
 3. Paste a prompt from [`demos/`](demos/).
 
 ### Gemini CLI

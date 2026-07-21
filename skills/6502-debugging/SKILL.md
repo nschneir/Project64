@@ -8,7 +8,7 @@ description: Use when a PET program misbehaves at runtime — crashes, corruptio
 Procedures that turn a symptom into a verified cause using `c64` commands.
 Follow the procedure before forming theories — each one exists because
 improvising in its situation reliably wastes time. The companion
-references are the `pet-development` skill's diagnosis table (quick
+references are the `c64-development` skill's diagnosis table (quick
 symptom→cause lookups) and the `6502-assembly` skill's gotchas (the bugs
 you write, rather than find).
 

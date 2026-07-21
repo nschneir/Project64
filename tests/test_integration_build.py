@@ -39,7 +39,7 @@ def _expectations(demo: Path) -> list[str]:
 def _build_demo(demo: Path, out_dir: Path) -> Path:
     bas = demo / "program.bas"
     if bas.exists():
-        return tokenize(bas, out_dir / f"{demo.name}.prg", "4.0")
+        return tokenize(bas, out_dir / f"{demo.name}.prg", "2.0")
     if shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
     return build_asm(demo / "program.s", out_prg=out_dir / f"{demo.name}.prg").prg

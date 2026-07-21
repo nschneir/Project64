@@ -18,7 +18,7 @@ def home(tmp_path, monkeypatch):
 def _fake_session(labels=None):
     s = Mock()
     s.name, s.model, s.pid, s.port, s.labels = "c64", "c64", 1, 6502, labels
-    s.profile.basic_version = "4.0"
+    s.profile.basic_version = "2.0"
     s.profile.basic_start = 0x0401
     mon = Mock()
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -183,7 +183,7 @@ def test_run_bas_tokenizes(tmp_path):
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(bas)})
     assert err is False
-    tok.assert_called_once_with(bas.resolve(), bas.resolve().with_suffix(".prg"), "4.0")
+    tok.assert_called_once_with(bas.resolve(), bas.resolve().with_suffix(".prg"), "2.0")
 
 
 def test_run_unknown_extension_is_error(tmp_path):
@@ -258,7 +258,7 @@ def test_disk_boot(tmp_path):
 
 def test_rom_info_releases():
     s, mon = _fake_session()
-    info = {"basic": "4.0", "kernal": "901465-22"}
+    info = {"basic": "2.0", "kernal": "901465-22"}
     with patch("c64lib.mcp_server.Session") as S, \
          patch("c64lib.mcp_server.identify", return_value=info):
         S.attach.return_value = s

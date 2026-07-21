@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the c64 CLI (see skills/pet-development/SKILL.md and docs/cli.md),
+> Using the c64 CLI (see skills/c64-development/SKILL.md and docs/cli.md),
 > write a Commodore BASIC guess-the-number game for a PET 4032: the program
 > picks a random number from 1 to 100, prompts `YOUR GUESS?`, answers
 > `TOO HIGH`, `TOO LOW`, or `YOU GOT IT IN n GUESSES!`, and then offers to

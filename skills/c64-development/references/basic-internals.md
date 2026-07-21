@@ -1,8 +1,8 @@
-# Commodore BASIC internals
+# Commodore BASIC 2.0 internals (C64)
 
 ## Program storage
 
-BASIC text starts at `$0401` (the byte at `$0400` is `$00`). A program is a
+BASIC text starts at `$0801` (the byte at `$0800` is `$00`). A program is a
 chain of lines, each laid out as:
 
 ```
@@ -13,7 +13,7 @@ The next-line pointer holds the absolute address of the following line's first
 byte. The program ends with a next-line pointer of `$0000` — since it follows
 the previous line's `$00` terminator, the end of a program is three
 consecutive zero bytes. The zero-page
-pointer TXTTAB (`$28/$29`) points at the start; VARTAB (`$2A/$2B`) marks the
+pointer TXTTAB (`$2B/$2C`) points at the start; VARTAB (`$2D/$2E`) marks the
 end of the program and the start of variables (see zero-page.md).
 
 Because the link chain and VARTAB must be consistent, you cannot simply poke a
@@ -38,45 +38,48 @@ against `petcat` — see tests/test_docs_rom_basic.py):
 | PRINT | $99  |
 | SYS   | $9E  |
 
-For the full token list of any BASIC version, run `petcat -k40` (BASIC 4.0),
-`-k2` (BASIC 2.0), or `-k1p` (BASIC 1.0).
+For the full C64 BASIC 2.0 token list, run `petcat -k2`.
 
 ## Source convention (petcat)
 
 When writing `.bas` source for the tools, keywords AND string text go in
-**lowercase** — lowercase ASCII becomes unshifted PETSCII, which the PET
-displays as uppercase. Uppercase source becomes shifted PETSCII (graphics
-characters). See petscii.md.
+**lowercase** — lowercase ASCII becomes unshifted PETSCII, which the C64
+displays as uppercase in its default uppercase/graphics mode. Uppercase
+source becomes shifted PETSCII (graphics characters). See petscii.md.
 
 ## Timing and randomness (for games and tests)
 
 - `TI` is the jiffy clock: 60ths of a second since power-on, kept by the IRQ
-  in three bytes at `$8D-$8F` (most-significant first). `TI$` is the same
+  in three bytes at `$A0-$A2` (most-significant first). `TI$` is the same
   clock as `"HHMMSS"`. A BASIC delay: `t=ti+60 : if ti<t goto <same line>`.
 - `RND(1)` returns the next pseudo-random value in 0..1;
   `INT(RND(1)*N)+1` rolls 1..N. `RND(-X)` reseeds deterministically (useful
-  for reproducible tests); `RND(0)` derives a value from the jiffy clock.
-  The seed/last value lives at `$88-$8C`.
+  for reproducible tests); `RND(0)` derives a value from CIA timers.
+  The seed/last value lives at `$8B-$8F`.
 
-## Disk I/O from BASIC 4
+## Disk I/O from BASIC 2.0
 
-BASIC 4 has native disk commands (their kernal entry points are in
-rom-routines.md). The sequential-file pattern:
+BASIC 2.0 has no disk commands beyond LOAD/SAVE/OPEN — DOS commands and
+status travel over channel 15 (there is no `DS`/`DS$`; you read the error
+channel yourself). The sequential-file pattern:
 
 ```
-10 dopen#1,"names",w      : rem create+open for write (drive 0)
-20 print#1,"first record"
-30 dclose#1
-40 dopen#2,"names"        : rem open for read
-50 input#2,a$
-60 dclose#2
+10 open 15,8,15           : rem command/error channel
+20 open 2,8,2,"names,s,w" : rem create+open sequential for write
+30 print#2,"first record"
+40 close 2
+50 open 2,8,2,"names,s,r" : rem open for read
+60 input#2,a$
+70 close 2
+80 input#15,e,e$,t,s      : rem read the error channel
+90 if e>1 then print "disk error";e;e$
 ```
 
-After every disk operation check the status: `DS` is the numeric error code
-and `DS$` the full message (`code, text, track, sector`). `0` and `1` mean
-success. Common codes (CBM DOS 2):
+Reading the error channel (`INPUT#15,E,E$,T,S`) returns
+`code, text, track, sector`; `0` and `1` mean success. Common codes
+(CBM DOS 2):
 
-| DS    | Meaning |
+| E     | Meaning |
 |-------|---------|
 | 00    | OK |
 | 01    | FILES SCRATCHED (count in the track field) |
@@ -86,7 +89,7 @@ success. Common codes (CBM DOS 2):
 | 29    | DISK ID MISMATCH |
 | 30-34 | SYNTAX ERROR in the DOS command (bad/long/no filename) |
 | 50-52 | RECORD errors (relative files) |
-| 60    | WRITE FILE OPEN (unclosed file — COLLECT the disk) |
+| 60    | WRITE FILE OPEN (unclosed file — VALIDATE the disk) |
 | 61    | FILE NOT OPEN |
 | 62    | FILE NOT FOUND *(live)* |
 | 63    | FILE EXISTS |

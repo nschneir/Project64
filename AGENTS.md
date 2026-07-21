@@ -2,7 +2,7 @@
 
 Instructions for AI coding agents working on this repository's code. (If you
 are here to *use* c64-tools to write C64 software, read
-`skills/pet-development/SKILL.md` and `docs/cli.md` instead.)
+`skills/c64-development/SKILL.md` and `docs/cli.md` instead.)
 
 ## What this is
 
@@ -15,7 +15,7 @@ Where things are documented (don't duplicate them here):
 
 - `README.md` — install, quickstart, supported machine models, per-agent setup.
 - `docs/cli.md` — the full CLI reference (man page), one entry per command.
-- `skills/pet-development/` + `skills/6502-assembly/` — PET-heritage/6502 domain
+- `skills/c64-development/` + `skills/6502-assembly/` — PET-heritage/6502 domain
   knowledge: workflows, memory maps, zero page, ROM routines, cookbook.
 
 ## Commands
