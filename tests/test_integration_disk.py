@@ -1,4 +1,4 @@
-"""Live disk and ROM tooling tests against real xpet + c1541."""
+"""Live disk and ROM tooling tests against real x64sc + c1541."""
 
 import os
 import shutil
@@ -6,19 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from petlib.basic import tokenize
-from petlib.disasm import disassemble
-from petlib.disk import create_image, get_file, list_files, put_file
-from petlib.romdoc import identify, rom_labels
-from petlib.session import Session
-from petlib.text import ascii_to_petscii
+from c64lib.basic import tokenize
+from c64lib.disasm import disassemble
+from c64lib.disk import create_image, get_file, list_files, put_file
+from c64lib.romdoc import identify, rom_labels
+from c64lib.session import Session
+from c64lib.text import ascii_to_petscii
 from tests.vice_helpers import wait_for_text
 
 pytestmark = [
     pytest.mark.vice,
     pytest.mark.skipif(
-        not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-        reason="xpet not installed",
+        not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+        reason="x64sc not installed",
     ),
     pytest.mark.skipif(shutil.which("c1541") is None, reason="c1541 not installed"),
 ]
@@ -40,9 +40,9 @@ def _load_and_run(s):
     wait_for_text(s, "HELLO FROM BASIC", timeout=45.0)
 
 
-@pytest.mark.parametrize("image_name,model", [("t.d64", "pet4032"), ("t.d80", "pet8032")])
+@pytest.mark.parametrize("image_name,model", [("t.d64", "c64"), ("t.d81", "c64")])
 def test_disk_attach_at_launch(tmp_path, monkeypatch, image_name, model):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     img, prg = _make_disk(tmp_path, image_name)
     s = Session.launch(model=model, name="dsk", headless=True, warp=True,
                        disk8=str(img))
@@ -58,9 +58,9 @@ def test_disk_attach_at_launch(tmp_path, monkeypatch, image_name, model):
 
 
 def test_disk_boot_mid_session(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     img, _ = _make_disk(tmp_path, "boot.d64")
-    s = Session.launch(model="pet4032", name="boot", headless=True, warp=True)
+    s = Session.launch(model="c64", name="boot", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
         with s.monitor() as mon:
@@ -74,8 +74,8 @@ def test_disk_boot_mid_session(tmp_path, monkeypatch):
 
 
 def test_rom_identify_and_disasm(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="rom", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="rom", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
         with s.monitor() as mon:
@@ -96,9 +96,9 @@ def test_rom_identify_and_disasm(tmp_path, monkeypatch):
 def test_dos_error_codes_via_ds(tmp_path, monkeypatch):
     """basic-internals.md claims DOPEN of a missing file yields DS=62
     FILE NOT FOUND — provoke it on a real attached image."""
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     img = create_image(tmp_path / "err.d64", label="err")
-    s = Session.launch(model="pet4032", name="dos", headless=True, warp=True,
+    s = Session.launch(model="c64", name="dos", headless=True, warp=True,
                        disk8=str(img))
     try:
         wait_for_text(s, "READY.")

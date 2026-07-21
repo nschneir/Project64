@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from petlib.cli import main, parse_number
+from c64lib.cli import main, parse_number
 
 
 def test_parse_number():
@@ -14,16 +14,16 @@ def test_parse_number():
 
 def _patched(mon):
     fake = Mock()
-    fake.name, fake.model, fake.socket = "pet4032", "pet4032", None
+    fake.name, fake.model, fake.socket = "c64", "c64", None
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
     fake.monitor.return_value.__exit__ = Mock(return_value=False)
-    p = patch("petlib.cli.Session")
+    p = patch("c64lib.cli.Session")
     return fake, p
 
 
 def _fake(labels=None):
     fake = Mock()
-    fake.name, fake.model, fake.labels = "pet4032", "pet4032", labels
+    fake.name, fake.model, fake.labels = "c64", "c64", labels
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
     fake.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -33,7 +33,7 @@ def _fake(labels=None):
 def test_screen_text():
     mon = Mock()
     fake, p = _patched(mon)
-    with p as S, patch("petlib.cli.read_screen_text", return_value="READY."):
+    with p as S, patch("c64lib.cli.read_screen_text", return_value="READY."):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "screen"])
     assert r.exit_code == 0, r.output
@@ -92,7 +92,7 @@ def test_mem_read_accepts_symbol(tmp_path):
     lbl.write_text("al 0006BC .SCORE\n")
     fake, mon = _mem_fake(str(lbl))
     mon.memory_read.return_value = b"\x2a"
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "read", "SCORE", "1"])
     assert r.exit_code == 0, r.output
@@ -104,7 +104,7 @@ def test_mem_write_accepts_symbol(tmp_path):
     lbl = tmp_path / "t.lbl"
     lbl.write_text("al 0006BA .STEPMODE\n")
     fake, mon = _mem_fake(str(lbl))
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "write", "STEPMODE", "0"])
     assert r.exit_code == 0, r.output
@@ -113,7 +113,7 @@ def test_mem_write_accepts_symbol(tmp_path):
 
 def test_mem_read_unknown_symbol_fails():
     fake, _ = _mem_fake(None)
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "read", "NOSUCH", "1"])
     assert r.exit_code == 1
@@ -123,7 +123,7 @@ def test_mem_read_unknown_symbol_fails():
 def test_mem_read_json_has_bytes_array():
     fake, mon = _fake()
     mon.memory_read.return_value = bytes([42, 0, 255])
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "read", "$8000", "3"])
     assert r.exit_code == 0, r.output
@@ -134,7 +134,7 @@ def test_mem_read_json_has_bytes_array():
 def test_mem_read_decimal_human_rendering():
     fake, mon = _fake()
     mon.memory_read.return_value = bytes([42, 0])
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["mem", "read", "$8000", "2", "--decimal"])
     assert r.exit_code == 0, r.output
@@ -144,7 +144,7 @@ def test_mem_read_decimal_human_rendering():
 def test_mem_get_prints_bare_decimal():
     fake, mon = _fake()
     mon.memory_read.return_value = bytes([42])
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["mem", "get", "$8000"])
     assert r.exit_code == 0, r.output
@@ -155,7 +155,7 @@ def test_mem_get_prints_bare_decimal():
 def test_mem_get_json_values():
     fake, mon = _fake()
     mon.memory_read.return_value = bytes([1, 2, 3])
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "get", "$8000", "3"])
     assert json.loads(r.output) == {"addr": 0x8000, "values": [1, 2, 3]}
@@ -164,7 +164,7 @@ def test_mem_get_json_values():
 def test_mem_find_pattern():
     fake, mon = _fake()
     mon.memory_read.return_value = b"\x00\x2a\x00\x2a"
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "find", "$2a",
                                       "--start", "$8000", "--length", "4"])
@@ -178,8 +178,8 @@ def test_mem_find_pattern():
 def test_reg_reports_state():
     fake, mon = _fake()
     mon.registers.return_value = {"PC": 0x1234}
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.machine_state", return_value="stopped"):
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="stopped"):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "reg"])
     assert json.loads(r.output)["state"] == "stopped"
@@ -189,7 +189,7 @@ def test_screen_codes_matrix():
     mon = Mock()
     mon.memory_read.return_value = bytes([81, 32, 87]) + bytes([32] * 997)
     fake, p = _patched(mon)
-    fake.profile = __import__("petlib.machines", fromlist=["get_profile"]).get_profile("pet4032")
+    fake.profile = __import__("c64lib.machines", fromlist=["get_profile"]).get_profile("c64")
     with p as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "screen", "--codes"])
@@ -202,7 +202,7 @@ def test_screen_style_ascii():
     mon = Mock()
     mon.memory_read.return_value = bytes([81, 64, 87]) + bytes([32] * 997)
     fake, p = _patched(mon)
-    fake.profile = __import__("petlib.machines", fromlist=["get_profile"]).get_profile("pet4032")
+    fake.profile = __import__("c64lib.machines", fromlist=["get_profile"]).get_profile("c64")
     with p as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["screen", "--style", "ascii"])
@@ -213,7 +213,7 @@ def test_screen_style_ascii():
 def test_screen_png_scale():
     mon = Mock()
     fake, p = _patched(mon)
-    with p as S, patch("petlib.cli.save_screenshot_png",
+    with p as S, patch("c64lib.cli.save_screenshot_png",
                        return_value=(760, 500)) as save:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "screen", "--png", "/tmp/x.png",

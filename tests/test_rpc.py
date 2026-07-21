@@ -2,9 +2,9 @@
 
 import pytest
 
-from petlib.monitor import MonitorError, StopInfo
-from petlib.protocol import CP_EXEC, Checkpoint
-from petlib.rpc import decode_value, encode_value, raise_remote
+from c64lib.monitor import MonitorError, StopInfo
+from c64lib.protocol import CP_EXEC, Checkpoint
+from c64lib.rpc import decode_value, encode_value, raise_remote
 
 
 def test_bytes_round_trip():

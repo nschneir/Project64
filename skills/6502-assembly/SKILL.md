@@ -1,12 +1,12 @@
 ---
 name: 6502-assembly
-description: Use when writing or debugging 6502 assembly for the Commodore PET with ca65/ld65 via pet build or pet run. Covers the PET program skeleton, the BASIC SYS stub, calling ROM routines, and 6502 gotchas.
+description: Use when writing or debugging 6502 assembly for the Commodore PET with ca65/ld65 via c64 build or c64 run. Covers the PET program skeleton, the BASIC SYS stub, calling ROM routines, and 6502 gotchas.
 ---
 
 # 6502 assembly for the PET
 
-Assemble with ca65/ld65 through `pet build FILE.s` (produces a `.prg` plus a
-VICE label file) or run in one step with `pet run FILE.s` (assembles, loads,
+Assemble with ca65/ld65 through `c64 build FILE.s` (produces a `.prg` plus a
+VICE label file) or run in one step with `c64 run FILE.s` (assembles, loads,
 and RUNs, registering the labels on the session for symbolic debugging). The
 machine-level reference for addresses and ROM routines is the `pet-development`
 skill's reference files (memory map, ROM routines, zero page, PETSCII).
@@ -127,10 +127,10 @@ fastest starting point for an action game).
 
 ## Debugging
 
-`pet run FILE.s` registers the labels, so you can `pet break add start`, then
-`pet wait --break`, `pet reg`, `pet step`, and `pet mem read` your data by
+`c64 run FILE.s` registers the labels, so you can `c64 break add start`, then
+`c64 wait --break`, `c64 reg`, `c64 step`, and `c64 mem read` your data by
 symbol. Disassemble live memory (with your labels and ROM labels) via
-`pet rom disasm start 32`. Test one routine in isolation with
-`pet call ROUTINE` (fake JSR; stops at its RTS). For symptom-driven
+`c64 rom disasm start 32`. Test one routine in isolation with
+`c64 call ROUTINE` (fake JSR; stops at its RTS). For symptom-driven
 procedures — corruption hunts, clobber audits, deterministic
 reproduction — use the `6502-debugging` skill's playbook.

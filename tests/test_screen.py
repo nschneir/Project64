@@ -2,17 +2,17 @@ from unittest.mock import Mock
 
 from PIL import Image
 
-from petlib.machines import get_profile
-from petlib.screen import read_screen_text, save_screenshot_png
+from c64lib.machines import get_profile
+from c64lib.screen import read_screen_text, save_screenshot_png
 
 
 def test_read_screen_text_uses_profile_geometry():
-    profile = get_profile("pet4032")
+    profile = get_profile("c64")
     mon = Mock()
     screen = bytes([18, 5, 1, 4, 25, 46]) + bytes([32] * (1000 - 6))  # "READY."
     mon.memory_read.return_value = screen
     text = read_screen_text(mon, profile)
-    mon.memory_read.assert_called_once_with(0x8000, 1000)
+    mon.memory_read.assert_called_once_with(0x0400, 1000)
     assert text.splitlines()[0] == "READY."
 
 
@@ -30,7 +30,7 @@ def test_save_screenshot_png(tmp_path):
 
 
 def test_read_screen_text_styles():
-    profile = get_profile("pet4032")
+    profile = get_profile("c64")
     mon = Mock()
     mon.memory_read.return_value = bytes([85, 64, 73]) + bytes([32] * 997)
     assert read_screen_text(mon, profile).splitlines()[0] == "╭─╮"
@@ -39,8 +39,8 @@ def test_read_screen_text_styles():
 
 
 def test_read_screen_codes_matrix():
-    from petlib.screen import read_screen_codes
-    profile = get_profile("pet4032")
+    from c64lib.screen import read_screen_codes
+    profile = get_profile("c64")
     mon = Mock()
     mon.memory_read.return_value = bytes(range(40)) + bytes([32] * 960)
     m = read_screen_codes(mon, profile)

@@ -1,4 +1,4 @@
-"""PET character conversions.
+"""PETSCII character conversions.
 
 Screen RAM holds *screen codes* (not PETSCII): 0='@', 1-26='A'-'Z',
 27-31='[' '\\' ']' up-arrow left-arrow, 32-63 match ASCII 0x20-0x3F,
@@ -10,7 +10,7 @@ Decoding styles:
 
 - ``unicode`` (default): graphics map to their Unicode box-drawing /
   block-element / geometric equivalents, so mazes, sprites, and blobs are
-  readable straight from ``pet screen``. Reverse-video codes map to the
+  readable straight from ``c64 screen``. Reverse-video codes map to the
   complementary glyph where one exists (▌↔▐, ▄↔▀, quadrant ↔ ¾-block,
   ◣↔◥ …); other reverse codes keep the base glyph, or gain an ANSI
   inverse-video wrap with ``ansi_reverse=True``.

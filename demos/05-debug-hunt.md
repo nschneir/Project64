@@ -8,9 +8,9 @@ Paste this prompt (including the listing) into your agent:
 > 826) that draws a line of `=` across the second row, then list five days
 > of figures and their total. It misbehaves in more than one way.
 >
-> Using the pet CLI (see skills/pet-development/SKILL.md and docs/cli.md),
+> Using the c64 CLI (see skills/pet-development/SKILL.md and docs/cli.md),
 > run it and find every bug from the machine's actual behavior — the
-> screen, memory, registers, breakpoints, `pet step` — not by eyeballing
+> screen, memory, registers, breakpoints, `c64 step` — not by eyeballing
 > the listing. If the machine wedges, work out exactly where it is stuck
 > and why before you reset. Fix the bugs while keeping the program's
 > design (the divider must still be drawn by the machine-language routine),
@@ -35,7 +35,7 @@ dies immediately with `?BAD SUBSCRIPT` — `dim v(4)` is too small for `v(5)`.
 (2) The next run wedges at `sys 826`: the poked routine's `INX` was mistyped
 as a `NOP` (`data` byte 234 instead of 232), so X never advances and the
 fill loop spins forever — the agent should prove this from the machine
-(PC circling $033E–$0345, X frozen at 0 under `pet step`, or a disassembly
+(PC circling $033E–$0345, X frozen at 0 under `c64 step`, or a disassembly
 of 826) rather than by staring at the byte list. (3) The title shows
 graphics garbage instead of `SALES`, because `asc()` yields PETSCII codes
 and screen memory wants screen codes — the classic PET encoding trap. The

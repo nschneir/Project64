@@ -5,7 +5,7 @@ during the Ms. Muncher dogfood (charset grid + fusion tests).
 """
 import pytest
 
-from petlib.text import screen_code_to_char, screen_to_text
+from c64lib.text import screen_code_to_char, screen_to_text
 
 UNICODE_CASES = [
     (81, "●"), (87, "○"), (83, "♥"), (90, "◆"), (65, "♠"), (88, "♣"),

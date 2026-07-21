@@ -1,28 +1,28 @@
-"""End-to-end tests against a real VICE xpet. Skipped when xpet is absent."""
+"""End-to-end tests against a real VICE x64sc. Skipped when x64sc is absent."""
 
 import os
 import shutil
 
 import pytest
 
-from petlib.screen import read_screen_text
-from petlib.session import Session
+from c64lib.screen import read_screen_text
+from c64lib.session import Session
 from tests.doc_helpers import BOOT_FREE
 from tests.vice_helpers import wait_for_text
 
 pytestmark = [
     pytest.mark.vice,
     pytest.mark.skipif(
-        not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-        reason="xpet not installed",
+        not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+        reason="x64sc not installed",
     ),
 ]
 
 
 @pytest.fixture
 def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="itest", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="itest", headless=True, warp=True)
     yield s
     s.stop()
 
@@ -37,8 +37,8 @@ def test_memory_roundtrip_on_screen(session):
     with session.monitor() as mon:
         try:
             # write screen codes "HI" to top-left of screen RAM
-            mon.memory_write(0x8000, bytes([8, 9]))
-            assert mon.memory_read(0x8000, 2) == bytes([8, 9])
+            mon.memory_write(0x0400, bytes([8, 9]))
+            assert mon.memory_read(0x0400, 2) == bytes([8, 9])
             text = read_screen_text(mon, session.profile)
         finally:
             mon.resume()
@@ -56,27 +56,27 @@ def test_registers_readable_and_pc_moves(session):
 
 
 def test_keyboard_feed_runs_basic(session):
-    from petlib.text import ascii_to_petscii
+    from c64lib.text import ascii_to_petscii
 
     wait_for_text(session, "READY.")
     with session.monitor() as mon:
         try:
-            mon.keyboard_feed(ascii_to_petscii('PRINT "HELLO FROM PETLIB"\n'))
+            mon.keyboard_feed(ascii_to_petscii('PRINT "HELLO FROM C64LIB"\n'))
         finally:
             mon.resume()
-    assert "HELLO FROM PETLIB" in wait_for_text(session, "HELLO FROM PETLIB", timeout=15)
+    assert "HELLO FROM C64LIB" in wait_for_text(session, "HELLO FROM C64LIB", timeout=15)
 
 
 @pytest.mark.vice
 @pytest.mark.parametrize("model", sorted(BOOT_FREE))
 def test_boot_banner_free_bytes_matches_readme(tmp_path, monkeypatch, model):
     """The README model table's 'free at boot' column, held to reality."""
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     s = Session.launch(model=model, name=f"probe-{model}",
                        headless=True, warp=True)
     try:
         text = wait_for_text(s, "BYTES FREE", timeout=45.0)
-        assert f"{BOOT_FREE[model]} BYTES FREE" in text
+        assert f"{BOOT_FREE[model]} BASIC BYTES FREE" in text
     finally:
         s.stop()
 
@@ -85,7 +85,7 @@ def test_call_routine_isolated(session):
     """FT-call: JSR one routine in isolation — LDA #$2A / STA $1000 / RTS
     poked into the tape buffer; assert its effects without running anything
     else."""
-    from petlib.ops import call_routine
+    from c64lib.ops import call_routine
     wait_for_text(session, "READY.", timeout=45)
     with session.monitor() as mon:
         try:

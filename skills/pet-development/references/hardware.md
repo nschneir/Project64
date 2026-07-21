@@ -2,7 +2,7 @@
 
 Base addresses of the I/O chips (all in the `$E800-$EFFF` window). This is an
 orientation map, not a register-level reference — for exact bit meanings, poke
-with `pet mem read`/`pet mem write` and read the ROM with `pet rom disasm`.
+with `c64 mem read`/`c64 mem write` and read the ROM with `c64 rom disasm`.
 
 | Base  | Chip  | Role                                                        |
 |-------|-------|-------------------------------------------------------------|
@@ -16,10 +16,10 @@ Notes:
 - The keyboard is scanned from the IRQ handler on the ~60 Hz jiffy interrupt
   (the same interrupt updates the TI clock and flashes the cursor; it runs
   through the RAM vector at `($90)` on BASIC 2/4). For automation, feed the
-  keyboard through `pet basic type` (or the keyboard-feed path) rather than
+  keyboard through `c64 basic type` (or the keyboard-feed path) rather than
   poking the PIA1 matrix directly.
 - **IEEE-488** is the PET's peripheral bus — disk drives and printers live here
-  as devices 8 and up. pet-tools drives disks through disk images and `pet disk`
+  as devices 8 and up. c64-tools drives disks through disk images and `c64 disk`
   / VICE, so you rarely touch the bus registers directly.
 
 ## The keyboard matrix
@@ -34,8 +34,8 @@ table in ROM, leaving results where machine code can read them cheaply:
   **ROM-dependent**: the BASIC 4 40-column editor stores the decoded
   PETSCII ('A' held reads $41), the BASIC 2 editor stores the raw matrix
   index. Games comparing $97 against PETSCII therefore only work on
-  BASIC 4 machines — pin the model when shipping (`xpet -model 4032
-  game.d64`; `pet package` emits exactly that hint). `pet key hold` drives
+  BASIC 4 machines — pin the model when shipping (`x64sc -model 4032
+  game.d64`; `c64 package` emits exactly that hint). `c64 key hold` drives
   this byte deterministically for testing.
 - `$98` — shift flag (`0`/`1`).
 - `$9E` — count of characters in the keyboard buffer at `$026F` (write 0 to

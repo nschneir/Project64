@@ -92,9 +92,9 @@ machines (40xx/80xx, CRTC-based — including the default `pet4032`),
 `print chr$(14)` / `print chr$(142)` switch the same thing from PETSCII
 (and also adjust line spacing); the poke works on every model. Note this
 changes the **glyphs the CRT draws**, not the screen codes in memory — so
-`pet screen` text (which decodes screen codes case-canonically — see
-petscii.md's "How `pet screen` decodes the screen" section) looks
-identical either way; check `pet screen --png` to see the case change.
+`c64 screen` text (which decodes screen codes case-canonically — see
+petscii.md's "How `c64 screen` decodes the screen" section) looks
+identical either way; check `c64 screen --png` to see the case change.
 
 ```basic
 100 rem lowercase (business) character set
@@ -186,7 +186,7 @@ controls, where a held key must move you every frame and releasing must
 stop you. The IRQ keyboard scanner maintains the key held right now at
 `$97` (`$FF` = none). **On BASIC 4 machines the value is the key's
 PETSCII** ('A' reads `$41`); on BASIC 2 it is a raw matrix index — so
-target the 4032 and ship with `xpet -model 4032` (see zero-page.md). A
+target the 4032 and ship with `x64sc -model 4032` (see zero-page.md). A
 paddle on row 12 that slides while A or D is held:
 
 ```asm
@@ -240,10 +240,10 @@ pos:    .byte   20
 ```
 
 No key down, no motion; hold a key and it glides. Test it exactly like a
-player holding the key: `pet run keyhold.s`, then
-`pet key hold d --frames 5 --at mainloop` — the CLI re-pokes `$97` before
+player holding the key: `c64 run keyhold.s`, then
+`c64 key hold d --frames 5 --at mainloop` — the CLI re-pokes `$97` before
 each frame (the IRQ rewrites it every tick) and frame-steps to your loop
-label; read `pet mem get pos` between holds. In a `pet test run` YAML the
+label; read `c64 mem get pos` between holds. In a `c64 test run` YAML the
 same protocol is the `poke:` + `until:` step pair.
 
 ### Sound: a beep from machine code
@@ -289,7 +289,7 @@ bw:     cmp     JIFFLO
 ### Frame stepping: inspect a game loop one frame at a time
 
 Debugging an animated program by letting it free-run is guesswork. Instead,
-run to the loop-top label with `pet until` and use `--count` to advance an
+run to the loop-top label with `c64 until` and use `--count` to advance an
 exact number of frames, inspecting between steps. This program bumps
 `FRAMES` once per pass and spins a character in the top-right corner:
 
@@ -338,20 +338,20 @@ spin:   .byte   45, 78, 66, 77  ; screen codes: - / | \ (graphics slashes)
 FRAMES: .res 1
 ```
 
-The workflow, after `pet run counter.s` (which registers the labels):
+The workflow, after `c64 run counter.s` (which registers the labels):
 
 ```
-pet until mainloop            # run to the top of the next frame, stay stopped
-pet mem read FRAMES 1         # symbols work here
-pet until mainloop --count 5  # advance exactly 5 frames, stay stopped
-pet mem read FRAMES 1         # the counter went up by exactly 5
-pet continue                  # back to real time
+c64 until mainloop            # run to the top of the next frame, stay stopped
+c64 mem read FRAMES 1         # symbols work here
+c64 until mainloop --count 5  # advance exactly 5 frames, stay stopped
+c64 mem read FRAMES 1         # the counter went up by exactly 5
+c64 continue                  # back to real time
 ```
 
 No in-program stepping scaffolding (gate flags, poke-to-advance loops) is
 needed — the debugger provides deterministic stepping from outside.
 
-Caveat: `pet until` can only fire while the program still visits the label.
+Caveat: `c64 until` can only fire while the program still visits the label.
 If play can branch away (death, menu, pause), the wait times out — and on
 timeout the machine is left RUNNING with the checkpoint removed. For those
 states, break at a code path that must still execute instead.
@@ -517,8 +517,8 @@ done:   rts                     ; back to BASIC (READY.)
 msg:    .byte   "SCORE 000", 0
 ```
 
-The label reads back through `pet screen` (letters and digits round-trip
-through the decoder — see petscii.md), so `pet wait --text "SCORE 000"`
+The label reads back through `c64 screen` (letters and digits round-trip
+through the decoder — see petscii.md), so `c64 wait --text "SCORE 000"`
 works as a completion signal.
 
 ### Print a number as decimal digits
@@ -586,7 +586,7 @@ keyboard keep working, and keep the wedge short (it steals time from
 every frame). One trap: `jmp (indirect)` has the famous 6502 bug when its
 operand's low byte sits at `$xxFF`, so check that `oldvec` doesn't land
 there — fine in this small demo (it assembles around `$0446`), but verify
-in the label file (`pet build` emits one) whenever you embed the wedge in
+in the label file (`c64 build` emits one) whenever you embed the wedge in
 a bigger program. The demo counts 60 interrupts (~1 second), then
 unhooks itself and stores `$2A` at `$03F1` as a done marker.
 
@@ -700,9 +700,9 @@ politeness: a free-running shift register interferes with cassette I/O
 Run it and assert on the screen, exactly like the tests here do:
 
 ```
-pet run mygame.s
-pet wait --text "expected output"
-pet screen
+c64 run mygame.s
+c64 wait --text "expected output"
+c64 screen
 ```
 
-or wrap it in a YAML test (`pet test run` — format in docs/cli.md).
+or wrap it in a YAML test (`c64 test run` — format in docs/cli.md).

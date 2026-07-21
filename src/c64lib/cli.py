@@ -1,4 +1,4 @@
-"""The `pet` command-line interface. Thin layer over petlib; all commands
+"""The `c64` command-line interface. Thin layer over c64lib; all commands
 support --json for machine-readable output."""
 
 from __future__ import annotations
@@ -88,13 +88,13 @@ def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
 
 
 @click.group()
-@click.version_option(__version__, "--version", prog_name="pet",
+@click.version_option(__version__, "--version", prog_name="c64",
                       message="%(prog)s %(version)s")
 @click.option("--json", "json_out", is_flag=True, help="Machine-readable JSON output.")
 @click.option("--session", "-s", "session_name", default=None, help="Target session name.")
 @click.pass_context
 def main(ctx: click.Context, json_out: bool, session_name: str | None) -> None:
-    """pet-tools: develop and debug Commodore PET software on VICE."""
+    """c64-tools: develop and debug Commodore 64 software on VICE."""
     ctx.obj = {"json": json_out, "session": session_name}
 
 
@@ -102,10 +102,10 @@ def main(ctx: click.Context, json_out: bool, session_name: str | None) -> None:
 @click.argument("command", nargs=-1)
 @click.pass_context
 def help(ctx: click.Context, command: tuple[str, ...]) -> None:
-    """Show help for pet or a specific command.
+    """Show help for c64 or a specific command.
 
     With no argument, prints the top-level help. Otherwise give a command
-    path to describe, e.g. `pet help session start`.
+    path to describe, e.g. `c64 help session start`.
     """
     node: click.Command = main
     sub_ctx = ctx.find_root()
@@ -124,19 +124,18 @@ def session() -> None:
 
 
 @session.command("start")
-@click.option("--model", default="pet4032", show_default=True,
-              help="PET model to boot: pet2001-4k, pet2001, pet3032, "
-                   "pet4032, pet8032, or pet8296.")
+@click.option("--model", default="c64", show_default=True,
+              help="Machine model to boot: c64 (NTSC) or c64pal.")
 @click.option("--name", "-s", default=None,
               help="Session name (defaults to the model name).")
 @click.option("--headless", is_flag=True,
               help="Run without a VICE window (video/audio dummied).")
 @click.option("--warp", is_flag=True,
               help="Run at maximum speed — recommended for automation.")
-@click.option("--disk", "disk8", default=None, help="Attach a d64/d80/d82 image to drive 8.")
+@click.option("--disk", "disk8", default=None, help="Attach a d64/d71/d81 image to drive 8.")
 @click.pass_context
 def session_start(ctx, model, name, headless, warp, disk8):
-    """Boot a fresh emulated PET and start its monitor daemon.
+    """Boot a fresh emulated C64 and start its monitor daemon.
 
     Leaves the machine running; reports the new session's name, model, pid,
     and monitor port.
@@ -151,8 +150,8 @@ def session_start(ctx, model, name, headless, warp, disk8):
 
 
 @session.command("ensure")
-@click.option("--model", default="pet4032", show_default=True,
-              help="PET model to boot if no session is running.")
+@click.option("--model", default="c64", show_default=True,
+              help="Machine model to boot if no session is running.")
 @click.option("--name", "-s", default=None,
               help="Session name to look for / start.")
 @click.option("--headless", is_flag=True,
@@ -489,7 +488,7 @@ def reg_set(ctx, name, value):
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path), default=None,
               help="Output .prg path (defaults next to SOURCE).")
-@click.option("--model", default="pet4032", show_default=True,
+@click.option("--model", default="c64", show_default=True,
               help="Target model — selects the BASIC load address.")
 @click.pass_context
 def build_cmd(ctx, source, output, model):
@@ -511,22 +510,21 @@ def build_cmd(ctx, source, output, model):
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
               default=None,
-              help="Artifact path; .d64/.d80/.d82 build an autostart-first "
+              help="Artifact path; .d64/.d71/.d81 build an autostart-first "
                    "disk image, .prg (or omitted) just the program file.")
 @click.option("--title", default=None,
               help="CBM file/disk name (uppercased, max 16 chars; defaults "
                    "to the source stem).")
-@click.option("--model", default="pet4032", show_default=True,
+@click.option("--model", default="c64", show_default=True,
               help="Target model — selects the BASIC load address and is "
                    "pinned in the reported run command.")
 @click.pass_context
 def package_cmd(ctx, source, output, title, model):
     """Package SOURCE into an artifact any VICE user can run.
 
-    The reported run command pins the model (xpet -model ...): stock xpet
-    boots its own default model, and ROM behavior differs silently — the
-    $97 key-down byte holds PETSCII on BASIC 4 but a matrix index on
-    BASIC 2, so a defaulted model can mean a dead keyboard.
+    The reported run command pins the model: stock x64sc boots its own
+    default (PAL) machine, so both profiles pin their video standard
+    (-ntsc / -pal) explicitly.
     """
     try:
         res = package_program(source, out=output, title=title, model=model)
@@ -547,7 +545,7 @@ def basic() -> None:
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path), default=None,
               help="Output .prg path (defaults to SOURCE with a .prg suffix).")
-@click.option("--model", default="pet4032", show_default=True,
+@click.option("--model", default="c64", show_default=True,
               help="Model — selects the BASIC version.")
 @click.pass_context
 def basic_tokenize(ctx, source, output, model):
@@ -564,7 +562,7 @@ def basic_tokenize(ctx, source, output, model):
 
 @basic.command("detokenize")
 @click.argument("prg", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--model", default="pet4032", show_default=True,
+@click.option("--model", default="c64", show_default=True,
               help="Model — selects the BASIC version.")
 @click.pass_context
 def basic_detokenize(ctx, prg, model):
@@ -583,7 +581,7 @@ def basic_detokenize(ctx, prg, model):
 @click.option("--run", "do_run", is_flag=True, help="Type RUN after the program.")
 @click.pass_context
 def basic_type(ctx, source, do_run):
-    """Type a BASIC program into the running PET via the keyboard."""
+    """Type a BASIC program into the running C64 via the keyboard."""
     s = attach(ctx)
     text = source.read_text()
     if not text.endswith("\n"):
@@ -612,7 +610,7 @@ def basic_type(ctx, source, do_run):
               default=None, help="Register a VICE label file for symbolic debugging.")
 @click.pass_context
 def load_cmd(ctx, prg, do_run, symbols):
-    """Load (and by default RUN) a .prg on the running PET via autostart."""
+    """Load (and by default RUN) a .prg on the running C64 via autostart."""
     s = attach(ctx)
     with s.monitor() as mon:
         try:
@@ -739,7 +737,7 @@ def break_list(ctx):
 @click.argument("ck_id", type=int)
 @click.pass_context
 def break_remove(ctx, ck_id):
-    """Remove checkpoint CK_ID (its number from `pet break list`)."""
+    """Remove checkpoint CK_ID (its number from `c64 break list`)."""
     s = attach(ctx)
     with s.monitor() as mon:
         try:
@@ -782,7 +780,7 @@ def break_disable(ctx, ck_id):
 def break_clear(ctx):
     """Remove ALL breakpoints (exec checkpoints). Watchpoints are kept.
 
-    Checkpoints persist across `pet run`/rebuilds by design — clear stale
+    Checkpoints persist across `c64 run`/rebuilds by design — clear stale
     ones or duplicates accumulate.
     """
     s = attach(ctx)
@@ -912,7 +910,7 @@ def until_cmd(ctx, ref, count, timeout):
              f"{timeout}s — machine left RUNNING, checkpoint removed. If the "
              f"program can branch away from {where} (death, menu, pause), it "
              "may never be reached again; set a breakpoint at a code path "
-             "that must still execute and use 'pet wait --break'.",
+             "that must still execute and use 'c64 wait --break'.",
              extra={"reached": out["reached"], "count": count,
                     "machine": "running", "checkpoint_removed": True})
         return
@@ -1020,7 +1018,7 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
 
 @main.group()
 def disk() -> None:
-    """Create and manipulate d64/d80/d82 disk images."""
+    """Create and manipulate d64/d71/d81 disk images."""
 
 
 @disk.command("create")
@@ -1031,7 +1029,7 @@ def disk() -> None:
               help="Two-character disk ID.")
 @click.pass_context
 def disk_create(ctx, image, label, disk_id):
-    """Create an empty disk image (d64/d80/d82, inferred from the extension)."""
+    """Create an empty disk image (d64/d71/d81, inferred from the extension)."""
     try:
         img = create_image(image, label=label, disk_id=disk_id)
     except DiskError as e:
@@ -1101,7 +1099,7 @@ def disk_get(ctx, image, name, dest):
 @click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
 def disk_boot(ctx, image):
-    """Attach IMAGE to the running PET and LOAD+RUN its first file."""
+    """Attach IMAGE to the running C64 and LOAD+RUN its first file."""
     s = attach(ctx)
     with s.monitor() as mon:
         try:
@@ -1155,7 +1153,7 @@ def rom_disasm(ctx, start, length):
 
 @main.group("test")
 def test_() -> None:
-    """Run declarative YAML tests and example programs on a fresh emulated PET."""
+    """Run declarative YAML tests and example programs on a fresh emulated C64."""
 
 
 def _emit_test_results(ctx, results) -> None:
@@ -1212,17 +1210,17 @@ def test_programs(ctx, directory):
 
 @main.group()
 def key() -> None:
-    """Feed keyboard input to the running PET."""
+    """Feed keyboard input to the running C64."""
 
 
 @key.command("type")
 @click.argument("text")
 @click.pass_context
 def key_type(ctx, text):
-    """Type TEXT into the running PET (\\n = RETURN). For whole programs
-    prefer `pet basic type`; this is for interactive input and menus.
+    """Type TEXT into the running C64 (\\n = RETURN). For whole programs
+    prefer `c64 basic type`; this is for interactive input and menus.
     Buffered keys never touch the live key-down state — games reading $97
-    need `pet key hold`."""
+    need `c64 key hold`."""
     s = attach(ctx)
     try:
         out = ops_key_type(s, text)
@@ -1247,9 +1245,9 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
 
     Drives games that read the live key-down state: writes the key's
     PETSCII to $97, runs to REF, repeats — the machine ends STOPPED at
-    REF (continue with `pet continue`). KEY is one character, or `space`.
+    REF (continue with `c64 continue`). KEY is one character, or `space`.
     BASIC 4 models only: $97 holds a matrix index on BASIC 2. For a
-    deterministic first frame, stop at REF first (`pet until REF`).
+    deterministic first frame, stop at REF first (`c64 until REF`).
     """
     s = attach(ctx)
     labels = session_labels(s)

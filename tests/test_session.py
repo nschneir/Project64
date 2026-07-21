@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from petlib.session import (
+from c64lib.session import (
     Session,
     SessionError,
     _kill_proc,
@@ -16,11 +16,11 @@ from petlib.session import (
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     return tmp_path
 
 
-def _write_record(name, pid, port=6502, model="pet4032"):
+def _write_record(name, pid, port=6502, model="c64"):
     d = sessions_dir()
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.json").write_text(
@@ -29,7 +29,7 @@ def _write_record(name, pid, port=6502, model="pet4032"):
 
 
 def _live_pid():
-    # a real process we control, standing in for xpet
+    # a real process we control, standing in for x64sc
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     return proc
 
@@ -39,7 +39,7 @@ def test_attach_by_name(home):
     try:
         _write_record("alpha", proc.pid)
         s = Session.attach("alpha")
-        assert (s.name, s.pid, s.model) == ("alpha", proc.pid, "pet4032")
+        assert (s.name, s.pid, s.model) == ("alpha", proc.pid, "c64")
         assert s.profile.screen_cols == 40
     finally:
         proc.kill()
@@ -47,7 +47,7 @@ def test_attach_by_name(home):
 
 def test_attach_prunes_dead_and_errors(home):
     _write_record("ghost", 999999999)  # no such pid
-    with pytest.raises(SessionError, match="pet session start"):
+    with pytest.raises(SessionError, match="c64 session start"):
         Session.attach()
     assert not list(sessions_dir().glob("*.json"))  # dead record pruned
 
@@ -75,10 +75,10 @@ def test_list_all(home):
 
 
 def test_launch_missing_binary_message(home, monkeypatch):
-    monkeypatch.delenv("PET_TOOLS_XPET", raising=False)
+    monkeypatch.delenv("C64_TOOLS_X64SC", raising=False)
     monkeypatch.setenv("PATH", "")
     with pytest.raises(SessionError, match="[Ii]nstall"):
-        Session.launch(model="pet4032")
+        Session.launch(model="c64")
 
 
 def test_launch_unknown_model(home):
@@ -101,7 +101,7 @@ def test_labels_path_persists(home):
 
 
 def test_launch_disk8_args(home, tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_NO_DAEMON", "1")  # this test is about xpet args
+    monkeypatch.setenv("C64_TOOLS_NO_DAEMON", "1")  # this test is about x64sc args
     captured = {}
 
     class FakeProc:
@@ -114,8 +114,8 @@ def test_launch_disk8_args(home, tmp_path, monkeypatch):
         captured["args"] = args
         return FakeProc()
 
-    monkeypatch.setattr("petlib.session.subprocess.Popen", fake_popen)
-    monkeypatch.setattr("petlib.session.shutil.which", lambda n: "/usr/bin/xpet")
+    monkeypatch.setattr("c64lib.session.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("c64lib.session.shutil.which", lambda n: "/usr/bin/x64sc")
 
     class FakeMon:
         def __init__(self, *a, **k): ...
@@ -125,27 +125,27 @@ def test_launch_disk8_args(home, tmp_path, monkeypatch):
         def ping(self): ...
         def resume(self): ...
 
-    monkeypatch.setattr("petlib.session.MonitorClient", FakeMon)
+    monkeypatch.setattr("c64lib.session.MonitorClient", FakeMon)
 
-    d80 = tmp_path / "big.d80"
-    d80.write_bytes(b"x")
-    Session.launch(model="pet8032", name="dsk", disk8=str(d80))
+    d81 = tmp_path / "big.d81"
+    d81.write_bytes(b"x")
+    Session.launch(model="c64", name="dsk", disk8=str(d81))
     args = captured["args"]
-    assert "-8" in args and str(d80.resolve()) in args
+    assert "-8" in args and str(d81.resolve()) in args
     i = args.index("-drive8type")
-    assert args[i + 1] == "8050"
+    assert args[i + 1] == "1581"
 
     d64 = tmp_path / "small.d64"
     d64.write_bytes(b"x")
-    Session.launch(model="pet4032", name="dsk2", disk8=str(d64))
-    assert "-drive8type" not in captured["args"]      # 2031 is the default
+    Session.launch(model="c64", name="dsk2", disk8=str(d64))
+    assert "-drive8type" not in captured["args"]      # 1541 is the default
     assert "-8" in captured["args"]
 
 
 def test_launch_retries_transient_monitor_failure(home, monkeypatch):
     """A first slow/failed monitor connect should be retried, the failed proc
     killed (no orphan), and a second attempt succeed."""
-    monkeypatch.setenv("PET_TOOLS_NO_DAEMON", "1")  # xpet retry logic, not the daemon
+    monkeypatch.setenv("C64_TOOLS_NO_DAEMON", "1")  # x64sc retry logic, not the daemon
     procs = []
 
     class FakeProc:
@@ -166,8 +166,8 @@ def test_launch_retries_transient_monitor_failure(home, monkeypatch):
         def kill(self):
             self.killed = True
 
-    monkeypatch.setattr("petlib.session.subprocess.Popen", lambda *a, **k: FakeProc())
-    monkeypatch.setattr("petlib.session.shutil.which", lambda n: "/usr/bin/xpet")
+    monkeypatch.setattr("c64lib.session.subprocess.Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr("c64lib.session.shutil.which", lambda n: "/usr/bin/x64sc")
 
     calls = {"n": 0}
 
@@ -182,9 +182,9 @@ def test_launch_retries_transient_monitor_failure(home, monkeypatch):
         def ping(self): ...
         def resume(self): ...
 
-    monkeypatch.setattr("petlib.session.MonitorClient", FakeMon)
+    monkeypatch.setattr("c64lib.session.MonitorClient", FakeMon)
 
-    s = Session.launch(model="pet4032", name="retry")
+    s = Session.launch(model="c64", name="retry")
     assert s.pid == procs[1].pid          # the second proc won
     assert procs[0].killed is True        # the first was cleaned up
     assert calls["n"] == 2                # exactly one retry
@@ -208,9 +208,9 @@ def test_launch_exhausts_attempts_and_kills_all(home, monkeypatch):
         def kill(self):
             self.killed = True
 
-    monkeypatch.setenv("PET_TOOLS_LAUNCH_ATTEMPTS", "2")
-    monkeypatch.setattr("petlib.session.subprocess.Popen", lambda *a, **k: FakeProc())
-    monkeypatch.setattr("petlib.session.shutil.which", lambda n: "/usr/bin/xpet")
+    monkeypatch.setenv("C64_TOOLS_LAUNCH_ATTEMPTS", "2")
+    monkeypatch.setattr("c64lib.session.subprocess.Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr("c64lib.session.shutil.which", lambda n: "/usr/bin/x64sc")
 
     class FakeMon:
         def __init__(self, *a, **k): ...
@@ -221,17 +221,17 @@ def test_launch_exhausts_attempts_and_kills_all(home, monkeypatch):
         def ping(self): ...
         def resume(self): ...
 
-    monkeypatch.setattr("petlib.session.MonitorClient", FakeMon)
+    monkeypatch.setattr("c64lib.session.MonitorClient", FakeMon)
 
     with pytest.raises(SessionError, match="never answered after 2"):
-        Session.launch(model="pet4032", name="doomed")
+        Session.launch(model="c64", name="doomed")
     assert len(procs) == 2 and all(p.killed for p in procs)   # both cleaned up
 
 
 def test_pid_alive_permission_error_means_alive(monkeypatch):
     def kill(pid, sig):
         raise PermissionError
-    monkeypatch.setattr("petlib.session.os.kill", kill)
+    monkeypatch.setattr("c64lib.session.os.kill", kill)
     assert _pid_alive(12345) is True
 
 
@@ -251,16 +251,16 @@ def test_kill_proc_survives_stubborn_process():
 
 
 def test_launch_rejects_duplicate_name(home, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_XPET", "/usr/bin/xpet")  # skip the which() check
+    monkeypatch.setenv("C64_TOOLS_X64SC", "/usr/bin/x64sc")  # skip the which() check
     existing = Mock()
-    existing.name = "pet4032"
+    existing.name = "c64"
     with patch.object(Session, "_load_all", return_value=[existing]):
         with pytest.raises(SessionError, match="already running"):
-            Session.launch(model="pet4032")
+            Session.launch(model="c64")
 
 
 def test_attach_unknown_name_is_actionable(home):
-    with pytest.raises(SessionError, match="pet session start"):
+    with pytest.raises(SessionError, match="c64 session start"):
         Session.attach("nosuch")
 
 
@@ -271,7 +271,7 @@ def test_stop_cleans_up_dead_session(home):
     dead = proc.pid
     sock = home / "sessions" / "z.sock"
     sock.parent.mkdir(parents=True, exist_ok=True)
-    s = Session(name="z", pid=dead, port=6502, model="pet4032",
+    s = Session(name="z", pid=dead, port=6502, model="c64",
                 daemon_pid=dead, socket=str(sock))
     s._record_path().write_text("{}")
     sock.write_text("")                   # a stale socket file to clean up

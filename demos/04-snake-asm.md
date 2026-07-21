@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the pet CLI (see skills/pet-development/SKILL.md, the 6502-assembly
+> Using the c64 CLI (see skills/pet-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build a complete arcade-style Snake game for a
 > PET 4032 in 6502 assembly, working directly with screen memory at $8000
 > (40×25). I want the whole arcade experience, not just a moving snake:
@@ -21,11 +21,11 @@ Paste this prompt into your agent:
 >   score and the best score so far, and a key to play again. The high
 >   score must survive across games in the same session.
 >
-> When something misbehaves, use the debugger — breakpoints, `pet step`,
-> `pet until` on your main loop, memory inspection — rather than guessing
+> When something misbehaves, use the debugger — breakpoints, `c64 step`,
+> `c64 until` on your main loop, memory inspection — rather than guessing
 > from the source. The machine runs far faster than real time, so drive the
-> game deterministically: inject keystrokes with `pet key` to start and
-> steer, and step the main loop (`pet until` on your per-move label) to
+> game deterministically: inject keystrokes with `c64 key` to start and
+> steer, and step the main loop (`c64 until` on your per-move label) to
 > advance an exact number of frames and read the screen between them. Prove
 > it works by showing me the title screen, the snake moving and growing, a
 > level-up, a game-over, and a second game where the high score from the

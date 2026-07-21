@@ -3,8 +3,8 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from petlib.cli import main
-from petlib.protocol import CP_EXEC, CP_LOAD, CP_STORE, Checkpoint
+from c64lib.cli import main
+from c64lib.protocol import CP_EXEC, CP_LOAD, CP_STORE, Checkpoint
 
 
 def _ck(number=1, start=0x040D, op=CP_EXEC, hits=0):
@@ -15,7 +15,7 @@ def _ck(number=1, start=0x040D, op=CP_EXEC, hits=0):
 
 def _fake(labels=None):
     fake = Mock()
-    fake.name, fake.model, fake.labels = "pet4032", "pet4032", labels
+    fake.name, fake.model, fake.labels = "c64", "c64", labels
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
     fake.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -27,7 +27,7 @@ def test_break_add_symbolic(tmp_path):
     lbl.write_text("al C:040d .start\n")
     fake, mon = _fake(labels=str(lbl))
     mon.checkpoint_set.return_value = _ck()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "add", "start"])
     assert r.exit_code == 0, r.output
@@ -40,7 +40,7 @@ def test_break_add_symbolic(tmp_path):
 def test_break_add_with_condition():
     fake, mon = _fake()
     mon.checkpoint_set.return_value = _ck(number=4)
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["break", "add", "$040d", "--condition", "A != 0"])
     assert r.exit_code == 0, r.output
@@ -49,7 +49,7 @@ def test_break_add_with_condition():
 
 def test_break_add_unknown_symbol_fails():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "add", "nosuch"])
     assert r.exit_code == 1
@@ -59,7 +59,7 @@ def test_break_add_unknown_symbol_fails():
 def test_break_list_and_remove():
     fake, mon = _fake()
     mon.checkpoint_list.return_value = [_ck(number=1, hits=3), _ck(number=2, start=0x8000)]
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "list"])
         assert [c["id"] for c in json.loads(r.output)["breakpoints"]] == [1, 2]
@@ -71,7 +71,7 @@ def test_break_list_and_remove():
 def test_watch_add_store_only_with_length():
     fake, mon = _fake()
     mon.checkpoint_set.return_value = _ck(op=CP_STORE)
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["watch", "add", "$8000", "--store", "--length", "40"])
     assert r.exit_code == 0, r.output
@@ -81,7 +81,7 @@ def test_watch_add_store_only_with_length():
 def test_watch_add_default_both():
     fake, mon = _fake()
     mon.checkpoint_set.return_value = _ck(op=CP_LOAD | CP_STORE)
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["watch", "add", "$8000"])
     assert r.exit_code == 0
@@ -90,7 +90,7 @@ def test_watch_add_default_both():
 
 def test_break_enable_and_disable():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "enable", "3"])
         assert r.exit_code == 0, r.output
@@ -107,7 +107,7 @@ def test_break_clear_removes_exec_only():
     fake, mon = _fake()
     mon.checkpoint_list.return_value = [
         _ck(number=1), _ck(number=2, op=CP_LOAD | CP_STORE), _ck(number=3)]
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "clear"])
     assert r.exit_code == 0, r.output
@@ -120,7 +120,7 @@ def test_watch_clear_spares_breakpoints():
     fake, mon = _fake()
     mon.checkpoint_list.return_value = [
         _ck(number=1), _ck(number=2, op=CP_LOAD | CP_STORE)]
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "watch", "clear"])
     assert json.loads(r.output) == {"removed": [2], "count": 1}
@@ -128,7 +128,7 @@ def test_watch_clear_spares_breakpoints():
 
 def test_break_rm_alias():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["break", "rm", "3"])
     assert r.exit_code == 0, r.output
@@ -137,7 +137,7 @@ def test_break_rm_alias():
 
 def test_watch_rm_alias():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["watch", "rm", "5"])
     assert r.exit_code == 0, r.output
@@ -147,7 +147,7 @@ def test_watch_rm_alias():
 def test_break_add_once():
     fake, mon = _fake()
     mon.checkpoint_set.return_value = _ck()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "add", "$040d", "--once"])
     assert r.exit_code == 0, r.output
@@ -158,5 +158,5 @@ def test_break_add_once():
 def test_break_add_keeps_help_text():
     # regression: an assignment placed before the docstring silently
     # removed the command's help
-    from petlib.cli import break_add
+    from c64lib.cli import break_add
     assert break_add.help and "breakpoint" in break_add.help

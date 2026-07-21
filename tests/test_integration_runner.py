@@ -1,4 +1,4 @@
-"""Live test-runner integration: YAML tests and example programs on real xpet."""
+"""Live test-runner integration: YAML tests and example programs on real x64sc."""
 
 import os
 import shutil
@@ -7,21 +7,21 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from petlib.cli import main
-from petlib.testing import load_test, program_test, run_test
+from c64lib.cli import main
+from c64lib.testing import load_test, program_test, run_test
 
 pytestmark = [
     pytest.mark.vice,
     pytest.mark.skipif(
-        not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-        reason="xpet not installed",
+        not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+        reason="x64sc not installed",
     ),
 ]
 
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
 
 
 def test_yaml_autorun_passes():
@@ -49,7 +49,7 @@ def test_program_as_test_hello_basic():
 
 
 @pytest.mark.skipif(
-    shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"),
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",
 )
 def test_program_as_test_hello_asm():

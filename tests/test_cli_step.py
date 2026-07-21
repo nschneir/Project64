@@ -3,13 +3,13 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from petlib.cli import main
-from petlib.monitor import StopInfo
+from c64lib.cli import main
+from c64lib.monitor import StopInfo
 
 
 def _fake(labels=None):
     fake = Mock()
-    fake.name, fake.model, fake.labels = "pet4032", "pet4032", labels
+    fake.name, fake.model, fake.labels = "c64", "c64", labels
     fake.socket = None
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -26,7 +26,7 @@ def _labels_file(tmp_path):
 def test_step_leaves_stopped_and_annotates(tmp_path):
     fake, mon = _fake(labels=_labels_file(tmp_path))
     mon.step.return_value = {"PC": 0x0411, "A": 0}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "step", "2"])
     assert r.exit_code == 0, r.output
@@ -40,7 +40,7 @@ def test_step_leaves_stopped_and_annotates(tmp_path):
 def test_step_over_flag():
     fake, mon = _fake()
     mon.step.return_value = {"PC": 0x0410}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["step", "--over"])
     assert r.exit_code == 0
@@ -50,7 +50,7 @@ def test_step_over_flag():
 def test_finish():
     fake, mon = _fake()
     mon.finish.return_value = {"PC": 0x1234}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["finish"])
     assert r.exit_code == 0
@@ -60,7 +60,7 @@ def test_finish():
 
 def test_continue_resumes():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["continue"])
     assert r.exit_code == 0
@@ -69,14 +69,14 @@ def test_continue_resumes():
 
 def test_until_symbol(tmp_path):
     fake, mon = _fake(labels=_labels_file(tmp_path))
-    from petlib.protocol import CP_EXEC, Checkpoint
+    from c64lib.protocol import CP_EXEC, Checkpoint
     mon.checkpoint_set.return_value = Checkpoint(
         number=9, hit=False, start=0x040F, end=0x040F, stop=True, enabled=True,
         op=CP_EXEC, temporary=False, hit_count=0, ignore_count=0,
         has_condition=False, memspace=0)
     mon.wait_for_stop.return_value = StopInfo(pc=0x040F, checkpoint=9)
     mon.registers.return_value = {"PC": 0x040F}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "until", "loop"])
     assert r.exit_code == 0, r.output
@@ -89,14 +89,14 @@ def test_until_symbol(tmp_path):
 
 def test_until_timeout_fails():
     fake, mon = _fake()
-    from petlib.protocol import CP_EXEC, Checkpoint
+    from c64lib.protocol import CP_EXEC, Checkpoint
     mon.checkpoint_set.return_value = Checkpoint(
         number=9, hit=False, start=0x2000, end=0x2000, stop=True, enabled=True,
         op=CP_EXEC, temporary=True, hit_count=0, ignore_count=0,
         has_condition=False, memspace=0)
     mon.wait_for_stop.return_value = None
     mon.checkpoint_list.return_value = []
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "until", "$2000", "--timeout", "1"])
     assert r.exit_code == 1
@@ -106,7 +106,7 @@ def test_until_timeout_fails():
 def test_reg_pc_annotation(tmp_path):
     fake, mon = _fake(labels=_labels_file(tmp_path))
     mon.registers.return_value = {"PC": 0x040D, "A": 0x2A}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "reg"])
     out = json.loads(r.output)
@@ -115,14 +115,14 @@ def test_reg_pc_annotation(tmp_path):
 
 def test_until_count(tmp_path):
     fake, mon = _fake(labels=_labels_file(tmp_path))
-    from petlib.protocol import CP_EXEC, Checkpoint
+    from c64lib.protocol import CP_EXEC, Checkpoint
     mon.checkpoint_set.return_value = Checkpoint(
         number=4, hit=False, start=0x040F, end=0x040F, stop=True, enabled=True,
         op=CP_EXEC, temporary=False, hit_count=0, ignore_count=0,
         has_condition=False, memspace=0)
     mon.wait_for_stop.side_effect = [StopInfo(pc=0x040F, checkpoint=4)] * 3
     mon.registers.return_value = {"PC": 0x040F}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "until", "loop", "--count", "3"])
     assert r.exit_code == 0, r.output
@@ -134,8 +134,8 @@ def test_until_count(tmp_path):
 
 def test_until_timeout_reports_progress():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.run_until",
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.run_until",
                return_value={"registers": None, "reached": 1}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["until", "$040d", "--count", "3",
@@ -145,8 +145,8 @@ def test_until_timeout_reports_progress():
 
 def test_until_timeout_is_loud():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.run_until",
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.run_until",
                return_value={"registers": None, "reached": 1, "count": 3}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "until", "$040d",
@@ -165,8 +165,8 @@ def test_call_command_invokes_routine(tmp_path):
     fake, mon = _fake(labels=str(lbl))
     fired = {"fired": True, "registers": {"PC": 0x0400, "A": 42, "X": 0},
              "trap": 0x0400}
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.call_routine", return_value=fired) as cr:
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.call_routine", return_value=fired) as cr:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "call", "sndinit", "--a", "5"])
     assert r.exit_code == 0, r.output
@@ -179,8 +179,8 @@ def test_call_command_invokes_routine(tmp_path):
 def test_call_command_timeout_fails():
     fake, mon = _fake()
     out = {"fired": False, "registers": None, "trap": 0x0400}
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.call_routine", return_value=out):
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.call_routine", return_value=out):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["call", "$2000", "--timeout", "1"])
     assert r.exit_code == 1

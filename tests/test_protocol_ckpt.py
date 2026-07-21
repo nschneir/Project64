@@ -1,6 +1,6 @@
 import struct
 
-from petlib.protocol import (
+from c64lib.protocol import (
     CP_EXEC,
     CP_LOAD,
     CP_STORE,

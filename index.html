@@ -80,9 +80,9 @@
   p{margin:.55em 0}
   .lead{font-size:clamp(1rem,2.8vw,1.2rem)}
 
-  ul.pet{list-style:none;padding:0;margin:.4em 0}
-  ul.pet li{padding-left:1.6em;position:relative;margin:.28em 0}
-  ul.pet li::before{content:"\25B8";position:absolute;left:0;color:var(--p-dim)}
+  ul.c64{list-style:none;padding:0;margin:.4em 0}
+  ul.c64 li{padding-left:1.6em;position:relative;margin:.28em 0}
+  ul.c64 li::before{content:"\25B8";position:absolute;left:0;color:var(--p-dim)}
 
   /* buttons: authentic PET reverse-video */
   .btns{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 2px}
@@ -158,7 +158,7 @@
           debug Commodore PET software &mdash; BASIC and 6502 assembly &mdash; on the
           VICE emulator.</p>
         <div class="btns">
-          <a class="btn primary" href="https://github.com/nschneir/PET-Project">VIEW ON GITHUB &#x25B8;</a>
+          <a class="btn primary" href="https://github.com/nschneir/Project64">VIEW ON GITHUB &#x25B8;</a>
           <a class="btn" href="#start">QUICK START</a>
           <a class="btn" href="#agents">USE WITH AI</a>
         </div>
@@ -181,7 +181,7 @@
     <section class="reveal" id="features">
       <h2><span class="mk">&#x2500;&#x2500;</span> CAPABILITIES <span class="mk">&#x2500;&#x2500;</span></h2>
       <div class="grid">
-        <div class="card"><b>&#x25B8; SESSIONS</b><small>pet session</small><p>Boot any PET model (2001&ndash;8296) headless, in warp, with a disk attached.</p></div>
+        <div class="card"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot any PET model (2001&ndash;8296) headless, in warp, with a disk attached.</p></div>
         <div class="card"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
         <div class="card"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
         <div class="card"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
@@ -204,12 +204,12 @@ pip install -e .</pre>
       <p>Then drive an emulated PET:</p>
       <div class="code">
         <button class="copy" type="button">COPY</button>
-<pre>pet session start --model pet4032 <span class="cm"># boot a PET 4032</span>
-pet run game.s                    <span class="cm"># assemble + load + RUN</span>
-pet screen                        <span class="cm"># read the screen as text</span>
-pet break add start               <span class="cm"># symbolic breakpoint</span>
-pet wait --break                  <span class="cm"># block until it fires</span>
-pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspect</span></pre>
+<pre>c64 session start --model c64 <span class="cm"># boot a PET 4032</span>
+c64 run game.s                    <span class="cm"># assemble + load + RUN</span>
+c64 screen                        <span class="cm"># read the screen as text</span>
+c64 break add start               <span class="cm"># symbolic breakpoint</span>
+c64 wait --break                  <span class="cm"># block until it fires</span>
+c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspect</span></pre>
       </div>
       <p>Every command takes <b>--json</b> &mdash; the interface an agent uses.</p>
     </section>
@@ -217,7 +217,7 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
     <section class="reveal" id="agents">
       <h2><span class="mk">&#x2500;&#x2500;</span> USE WITH AN AI AGENT <span class="mk">&#x2500;&#x2500;</span></h2>
       <p><b>Any agent with a shell needs zero setup</b> &mdash; the CLI plus <code>--json</code>
-      is the whole integration. For MCP-native clients, <code>pet-tools-mcp</code> exposes
+      is the whole integration. For MCP-native clients, <code>c64-tools-mcp</code> exposes
       the same operations. Pick your agent:</p>
 
       <div class="tabs" role="tablist" aria-label="AI agent setup">
@@ -231,14 +231,14 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
       <div class="tabpanel" role="tabpanel" id="p-claude" aria-labelledby="t-claude">
         <ol>
           <li>Install the skills: <code>mkdir -p .claude/skills &amp;&amp; cp -R skills/* .claude/skills/</code></li>
-          <li>Optional MCP: <code>claude mcp add pet-tools -- pet-tools-mcp</code></li>
+          <li>Optional MCP: <code>claude mcp add c64-tools -- c64-tools-mcp</code></li>
           <li>Ask for what you want &mdash; e.g. paste a prompt from <code>demos/</code>.</li>
         </ol>
         <p><small>No CLAUDE.md edits needed &mdash; installed skills load on demand.</small></p>
       </div>
       <div class="tabpanel" role="tabpanel" id="p-codex" aria-labelledby="t-codex" hidden>
         <ol>
-          <li>Add the MCP: <code>codex mcp add pet-tools -- pet-tools-mcp</code></li>
+          <li>Add the MCP: <code>codex mcp add c64-tools -- c64-tools-mcp</code></li>
           <li>In <code>AGENTS.md</code>: &ldquo;For PET work, first read skills/pet-development/SKILL.md and docs/cli.md.&rdquo;</li>
           <li>Paste a prompt from <code>demos/</code>.</li>
         </ol>
@@ -246,7 +246,7 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
       <div class="tabpanel" role="tabpanel" id="p-cursor" aria-labelledby="t-cursor" hidden>
         <ol>
           <li>Add the standard <code>mcpServers</code> block to <code>.cursor/mcp.json</code>.</li>
-          <li>Add a rule (<code>.cursor/rules/pet.mdc</code>) pointing at skills/pet-development/SKILL.md.</li>
+          <li>Add a rule (<code>.cursor/rules/c64.mdc</code>) pointing at skills/pet-development/SKILL.md.</li>
           <li>Paste a prompt from <code>demos/</code>.</li>
         </ol>
       </div>
@@ -294,10 +294,10 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
       <p><small>Built primarily by AI (Anthropic&rsquo;s Claude, via Claude Code) under
       human direction &mdash; a working example of AI-built developer tooling.</small></p>
       <div class="links">
-        <a href="https://github.com/nschneir/PET-Project">&#x25B8; GitHub</a>
-        <a href="https://github.com/nschneir/PET-Project/blob/main/docs/cli.md">&#x25B8; CLI reference</a>
-        <a href="https://github.com/nschneir/PET-Project/tree/main/demos">&#x25B8; Demos</a>
-        <a href="https://github.com/nschneir/PET-Project/blob/main/LICENSE">&#x25B8; License</a>
+        <a href="https://github.com/nschneir/Project64">&#x25B8; GitHub</a>
+        <a href="https://github.com/nschneir/Project64/blob/main/docs/cli.md">&#x25B8; CLI reference</a>
+        <a href="https://github.com/nschneir/Project64/tree/main/demos">&#x25B8; Demos</a>
+        <a href="https://github.com/nschneir/Project64/blob/main/LICENSE">&#x25B8; License</a>
       </div>
       <p class="ready">READY.<span class="cursor" aria-hidden="true"></span></p>
     </footer>

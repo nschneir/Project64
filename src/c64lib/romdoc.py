@@ -22,7 +22,7 @@ def rom_labels(basic_version: str) -> dict[str, int]:
     fname = _LABEL_FILES.get(basic_version)
     if not fname:
         return {}
-    text = (resources.files("petlib") / "data" / "rom_labels" / fname).read_text()
+    text = (resources.files("c64lib") / "data" / "rom_labels" / fname).read_text()
     return parse_labels(text)
 
 

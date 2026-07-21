@@ -3,11 +3,11 @@
 VICE resumes the CPU whenever a monitor connection closes and accepts only
 one monitor connection at a time (2026-07-10 transport findings). This
 process holds that single connection for the session's lifetime, so the
-machine's run/stop state survives across pet/MCP commands — each command
+machine's run/stop state survives across c64/MCP commands — each command
 is a short-lived IPC client on the session's unix socket.
 
-Run as:  python -m petlib.daemon --name NAME --vice-port PORT --socket PATH
-Spawned by Session.launch; the client side is petlib.daemon_client."""
+Run as:  python -m c64lib.daemon --name NAME --vice-port PORT --socket PATH
+Spawned by Session.launch; the client side is c64lib.daemon_client."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ class PetDaemon:
     def serve_forever(self) -> None:
         while True:
             if not self._idle_wait():
-                return                          # xpet died while idle
+                return                          # x64sc died while idle
             client, _ = self.listen.accept()
             self._handle(client)
             if self._quitting:
@@ -114,7 +114,7 @@ class PetDaemon:
             # never take down the session daemon. Abandon it and keep serving.
             # VICE death is caught inside _serve_client (it sets _quitting), so
             # reaching here means the IPC peer, not the emulator, is the problem.
-            print(f"pet daemon: client error, dropping connection: {e!r}",
+            print(f"c64 daemon: client error, dropping connection: {e!r}",
                   flush=True)
         finally:
             client.close()
@@ -123,7 +123,7 @@ class PetDaemon:
 
     def _serve_client(self, client: socket.socket) -> None:
         f = client.makefile("rwb")
-        rpc.send_line(f, {"hello": "pet-daemon",
+        rpc.send_line(f, {"hello": "c64-daemon",
                           "version": rpc.PROTOCOL_VERSION,
                           "session": self.session})
         while True:
@@ -142,7 +142,7 @@ class PetDaemon:
                 resp["msg"] = str(e)
                 rpc.send_line(f, resp)
                 if isinstance(e, ConnectionError):
-                    self._quitting = True       # xpet died; nothing to restore
+                    self._quitting = True       # x64sc died; nothing to restore
                     return
                 continue
             rpc.send_line(f, resp)
@@ -176,7 +176,7 @@ class PetDaemon:
 
     def _wait_for_stop(self, client: socket.socket, timeout: float):
         """wait_for_stop in <=0.5 s slices, aborting if the client vanishes
-        (a Ctrl-C'd `pet wait --break` must not wedge the daemon)."""
+        (a Ctrl-C'd `c64 wait --break` must not wedge the daemon)."""
         deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
@@ -192,7 +192,7 @@ class PetDaemon:
 
     def _run_until(self, client: socket.socket, addr: int, timeout: float,
                    count: int) -> dict:
-        """The `pet until --count` loop, run against the direct VICE
+        """The `c64 until --count` loop, run against the direct VICE
         connection — N arrivals cost one IPC round-trip instead of 2-4 each
         (frame-stepping was ~0.5 s per arrival through per-hit RPCs).
 
@@ -297,7 +297,7 @@ def _connect_vice(port: int) -> MonitorClient:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="petlib.daemon")
+    ap = argparse.ArgumentParser(prog="c64lib.daemon")
     ap.add_argument("--name", required=True)
     ap.add_argument("--vice-port", type=int, required=True)
     ap.add_argument("--socket", required=True)
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> None:
     listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listen.bind(a.socket)
     listen.listen(1)
-    print(f"pet daemon up: session={a.name} vice_port={a.vice_port}", flush=True)
+    print(f"c64 daemon up: session={a.name} vice_port={a.vice_port}", flush=True)
     try:
         PetDaemon(mon, listen, a.name).serve_forever()
     except Exception:

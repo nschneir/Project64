@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "pet-tools"
+name = "c64-tools"
 version = "1.3.0"
-description = "AI-oriented toolset for developing and debugging Commodore PET software on VICE"
+description = "AI-oriented toolset for developing and debugging Commodore 64 software on VICE"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -15,18 +15,18 @@ dependencies = ["click>=8.1", "pillow>=10", "pyyaml>=6", "mcp>=1.28"]
 dev = ["pytest>=8", "coverage>=7.10", "ruff>=0.15"]
 
 [project.scripts]
-pet = "petlib.cli:main"
-pet-tools-mcp = "petlib.mcp_server:main"
+c64 = "c64lib.cli:main"
+c64-tools-mcp = "c64lib.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/petlib"]
+packages = ["src/c64lib"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["vice: requires a working xpet (VICE) installation on PATH"]
+markers = ["vice: requires a working x64sc (VICE) installation on PATH"]
 
 [tool.coverage.run]
-source = ["petlib"]
+source = ["c64lib"]
 branch = true
 parallel = true
 sigterm = true

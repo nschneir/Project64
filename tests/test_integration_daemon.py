@@ -12,25 +12,25 @@ from pathlib import Path
 
 import pytest
 
-from petlib.build import build_asm
-from petlib.session import Session, _pid_alive
-from petlib.symbols import load_labels
+from c64lib.build import build_asm
+from c64lib.session import Session, _pid_alive
+from c64lib.symbols import load_labels
 from tests.test_integration_debug import HOT_LOOP
 from tests.vice_helpers import wait_for_text
 
 pytestmark = [
     pytest.mark.vice,
     pytest.mark.skipif(
-        not (__import__("shutil").which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-        reason="xpet not installed",
+        not (__import__("shutil").which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+        reason="x64sc not installed",
     ),
 ]
 
 
 @pytest.fixture
 def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="dmntest", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="dmntest", headless=True, warp=True)
     wait_for_text(s, "READY.")
     yield s
     s.stop()
@@ -69,31 +69,31 @@ def test_daemon_crash_respawns_with_warning(session, capsys):
     assert "respawning" in capsys.readouterr().err
 
 
-PET = Path(sys.executable).parent / "pet"
+PET = Path(sys.executable).parent / "c64"
 
 
-def _pet_json(*args):
-    """Run the real pet CLI in a SEPARATE OS PROCESS — the original failure
+def _c64_json(*args):
+    """Run the real c64 CLI in a SEPARATE OS PROCESS — the original failure
     mode was per-process monitor connections."""
     out = subprocess.run([str(PET), "--json", *args],
                          capture_output=True, text=True, env=os.environ.copy())
-    assert out.returncode == 0, f"pet {args}: {out.stderr}\n{out.stdout}"
+    assert out.returncode == 0, f"c64 {args}: {out.stderr}\n{out.stdout}"
     return json.loads(out.stdout)
 
 
 def test_cross_process_stopped_state(session):
     """THE headline regression (findings §3.2 / DX Task-10 probe): a halt
-    must survive across separate pet processes. Pre-daemon this free-ran
+    must survive across separate c64 processes. Pre-daemon this free-ran
     (PC e0c3 -> e0c1)."""
-    pc1 = _pet_json("step")["registers"]["PC"]
-    pc2 = _pet_json("reg")["registers"]["PC"]
-    pc3 = _pet_json("reg")["registers"]["PC"]
+    pc1 = _c64_json("step")["registers"]["PC"]
+    pc2 = _c64_json("reg")["registers"]["PC"]
+    pc3 = _c64_json("reg")["registers"]["PC"]
     assert pc1 == pc2 == pc3
-    _pet_json("continue")
+    _c64_json("continue")
 
 
 needs_cc65 = pytest.mark.skipif(
-    shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"),
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed")
 
 

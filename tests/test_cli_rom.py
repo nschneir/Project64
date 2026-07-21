@@ -3,12 +3,12 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from petlib.cli import main
+from c64lib.cli import main
 
 
 def _fake(labels=None):
     fake = Mock()
-    fake.name, fake.model, fake.labels = "pet4032", "pet4032", labels
+    fake.name, fake.model, fake.labels = "c64", "c64", labels
     fake.profile.basic_version = "4.0"
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -18,8 +18,8 @@ def _fake(labels=None):
 
 def test_rom_info():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.identify", return_value={
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.identify", return_value={
              "basic": "basic-4.bin", "kernal": "kernal-4.bin",
              "editor": "edit-4.bin", "hashes": {"basic": "abc"}}) as ident:
         S.attach.return_value = fake
@@ -33,7 +33,7 @@ def test_rom_info():
 def test_rom_disasm_symbolic_start():
     fake, mon = _fake()
     mon.memory_read.return_value = b"\x4c\x66\xf2"
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "rom", "disasm", "CHROUT", "3"])
     assert r.exit_code == 0, r.output

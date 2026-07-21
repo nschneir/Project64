@@ -1,7 +1,7 @@
 # PET text encodings: ASCII, PETSCII, screen codes
 
 The PET uses three distinct byte encodings. The ground-truth conversion tables
-live in `petlib.text` (`ascii_to_petscii`, `screen_code_to_char`); this doc
+live in `c64lib.text` (`ascii_to_petscii`, `screen_code_to_char`); this doc
 describes them.
 
 ## The three encodings
@@ -12,7 +12,7 @@ describes them.
 - **Screen codes** — the bytes actually stored in screen RAM at `$8000`. These
   are **not** PETSCII.
 
-`pet screen` decodes screen RAM to text automatically. `pet mem read '$8000'`
+`c64 screen` decodes screen RAM to text automatically. `c64 mem read '$8000'`
 shows the raw screen codes.
 
 ## Screen-code table (uppercase/graphics set)
@@ -38,13 +38,13 @@ block/quadrant fills, shading, playing-card suits, and a few symbols. Codes
 192–255 are the same 64 glyphs in **reverse video** (`code & $7F` gives the
 base glyph; e.g. `$A0` = 160 is a reverse-video space, i.e. a solid block).
 
-**How `pet screen` renders them.** The text decoder only maps four graphics
+**How `c64 screen` renders them.** The text decoder only maps four graphics
 codes to plain ASCII — **64 → `-`**, **66 → `|`**, **91 → `+`**, **96 → space**
 — and strips the reverse-video bit first (so a solid block, code 160, decodes
 to a blank space, and can vanish against the background). **Every other
 graphics code decodes to a `·` placeholder**, so text output can't tell them
 apart. To see any glyph exactly, poke it and screenshot the real machine:
-`pet mem write '$8000' 90` then `pet screen --png out.png`.
+`c64 mem write '$8000' 90` then `c64 screen --png out.png`.
 
 The table below is read from the PET character ROM (BASIC 4). Row/column
 positions count 0–7 within the 8×8 cell.
@@ -86,20 +86,20 @@ positions count 0–7 within the 8×8 cell.
 
 ## PETSCII for keyboard input
 
-When feeding the keyboard (as `pet basic type` and `pet key` do), text is
+When feeding the keyboard (as `c64 basic type` and `c64 key` do), text is
 converted to PETSCII: `\n` → `$0D` (RETURN), letters → ASCII uppercase. Writing
 lowercase source is the norm because lowercase ASCII → unshifted PETSCII, which
 shows as uppercase on screen.
 
 Only characters in the PET set are available. `ascii_to_petscii` (used by
-`pet basic type` and `pet key type`) rejects anything it can't map rather
+`c64 basic type` and `c64 key type`) rejects anything it can't map rather
 than mangling it — so "smart" typography like the em dash (`—`) or curly
 quotes must be spelled with their plain ASCII equivalents (`-`, `"`).
 
-## How `pet screen` decodes the screen
+## How `c64 screen` decodes the screen
 
-`pet screen` reads screen RAM and maps each screen code to text
-(`petlib.text.screen_code_to_char`). Since v1.2 the default style is
+`c64 screen` reads screen RAM and maps each screen code to text
+(`c64lib.text.screen_code_to_char`). Since v1.2 the default style is
 **unicode**: graphics decode to real box-drawing / block-element /
 geometric glyphs, so mazes, sprites, and blobs read naturally. The rules:
 
@@ -120,7 +120,7 @@ geometric glyphs, so mazes, sprites, and blobs read naturally. The rules:
 Letters, digits, and punctuation round-trip faithfully — text output is
 fully trustworthy. When you need exact glyph identity (e.g. asserting a
 specific character code, not its look-alike), read the numbers instead:
-`pet screen --codes` prints the raw screen-code matrix, or
-`pet mem get $80D2` for row 5, column 10 on a 40-column model (row stride
-80 on 80-column models), or use `pet screen --png` when pixel appearance
+`c64 screen --codes` prints the raw screen-code matrix, or
+`c64 mem get $80D2` for row 5, column 10 on a 40-column model (row stride
+80 on 80-column models), or use `c64 screen --png` when pixel appearance
 matters.

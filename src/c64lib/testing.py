@@ -57,7 +57,7 @@ def load_test(path: str | Path) -> dict:
     if not isinstance(spec, dict):
         raise TestError(f"{path}: test file must be a YAML mapping")
     spec.setdefault("name", path.stem)
-    spec.setdefault("machine", "pet4032")
+    spec.setdefault("machine", "c64")
     spec.setdefault("timeout", 30)
     spec.setdefault("autorun", True)
     spec.setdefault("steps", [])
@@ -110,7 +110,7 @@ def program_test(program_dir: str | Path) -> dict:
             "(needs program.bas/.s and expect.txt)"
         )
     steps = [{"wait": {"text": ln}} for ln in expect.read_text().splitlines() if ln.strip()]
-    return {"name": program_dir.name, "machine": "pet4032", "timeout": 45,
+    return {"name": program_dir.name, "machine": "c64", "timeout": 45,
             "autorun": True, "program": str(prog.resolve()), "steps": steps}
 
 

@@ -1,7 +1,7 @@
 # PET memory maps (per model)
 
 All addresses hex. "All models" unless noted. I/O region details:
-references/hardware.md. Generate annotated ROM listings with `pet rom disasm`.
+references/hardware.md. Generate annotated ROM listings with `c64 rom disasm`.
 
 | Range       | What                                                    |
 |-------------|---------------------------------------------------------|

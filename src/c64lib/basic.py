@@ -1,7 +1,7 @@
 """Commodore BASIC tokenize/detokenize via VICE's petcat.
 
 petcat text convention: keywords AND string text lowercase (lowercase ASCII
--> unshifted PETSCII -> displays as uppercase on the PET's graphics screen).
+-> unshifted PETSCII -> displays as uppercase on the C64's uppercase/graphics screen).
 Dialect codes verified against petcat (VICE 3.10): 1p, 2, 40.
 """
 
@@ -21,11 +21,11 @@ class BasicError(Exception):
 
 
 def _petcat() -> str:
-    exe = os.environ.get("PET_TOOLS_PETCAT") or shutil.which("petcat")
+    exe = os.environ.get("C64_TOOLS_PETCAT") or shutil.which("petcat")
     if not exe:
         raise BasicError(
             "petcat not found. It ships with VICE — install VICE 3.5+ "
-            "(macOS: brew install vice) or set PET_TOOLS_PETCAT."
+            "(macOS: brew install vice) or set C64_TOOLS_PETCAT."
         )
     return exe
 

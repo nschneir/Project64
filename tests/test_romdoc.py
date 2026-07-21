@@ -1,7 +1,7 @@
 import hashlib
 from unittest.mock import Mock
 
-from petlib.romdoc import identify, rom_labels
+from c64lib.romdoc import identify, rom_labels
 
 
 def test_rom_labels_basic4_has_jump_table():

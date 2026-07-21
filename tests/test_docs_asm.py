@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from petlib.build import build_asm
+from c64lib.build import build_asm
 from tests.doc_helpers import code_blocks
 
 SKILL = Path("skills/6502-assembly/SKILL.md")
@@ -17,7 +17,7 @@ def test_hardware_doc_base_addresses():
 
 
 @pytest.mark.skipif(
-    shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"),
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",
 )
 def test_skill_skeleton_assembles(tmp_path):

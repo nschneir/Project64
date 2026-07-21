@@ -16,7 +16,7 @@ screen-content-based (read the target cell, classify by screen code), with
 per-alien coordinate lookup to identify a struck invader. A one-voice
 priority sound driver owns the VIA CB2 registers.
 
-**Tech Stack:** `pet` CLI (repo venv `.venv/bin/pet`), ca65/ld65, VICE xpet
+**Tech Stack:** `c64` CLI (repo venv `.venv/bin/c64`), ca65/ld65, VICE x64sc
 (headless + warp), PET 4032 (40×25, screen at $8000, BASIC 4).
 
 ## Global Constraints
@@ -31,7 +31,7 @@ priority sound driver owns the VIA CB2 registers.
 - Store **screen codes** to $8000+, never PETSCII.
 - Zero page: only $FB-$FE (PTR=$FB/$FC, PTR2=$FD/$FE). Everything else in BSS.
 - All work in `demos/invaders/` (gitignored); only docs changes are committed.
-- Session: `pet session start --warp --headless` (model pet4032, the default). Use the venv: `export PATH="$PWD/.venv/bin:$PATH"  # from the repo root`.
+- Session: `c64 session start --warp --headless` (model c64, the default). Use the venv: `export PATH="$PWD/.venv/bin:$PATH"  # from the repo root`.
 
 ---
 
@@ -59,7 +59,7 @@ right limit x=39.
 | Crab (rows 2-3, 20 pts) | 65 (♠) ↔ 88 (♣) | |
 | Octopus (rows 4-5, 10 pts) | 86 (╳) ↔ 90 (♦) | arms out / arms in |
 | Player base | 108, 98, 123 | ▗▄▖ on row 23 |
-| Player shot | 30 (↑) | decodes as `^` in pet screen |
+| Player shot | 30 (↑) | decodes as `^` in c64 screen |
 | Slow straight bomb | 33 (!) | |
 | Fast straight bomb | 93 (thin vertical bar) | |
 | Wiggly bomb | 77 (╲) ↔ 78 (╱) | alternates per move — the arcade squiggle |
@@ -230,11 +230,11 @@ lives HUD.
 
 Key codes for A, D, SPACE on the 4032 graphics keyboard are discovered
 live in Task 2 (they are matrix-scan indexes, not PETSCII):
-1. Run a probe: tiny loop copying $97 to screen; try `pet key type "a"` —
+1. Run a probe: tiny loop copying $97 to screen; try `c64 key type "a"` —
    if $97 stays $FF (buffered feed bypasses matrix), read the ROM decode
    table instead: disasm the IRQ scan path from ($90)=$E455 to find the
    table base, then locate offsets of PETSCII 'A','D',' ' in an 80-byte
-   `pet mem read` of the table.
+   `c64 mem read` of the table.
 2. Define KEY_A/KEY_D/KEY_SP constants; verify by poking $97 before
    frame-steps and watching the base move/fire.
 Held A/D move the base 1 cell every 3rd frame; SPACE fires when shotA==0.
@@ -243,7 +243,7 @@ Held A/D move the base 1 cell every 3rd frame; SPACE fires when shotA==0.
 
 ## Tasks
 
-Each task ends with the game assembling (`pet run` clean) and a
+Each task ends with the game assembling (`c64 run` clean) and a
 deterministic on-emulator verification. Commit nothing until the final
 docs task (all game files are gitignored anyway; the plan doc dir is
 local-only).
@@ -251,16 +251,16 @@ local-only).
 ### Task 1: Skeleton, HUD, playfield, shields, player draw
 Files: Create `demos/invaders/invaders.s`
 - [ ] SYS-stub skeleton, `cld`, cold-start init, clear screen ($93/CHROUT once — allowed, not hot path), draw HUD row 0, LIVES row 24, 4 shields, base; then a `tick` loop that only paces on $8F.
-- [ ] Verify: `pet run`, `pet wait --text "SCORE"`, `pet screen`; `pet mem get` shield cells == 160; base cells 108/98/123 at row 23.
+- [ ] Verify: `c64 run`, `c64 wait --text "SCORE"`, `c64 screen`; `c64 mem get` shield cells == 160; base cells 108/98/123 at row 23.
 
 ### Task 2: Input — key-code discovery + base movement
 - [ ] Discover KEY_A/KEY_D/KEY_SP per Input section (probe program or ROM table).
 - [ ] Base movement from $97 (left/right clamp 0..37), fire stub (records shotA).
-- [ ] Verify: `pet until tick`; loop { `pet mem write '$97' KEY_D`, `pet until tick --count 3` } → base cells shift right; same for A; space sets shotA.
+- [ ] Verify: `c64 until tick`; loop { `c64 mem write '$97' KEY_D`, `c64 until tick --count 3` } → base cells shift right; same for A; space sets shotA.
 
 ### Task 3: The march engine
 - [ ] Formation init (wave height formula), per-alien X/Y fill, march per the engine spec, animation frames, edge→drop+reverse, invasion detect.
-- [ ] Verify by frame-stepping: `pet until tick --count 55` → every alien moved 1 step; glyphs alternate on next sweep (mem read of a known cell); force edge (run sweeps) → formation drops one row and reverses (compare alienY dump before/after via `pet mem read alienY 55`).
+- [ ] Verify by frame-stepping: `c64 until tick --count 55` → every alien moved 1 step; glyphs alternate on next sweep (mem read of a known cell); force edge (run sweeps) → formation drops one row and reverses (compare alienY dump before/after via `c64 mem read alienY 55`).
 
 ### Task 4: Player shot, alien kills, scoring, wave advance
 - [ ] Shot fire/move/collisions (shield, alien, top), score += PTS, HUD digits, popup `*`, aliveN, wave-clear → wave 2 one row lower.
@@ -276,11 +276,11 @@ Files: Create `demos/invaders/invaders.s`
 
 ### Task 7: Sound driver
 - [ ] Driver + all 5 effects wired: heartbeat on sweep wrap, shot on fire, crunch on kill, rumble on death, warble while UFO.
-- [ ] Verify mid-heartbeat: `pet until tick` at a sweep boundary (step 55+ frames), then `pet mem read '$E848' 1` != 0, `$E84A` == pattern, `$E84B` == $10; after note ends $E848 == 0. Fire → different period visible. Death → pattern $6E while frozen.
+- [ ] Verify mid-heartbeat: `c64 until tick` at a sweep boundary (step 55+ frames), then `c64 mem read '$E848' 1` != 0, `$E84A` == pattern, `$E84B` == $10; after note ends $E848 == 0. Fire → different period visible. Death → pattern $6E while frozen.
 
 ### Task 8: Title screen + attract loop + hi-score persistence
 - [ ] Big-font title, advance table, PRESS ANY KEY (GETIN), game-over → title loop, hiscore survives (never re-zeroed after cold start), extra life at 1500.
-- [ ] Verify: title text via `pet wait --text "PRESS ANY KEY"` + `--png`; play game 1 to game over with score S>0 (harness-assisted), back on title/HUD `HI` shows S; game 2 HUD `HI` == S; poke score=149, kill a 10-pointer → lives++ on HUD.
+- [ ] Verify: title text via `c64 wait --text "PRESS ANY KEY"` + `--png`; play game 1 to game over with score S>0 (harness-assisted), back on title/HUD `HI` shows S; game 2 HUD `HI` == S; poke score=149, kill a 10-pointer → lives++ on HUD.
 
 ### Task 9: Iteration loop (spec's Evaluate → Review → Improve → Re-verify)
 - [ ] Iteration 1 audit: walk EVERY spec bullet, PASS/FAIL from the running game only; log to `demos/invaders/AUDIT.md`.
@@ -288,13 +288,13 @@ Files: Create `demos/invaders/invaders.s`
 - [ ] Fix every FAIL + finding; re-verify each in the running game; repeat cycles until an iteration is all-PASS with an empty review. Document any hardware-impossibility FAILs (expected: two-frame sprite art → single chars, one voice → priority ducking, 4-digit score granularity).
 
 ### Task 10: Package + evidence bundle + docs + commit
-- [ ] `pet package invaders.s -o invaders.d64 --title "INVADERS"`; `pet disk ls` shows autostart file; boot the .d64 in a fresh session (`pet session start --warp --headless --disk` or `pet disk boot`) → title appears (final proof).
+- [ ] `c64 package invaders.s -o invaders.d64 --title "INVADERS"`; `c64 disk ls` shows autostart file; boot the .d64 in a fresh session (`c64 session start --warp --headless --disk` or `c64 disk boot`) → title appears (final proof).
 - [ ] Save evidence PNGs (title, march, shields eroding, 3 bombs, UFO, wave 2, game over, hi-score game 2) under `demos/invaders/evidence/`.
 - [ ] Update `demos/06-invaders-asm.md` header → `*(dogfooded 2026-07-11 — first-try pass)*` (only if true) and `demos/README.md` row 06 → ✅ passed; commit docs only.
-- [ ] `pet session stop`; check `pgrep -fl xpet` for leaks.
+- [ ] `c64 session stop`; check `pgrep -fl x64sc` for leaks.
 
 ## Self-review notes
 
 - Spec bullets ↔ tasks: Formation/march → T3; player/lives/extra life → T2/T5/T8; bombs → T5; shields → T1/T4/T5; UFO+secret → T6; waves → T4/T8 (wave-10 reset is the height formula, audit by poking wave=9 pre-clear); HUD → T1/T4; title → T8; sound → T7; performance rules → T1 (pacing), T9 (cycle counts); proof protocol → T9 evidence; packaging → T10. No gaps.
 - The one-tick-per-sweep-wrap bookkeeping (no alien moves on the wrap tick) is intentional and documented; with 1 alien alive the alien still moves every other tick → frantic. Audit will judge feel; if too slow at 55 or absurd at 1, tune only global tempo (constant divisor), never a per-count speed table.
-- pet screen text hides blocks (160→blank, graphics→`·`): all graphics verification asserts screen CODES via `pet mem get`/`read`, PNGs for humans.
+- c64 screen text hides blocks (160→blank, graphics→`·`): all graphics verification asserts screen CODES via `c64 mem get`/`read`, PNGs for humans.

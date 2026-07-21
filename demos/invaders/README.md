@@ -1,7 +1,7 @@
 # Invaders — Space Invaders for the Commodore PET 4032
 
 A from-scratch Space Invaders recreation in pure 6502 assembly for a PET 4032
-(40×25 screen, one CB2 sound voice), written and verified with the `pet`
+(40×25 screen, one CB2 sound voice), written and verified with the `c64`
 toolset. This is **demo 06** — the flagship dogfood; see
 [`AUDIT.md`](AUDIT.md) for the fidelity log (every feature confirmed on the
 running machine, not inferred from source).
@@ -17,10 +17,10 @@ CB2 sound.
 | File | What it is |
 |------|------------|
 | `invaders.d64` | **The shareable disk image.** Its first (and only) file is the program — this is what you hand to anyone with VICE. |
-| `invaders.prg` | The assembled program: a BASIC `SYS 1037` stub plus the machine code, load address `$0401`. Runs directly (`xpet invaders.prg`). |
+| `invaders.prg` | The assembled program: a BASIC `SYS 1037` stub plus the machine code, load address `$0401`. Runs directly (`x64sc invaders.prg`). |
 | `invaders.s` | The 6502 assembly source (ca65 syntax). |
-| `invaders.lbl` | VICE label file (symbols) emitted by `pet build` — used for symbolic debugging (`pet break add tick`, `pet until tick`, …). |
-| `invaders-test.yaml` | A deterministic `pet test` smoke test (title → start → held-key steering, frame-stepped). Run: `pet test run demos/invaders/invaders-test.yaml`. |
+| `invaders.lbl` | VICE label file (symbols) emitted by `c64 build` — used for symbolic debugging (`c64 break add tick`, `c64 until tick`, …). |
+| `invaders-test.yaml` | A deterministic `c64 test` smoke test (title → start → held-key steering, frame-stepped). Run: `c64 test run demos/invaders/invaders-test.yaml`. |
 | `AUDIT.md` | The fidelity audit — each spec bullet with its evidence from the live game. |
 | `evidence/` | Screenshots captured from the running game (title, march frames, shields eroding, UFO, bombs, attract loop). |
 | `plans/` | The implementation plan the demo was built from. |
@@ -28,12 +28,12 @@ CB2 sound.
 ## Running the `.d64`
 
 The disk image is self-contained — the recipient only needs **VICE** installed
-(`xpet` on the PATH); nothing from this toolset is required to play.
+(`x64sc` on the PATH); nothing from this toolset is required to play.
 
 **Quickest — boot and autostart:**
 
 ```sh
-xpet -model 4032 invaders.d64
+x64sc -model 4032 invaders.d64
 ```
 
 VICE smart-attaches the image and runs the first program. (You can also do
@@ -47,20 +47,20 @@ LOAD"INVADERS",8
 RUN
 ```
 
-**With the `pet` toolset** (from the repo root), on a running session:
+**With the `c64` toolset** (from the repo root), on a running session:
 
 ```sh
-pet session start
-pet disk boot demos/invaders/invaders.d64   # attaches + LOAD + RUN
-pet screen                                  # watch it
+c64 session start
+c64 disk boot demos/invaders/invaders.d64   # attaches + LOAD + RUN
+c64 screen                                  # watch it
 ```
 
 Or skip the disk and run the source or program directly:
 
 ```sh
-pet run demos/invaders/invaders.s     # assembles, loads, runs
+c64 run demos/invaders/invaders.s     # assembles, loads, runs
 # or
-xpet -model 4032 invaders.prg         # the bare program, no disk
+x64sc -model 4032 invaders.prg         # the bare program, no disk
 ```
 
 ## Controls

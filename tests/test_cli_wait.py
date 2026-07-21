@@ -3,14 +3,14 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from petlib.cli import main
-from petlib.monitor import StopInfo
-from petlib.protocol import CP_EXEC, Checkpoint
+from c64lib.cli import main
+from c64lib.monitor import StopInfo
+from c64lib.protocol import CP_EXEC, Checkpoint
 
 
 def _fake(labels=None):
     fake = Mock()
-    fake.name, fake.model, fake.labels = "pet4032", "pet4032", labels
+    fake.name, fake.model, fake.labels = "c64", "c64", labels
     fake.profile.screen_cols = 40
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -20,7 +20,7 @@ def _fake(labels=None):
 
 def test_wait_requires_exactly_one_condition():
     fake, _ = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait"])
         r2 = CliRunner().invoke(main, ["--json", "wait", "--text", "X", "--break"])
@@ -29,8 +29,8 @@ def test_wait_requires_exactly_one_condition():
 
 def test_wait_text_fires():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.ops.read_screen_text", side_effect=["LOADING", "READY."]):
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.ops.read_screen_text", side_effect=["LOADING", "READY."]):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--text", "READY.", "--timeout", "5"])
     assert r.exit_code == 0, r.output
@@ -41,9 +41,9 @@ def test_wait_text_fires():
 
 def test_wait_text_timeout_includes_screen():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.ops.read_screen_text", return_value="STUCK"), \
-         patch("petlib.ops.time.sleep"):
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.ops.read_screen_text", return_value="STUCK"), \
+         patch("c64lib.ops.time.sleep"):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--text", "NEVER", "--timeout", "0.5"])
     assert r.exit_code == 1
@@ -53,7 +53,7 @@ def test_wait_text_timeout_includes_screen():
 def test_wait_mem_fires():
     fake, mon = _fake()
     mon.memory_read.side_effect = [b"\x00", b"\x2a"]
-    with patch("petlib.cli.Session") as S, patch("petlib.ops.time.sleep"):
+    with patch("c64lib.cli.Session") as S, patch("c64lib.ops.time.sleep"):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--mem", "$1000=42", "--timeout", "5"])
     assert r.exit_code == 0, r.output
@@ -69,7 +69,7 @@ def test_wait_break_already_hit_returns_immediately(tmp_path):
         op=CP_EXEC, temporary=False, hit_count=1, ignore_count=0,
         has_condition=False, memspace=0)]
     mon.registers.return_value = {"PC": 0x040D}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--break"])
     assert r.exit_code == 0, r.output
@@ -84,7 +84,7 @@ def test_wait_break_listens_for_stop():
     mon.checkpoint_list.return_value = []
     mon.wait_for_stop.return_value = StopInfo(pc=0x1234, checkpoint=7)
     mon.registers.return_value = {"PC": 0x1234}
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--break", "--timeout", "3"])
     assert r.exit_code == 0, r.output
@@ -95,8 +95,8 @@ def test_wait_break_listens_for_stop():
 
 def test_wait_text_timeout_shows_last_screen():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.wait_for_text",
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_text",
                return_value={"fired": None, "timeout": 0.1, "screen": "READY."}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["wait", "--text", "NEVER", "--timeout", "0.1"])
@@ -105,7 +105,7 @@ def test_wait_text_timeout_shows_last_screen():
 
 def test_wait_mem_malformed_condition():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         # valid addr, missing =VALUE -> the "use ADDR=VALUE" branch
         r = CliRunner().invoke(main, ["wait", "--mem", "$8000"])
@@ -114,8 +114,8 @@ def test_wait_mem_malformed_condition():
 
 def test_wait_mem_timeout():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.wait_for_mem",
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_mem",
                return_value={"fired": None, "timeout": 0.1, "last_value": 7}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["wait", "--mem", "$8000=42", "--timeout", "0.1"])
@@ -124,8 +124,8 @@ def test_wait_mem_timeout():
 
 def test_wait_break_timeout_says_machine_running():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.wait_for_break", return_value={"fired": None}):
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_break", return_value={"fired": None}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--break",
                                       "--timeout", "0.1"])
@@ -137,8 +137,8 @@ def test_wait_break_timeout_says_machine_running():
 
 def test_wait_text_timeout_carries_machine_field():
     fake, mon = _fake()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.wait_for_text",
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_text",
                return_value={"fired": None, "timeout": 0.1, "screen": "READY."}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--text", "X",
@@ -151,8 +151,8 @@ def test_wait_break_with_id_filter():
     fake, _ = _fake()
     fired = {"fired": "break", "checkpoint": 4, "pc": 0x040D,
              "registers": {"PC": 0x040D}, "elapsed": 0.1}
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.wait_for_break", return_value=fired) as w:
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_break", return_value=fired) as w:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--break", "4"])
     assert r.exit_code == 0, r.output
@@ -164,8 +164,8 @@ def test_wait_break_bare_still_works():
     fake, _ = _fake()
     fired = {"fired": "break", "checkpoint": 1, "pc": 0x040D,
              "registers": {"PC": 0x040D}, "elapsed": 0.1}
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.wait_for_break", return_value=fired) as w:
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_break", return_value=fired) as w:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--break"])
     assert r.exit_code == 0, r.output
@@ -174,7 +174,7 @@ def test_wait_break_bare_still_works():
 
 def test_wait_break_non_numeric_id_fails_cleanly():
     fake, _ = _fake()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--break", "abc"])
     assert r.exit_code == 1

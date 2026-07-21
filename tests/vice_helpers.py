@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from petlib.screen import read_screen_text
+from c64lib.screen import read_screen_text
 
 
 def wait_for_text(session, needle, timeout=30.0):

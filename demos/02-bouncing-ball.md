@@ -2,11 +2,11 @@
 
 Paste this prompt into your agent:
 
-> Using the pet CLI (see skills/pet-development/SKILL.md and docs/cli.md),
+> Using the c64 CLI (see skills/pet-development/SKILL.md and docs/cli.md),
 > write a Commodore BASIC program for a PET 4032 that animates a ball (`O`)
 > bouncing around the 40×25 screen by poking screen memory at $8000, leaving
 > a border drawn around the screen edge. Let it run for a while, take a
-> screenshot with `pet screen --png ball.png`, and show me the screen text
+> screenshot with `c64 screen --png ball.png`, and show me the screen text
 > too.
 
 **What success looks like:** the agent works out screen-memory addressing

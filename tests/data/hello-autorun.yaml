@@ -1,5 +1,5 @@
 name: hello-autorun
-machine: pet4032
+machine: c64
 program: ../programs/hello-basic/program.bas
 timeout: 30
 steps:

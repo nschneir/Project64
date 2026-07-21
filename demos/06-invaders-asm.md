@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the pet CLI (see skills/pet-development/SKILL.md, the 6502-assembly
+> Using the c64 CLI (see skills/pet-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build the closest recreation of the 1978 arcade
 > Space Invaders that a PET 4032 can express — pure 6502 assembly with a
 > BASIC SYS stub, fitting comfortably in 32K, drawing directly to screen
@@ -90,9 +90,9 @@ Paste this prompt into your agent:
 >
 > **Prove it deterministically.** The machine runs far faster than real
 > time, so drive it like the debugger demo: inject buffered keys with
-> `pet key type`, hold a key by writing its key code to $97 with
-> `pet mem write` before each step (the IRQ scanner rewrites $97 every
-> tick, so re-poke it each frame), and step the game with `pet until` on
+> `c64 key type`, hold a key by writing its key code to $97 with
+> `c64 mem write` before each step (the IRQ scanner rewrites $97 every
+> tick, so re-poke it each frame), and step the game with `c64 until` on
 > your per-tick label, reading the screen between frames. Show me: the title
 > screen; the formation marching and animating; a shield eroding; bombs
 > of different flavours in flight; the UFO crossing; the CB2 registers
@@ -101,9 +101,9 @@ Paste this prompt into your agent:
 > HI-SCORE is the first game's final score.
 >
 > **Ship it.** When everything passes, package the game so anyone with
-> stock VICE can play it: `pet package` your source into
+> stock VICE can play it: `c64 package` your source into
 > `invaders.d64` with `--title "INVADERS"` (the `.prg` lands
-> beside it), and tell the user to run `xpet -model 4032 invaders.d64` —
+> beside it), and tell the user to run `x64sc -model 4032 invaders.d64` —
 > the model flag matters: $97 holds decoded PETSCII on the BASIC 4
 > machines, but a raw matrix index on BASIC 2, so a stock-default model
 > can leave the controls dead. On a real keyboard, the $97 scan then

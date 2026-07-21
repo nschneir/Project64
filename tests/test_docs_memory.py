@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from petlib.session import Session
-from petlib.text import ascii_to_petscii
+from c64lib.session import Session
+from c64lib.text import ascii_to_petscii
 from tests.vice_helpers import wait_for_text
 
 REF = Path("skills/pet-development/references")
@@ -23,12 +23,12 @@ def test_docs_exist_and_state_vectors():
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed",
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
 def test_zero_page_chain_and_vectors_live(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="zp", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="zp", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
         with s.monitor() as mon:
@@ -55,8 +55,8 @@ def test_zero_page_chain_and_vectors_live(tmp_path, monkeypatch):
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed",
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
 def test_book_sourced_facts_live(tmp_path, monkeypatch):
     """Assert the West-sourced BASIC 4 facts in the reference docs against a
@@ -64,8 +64,8 @@ def test_book_sourced_facts_live(tmp_path, monkeypatch):
     hardware vector targets, and a kernal jump-table target."""
     import time
 
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="facts", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="facts", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
         with s.monitor() as mon:
@@ -99,14 +99,14 @@ def test_book_sourced_facts_live(tmp_path, monkeypatch):
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed",
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
 def test_basic1_jiffy_clock_location_live(tmp_path, monkeypatch):
     """BASIC 1 (pet2001) keeps TI at $0200-$0202, not $8D (doc: zero-page.md)."""
     import time
 
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     s = Session.launch(model="pet2001", name="b1", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
@@ -130,10 +130,10 @@ def test_basic1_jiffy_clock_location_live(tmp_path, monkeypatch):
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed",
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
-@pytest.mark.parametrize("model", ["pet4032", "pet8032"])
+@pytest.mark.parametrize("model", ["c64", "pet8032"])
 def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
     """The bytes zero-page.md names as free for user ML pointers really do
     survive heavy BASIC activity."""
@@ -145,7 +145,7 @@ def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
     lo, hi = int(row.group(1), 16), int(row.group(2), 16)
     claimed = list(range(lo, hi + 1))
 
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     s = Session.launch(model=model, name=f"zp-{model}", headless=True,
                        warp=True)
     try:
@@ -187,8 +187,8 @@ def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed",
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
 @pytest.mark.parametrize("model,sta97,table_load", [
     # zero-page.md's $97 claim: BASIC 4's scanner stores decoded PETSCII
@@ -196,12 +196,12 @@ def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
     # $E73E); BASIC 2's stores the raw matrix index (table at $E6F7 feeds
     # only the keyboard buffer). Pin the documented scanner addresses so
     # ROM-set drift can't silently invalidate the doc.
-    ("pet4032", 0xE556, (0xBD, 0x3E, 0xE7)),   # lda $E73E,x in the scan loop
+    ("c64", 0xE556, (0xBD, 0x3E, 0xE7)),   # lda $E73E,x in the scan loop
     ("pet3032", 0xE6C8, (0xBD, 0xF7, 0xE6)),   # lda $E6F7,x AFTER the store
 ])
 def test_keydown_97_scanner_addresses_live(tmp_path, monkeypatch, model,
                                            sta97, table_load):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     s = Session.launch(model=model, name=f"kd-{model}", headless=True,
                        warp=True)
     try:

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from petlib.romdoc import rom_labels
-from petlib.text import screen_code_to_char
+from c64lib.romdoc import rom_labels
+from c64lib.text import screen_code_to_char
 
 REF = Path("skills/pet-development/references")
 
@@ -40,7 +40,7 @@ def test_token_values_against_real_petcat(tmp_path):
         assert bytes([val]) in data, f"token {kw}=${val:02x} absent from tokenized probe"
 
 
-def test_petscii_doc_matches_petlib():
+def test_petscii_doc_matches_c64lib():
     doc = (REF / "petscii.md").read_text()
     assert "@ABCDEFGHIJKLMNOPQRSTUVWXYZ" in doc.replace(" ", "")
     # spot-check the doc's stated mapping against the code's ground truth

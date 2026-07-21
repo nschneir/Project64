@@ -1,8 +1,8 @@
-"""MCP server exposing pet-tools to MCP-native AI clients (spec §3.3).
+"""MCP server exposing c64-tools to MCP-native AI clients (spec §3.3).
 
-Thin wrappers over the same petlib operations the CLI uses; CLI and MCP are
+Thin wrappers over the same c64lib operations the CLI uses; CLI and MCP are
 interchangeable against the same session registry. Tools return the same
-structured data as the CLI's --json. Raised petlib exceptions surface as MCP
+structured data as the CLI's --json. Raised c64lib exceptions surface as MCP
 tool errors with their actionable messages intact.
 """
 
@@ -43,7 +43,7 @@ from .symbols import format_addr
 from .testing import load_test, program_test, run_test
 from .text import ascii_to_petscii
 
-srv = FastMCP("pet-tools")
+srv = FastMCP("c64-tools")
 
 
 def _attach(session: str | None = None) -> Session:
@@ -59,8 +59,8 @@ def _ref(s, ref, labels=None):
 
 
 @srv.tool()
-def pet_session_list() -> dict:
-    """List running emulated PET sessions (name, model, pid, monitor port)."""
+def c64_session_list() -> dict:
+    """List running emulated C64 sessions (name, model, pid, monitor port)."""
     return {"sessions": [
         {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port}
         for s in Session.list_all()
@@ -68,19 +68,19 @@ def pet_session_list() -> dict:
 
 
 @srv.tool()
-def pet_session_start(model: str = "pet4032", name: str | None = None,
+def c64_session_start(model: str = "c64", name: str | None = None,
                       disk: str | None = None) -> dict:
-    """Boot a fresh emulated PET (headless, warp). Models: pet2001-4k,
-    pet2001, pet3032, pet4032, pet8032, pet8296. Optionally attach a
-    d64/d80/d82 disk image."""
+    """Boot a fresh emulated C64 (headless, warp). Models: c64 (NTSC,
+    the default) or c64pal. Optionally attach a d64/d71/d81 disk
+    image."""
     s = Session.launch(model=model, name=name, headless=True, warp=True,
                        disk8=disk)
     return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port}
 
 
 @srv.tool()
-def pet_session_ensure(model: str = "pet4032", name: str | None = None) -> dict:
-    """Attach to a running PET session, or boot one (headless, warp) if
+def c64_session_ensure(model: str = "c64", name: str | None = None) -> dict:
+    """Attach to a running C64 session, or boot one (headless, warp) if
     none exists. Idempotent; "started" reports which happened."""
     s, started = Session.ensure(model=model, name=name, headless=True, warp=True)
     return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
@@ -88,16 +88,16 @@ def pet_session_ensure(model: str = "pet4032", name: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_session_stop(name: str | None = None) -> dict:
-    """Stop a running PET session (the only one if name is omitted)."""
+def c64_session_stop(name: str | None = None) -> dict:
+    """Stop a running C64 session (the only one if name is omitted)."""
     s = Session.attach(name)
     s.stop()
     return {"stopped": s.name}
 
 
 @srv.tool()
-def pet_session_reset(hard: bool = False, session: str | None = None) -> dict:
-    """Reset the PET (soft, or hard power-cycle). Leaves the machine running."""
+def c64_session_reset(hard: bool = False, session: str | None = None) -> dict:
+    """Reset the C64 (soft, or hard power-cycle). Leaves the machine running."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
@@ -108,7 +108,7 @@ def pet_session_reset(hard: bool = False, session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_status(session: str | None = None) -> dict:  # noqa: D401
+def c64_status(session: str | None = None) -> dict:  # noqa: D401
     """The session and whether the machine is running or stopped right now.
     state is answered by the session daemon's own tracking (no emulator
     traffic); "unknown" without a daemon. Also reports the loaded program
@@ -121,9 +121,9 @@ def pet_status(session: str | None = None) -> dict:  # noqa: D401
 
 
 @srv.tool()
-def pet_screen_text(session: str | None = None, style: str = "unicode",
+def c64_screen_text(session: str | None = None, style: str = "unicode",
                     ansi_reverse: bool = False) -> dict:
-    """Read the PET screen as plain text. This is the PREFERRED way to see
+    """Read the C64 screen as plain text. This is the PREFERRED way to see
     program output — faster and more reliable than screenshots for AI use.
     Graphics decode to Unicode glyphs; style="ascii" restores the legacy
     conservative mapping."""
@@ -137,7 +137,7 @@ def pet_screen_text(session: str | None = None, style: str = "unicode",
 
 
 @srv.tool()
-def pet_screen_codes(session: str | None = None) -> dict:
+def c64_screen_codes(session: str | None = None) -> dict:
     """Read the raw screen-code matrix (rows x cols of ints) — exact
     values for checking glyphs without decoding ambiguity."""
     s = _attach(session)
@@ -150,10 +150,10 @@ def pet_screen_codes(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_screenshot(path: str, session: str | None = None, scale: int = 1) -> dict:
-    """Save a PNG screenshot. Prefer pet_screen_text for reading output;
+def c64_screenshot(path: str, session: str | None = None, scale: int = 1) -> dict:
+    """Save a PNG screenshot. Prefer c64_screen_text for reading output;
     use this only when pixel-level appearance matters. scale gives an
-    integer nearest-neighbour upscale (small PET screens read better at 2-3x)."""
+    integer nearest-neighbour upscale (small C64 screens read better at 2-3x)."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
@@ -164,7 +164,7 @@ def pet_screenshot(path: str, session: str | None = None, scale: int = 1) -> dic
 
 
 @srv.tool()
-def pet_mem_read(addr: str, length: int = 256, session: str | None = None) -> dict:
+def c64_mem_read(addr: str, length: int = 256, session: str | None = None) -> dict:
     """Read emulated memory. addr accepts $hex, 0xhex, decimal, or a symbol
     from the loaded label file. Returns hex-encoded bytes plus "bytes" as a
     decimal int array."""
@@ -180,7 +180,7 @@ def pet_mem_read(addr: str, length: int = 256, session: str | None = None) -> di
 
 
 @srv.tool()
-def pet_mem_find(values: list[str], start: str = "$0000",
+def c64_mem_find(values: list[str], start: str = "$0000",
                  length: int = 0x10000, limit: int = 256,
                  session: str | None = None) -> dict:
     """Search memory for a byte pattern (values: one or more $hex/decimal
@@ -201,7 +201,7 @@ def pet_mem_find(values: list[str], start: str = "$0000",
 
 
 @srv.tool()
-def pet_mem_write(addr: str, values: list[int], session: str | None = None) -> dict:
+def c64_mem_write(addr: str, values: list[int], session: str | None = None) -> dict:
     """Write bytes to emulated memory. addr accepts $hex/0xhex/decimal/symbol."""
     s = _attach(session)
     a = _ref(s, addr)
@@ -214,7 +214,7 @@ def pet_mem_write(addr: str, values: list[int], session: str | None = None) -> d
 
 
 @srv.tool()
-def pet_reg_get(session: str | None = None) -> dict:
+def c64_reg_get(session: str | None = None) -> dict:
     """Read CPU registers. PC is annotated with the nearest symbol when a
     label file is loaded."""
     s = _attach(session)
@@ -228,7 +228,7 @@ def pet_reg_get(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_reg_set(name: str, value: str, session: str | None = None) -> dict:
+def c64_reg_set(name: str, value: str, session: str | None = None) -> dict:
     """Set a CPU register (e.g. PC, A, X, Y). value accepts $hex/0xhex/decimal."""
     s = _attach(session)
     v = parse_number(value)
@@ -241,10 +241,10 @@ def pet_reg_set(name: str, value: str, session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_break_add(ref: str, condition: str | None = None,
+def c64_break_add(ref: str, condition: str | None = None,
                   temporary: bool = False, session: str | None = None) -> dict:
     """Set a breakpoint at an address or symbol. Machine keeps running;
-    use pet_wait_break to block until it fires."""
+    use c64_wait_break to block until it fires."""
     s = _attach(session)
     labels = session_labels(s)
     addr = _ref(s, ref, labels)
@@ -260,7 +260,7 @@ def pet_break_add(ref: str, condition: str | None = None,
 
 
 @srv.tool()
-def pet_break_list(session: str | None = None) -> dict:
+def c64_break_list(session: str | None = None) -> dict:
     """List breakpoints/watchpoints with hit counts."""
     s = _attach(session)
     labels = session_labels(s)
@@ -278,7 +278,7 @@ def pet_break_list(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_break_remove(checkpoint_id: int, session: str | None = None) -> dict:
+def c64_break_remove(checkpoint_id: int, session: str | None = None) -> dict:
     """Remove a breakpoint/watchpoint by id."""
     s = _attach(session)
     with s.monitor() as mon:
@@ -290,9 +290,9 @@ def pet_break_remove(checkpoint_id: int, session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_break_clear(session: str | None = None) -> dict:
+def c64_break_clear(session: str | None = None) -> dict:
     """Remove ALL breakpoints (exec checkpoints); watchpoints are kept.
-    Checkpoints persist across pet_run/rebuilds — clear stale ones or
+    Checkpoints persist across c64_run/rebuilds — clear stale ones or
     duplicates accumulate."""
     s = _attach(session)
     with s.monitor() as mon:
@@ -304,7 +304,7 @@ def pet_break_clear(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_watch_clear(session: str | None = None) -> dict:
+def c64_watch_clear(session: str | None = None) -> dict:
     """Remove ALL watchpoints (load/store checkpoints); breakpoints are kept."""
     s = _attach(session)
     with s.monitor() as mon:
@@ -317,7 +317,7 @@ def pet_watch_clear(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_watch_add(ref: str, on_load: bool = False, on_store: bool = False,
+def c64_watch_add(ref: str, on_load: bool = False, on_store: bool = False,
                   length: int = 1, session: str | None = None) -> dict:
     """Set a watchpoint on a memory range (default: both load and store)."""
     s = _attach(session)
@@ -340,9 +340,9 @@ def _stopped_regs(s, regs: dict) -> dict:
 
 
 @srv.tool()
-def pet_step(count: int = 1, over: bool = False, session: str | None = None) -> dict:
+def c64_step(count: int = 1, over: bool = False, session: str | None = None) -> dict:
     """Execute N instructions. The machine STAYS STOPPED afterwards; use
-    pet_continue to resume."""
+    c64_continue to resume."""
     s = _attach(session)
     with s.monitor() as mon:
         regs = mon.step(count, over=over)
@@ -350,7 +350,7 @@ def pet_step(count: int = 1, over: bool = False, session: str | None = None) -> 
 
 
 @srv.tool()
-def pet_finish(session: str | None = None) -> dict:
+def c64_finish(session: str | None = None) -> dict:
     """Run until the current subroutine returns. Machine stays stopped."""
     s = _attach(session)
     with s.monitor() as mon:
@@ -359,7 +359,7 @@ def pet_finish(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_continue(session: str | None = None) -> dict:
+def c64_continue(session: str | None = None) -> dict:
     """Resume execution after a breakpoint/step."""
     s = _attach(session)
     with s.monitor() as mon:
@@ -368,7 +368,7 @@ def pet_continue(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_until(ref: str, timeout: float = 30.0, count: int = 1,
+def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
               session: str | None = None) -> dict:
     """Run until an address/symbol is executed count times; machine stays
     stopped there. count>1 = deterministic frame stepping on a loop label.
@@ -385,12 +385,12 @@ def pet_until(ref: str, timeout: float = 30.0, count: int = 1,
             f"{timeout}s — machine left RUNNING, checkpoint removed. If the "
             f"program can branch away from {where} (death, menu, pause), it "
             "may never be reached again; set a breakpoint at a code path "
-            "that must still execute and use pet_wait_break.")
+            "that must still execute and use c64_wait_break.")
     return {**_stopped_regs(s, out["registers"]), "count": count}
 
 
 @srv.tool()
-def pet_wait_text(text: str, timeout: float = 30.0,
+def c64_wait_text(text: str, timeout: float = 30.0,
                   session: str | None = None) -> dict:
     """Block until TEXT appears on the screen. A timeout returns
     {"fired": null, "screen": ...} (not an error) so you can inspect what
@@ -399,7 +399,7 @@ def pet_wait_text(text: str, timeout: float = 30.0,
 
 
 @srv.tool()
-def pet_wait_mem(addr: str, equals: str, timeout: float = 30.0,
+def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
                  session: str | None = None) -> dict:
     """Block until the byte at addr equals the value ($hex/decimal accepted)."""
     s = _attach(session)
@@ -408,7 +408,7 @@ def pet_wait_mem(addr: str, equals: str, timeout: float = 30.0,
 
 
 @srv.tool()
-def pet_call(routine: str, a: int | None = None, x: int | None = None,
+def c64_call(routine: str, a: int | None = None, x: int | None = None,
              y: int | None = None, timeout: float = 30.0,
              session: str | None = None) -> dict:
     """JSR one routine in isolation (fake return address on the stack,
@@ -424,7 +424,7 @@ def pet_call(routine: str, a: int | None = None, x: int | None = None,
 
 
 @srv.tool()
-def pet_wait_break(timeout: float = 30.0, session: str | None = None,
+def c64_wait_break(timeout: float = 30.0, session: str | None = None,
                    checkpoint_id: int | None = None) -> dict:
     """Block until a breakpoint/watchpoint fires; reports checkpoint id, PC,
     and registers. Machine is left stopped when it fires. On timeout the
@@ -440,7 +440,7 @@ def pet_wait_break(timeout: float = 30.0, session: str | None = None,
 
 
 @srv.tool()
-def pet_build(source: str, model: str = "pet4032") -> dict:
+def c64_build(source: str, model: str = "c64") -> dict:
     """Assemble 6502 source (ca65 syntax) to a .prg + VICE label file."""
     profile = get_profile(model)
     res = build_asm(Path(source), basic_start=profile.basic_start)
@@ -448,19 +448,19 @@ def pet_build(source: str, model: str = "pet4032") -> dict:
 
 
 @srv.tool()
-def pet_package(source: str, output: str | None = None, title: str | None = None,
-                model: str = "pet4032") -> dict:
+def c64_package(source: str, output: str | None = None, title: str | None = None,
+                model: str = "c64") -> dict:
     """Package a .s/.bas/.prg into an artifact any VICE user can run: a .prg,
-    or (when output ends in .d64/.d80/.d82) a disk image whose first file is
-    the program so `xpet out.d64` autostarts it. Returns the exact run
+    or (when output ends in .d64/.d71/.d81) a disk image whose first file is
+    the program so `x64sc out.d64` autostarts it. Returns the exact run
     command in "run"."""
     return package_program(Path(source), out=output, title=title, model=model)
 
 
 @srv.tool()
-def pet_run(source: str, session: str | None = None) -> dict:
+def c64_run(source: str, session: str | None = None) -> dict:
     """Build/tokenize a .bas/.s/.prg as needed, then load and RUN it on the
-    running PET. Registers assembly symbols on the session automatically."""
+    running C64. Registers assembly symbols on the session automatically."""
     s = _attach(session)
     src = Path(source).resolve()
     ext = src.suffix.lower()
@@ -488,7 +488,7 @@ def pet_run(source: str, session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_load(prg: str, run: bool = True, symbols: str | None = None,
+def c64_load(prg: str, run: bool = True, symbols: str | None = None,
              session: str | None = None) -> dict:
     """Load a .prg via autostart (optionally without RUN); optionally
     register a VICE label file for symbolic debugging."""
@@ -505,9 +505,9 @@ def pet_load(prg: str, run: bool = True, symbols: str | None = None,
 
 
 @srv.tool()
-def pet_basic_type(text: str, run: bool = False,
+def c64_basic_type(text: str, run: bool = False,
                    session: str | None = None) -> dict:
-    """Type BASIC program text into the running PET via the keyboard
+    """Type BASIC program text into the running C64 via the keyboard
     (keywords may be upper or lower case; each line ends with \\n).
     Set run=true to type RUN afterwards."""
     s = _attach(session)
@@ -525,16 +525,16 @@ def pet_basic_type(text: str, run: bool = False,
 
 
 @srv.tool()
-def pet_key_type(text: str, session: str | None = None) -> dict:
-    """Type text into the running PET's keyboard buffer (\\n = RETURN).
+def c64_key_type(text: str, session: str | None = None) -> dict:
+    """Type text into the running C64's keyboard buffer (\\n = RETURN).
     Buffered keys never touch the live key-down state — games reading $97
-    need pet_key_hold."""
+    need c64_key_hold."""
     s = _attach(session)
     return key_type(s, text)
 
 
 @srv.tool()
-def pet_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
+def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
                  session: str | None = None) -> dict:
     """Hold KEY down for N game ticks by re-poking $97 before each one,
     running to the frame anchor `at` (label or address executed once per
@@ -554,32 +554,32 @@ def pet_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
 
 
 @srv.tool()
-def pet_disk_create(image: str, label: str = "disk", disk_id: str = "00") -> dict:
-    """Create a blank d64/d80/d82 disk image."""
+def c64_disk_create(image: str, label: str = "disk", disk_id: str = "00") -> dict:
+    """Create a blank d64/d71/d81 disk image."""
     return {"image": str(create_image(Path(image), label=label, disk_id=disk_id))}
 
 
 @srv.tool()
-def pet_disk_ls(image: str) -> dict:
+def c64_disk_ls(image: str) -> dict:
     """List the directory of a disk image."""
     return list_files(Path(image))
 
 
 @srv.tool()
-def pet_disk_put(image: str, file: str, name: str | None = None) -> dict:
+def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
     """Copy a host file onto a disk image."""
     return {"image": image, "name": put_file(Path(image), Path(file), name)}
 
 
 @srv.tool()
-def pet_disk_get(image: str, name: str, dest: str) -> dict:
+def c64_disk_get(image: str, name: str, dest: str) -> dict:
     """Copy a file off a disk image to the host."""
     return {"dest": str(get_file(Path(image), name, Path(dest)))}
 
 
 @srv.tool()
-def pet_disk_boot(image: str, session: str | None = None) -> dict:
-    """Attach a disk image to the running PET and LOAD+RUN its first file."""
+def c64_disk_boot(image: str, session: str | None = None) -> dict:
+    """Attach a disk image to the running C64 and LOAD+RUN its first file."""
     s = _attach(session)
     p = Path(image).resolve()
     with s.monitor() as mon:
@@ -591,7 +591,7 @@ def pet_disk_boot(image: str, session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_rom_info(session: str | None = None) -> dict:
+def c64_rom_info(session: str | None = None) -> dict:
     """Identify the loaded ROM set (names + content hashes)."""
     s = _attach(session)
     with s.monitor() as mon:
@@ -602,7 +602,7 @@ def pet_rom_info(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def pet_rom_disasm(start: str, length: int = 32,
+def c64_rom_disasm(start: str, length: int = 32,
                    session: str | None = None) -> dict:
     """Disassemble live memory with ROM + session symbol annotations.
     start accepts $hex/0xhex/decimal or a symbol (e.g. CHROUT)."""
@@ -619,13 +619,13 @@ def pet_rom_disasm(start: str, length: int = 32,
 
 
 @srv.tool()
-def pet_test_run(yaml_file: str) -> dict:
-    """Run a declarative YAML test (boots its own fresh PET; see spec §8)."""
+def c64_test_run(yaml_file: str) -> dict:
+    """Run a declarative YAML test (boots its own fresh C64; see spec §8)."""
     return run_test(load_test(Path(yaml_file))).to_dict()
 
 
 @srv.tool()
-def pet_test_programs(directory: str = "tests/programs") -> dict:
+def c64_test_programs(directory: str = "tests/programs") -> dict:
     """Run every example-program directory (program + expect.txt) as a test."""
     results = [run_test(program_test(d))
                for d in sorted(Path(directory).iterdir())

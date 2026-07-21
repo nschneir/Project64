@@ -2,8 +2,8 @@ import struct
 
 import pytest
 
-from petlib.monitor import MonitorClient
-from petlib.protocol import (
+from c64lib.monitor import MonitorClient
+from c64lib.protocol import (
     Command,
     parse_display_get,
     parse_palette_get,

@@ -3,13 +3,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from petlib.testing import TestError, run_test
+from c64lib.testing import TestError, run_test
 
 
 def _fake_session():
     s = Mock()
-    s.profile.basic_version = "4.0"
-    s.profile.basic_start = 0x0401
+    s.profile.basic_version = "2.0"
+    s.profile.basic_start = 0x0801
     mon = Mock()
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
     s.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -17,7 +17,7 @@ def _fake_session():
 
 
 def _spec(**kw):
-    base = {"name": "t", "machine": "pet4032", "timeout": 2,
+    base = {"name": "t", "machine": "c64", "timeout": 2,
             "autorun": True, "steps": []}
     base.update(kw)
     return base
@@ -33,11 +33,11 @@ def test_happy_path_key_wait_assert(tmp_path):
         {"wait": {"text": "HELLO"}},
         {"assert": {"reg": "pc", "in_range": ["$C000", "$E000"]}},
     ])
-    with patch("petlib.testing.read_screen_text", side_effect=screens):
+    with patch("c64lib.testing.read_screen_text", side_effect=screens):
         result = run_test(spec, launch=launch)
     assert result.passed is True
     assert [st.ok for st in result.steps] == [True, True, True]
-    launch.assert_called_once_with(model="pet4032", name=result.session_name,
+    launch.assert_called_once_with(model="c64", name=result.session_name,
                                    headless=True, warp=True)
     mon.keyboard_feed.assert_called_once_with(b"RUN\r")
     s.stop.assert_called_once()
@@ -50,8 +50,8 @@ def test_poke_and_until_steps():
         {"poke": {"addr": "$97", "values": [68]}},
         {"until": {"ref": "$0419", "count": 3}},
     ])
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.run_until",
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.run_until",
                return_value={"registers": {"PC": 0x0419}, "reached": 3,
                              "count": 3}) as ru:
         result = run_test(spec, launch=launch)
@@ -64,8 +64,8 @@ def test_until_timeout_fails_step_with_progress():
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     spec = _spec(steps=[{"until": {"ref": "$0419", "count": 5, "timeout": 1}}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.run_until",
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.run_until",
                return_value={"registers": None, "reached": 2, "count": 5}):
         result = run_test(spec, launch=launch)
     assert result.passed is False
@@ -81,8 +81,8 @@ def test_fail_fast_captures_screen():
         {"wait": {"text": "NEVER", "timeout": 0.5}},
         {"key": "RUN\n"},          # must not execute
     ])
-    with patch("petlib.testing.read_screen_text", return_value="READY.\nNOPE"), \
-         patch("petlib.testing.time.sleep"):
+    with patch("c64lib.testing.read_screen_text", return_value="READY.\nNOPE"), \
+         patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
     assert result.passed is False
     assert len(result.steps) == 1 and result.steps[0].ok is False
@@ -97,7 +97,7 @@ def test_assert_mem_equals_text():
     # screen codes for "HI" are 8, 9
     mon.memory_read.return_value = bytes([8, 9])
     spec = _spec(steps=[{"assert": {"mem": "$8000", "equals_text": "HI"}}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
         result = run_test(spec, launch=launch)
     assert result.passed is True
     mon.memory_read.assert_called_with(0x8000, 2)
@@ -109,11 +109,11 @@ def test_program_bas_tokenized_and_autostarted(tmp_path):
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     spec = _spec(program=str(prog))
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.tokenize", return_value=tmp_path / "p.prg") as tok:
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.tokenize", return_value=tmp_path / "p.prg") as tok:
         result = run_test(spec, launch=launch)
     assert result.passed is True
-    tok.assert_called_once_with(prog, prog.with_suffix(".prg"), "4.0")
+    tok.assert_called_once_with(prog, prog.with_suffix(".prg"), "2.0")
     mon.autostart.assert_called_once_with((tmp_path / "p.prg").resolve(), run=True)
 
 
@@ -128,8 +128,8 @@ def test_autorun_false_waits_for_load(tmp_path):
                "DONE", "DONE"]
     spec = _spec(program=str(prog), autorun=False,
                  steps=[{"wait": {"text": "DONE"}}])
-    with patch("petlib.testing.read_screen_text", side_effect=screens), \
-         patch("petlib.testing.time.sleep"):
+    with patch("c64lib.testing.read_screen_text", side_effect=screens), \
+         patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
     assert result.passed is True
     mon.autostart.assert_called_once_with(prog.resolve(), run=False)
@@ -138,9 +138,9 @@ def test_autorun_false_waits_for_load(tmp_path):
 def test_boot_timeout_is_error():
     s, mon = _fake_session()
     launch = Mock(return_value=s)
-    with patch("petlib.testing.read_screen_text", return_value="GARBAGE"), \
-         patch("petlib.testing.time.sleep"), \
-         patch("petlib.testing.time.monotonic", side_effect=[i * 10.0 for i in range(100)]):
+    with patch("c64lib.testing.read_screen_text", return_value="GARBAGE"), \
+         patch("c64lib.testing.time.sleep"), \
+         patch("c64lib.testing.time.monotonic", side_effect=[i * 10.0 for i in range(100)]):
         with pytest.raises(TestError, match="READY"):
             run_test(_spec(), launch=launch)
     s.stop.assert_called_once()
@@ -151,8 +151,8 @@ def test_wait_mem_polls_until_value():
     launch = Mock(return_value=s)
     mon.memory_read.side_effect = [b"\x00", b"\x00", b"\x2a"]
     spec = _spec(steps=[{"wait": {"mem": "$8000", "equals": "$2a"}}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.time.sleep"):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
     assert result.passed is True
     assert mon.memory_read.call_count == 3
@@ -163,8 +163,8 @@ def test_wait_mem_timeout_reports_last_value():
     launch = Mock(return_value=s)
     mon.memory_read.return_value = b"\x07"
     spec = _spec(steps=[{"wait": {"mem": "$8000", "equals": "$2a", "timeout": 0.2}}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.time.sleep"):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
     assert result.passed is False
     assert "was 7" in result.steps[0].detail and "wanted 42" in result.steps[0].detail
@@ -175,7 +175,7 @@ def test_assert_reg_unknown_register_fails_cleanly():
     launch = Mock(return_value=s)
     mon.registers.return_value = {"PC": 0x1234, "A": 0}
     spec = _spec(steps=[{"assert": {"reg": "q", "equals": 1}}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
         result = run_test(spec, launch=launch)
     assert result.passed is False and "no register" in result.steps[0].detail
 
@@ -185,7 +185,7 @@ def test_assert_reg_in_range_fail_branch():
     launch = Mock(return_value=s)
     mon.registers.return_value = {"PC": 0xC500}
     spec = _spec(steps=[{"assert": {"reg": "pc", "in_range": ["$0400", "$0500"]}}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
         result = run_test(spec, launch=launch)
     assert result.passed is False and "not in" in result.steps[0].detail
 
@@ -196,9 +196,9 @@ def test_autorun_false_load_never_finishes():
     spec = _spec(autorun=False, timeout=0.2, program="whatever.prg", steps=[])
     # First _wait_screen (READY gate) passes; second (load gate) never does.
     # Patching _wait_screen directly avoids the 45s/15s real-time deadlines.
-    with patch("petlib.testing._wait_screen",
+    with patch("c64lib.testing._wait_screen",
                side_effect=[(True, "READY."), (False, "LOADING")]), \
-         patch("petlib.testing._prepare", return_value=(Path("x.prg"), None)), \
+         patch("c64lib.testing._prepare", return_value=(Path("x.prg"), None)), \
          pytest.raises(TestError, match="never finished loading"):
         run_test(spec, launch=launch)
 
@@ -214,8 +214,8 @@ def test_run_test_isolates_from_user_sessions():
         s, _ = _fake_session()
         return s
 
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.Session") as S:
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.Session") as S:
         r1 = run_test(_spec(), launch=launch)
         r2 = run_test(_spec(), launch=launch)
     S.attach.assert_not_called()
@@ -228,7 +228,7 @@ def _assert_step(mem_bytes, assert_arg):
     launch = Mock(return_value=s)
     mon.memory_read.return_value = mem_bytes
     spec = _spec(steps=[{"assert": assert_arg}])
-    with patch("petlib.testing.read_screen_text", return_value="READY."):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
         return run_test(spec, launch=launch)
 
 
@@ -284,9 +284,9 @@ def test_call_step_resolves_symbol_and_passes_registers(tmp_path):
     spec = _spec(program=str(prog), autorun=True,
                  steps=[{"call": {"routine": "sndinit", "a": 5, "x": 1}}])
     fired = {"fired": True, "registers": {"PC": 0x0400, "A": 5}, "trap": 0x0400}
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing._prepare", return_value=(prog, lbl)), \
-         patch("petlib.testing.call_routine", return_value=fired) as cr:
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._prepare", return_value=(prog, lbl)), \
+         patch("c64lib.testing.call_routine", return_value=fired) as cr:
         result = run_test(spec, launch=launch)
     assert result.passed is True, result.steps
     assert cr.call_args.args[1] == 0x2000
@@ -298,8 +298,8 @@ def test_call_step_timeout_fails_with_detail():
     launch = Mock(return_value=s)
     spec = _spec(steps=[{"call": {"routine": "$2000", "timeout": 1}}])
     out = {"fired": False, "registers": None, "trap": 0x0400}
-    with patch("petlib.testing.read_screen_text", return_value="READY."), \
-         patch("petlib.testing.call_routine", return_value=out):
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.call_routine", return_value=out):
         result = run_test(spec, launch=launch)
     assert result.passed is False
     assert "never returned" in result.steps[0].detail

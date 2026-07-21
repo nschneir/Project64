@@ -1,4 +1,4 @@
-"""Read the PET screen as text (via screen RAM) or as a PNG (via display get)."""
+"""Read the C64 screen as text (via screen RAM) or as a PNG (via display get)."""
 
 from __future__ import annotations
 

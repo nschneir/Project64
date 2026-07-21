@@ -3,9 +3,9 @@
 The kernal jump table at `$FFC0-$FFEA` is stable across all PET BASICs —
 call the `$FFxx` address and it JMPs into the version-specific ROM. Register
 conventions below are cross-checked against Programming the PET/CBM (West);
-the jump targets marked *(live)* are asserted against a running BASIC 4 xpet
+the jump targets marked *(live)* are asserted against a running BASIC 4 x64sc
 by `tests/test_docs_memory.py`. Disassemble anything yourself with
-`pet rom disasm NAME`.
+`c64 rom disasm NAME`.
 
 ## Kernal jump table
 

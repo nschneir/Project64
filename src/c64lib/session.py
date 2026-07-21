@@ -25,7 +25,7 @@ from .monitor import MonitorClient
 
 
 def sessions_dir() -> Path:
-    home = Path(os.environ.get("PET_TOOLS_HOME", "~/.pet-tools")).expanduser()
+    home = Path(os.environ.get("C64_TOOLS_HOME", "~/.c64-tools")).expanduser()
     d = home / "sessions"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -57,13 +57,13 @@ RESPAWN_WINDOW = 30.0
 
 def _default_socket_path(name: str) -> str:
     """Unix-socket path for a session's daemon. macOS caps sun_path at ~104
-    bytes; long PET_TOOLS_HOME values (pytest tmp dirs) fall back to a
+    bytes; long C64_TOOLS_HOME values (pytest tmp dirs) fall back to a
     hashed name under the system temp dir."""
     p = sessions_dir() / f"{name}.sock"
     if len(str(p).encode()) <= 100:
         return str(p)
     digest = hashlib.sha1(str(p).encode()).hexdigest()[:12]
-    return str(Path(tempfile.gettempdir()) / f"pet-{digest}.sock")
+    return str(Path(tempfile.gettempdir()) / f"c64-{digest}.sock")
 
 
 def _spawn_daemon(name: str, vice_port: int, sock_path: str) -> int:
@@ -72,7 +72,7 @@ def _spawn_daemon(name: str, vice_port: int, sock_path: str) -> int:
     log_path = sessions_dir() / f"{name}.daemon.log"
     with open(log_path, "ab") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "petlib.daemon", "--name", name,
+            [sys.executable, "-m", "c64lib.daemon", "--name", name,
              "--vice-port", str(vice_port), "--socket", sock_path],
             stdout=log, stderr=log, start_new_session=True,
         )
@@ -97,7 +97,7 @@ def _spawn_daemon(name: str, vice_port: int, sock_path: str) -> int:
 
 def _kill_proc(proc: subprocess.Popen) -> None:
     """Terminate a launched emulator and make sure it is actually gone —
-    SIGTERM, wait, then SIGKILL — so a failed launch never orphans an xpet."""
+    SIGTERM, wait, then SIGKILL — so a failed launch never orphans an x64sc."""
     proc.terminate()
     try:
         proc.wait(timeout=3)
@@ -169,7 +169,7 @@ class Session:
             raise SessionError(
                 f"session daemon for {self.name!r} crashed {RESPAWN_LIMIT} "
                 f"times in {RESPAWN_WINDOW:.0f}s; recover with: "
-                f"pet session stop {self.name} && pet session ensure --model {self.model}"
+                f"c64 session stop {self.name} && c64 session ensure --model {self.model}"
             )
 
     @staticmethod
@@ -194,7 +194,7 @@ class Session:
     @classmethod
     def launch(
         cls,
-        model: str = "pet4032",
+        model: str = "c64",
         name: str | None = None,
         headless: bool = False,
         warp: bool = False,
@@ -202,12 +202,12 @@ class Session:
         disk8: str | None = None,
     ) -> Session:
         profile = get_profile(model)
-        exe = binary or os.environ.get("PET_TOOLS_XPET") or shutil.which(profile.vice_emulator)
+        exe = binary or os.environ.get("C64_TOOLS_X64SC") or shutil.which(profile.vice_emulator)
         if not exe:
             raise SessionError(
                 f"{profile.vice_emulator} not found. Install VICE 3.5+ "
                 "(macOS: brew install vice; Debian/Ubuntu: apt install vice) "
-                "or set PET_TOOLS_XPET to the binary path."
+                "or set C64_TOOLS_X64SC to the binary path."
             )
         name = name or model
         if any(s.name == name for s in cls._load_all()):
@@ -220,7 +220,7 @@ class Session:
         if disk8:
             disk_path = Path(disk8).resolve()
             dtype = drive_type_for(disk_path)
-            if dtype != 2031:  # 2031 is xpet's default; d80/d82 need the switch
+            if dtype != 1541:  # 1541 is x64sc's default; d71/d81 need the switch
                 base_args += ["-drive8type", str(dtype)]
             base_args += ["-8", str(disk_path)]
         env = dict(os.environ)
@@ -228,11 +228,11 @@ class Session:
             env["SDL_VIDEODRIVER"] = "dummy"
             env["SDL_AUDIODRIVER"] = "dummy"
 
-        # A cold xpet under heavy system load can be slow to open its binary
+        # A cold x64sc under heavy system load can be slow to open its binary
         # monitor; retry with a fresh port so a transient slow start self-heals
         # instead of failing the whole operation (and never orphaning a proc).
-        attempts = int(os.environ.get("PET_TOOLS_LAUNCH_ATTEMPTS", "2"))
-        deadline = float(os.environ.get("PET_TOOLS_LAUNCH_DEADLINE", "20"))
+        attempts = int(os.environ.get("C64_TOOLS_LAUNCH_ATTEMPTS", "2"))
+        deadline = float(os.environ.get("C64_TOOLS_LAUNCH_DEADLINE", "20"))
         last_err: Exception | None = None
         for _ in range(max(1, attempts)):
             port = _free_port()
@@ -252,7 +252,7 @@ class Session:
                 _kill_proc(proc)
                 continue
             session = cls(name=name, pid=proc.pid, port=port, model=model)
-            if os.environ.get("PET_TOOLS_NO_DAEMON") != "1":
+            if os.environ.get("C64_TOOLS_NO_DAEMON") != "1":
                 sock_path = _default_socket_path(name)
                 try:
                     session.daemon_pid = _spawn_daemon(name, port, sock_path)
@@ -269,7 +269,7 @@ class Session:
         )
 
     @classmethod
-    def ensure(cls, model: str = "pet4032", name: str | None = None,
+    def ensure(cls, model: str = "c64", name: str | None = None,
                headless: bool = False, warp: bool = False) -> tuple[Session, bool]:
         """Attach to a running session, or launch one if absent.
 
@@ -290,11 +290,11 @@ class Session:
                 if s.name == name:
                     return s
             raise SessionError(
-                f"no session named {name!r}. Start one with: pet session start"
+                f"no session named {name!r}. Start one with: c64 session start"
             )
         if not live:
             raise SessionError(
-                "no PET session running. Start one with: pet session start --model pet4032"
+                "no C64 session running. Start one with: c64 session start"
             )
         if len(live) > 1:
             names = ", ".join(s.name for s in live)
@@ -306,12 +306,12 @@ class Session:
         return cls._load_all()
 
     def monitor(self):
-        if self.socket and os.environ.get("PET_TOOLS_NO_DAEMON") != "1":
+        if self.socket and os.environ.get("C64_TOOLS_NO_DAEMON") != "1":
             try:
                 return DaemonMonitorClient(self.socket)
             except (ConnectionError, OSError):
                 self._record_respawn_and_check()
-                print(f"pet: session daemon for {self.name!r} was down; "
+                print(f"c64: session daemon for {self.name!r} was down; "
                       f"respawning", file=sys.stderr)
                 self.daemon_pid = _spawn_daemon(self.name, self.port, self.socket)
                 self._save()

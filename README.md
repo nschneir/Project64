@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="img/logo.png" alt="PET Project logo" width="360">
+  <img src="img/logo.png" alt="Project64 logo" width="360">
 </p>
 
-# PET Project
+# Project64
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)
 ![Built with AI](https://img.shields.io/badge/built%20with-AI-green.svg)
 
-PET Project is a set of tools, skills, and an MCP to enable agentic Commodore
-PET coding and debugging using the VICE emulator.
+Project64 is a set of tools, skills, and an MCP to enable agentic Commodore
+64 coding and debugging using the VICE emulator.
 
-> The Python package is imported as `petlib`, installed as `pet-tools`, and
-> driven by the `pet` command-line tool.
+> The Python package is imported as `c64lib`, installed as `c64-tools`, and
+> driven by the `c64` command-line tool.
 
 ## Install
 
-Requires **Python 3.11+**, **VICE 3.5+** (provides `xpet` and `petcat`), and
+Requires **Python 3.11+**, **VICE 3.5+** (provides `x64sc` and `petcat`), and
 the **cc65** suite (`ca65`/`ld65`, for assembling 6502 programs). Then install
 this package.
 
@@ -33,47 +33,43 @@ Debian / Ubuntu:
 ## Quickstart
 
     pip install -e .
-    pet session start --model pet4032      # boot an emulated PET 4032
-    pet run tests/programs/hello-basic/program.bas   # tokenize + load + RUN
-    pet run tests/programs/hello-asm/program.s       # assemble + load + RUN (needs cc65)
-    pet screen                             # read the screen as text
-    pet basic type prog.bas --run          # type a program via the keyboard
-    pet mem read '$8000' 64                # hex dump of screen RAM
-    pet break add start                    # symbolic breakpoint (uses .lbl symbols)
-    pet wait --break                       # block until it fires
-    pet step 5 && pet reg                  # single-step, inspect (PC annotated)
-    pet continue                           # resume
-    pet disk create work.d64 && pet disk put work.d64 game.prg game
-    pet session start --disk work.d64      # boot with the disk attached
-    pet disk boot work.d64                 # or attach+run mid-session
-    pet rom info                           # identify the loaded ROM set
-    pet rom disasm CHROUT 16               # annotated live disassembly
-    pet session stop
+    c64 session start --model c64      # boot an emulated C64 (NTSC)
+    c64 run tests/programs/hello-basic/program.bas   # tokenize + load + RUN
+    c64 run tests/programs/hello-asm/program.s       # assemble + load + RUN (needs cc65)
+    c64 screen                             # read the screen as text
+    c64 basic type prog.bas --run          # type a program via the keyboard
+    c64 mem read '$0400' 64                # hex dump of screen RAM
+    c64 break add start                    # symbolic breakpoint (uses .lbl symbols)
+    c64 wait --break                       # block until it fires
+    c64 step 5 && c64 reg                  # single-step, inspect (PC annotated)
+    c64 continue                           # resume
+    c64 disk create work.d64 && c64 disk put work.d64 game.prg game
+    c64 session start --disk work.d64      # boot with the disk attached
+    c64 disk boot work.d64                 # or attach+run mid-session
+    c64 rom info                           # identify the loaded ROM set
+    c64 rom disasm CHROUT 16               # annotated live disassembly
+    c64 session stop
 
-    pet test run mytest.yaml               # declarative YAML test (format in docs/cli.md)
-    pet test programs                      # run every example program as a test
+    c64 test run mytest.yaml               # declarative YAML test (format in docs/cli.md)
+    c64 test programs                      # run every example program as a test
 
 Every command takes `--json` for machine-readable output — the intended
 interface for AI agents.
 
 ## Supported machines
 
-Every session boots a specific PET (`--model`, default `pet4032`). Pick by
-what you want to target — and tell your AI agent things like *"make it fit
-on a 4K PET"* or *"use the pet8032's 80-column screen"*:
+Every session boots a Commodore 64 (`--model`, default `c64`). The two
+profiles differ only in video standard — pick PAL when timing against
+50 Hz software:
 
 | Model | RAM | Free at boot | BASIC | Screen | Notes |
 |-------|-----|--------------|-------|--------|-------|
-| `pet2001-4k` | 4 KB | 3071 bytes | 1.0 | 40×25 | The entry-level 1977 config (PET 2001-4) — the tightest target. |
-| `pet2001` | 8 KB | 7167 bytes | 1.0 | 40×25 | The 8 KB original (2001-8). Different zero page (jiffy clock at $0200), no disk commands in BASIC. |
-| `pet3032` | 32 KB | 31743 bytes | 2.0 | 40×25 | The BASIC most 6502 books target. |
-| `pet4032` | 32 KB | 31743 bytes | 4.0 | 40×25 | **The default.** Disk commands in BASIC (`DLOAD` etc.); what the demos use. |
-| `pet8032` | 32 KB | 31743 bytes | 4.0 | 80×25 | The 80-column business machine. Screen math changes: a row is 80 bytes. |
-| `pet8296` | 128 KB | 31743 bytes | 4.0 | 80×25 | Banked RAM — BASIC still sees 32 KB; the rest needs bank switching. |
+| `c64` | 64 KB | 38911 bytes | 2.0 | 40×25 | **The default.** NTSC (60 Hz); what the demos use. |
+| `c64pal` | 64 KB | 38911 bytes | 2.0 | 40×25 | PAL (50 Hz) — different frame rate and slightly different CPU clock. |
 
-The screen is memory-mapped at `$8000` on every model; "free at boot" is
-what BASIC reports, and is the budget a BASIC program (or a `SYS`-stub
-assembly program) actually has to fit in.
+The screen is memory-mapped at `$0400` (the power-on default; the VIC-II
+can relocate it); "free at boot" is what BASIC reports, and is the budget
+a BASIC program (or a `SYS`-stub assembly program) actually has to fit in.
 
 ## Using with AI coding agents
 
@@ -82,14 +78,14 @@ across commands: when the agent halts the machine at a breakpoint, it stays
 halted while the agent inspects memory, registers, and screen in separate tool
 calls. There are two ways an agent can use it — pick either or both:
 
-- **The CLI** — every `pet` command takes `--json`. Works with *any* agent
+- **The CLI** — every `c64` command takes `--json`. Works with *any* agent
   that can run shell commands; nothing to configure.
-- **The MCP server** — `pet-tools-mcp` exposes the same operations as MCP
+- **The MCP server** — `c64-tools-mcp` exposes the same operations as MCP
   tools over stdio. CLI and MCP share the same sessions, so they are
   interchangeable.
 
 Either way, the agent should read
-[`skills/pet-development/SKILL.md`](skills/pet-development/SKILL.md) (the PET
+[`skills/pet-development/SKILL.md`](skills/pet-development/SKILL.md) (the
 workflows and pitfalls) before starting — the per-agent steps below make that
 happen automatically.
 
@@ -98,7 +94,7 @@ The MCP config used by several agents below is this one block:
 ```json
 {
   "mcpServers": {
-    "pet-tools": { "command": "pet-tools-mcp" }
+    "c64-tools": { "command": "c64-tools-mcp" }
   }
 }
 ```
@@ -121,7 +117,7 @@ has moved, check the agent's current MCP documentation.
    mkdir -p .claude/skills && cp -R skills/* .claude/skills/
    ```
 
-2. (Optional) Add the MCP server: `claude mcp add pet-tools -- pet-tools-mcp`
+2. (Optional) Add the MCP server: `claude mcp add c64-tools -- c64-tools-mcp`
 3. Ask for what you want — e.g. paste a prompt from [`demos/`](demos/).
 
 No `CLAUDE.md` edits are needed: installed skills load on demand, and the MCP
@@ -129,11 +125,11 @@ tools describe themselves.
 
 ### OpenAI Codex
 
-1. Add the MCP server: `codex mcp add pet-tools -- pet-tools-mcp`
-   (or add `[mcp_servers.pet_tools]` with `command = "pet-tools-mcp"` to
+1. Add the MCP server: `codex mcp add c64-tools -- c64-tools-mcp`
+   (or add `[mcp_servers.c64_tools]` with `command = "c64-tools-mcp"` to
    `~/.codex/config.toml`).
 2. Codex has no skills mechanism, so tell it where the docs are: add one line
-   to the repo's `AGENTS.md` — *"For Commodore PET work, first read
+   to the repo's `AGENTS.md` — *"For Commodore 64 work, first read
    skills/pet-development/SKILL.md and docs/cli.md."*
 3. Paste a prompt from [`demos/`](demos/).
 
@@ -141,8 +137,8 @@ tools describe themselves.
 
 1. Create `.cursor/mcp.json` in the repo (or `~/.cursor/mcp.json` globally)
    containing the JSON block above.
-2. Create a rule (`.cursor/rules/pet.mdc`) — or a plain `AGENTS.md` — with the
-   same one-liner: *"For Commodore PET work, first read
+2. Create a rule (`.cursor/rules/c64.mdc`) — or a plain `AGENTS.md` — with the
+   same one-liner: *"For Commodore 64 work, first read
    skills/pet-development/SKILL.md and docs/cli.md."*
 3. Paste a prompt from [`demos/`](demos/).
 
@@ -171,29 +167,29 @@ demo mode ([`demos/muncher/`](demos/muncher/)). To use one:
 
 1. Set up your agent (one section up — or use any shell agent with no setup).
 2. Open a demo file and copy its prompt.
-3. Paste it into your agent and watch it write, run, and debug real PET
+3. Paste it into your agent and watch it write, run, and debug real C64
    software on the emulated machine.
 
 The reference example programs (with expected screen output, runnable as
-regression tests via `pet test programs`) live in
+regression tests via `c64 test programs`) live in
 [`tests/programs/`](tests/programs/).
 
 ## Sharing what you built
 
-`pet package` turns a source file into something any VICE user can run — no
-pet-tools needed on their end:
+`c64 package` turns a source file into something any VICE user can run — no
+c64-tools needed on their end:
 
-    pet package snake.s -o snake.d64 --title SNAKE
+    c64 package snake.s -o snake.d64 --title SNAKE
 
 That assembles the program and writes it as the first file on a fresh disk
 image, so it autostarts. The recipient just needs VICE installed:
 
-    xpet -model 4032 snake.d64    # boots the tested PET model, runs SNAKE
+    x64sc -ntsc snake.d64    # boots a C64, runs SNAKE
 
-(`pet package` prints this exact command; the `-model` flag matters because
-stock xpet boots its own default model, and ROM behavior differs between
-BASIC generations — a game reading held keys from $97 goes silently deaf on
-the wrong one.) The bare `.prg` (also produced) works too, as does VICE's
+(`c64 package` prints this exact command; both profiles pin their video
+standard — `-ntsc` / `-pal` — since stock x64sc boots its own default
+machine and timing differs.) The bare `.prg` (also produced) works too, as
+does VICE's
 File → Smart attach. Disk images travel better: they carry a real CBM
 directory, so `LOAD"SNAKE",8` then `RUN` works the old-fashioned way.
 Neither artifact contains ROMs or anything from this toolset.
@@ -204,13 +200,13 @@ Stable — current release **v1.2.0**. Full history: [CHANGELOG.md](CHANGELOG.md
 
 ## AI Disclosure
 
-PET Project is developed primarily by AI — Anthropic's Claude, working
+Project64 is developed primarily by AI — Anthropic's Claude, working
 through Claude Code — under human direction: a human sets the goals,
 reviews the designs and plans, and approves the work; the AI writes the
 specs, plans, code, tests, and documentation. Every change is verified by
 the automated test suite, including integration tests that run against a
 real VICE emulator, before it lands. The project also exists *for* AI use —
-these tools are built so AI agents can write and debug Commodore PET
+these tools are built so AI agents can write and debug Commodore 64
 software — making it a working example of AI-built developer tooling.
 
 ## License

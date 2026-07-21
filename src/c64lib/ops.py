@@ -16,7 +16,7 @@ from .text import ascii_to_petscii
 
 #: the key-down byte the IRQ keyboard scanner maintains ($FF = no key).
 #: BASIC 4 stores the decoded PETSCII here; BASIC 2 stores a raw matrix
-#: index — which is why key_hold below is a BASIC 4 (pet4032) affair.
+#: index — which is why key_hold below is a BASIC 4 (c64) affair.
 KEYDOWN_ADDR = 0x97
 
 

@@ -1,6 +1,6 @@
 """One-step packaging: turn a source file into an artifact any VICE user can
-run — a bare .prg, or a d64/d80/d82 disk image whose FIRST file is the
-program (so `xpet image.d64` autostarts it). Pure file operations; no
+run — a bare .prg, or a d64/d71/d81 disk image whose FIRST file is the
+program (so `x64sc image.d64` autostarts it). Pure file operations; no
 running session involved."""
 
 from __future__ import annotations
@@ -39,10 +39,10 @@ def cbm_title(raw: str) -> str:
 
 
 def package_program(source, out=None, title: str | None = None,
-                    model: str = "pet4032") -> dict:
+                    model: str = "c64") -> dict:
     """Build SOURCE (.s/.bas/.prg) and package it as OUT.
 
-    OUT's extension picks the format: .prg (default) or .d64/.d80/.d82 (the
+    OUT's extension picks the format: .prg (default) or .d64/.d71/.d81 (the
     built .prg is written as the image's first file, plus kept beside it).
     Returns {"prg", "image", "title", "run"}; `run` is the exact command a
     recipient uses, `image` is None for .prg-only output. Existing outputs
@@ -79,10 +79,9 @@ def package_program(source, out=None, title: str | None = None,
         create_image(image, label=t.lower())     # -format overwrites = fresh image
         put_file(image, prg, t.lower())          # first file on a fresh image
     artifact = image if image is not None else prg
-    # Pin the model in the run hint: stock xpet boots ITS default model, and
-    # ROM-dependent behavior differs silently (e.g. $97 holds decoded PETSCII
-    # on BASIC 4 but a raw matrix index on BASIC 2 — dead keyboard, identical
-    # screen). vice_args is exactly what Session.launch passes.
+    # Pin the model in the run hint: stock x64sc boots its default (PAL)
+    # machine, so both profiles pin their video standard (-ntsc / -pal).
+    # vice_args is exactly what Session.launch passes.
     run = " ".join([profile.vice_emulator, *profile.vice_args, str(artifact)])
     return {"prg": str(prg), "image": str(image) if image else None,
             "title": t, "run": run}

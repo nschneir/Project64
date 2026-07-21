@@ -4,7 +4,7 @@ import re
 
 import click
 
-from petlib.cli import main
+from c64lib.cli import main
 
 
 def _walk_tree() -> tuple[set[str], set[str]]:
@@ -22,7 +22,7 @@ def _walk_tree() -> tuple[set[str], set[str]]:
         else:
             commands.add(prefix)
 
-    walk(main, "pet")
+    walk(main, "c64")
     return commands, groups
 
 
@@ -41,25 +41,25 @@ def code_blocks(text: str, lang: str) -> list[str]:
     return re.findall(rf"```{lang}\n(.*?)```", text, re.S)
 
 
-DOC_HEADING = re.compile(r"^### `(pet[^`]*)`(?: \(alias(?:es)?: (.+)\))?", re.M)
+DOC_HEADING = re.compile(r"^### `(c64[^`]*)`(?: \(alias(?:es)?: (.+)\))?", re.M)
 
 
 def documented_paths(doc_text: str) -> set[str]:
     """Heading paths, including aliases documented inline as
-    '### `pet x remove` (alias: `pet x rm`)'."""
+    '### `c64 x remove` (alias: `c64 x rm`)'."""
     out = set()
     for name, aliases in DOC_HEADING.findall(doc_text):
         out.add(name)
         if aliases:
-            out.update(re.findall(r"`(pet[^`]*)`", aliases))
+            out.update(re.findall(r"`(c64[^`]*)`", aliases))
     return out
 
 
-PET_MENTION = re.compile(r"`(pet(?: [a-z]+)+)\b")
+PET_MENTION = re.compile(r"`(c64(?: [a-z]+)+)\b")
 
 
 def mentioned_commands(doc_text: str) -> set[str]:
-    """`pet xyz ...` mentions in backticks, trimmed to known-prefix depth 3."""
+    """`c64 xyz ...` mentions in backticks, trimmed to known-prefix depth 3."""
     real = valid_mention_paths()
     out = set()
     for m in PET_MENTION.findall(doc_text):
@@ -74,13 +74,9 @@ def mentioned_commands(doc_text: str) -> set[str]:
     return out
 
 
-# Boot-banner free bytes per model, captured from live xpet (plan Task 9).
+# Boot-banner free bytes per model, captured from live x64sc (plan Task 9).
 # The README table and test_integration_vice both check against this.
 BOOT_FREE = {
-    "pet2001-4k": "3071",
-    "pet2001": "7167",
-    "pet3032": "31743",
-    "pet4032": "31743",
-    "pet8032": "31743",
-    "pet8296": "31743",
+    "c64": "38911",
+    "c64pal": "38911",
 }

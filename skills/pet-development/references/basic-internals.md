@@ -18,7 +18,7 @@ end of the program and the start of variables (see zero-page.md).
 
 Because the link chain and VARTAB must be consistent, you cannot simply poke a
 tokenized program into memory and RUN it — the pointers would be wrong. This is
-why pet-tools loads programs via VICE autostart (which performs a real LOAD),
+why c64-tools loads programs via VICE autostart (which performs a real LOAD),
 not by raw memory injection.
 
 ## Tokens

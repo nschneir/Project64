@@ -3,7 +3,7 @@
 Born from the Ms. Muncher dogfood: a broken build left the emulator
 running an old binary and nothing said so. The session now records what
 was loaded (and from which source files), `ops.staleness` reports source
-files changed since the load, and `pet run`'s failure message names the
+files changed since the load, and `c64 run`'s failure message names the
 program the emulator is still running.
 """
 import json
@@ -11,15 +11,15 @@ import time
 
 from click.testing import CliRunner
 
-import petlib.cli as cli
-from petlib.ops import staleness
-from petlib.session import Session
+import c64lib.cli as cli
+from c64lib.ops import staleness
+from c64lib.session import Session
 
 
 def _mk_session(tmp_path, monkeypatch, **kw):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path / "home"))
     (tmp_path / "home" / "sessions").mkdir(parents=True, exist_ok=True)
-    return Session(name="t", pid=1, port=1, model="pet4032", **kw)
+    return Session(name="t", pid=1, port=1, model="c64", **kw)
 
 
 def test_record_loaded_persists_and_reloads(tmp_path, monkeypatch):
@@ -79,7 +79,7 @@ def test_run_build_failure_names_the_running_program(tmp_path, monkeypatch):
     bad = tmp_path / "ca65"
     bad.write_text("#!/usr/bin/env python3\nimport sys\nsys.stderr.write('boom')\nsys.exit(1)\n")
     bad.chmod(bad.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("PET_TOOLS_CA65", str(bad))
+    monkeypatch.setenv("C64_TOOLS_CA65", str(bad))
     src = tmp_path / "prog.s"
     src.write_text(";")
     r = CliRunner().invoke(cli.main, ["run", str(src)])

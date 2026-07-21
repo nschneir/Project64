@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from petlib.basic import tokenize
-from petlib.build import build_asm
-from petlib.testing import run_test
+from c64lib.basic import tokenize
+from c64lib.build import build_asm
+from c64lib.testing import run_test
 from tests.doc_helpers import code_blocks
 
 COOKBOOK = Path("skills/pet-development/references/cookbook.md")
@@ -41,7 +41,7 @@ def test_basic_recipes_tokenize(tmp_path):
 
 
 @pytest.mark.skipif(
-    shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"),
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",
 )
 def test_asm_recipes_assemble(tmp_path):
@@ -85,7 +85,7 @@ LIVE_RECIPES = [
     ]),
     ("asm-keyhold", "asm", "keyhold.s", [
         # one full iteration draws the paddle (the first mainloop arrival
-        # is before any draw), then the poke/until pair IS pet key hold
+        # is before any draw), then the poke/until pair IS c64 key hold
         {"until": {"ref": "mainloop", "count": 2}},
         {"assert": {"mem": "@12,20", "equals": 81}},
         {"poke": {"addr": "$97", "values": [68]}},     # hold D ($44)...
@@ -177,19 +177,19 @@ def test_toc_lists_every_recipe_bidirectionally():
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed",
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
 @pytest.mark.parametrize("name,lang,key,steps",
                          LIVE_RECIPES, ids=[r[0] for r in LIVE_RECIPES])
 def test_cookbook_recipe_runs_live(tmp_path, monkeypatch, name, lang, key, steps):
     if lang == "asm" and shutil.which("ca65") is None \
-            and not os.environ.get("PET_TOOLS_CA65"):
+            and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     src = tmp_path / f"{name}{'.bas' if lang == 'basic' else '.s'}"
     src.write_text(_block_by_key(lang, key))
-    spec = {"name": name, "machine": "pet4032", "timeout": 30,
+    spec = {"name": name, "machine": "c64", "timeout": 30,
             "autorun": True, "program": str(src), "steps": steps}
     result = run_test(spec)
     assert result.passed, [s.detail for s in result.steps] + [result.screen]
@@ -197,23 +197,23 @@ def test_cookbook_recipe_runs_live(tmp_path, monkeypatch, name, lang, key, steps
 
 @pytest.mark.vice
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed")
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed")
 def test_cookbook_frame_stepping_workflow_live(tmp_path, monkeypatch):
     """The frame-stepping recipe delivers what it promises: until --count N
     advances FRAMES by exactly N."""
-    if shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"):
+    if shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
-    from petlib.ops import run_until
-    from petlib.session import Session
-    from petlib.symbols import load_labels
+    from c64lib.ops import run_until
+    from c64lib.session import Session
+    from c64lib.symbols import load_labels
     from tests.vice_helpers import wait_for_text
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     src = tmp_path / "counter.s"
     src.write_text(_block_by_key("asm", "frame counter"))
     res = build_asm(src)
     labels = load_labels(res.labels)
-    s = Session.launch(model="pet4032", name="cbstep", headless=True, warp=True)
+    s = Session.launch(model="c64", name="cbstep", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
         with s.monitor() as mon:

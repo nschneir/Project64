@@ -2,7 +2,7 @@
 
 Paste this prompt into your agent:
 
-> Using the pet CLI (see skills/pet-development/SKILL.md and docs/cli.md),
+> Using the c64 CLI (see skills/pet-development/SKILL.md and docs/cli.md),
 > write a Commodore BASIC program for a PET 4032 that computes all primes
 > up to 1000 with a sieve of Eratosthenes, prints the count and the largest
 > prime found, and prints how many jiffies it took (the PET's TI variable

@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from petlib.session import (
+from c64lib.session import (
     RESPAWN_LIMIT,
     RESPAWN_WINDOW,
     Session,
@@ -14,8 +14,8 @@ from petlib.session import (
 
 
 def _s(tmp_path, monkeypatch, name="cb"):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    return Session(name=name, pid=1, port=1, model="pet4032")
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    return Session(name=name, pid=1, port=1, model="c64")
 
 
 def test_respawn_circuit_breaker_trips(tmp_path, monkeypatch):
@@ -35,13 +35,13 @@ def test_respawn_breaker_ignores_old_crashes(tmp_path, monkeypatch):
 
 
 def test_socket_path_prefers_sessions_dir(monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", "/tmp/pet-sockpath-test")
+    monkeypatch.setenv("C64_TOOLS_HOME", "/tmp/c64-sockpath-test")
     p = _default_socket_path("snake")
-    assert p == "/tmp/pet-sockpath-test/sessions/snake.sock"
+    assert p == "/tmp/c64-sockpath-test/sessions/snake.sock"
 
 
 def test_socket_path_length_guard(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path / ("x" * 120)))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path / ("x" * 120)))
     p = _default_socket_path("verylongname")
     assert len(p.encode()) <= 100 and p.endswith(".sock")
 
@@ -51,7 +51,7 @@ def test_breaker_error_includes_recovery_command(tmp_path, monkeypatch):
     s = _s(tmp_path, monkeypatch, name="cb3")
     for _ in range(RESPAWN_LIMIT - 1):
         s._record_respawn_and_check()
-    with pytest.raises(SessionError, match="pet session ensure"):
+    with pytest.raises(SessionError, match="c64 session ensure"):
         s._record_respawn_and_check()
 
 
@@ -61,7 +61,7 @@ def test_ensure_attaches_existing(monkeypatch):
     existing = Mock()
     with _patch.object(Session, "attach", return_value=existing), \
          _patch.object(Session, "launch") as launch:
-        s, started = Session.ensure(model="pet4032")
+        s, started = Session.ensure(model="c64")
     assert s is existing and started is False
     launch.assert_not_called()
 
@@ -72,7 +72,7 @@ def test_ensure_launches_when_absent(monkeypatch):
     fresh = Mock()
     with _patch.object(Session, "attach", side_effect=SessionError("none")), \
          _patch.object(Session, "launch", return_value=fresh) as launch:
-        s, started = Session.ensure(model="pet4032", warp=True, headless=True)
+        s, started = Session.ensure(model="c64", warp=True, headless=True)
     assert s is fresh and started is True
-    launch.assert_called_once_with(model="pet4032", name=None,
+    launch.assert_called_once_with(model="c64", name=None,
                                    headless=True, warp=True)

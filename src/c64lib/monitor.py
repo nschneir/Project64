@@ -191,7 +191,7 @@ class MonitorClient:
             self.request(Command.KEYBOARD_FEED, bytes([len(chunk)]) + chunk)
 
     def display(self) -> tuple[int, int, bytes]:
-        # body: use_vic flag (ignored for PET), format 0 = indexed 8bpp
+        # body: use_vic flag (ignored for the C64), format 0 = indexed 8bpp
         return parse_display_get(self.request(Command.DISPLAY_GET, b"\x00\x00").body)
 
     def palette(self) -> list[tuple[int, int, int]]:

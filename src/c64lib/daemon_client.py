@@ -23,9 +23,9 @@ class DaemonMonitorClient:
         self._file = self._sock.makefile("rwb")
         self._ids = itertools.count(1)
         hello = json.loads(self._file.readline() or b"{}")
-        if hello.get("hello") != "pet-daemon":
+        if hello.get("hello") != "c64-daemon":
             self.close()
-            raise ConnectionError(f"{socket_path} is not a pet session daemon")
+            raise ConnectionError(f"{socket_path} is not a c64 session daemon")
 
     # --- plumbing ---------------------------------------------------------
 

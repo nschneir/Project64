@@ -20,20 +20,20 @@ maintained release branches.
 
 ## Scope and threat model
 
-PET Project is a local developer tool that drives the VICE emulator; it is
+Project64 is a local developer tool that drives the VICE emulator; it is
 **not** a network service and handles no user credentials. Understanding what
 it does with your machine helps you assess risk:
 
-- **Local emulator monitor.** Each session launches `xpet` and speaks to its
+- **Local emulator monitor.** Each session launches `x64sc` and speaks to its
   binary monitor over a TCP socket bound to `127.0.0.1` on an OS-assigned
   port. Anything already able to run code on your machine could connect to
   that socket and control the emulated machine (read/write emulated memory,
   set breakpoints, feed input). This is loopback-only and no worse than local
   code execution you already have, but it is an intentional local interface.
-- **External toolchain execution.** The tools invoke `xpet`, `petcat`,
+- **External toolchain execution.** The tools invoke `x64sc`, `petcat`,
   `c1541` (VICE), and `ca65`/`ld65` (cc65), located via `PATH` or the
-  `PET_TOOLS_*` environment variables. As with any build tool, a poisoned
-  `PATH` or a malicious `PET_TOOLS_CA65`/`PET_TOOLS_XPET` value would run
+  `C64_TOOLS_*` environment variables. As with any build tool, a poisoned
+  `PATH` or a malicious `C64_TOOLS_CA65`/`C64_TOOLS_X64SC` value would run
   attacker-controlled binaries. Only run in an environment whose `PATH` and
   those variables you trust.
 - **Filesystem access (CLI and MCP).** Commands and MCP tools read and write

@@ -1,6 +1,6 @@
 import pytest
 
-from petlib.text import ascii_to_petscii, screen_code_to_char, screen_to_text
+from c64lib.text import ascii_to_petscii, screen_code_to_char, screen_to_text
 
 
 def test_screen_code_letters_and_symbols():
@@ -44,8 +44,8 @@ def test_ascii_to_petscii_rejects_unmappable():
 
 
 def test_screen_decode_matches_documented_behavior():
-    """Pins the claims in petscii.md's 'How pet screen decodes' section."""
-    from petlib import text
+    """Pins the claims in petscii.md's 'How c64 screen decodes' section."""
+    from c64lib import text
     # reverse video without a Unicode complement keeps the base glyph
     assert text.screen_code_to_char(0x81) == "A"
     # reverse-space $A0 (the solid block) decodes as a solid block
@@ -58,5 +58,5 @@ def test_screen_decode_matches_documented_behavior():
 def test_petscii_doc_has_decoder_section():
     from pathlib import Path
     doc = Path("skills/pet-development/references/petscii.md").read_text()
-    assert "How `pet screen` decodes" in doc
+    assert "How `c64 screen` decodes" in doc
     assert "$A0" in doc

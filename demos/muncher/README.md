@@ -17,14 +17,14 @@ high-score table with initials entry.
 Any VICE install:
 
 ```sh
-xpet -model 4032 demos/muncher/muncher.d64
+x64sc -model 4032 demos/muncher/muncher.d64
 ```
 
-Or with pet-tools:
+Or with c64-tools:
 
 ```sh
-pet session start --model pet4032        # no --warp: play at real speed
-pet run demos/muncher/muncher.s
+c64 session start --model c64        # no --warp: play at real speed
+c64 run demos/muncher/muncher.s
 ```
 
 ## Controls
@@ -46,5 +46,5 @@ character steps. Mazes are packed 2-bit maps validated by a host-side
 Python checker (geometry, symmetry, dead ends, reachability, dot targets,
 and cell-by-cell fruit-path validation) that also emits the per-maze
 scaled thresholds. The whole game is exercised by a deterministic
-poke/until test suite (`pet test run demos/muncher/muncher-test.yaml`)
+poke/until test suite (`c64 test run demos/muncher/muncher-test.yaml`)
 plus pytest for the toolchain.

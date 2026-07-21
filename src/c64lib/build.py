@@ -1,4 +1,4 @@
-"""Assemble 6502 source to a PET .prg with ca65/ld65.
+"""Assemble 6502 source to a C64 .prg with ca65/ld65.
 
 The generated linker config produces: 2-byte load-address header, then
 segments EXEHDR (BASIC SYS stub, optional) and CODE/RODATA/DATA at the
@@ -44,7 +44,7 @@ def linker_config(basic_start: int) -> str:
 MEMORY {{
     ZP:     start = $0000, size = $0100;
     HEADER: file = %O, start = $0000, size = $0002;
-    MAIN:   file = %O, start = ${basic_start:04X}, size = $7BFF;
+    MAIN:   file = %O, start = ${basic_start:04X}, size = $97FF;
 }}
 SEGMENTS {{
     ZEROPAGE: load = ZP,     type = zp,  optional = yes;
@@ -65,16 +65,16 @@ def _run(cmd: list[str]) -> None:
 
 
 def build_asm(
-    source: Path, out_prg: Path | None = None, basic_start: int = 0x0401
+    source: Path, out_prg: Path | None = None, basic_start: int = 0x0801
 ) -> BuildResult:
-    ca65 = _find_tool("ca65", "PET_TOOLS_CA65")
-    ld65 = _find_tool("ld65", "PET_TOOLS_LD65")
+    ca65 = _find_tool("ca65", "C64_TOOLS_CA65")
+    ld65 = _find_tool("ld65", "C64_TOOLS_LD65")
     source = Path(source)
     prg = Path(out_prg) if out_prg else source.with_suffix(".prg")
     labels = prg.with_suffix(".lbl")
     with tempfile.TemporaryDirectory() as td:
         obj = Path(td) / (source.stem + ".o")
-        cfg = Path(td) / "pet.cfg"
+        cfg = Path(td) / "c64.cfg"
         dep = Path(td) / "deps.d"
         cfg.write_text(linker_config(basic_start))
         _run([ca65, "-g", str(source), "-o", str(obj),
@@ -87,7 +87,7 @@ def build_asm(
 def _parse_deps(dep_file: Path, fallback: Path) -> tuple[Path, ...]:
     """Parse ca65's Makefile-style dependency file: every source file the
     build read (the top file plus everything it .include'd). Used for the
-    stale-binary warning (`pet status`). Falls back to just the top file
+    stale-binary warning (`c64 status`). Falls back to just the top file
     if the dep file is missing (very old ca65)."""
     if not dep_file.exists():
         return (fallback.resolve(),)

@@ -1,8 +1,8 @@
 # Deterministic smoke test for the Invaders demo: title → game → held-key
 # steering, frame-stepped via the poke/until protocol the demo prescribes.
-# Run with: pet test run demos/invaders/invaders-test.yaml
+# Run with: c64 test run demos/invaders/invaders-test.yaml
 name: invaders-smoke
-machine: pet4032
+machine: c64
 program: invaders.s
 timeout: 45
 steps:

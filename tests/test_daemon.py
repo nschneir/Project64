@@ -12,10 +12,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from petlib.daemon import RUNNING, STOPPED, PetDaemon, _connect_vice, main
-from petlib.daemon_client import DaemonMonitorClient
-from petlib.monitor import StopInfo
-from petlib.protocol import Command, ResponseType
+from c64lib.daemon import RUNNING, STOPPED, PetDaemon, _connect_vice, main
+from c64lib.daemon_client import DaemonMonitorClient
+from c64lib.monitor import StopInfo
+from c64lib.protocol import Command, ResponseType
 from tests.fake_vice import FakeVice, resp_frame
 
 
@@ -53,7 +53,7 @@ def _rpc(f, method, *args, **kwargs):
 def test_hello_greeting():
     d, _ = _daemon()
     b, f, t, hello = _talk(d)
-    assert hello["hello"] == "pet-daemon" and hello["version"] == 1
+    assert hello["hello"] == "c64-daemon" and hello["version"] == 1
     b.close(); t.join(timeout=2)
 
 
@@ -178,7 +178,7 @@ def test_restore_ignores_bare_stopped_noise():
 
 def test_restore_resumed_cancels_stale_hit():
     """A hit whose events were still in flight when an explicit resume ran
-    (pet continue racing a fresh hit) must not re-park: the RESUMED that
+    (c64 continue racing a fresh hit) must not re-park: the RESUMED that
     follows it is the truth."""
     d, mon = _daemon(state=RUNNING)
     mon.poll_events.return_value = [
@@ -247,7 +247,7 @@ def test_serve_forever_survives_bad_client_and_serves_next():
     mon.ping.return_value = None
     mon.events = collections.deque()
     mon.poll_events.return_value = []
-    sock_path = os.path.join(tempfile.mkdtemp(prefix="pet-sf-"), "d.sock")
+    sock_path = os.path.join(tempfile.mkdtemp(prefix="c64-sf-"), "d.sock")
     listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listen.bind(sock_path)
     listen.listen(1)
@@ -324,10 +324,10 @@ def test_main_serves_then_quits():
 
 def test_connection_error_marshalled_and_daemon_quits():
     d, mon = _daemon()
-    mon.memory_read.side_effect = ConnectionError("xpet died")
+    mon.memory_read.side_effect = ConnectionError("x64sc died")
     b, f, t, _ = _talk(d)
     resp = _rpc(f, "memory_read", 0x8000, 1)
-    assert resp["err"] == "ConnectionError" and "xpet died" in resp["msg"]
+    assert resp["err"] == "ConnectionError" and "x64sc died" in resp["msg"]
     t.join(timeout=2)
     assert d._quitting is True          # daemon gives up; nothing to restore
     b.close()

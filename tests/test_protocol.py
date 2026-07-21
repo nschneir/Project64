@@ -1,6 +1,6 @@
 import pytest
 
-from petlib.protocol import (
+from c64lib.protocol import (
     Command,
     ErrorCode,
     FrameDecoder,

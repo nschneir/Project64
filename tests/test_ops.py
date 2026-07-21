@@ -2,9 +2,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from petlib.monitor import StopInfo
-from petlib.ops import parse_number, parse_ref, run_until, wait_for_break, wait_for_text
-from petlib.protocol import CP_EXEC, Checkpoint
+from c64lib.monitor import StopInfo
+from c64lib.ops import parse_number, parse_ref, run_until, wait_for_break, wait_for_text
+from c64lib.protocol import CP_EXEC, Checkpoint
 
 
 def _fake_session():
@@ -62,13 +62,13 @@ def test_parse_ref_rowcol_out_of_range():
 
 def test_wait_for_text_fires_and_times_out():
     s, mon = _fake_session()
-    with patch("petlib.ops.read_screen_text", side_effect=["A", "B READY."]):
+    with patch("c64lib.ops.read_screen_text", side_effect=["A", "B READY."]):
         out = wait_for_text(s, "READY.", timeout=5)
     assert out["fired"] == "text"
 
     s2, _ = _fake_session()
-    with patch("petlib.ops.read_screen_text", return_value="STUCK"), \
-         patch("petlib.ops.time.sleep"):
+    with patch("c64lib.ops.read_screen_text", return_value="STUCK"), \
+         patch("c64lib.ops.time.sleep"):
         out2 = wait_for_text(s2, "Never", timeout=0.3)
     assert out2["fired"] is None and "STUCK" in out2["screen"]
 
@@ -145,7 +145,7 @@ def test_run_until_timeout_cleans_up_checkpoint():
 
 def test_run_until_delegates_to_daemon_client():
     """With a session daemon the whole count loop is ONE RPC."""
-    from petlib.daemon_client import DaemonMonitorClient
+    from c64lib.daemon_client import DaemonMonitorClient
     s = Mock()
     mon = DaemonMonitorClient.__new__(DaemonMonitorClient)  # no socket needed
     mon.run_until = Mock(return_value={"registers": {"PC": 1}, "reached": 4,
@@ -160,7 +160,7 @@ def test_run_until_delegates_to_daemon_client():
 def test_run_until_falls_back_on_old_daemon():
     """A pre-run_until daemon answers 'unknown daemon method' (ValueError);
     the client-side loop must take over transparently."""
-    from petlib.daemon_client import DaemonMonitorClient
+    from c64lib.daemon_client import DaemonMonitorClient
     s = Mock()
     mon = DaemonMonitorClient.__new__(DaemonMonitorClient)
     mon.run_until = Mock(side_effect=ValueError("unknown daemon method 'run_until'"))
@@ -177,7 +177,7 @@ def test_run_until_falls_back_on_old_daemon():
 
 
 def test_key_type_feeds_buffer_and_releases():
-    from petlib.ops import key_type
+    from c64lib.ops import key_type
     s, mon = _fake_session()
     out = key_type(s, "hi\n")
     mon.keyboard_feed.assert_called_once_with(b"HI\r")
@@ -186,7 +186,7 @@ def test_key_type_feeds_buffer_and_releases():
 
 
 def test_key_hold_pokes_97_before_each_frame():
-    from petlib.ops import key_hold
+    from c64lib.ops import key_hold
     s, mon = _fake_session()
     calls = []
     mon.memory_write.side_effect = lambda a, d: calls.append(("poke", a, d))
@@ -195,7 +195,7 @@ def test_key_hold_pokes_97_before_each_frame():
         calls.append(("until",))
         return {"registers": {"PC": 0x0419}, "reached": 1, "count": 1}
 
-    with patch("petlib.ops.run_until", side_effect=fake_until) as ru:
+    with patch("c64lib.ops.run_until", side_effect=fake_until) as ru:
         out = key_hold(s, "d", 0x0419, frames=3, timeout=9.0)
     assert out["frames"] == 3 and out["registers"] == {"PC": 0x0419}
     assert calls == [("poke", 0x97, b"D"), ("until",)] * 3
@@ -203,9 +203,9 @@ def test_key_hold_pokes_97_before_each_frame():
 
 
 def test_key_hold_space_alias_and_validation():
-    from petlib.ops import key_hold
+    from c64lib.ops import key_hold
     s, mon = _fake_session()
-    with patch("petlib.ops.run_until",
+    with patch("c64lib.ops.run_until",
                return_value={"registers": {"PC": 1}, "reached": 1, "count": 1}):
         key_hold(s, "space", 0x1000, frames=1)
     mon.memory_write.assert_called_once_with(0x97, b" ")
@@ -214,9 +214,9 @@ def test_key_hold_space_alias_and_validation():
 
 
 def test_key_hold_timeout_reports_progress():
-    from petlib.ops import key_hold
+    from c64lib.ops import key_hold
     s, mon = _fake_session()
-    with patch("petlib.ops.run_until",
+    with patch("c64lib.ops.run_until",
                side_effect=[{"registers": {"PC": 1}, "reached": 1, "count": 1},
                             {"registers": None, "reached": 0, "count": 1}]):
         out = key_hold(s, "a", 0x1000, frames=5)
@@ -225,31 +225,31 @@ def test_key_hold_timeout_reports_progress():
 
 
 def test_session_labels_unreadable_file_returns_empty(tmp_path):
-    from petlib.ops import session_labels
+    from c64lib.ops import session_labels
     s = Mock()
     s.labels = str(tmp_path / "gone.lbl")     # a path that does not exist
     assert session_labels(s) == {}
 
 
 def test_pc_symbol_none_without_labels():
-    from petlib.ops import pc_symbol
+    from c64lib.ops import pc_symbol
     assert pc_symbol({}, {"PC": 0x1234}) is None
 
 
 def test_wait_for_mem_timeout_returns_last_value():
-    from petlib.ops import wait_for_mem
+    from c64lib.ops import wait_for_mem
     s = Mock()
     mon = Mock()
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
     s.monitor.return_value.__exit__ = Mock(return_value=False)
     mon.memory_read.return_value = b"\x05"
-    with patch("petlib.ops.time.sleep"):
+    with patch("c64lib.ops.time.sleep"):
         out = wait_for_mem(s, 0x8000, 0x2A, timeout=0.1)
     assert out["fired"] is None and out["last_value"] == 5
 
 
 def test_find_bytes_single_and_pattern():
-    from petlib.ops import find_bytes
+    from c64lib.ops import find_bytes
     mon = Mock()
     mon.memory_read.return_value = b"\x00\x2a\x00\x2a\x2a"
     matches, truncated = find_bytes(mon, 0x8000, 5, b"\x2a")
@@ -260,7 +260,7 @@ def test_find_bytes_single_and_pattern():
 
 
 def test_find_bytes_limit_truncates():
-    from petlib.ops import find_bytes
+    from c64lib.ops import find_bytes
     mon = Mock()
     mon.memory_read.return_value = b"\x00" * 10
     matches, truncated = find_bytes(mon, 0, 10, b"\x00", limit=3)
@@ -268,7 +268,7 @@ def test_find_bytes_limit_truncates():
 
 
 def test_find_bytes_clamps_to_64k():
-    from petlib.ops import find_bytes
+    from c64lib.ops import find_bytes
     mon = Mock()
     mon.memory_read.return_value = b"\x01"
     find_bytes(mon, 0xFFFF, 0x100, b"\x01")
@@ -276,8 +276,8 @@ def test_find_bytes_clamps_to_64k():
 
 
 def test_clear_checkpoints_filters_by_op():
-    from petlib.ops import clear_checkpoints
-    from petlib.protocol import CP_EXEC, CP_LOAD, CP_STORE
+    from c64lib.ops import clear_checkpoints
+    from c64lib.protocol import CP_EXEC, CP_LOAD, CP_STORE
     exec_ck, watch_ck = Mock(number=1, op=CP_EXEC), Mock(number=2, op=CP_LOAD | CP_STORE)
     mon = Mock()
     mon.checkpoint_list.return_value = [exec_ck, watch_ck]
@@ -290,14 +290,14 @@ def test_clear_checkpoints_filters_by_op():
 
 
 def test_machine_state_without_daemon_is_unknown():
-    from petlib.ops import machine_state
+    from c64lib.ops import machine_state
     s = Mock()
     s.socket = None
     assert machine_state(s) == "unknown"
 
 
 def test_machine_state_via_daemon():
-    from petlib.ops import machine_state
+    from c64lib.ops import machine_state
     s = Mock()
     s.socket = "/tmp/x.sock"
     mon = Mock()
@@ -308,7 +308,7 @@ def test_machine_state_via_daemon():
 
 
 def test_machine_state_swallows_dead_daemon():
-    from petlib.ops import machine_state
+    from c64lib.ops import machine_state
     s = Mock()
     s.socket = "/tmp/x.sock"
     s.monitor.side_effect = ConnectionError("gone")
@@ -365,7 +365,7 @@ def _call_ck(number=9, addr=0x0400, hit=True):
 
 
 def test_call_routine_pushes_return_and_sets_registers():
-    from petlib.ops import call_routine
+    from c64lib.ops import call_routine
     s, mon = _fake_session()
     mon.registers.return_value = {"PC": 0x1234, "SP": 0xFB, "A": 0, "X": 0, "Y": 0}
     mon.checkpoint_set.return_value = _call_ck(hit=False)
@@ -383,7 +383,7 @@ def test_call_routine_pushes_return_and_sets_registers():
 
 
 def test_call_routine_registers_optional():
-    from petlib.ops import call_routine
+    from c64lib.ops import call_routine
     s, mon = _fake_session()
     mon.registers.return_value = {"PC": 0x1234, "SP": 0xFB, "A": 7}
     mon.checkpoint_set.return_value = _call_ck(hit=False)
@@ -394,7 +394,7 @@ def test_call_routine_registers_optional():
 
 
 def test_call_routine_timeout_cleans_up():
-    from petlib.ops import call_routine
+    from c64lib.ops import call_routine
     s, mon = _fake_session()
     mon.registers.return_value = {"PC": 0x1234, "SP": 0xFB}
     mon.checkpoint_set.return_value = _call_ck(hit=False)
@@ -408,7 +408,7 @@ def test_call_routine_timeout_cleans_up():
 
 def test_call_routine_durable_flag_fallback():
     # STOPPED event lost (warp race): the hit flag on the checkpoint decides
-    from petlib.ops import call_routine
+    from c64lib.ops import call_routine
     s, mon = _fake_session()
     mon.registers.return_value = {"PC": 0x0400, "SP": 0xF9}
     mon.checkpoint_set.return_value = _call_ck(hit=False)

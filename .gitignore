@@ -10,13 +10,9 @@ dist/
 *.d64
 *.d80
 *.d82
-!src/petlib/data/rom_labels/*.lbl
-!demos/invaders/invaders.prg
-!demos/invaders/invaders.lbl
-!demos/invaders/invaders.d64
 scratch/
-books/
 docs/superpowers/
 .coverage
 .coverage.*
 htmlcov/
+books/

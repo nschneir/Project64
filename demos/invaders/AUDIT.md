@@ -1,9 +1,9 @@
 # Invaders (PET 4032) — Fidelity Audit Log
 
 Demo 06 dogfood. Game: `invaders.s` (3295-byte .prg incl. BASIC stub).
-All evidence gathered from the RUNNING game on VICE xpet (pet4032, warp,
-headless) via the `pet` CLI — frame-stepped with `pet until tick`, driven by
-poking $97 (held keys) and `pet key type` (title), never inferred from source.
+All evidence gathered from the RUNNING game on VICE x64sc (c64, warp,
+headless) via the `c64` CLI — frame-stepped with `c64 until tick`, driven by
+poking $97 (held keys) and `c64 key type` (title), never inferred from source.
 
 ## Iteration 1 — evaluate
 
@@ -85,9 +85,9 @@ ROM-dependent. The BASIC 4 editor (4032) stores the *decoded PETSCII* of the
 held key ($E556 `sta $97`, A loaded from the decode table at $E73E), but the
 BASIC 2 editor (3032 family) stores the *raw matrix index* ($E6C8 — `stx $A6`
 … `sta $97`, with the PETSCII table at $E6F7 consulted only for the buffer).
-A bare `xpet invaders.d64` boots VICE's default model, not necessarily a
+A bare `x64sc invaders.d64` boots VICE's default model, not necessarily a
 4032 — same 40-column screen, identical-looking game, dead A/D/space.
-**Remedy:** the run command is pinned to `xpet -model 4032 invaders.d64`
+**Remedy:** the run command is pinned to `x64sc -model 4032 invaders.d64`
 (demo doc updated); the game keeps the spec-mandated $97 read. The in-game
 poke-$97 drive was re-verified on the final build (basex 18→20 over 6
 held-D ticks).

@@ -1,7 +1,7 @@
 """Disk image operations via VICE's c1541 utility.
 
 All operations act on image files on the host; attaching images to a running
-emulator happens in petlib.session (at launch) or via autostart (mid-session).
+emulator happens in c64lib.session (at launch) or via autostart (mid-session).
 c1541 prints a harmless OPENCBM dylib warning on stderr — success is judged
 by return code and output files, never by stderr being empty.
 """
@@ -19,7 +19,7 @@ class DiskError(Exception):
     pass
 
 
-IMAGE_DRIVE_TYPES = {".d64": 2031, ".d80": 8050, ".d82": 8250}
+IMAGE_DRIVE_TYPES = {".d64": 1541, ".d71": 1571, ".d81": 1581}
 
 
 def drive_type_for(path: str | Path) -> int:
@@ -34,11 +34,11 @@ def drive_type_for(path: str | Path) -> int:
 
 
 def _c1541() -> str:
-    exe = os.environ.get("PET_TOOLS_C1541") or shutil.which("c1541")
+    exe = os.environ.get("C64_TOOLS_C1541") or shutil.which("c1541")
     if not exe:
         raise DiskError(
             "c1541 not found. It ships with VICE — install VICE 3.5+ "
-            "(macOS: brew install vice) or set PET_TOOLS_C1541."
+            "(macOS: brew install vice) or set C64_TOOLS_C1541."
         )
     return exe
 

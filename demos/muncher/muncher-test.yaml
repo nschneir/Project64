@@ -1,7 +1,7 @@
 # Deterministic test suite for Ms. Muncher, grown task by task.
-# Run with: pet test run demos/muncher/muncher-test.yaml
+# Run with: c64 test run demos/muncher/muncher-test.yaml
 name: muncher-smoke
-machine: pet4032
+machine: c64
 program: muncher.s
 timeout: 150
 steps:

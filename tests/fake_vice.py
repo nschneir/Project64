@@ -10,7 +10,7 @@ import socket
 import struct
 import threading
 
-from petlib.protocol import _CMD_HEADER  # test-only import of private struct
+from c64lib.protocol import _CMD_HEADER  # test-only import of private struct
 
 RESP_HEADER = struct.Struct("<BBIBBI")
 

@@ -232,7 +232,7 @@ gr1:    lda     gstate,x
 gr2:    lda     eat_ev
         cmp     #1
         bne     gr3
-        inc     gdcnt           ; a dot: bump the counter, pet the watchdog
+        inc     gdcnt           ; a dot: bump the counter, c64 the watchdog
         lda     #<240
         sta     gtimeout
         lda     #>240

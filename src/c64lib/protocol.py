@@ -1,7 +1,7 @@
 """Pure encode/decode for the VICE binary monitor protocol, API version 2.
 
 Reference: https://vice-emu.sourceforge.io/vice_13.html  (section: binary monitor)
-No sockets here — that lives in petlib.monitor.
+No sockets here — that lives in c64lib.monitor.
 """
 
 from __future__ import annotations

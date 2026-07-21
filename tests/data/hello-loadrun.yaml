@@ -1,5 +1,5 @@
 name: hello-loadrun
-machine: pet4032
+machine: c64
 program: ../programs/hello-basic/program.bas
 autorun: false
 timeout: 30

@@ -9,21 +9,21 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from petlib.build import build_asm
-from petlib.cli import main as cli_main
-from petlib.ops import run_until, wait_for_break
-from petlib.session import Session
-from petlib.symbols import load_labels
+from c64lib.build import build_asm
+from c64lib.cli import main as cli_main
+from c64lib.ops import run_until, wait_for_break
+from c64lib.session import Session
+from c64lib.symbols import load_labels
 from tests.vice_helpers import wait_for_text
 
 pytestmark = [
     pytest.mark.vice,
     pytest.mark.skipif(
-        not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-        reason="xpet not installed",
+        not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+        reason="x64sc not installed",
     ),
     pytest.mark.skipif(
-        shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"),
+        shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
         reason="cc65 not installed",
     ),
 ]
@@ -31,8 +31,8 @@ pytestmark = [
 
 @pytest.fixture
 def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="dbgtest", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="dbgtest", headless=True, warp=True)
     wait_for_text(s, "READY.")
     yield s
     s.stop()
@@ -82,7 +82,7 @@ def test_symbolic_debug_loop(session, tmp_path):
 
 def test_watchpoint_on_screen_ram(session, tmp_path):
     res = build_asm(Path("tests/programs/hello-asm/program.s"), out_prg=tmp_path / "w.prg")
-    from petlib.protocol import CP_STORE
+    from c64lib.protocol import CP_STORE
 
     with session.monitor() as mon:
         try:
