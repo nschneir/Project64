@@ -36,8 +36,8 @@ def test_basic_recipes_tokenize(tmp_path):
     for i, block in enumerate(_blocks("basic")):
         src = tmp_path / f"r{i}.bas"
         src.write_text(block)
-        prg = tokenize(src, tmp_path / f"r{i}.prg", "4.0")
-        assert prg.read_bytes()[:2] == b"\x01\x04"
+        prg = tokenize(src, tmp_path / f"r{i}.prg", "2.0")
+        assert prg.read_bytes()[:2] == b"\x01\x08"
 
 
 @pytest.mark.skipif(

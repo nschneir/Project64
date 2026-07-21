@@ -2,7 +2,7 @@
 
 petcat text convention: keywords AND string text lowercase (lowercase ASCII
 -> unshifted PETSCII -> displays as uppercase on the C64's uppercase/graphics screen).
-Dialect codes verified against petcat (VICE 3.10): 1p, 2, 40.
+Dialect code verified against petcat (VICE 3.10): 2 (C64 BASIC 2.0).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-PETCAT_DIALECTS = {"1.0": "1p", "2.0": "2", "4.0": "40"}
+PETCAT_DIALECTS = {"2.0": "2"}
 
 
 class BasicError(Exception):
