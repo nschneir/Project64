@@ -1117,7 +1117,7 @@ def rom() -> None:
 @rom.command("info")
 @click.pass_context
 def rom_info(ctx):
-    """Identify the loaded ROM set — BASIC/KERNAL/editor names and hashes."""
+    """Identify the loaded ROM set — BASIC/KERNAL/chargen names and hashes."""
     s = attach(ctx)
     with s.monitor() as mon:
         try:
@@ -1125,8 +1125,8 @@ def rom_info(ctx):
         finally:
             mon.release()
     human = "\n".join(
-        [f"basic:  {info['basic']}", f"kernal: {info['kernal']}",
-         f"editor: {info['editor']}"]
+        [f"basic:   {info['basic']}", f"kernal:  {info['kernal']}",
+         f"chargen: {info['chargen']}"]
         + [f"hash {k}: {v}" for k, v in info["hashes"].items()]
     )
     emit(ctx, info, human)

@@ -9,7 +9,7 @@ from c64lib.cli import main
 def _fake(labels=None):
     fake = Mock()
     fake.name, fake.model, fake.labels = "c64", "c64", labels
-    fake.profile.basic_version = "4.0"
+    fake.profile.basic_version = "2.0"
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
     fake.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -20,13 +20,13 @@ def test_rom_info():
     fake, mon = _fake()
     with patch("c64lib.cli.Session") as S, \
          patch("c64lib.cli.identify", return_value={
-             "basic": "basic-4.bin", "kernal": "kernal-4.bin",
-             "editor": "edit-4.bin", "hashes": {"basic": "abc"}}) as ident:
+             "basic": "basic-901226-01.bin", "kernal": "kernal-901227-03.bin",
+             "chargen": "chargen-901225-01.bin", "hashes": {"basic": "abc"}}) as ident:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "rom", "info"])
     assert r.exit_code == 0, r.output
     ident.assert_called_once_with(mon)
-    assert json.loads(r.output)["kernal"] == "kernal-4.bin"
+    assert json.loads(r.output)["kernal"] == "kernal-901227-03.bin"
     mon.release.assert_called_once()
 
 

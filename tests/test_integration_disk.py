@@ -84,9 +84,9 @@ def test_rom_identify_and_disasm(tmp_path, monkeypatch):
                 data = mon.memory_read(0xFFD2, 3)
             finally:
                 mon.resume()
-        assert info["basic"].endswith(".bin") and "4" in info["basic"]
+        assert info["basic"].endswith(".bin") and "901226" in info["basic"]
         assert len(info["hashes"]["kernal"]) == 12
-        lines = disassemble(data, 0xFFD2, rom_labels("4.0"))
+        lines = disassemble(data, 0xFFD2, rom_labels("2.0"))
         assert lines[0] == "CHROUT:"
         assert "jmp" in lines[1]
     finally:

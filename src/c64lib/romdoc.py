@@ -1,4 +1,4 @@
-"""ROM identification and the curated PET ROM label database.
+"""ROM identification and the curated C64 ROM label database.
 
 Licensing posture (spec §2): this module ships only annotations we authored
 (names + addresses). ROM bytes are read from the USER'S running emulator at
@@ -12,10 +12,10 @@ from importlib import resources
 
 from .symbols import parse_labels
 
-_LABEL_FILES = {"4.0": "basic4.lbl", "2.0": "basic2.lbl"}
+_LABEL_FILES = {"2.0": "basic2.lbl"}
 
-# hash regions skip the I/O window at $E800-$EFFF
-_REGIONS = {"basic": (0xB000, 0x3000), "editor": (0xE000, 0x0800), "kernal": (0xF000, 0x1000)}
+# BASIC and KERNAL ROMs; char ROM ($D000) is banked under I/O — never hash it.
+_REGIONS = {"basic": (0xA000, 0x2000), "kernal": (0xE000, 0x2000)}
 
 
 def rom_labels(basic_version: str) -> dict[str, int]:
@@ -30,7 +30,7 @@ def identify(mon) -> dict:
     info = {
         "basic": mon.resource_get("BasicName"),
         "kernal": mon.resource_get("KernalName"),
-        "editor": mon.resource_get("EditorName"),
+        "chargen": mon.resource_get("ChargenName"),
     }
     hashes = {}
     for key, (start, length) in _REGIONS.items():
