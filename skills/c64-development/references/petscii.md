@@ -121,6 +121,5 @@ Letters, digits, and punctuation round-trip faithfully — text output is
 fully trustworthy. When you need exact glyph identity (e.g. asserting a
 specific character code, not its look-alike), read the numbers instead:
 `c64 screen --codes` prints the raw screen-code matrix, or
-`c64 mem get $80D2` for row 5, column 10 on a 40-column model (row stride
-80 on 80-column models), or use `c64 screen --png` when pixel appearance
-matters.
+`c64 mem get $04D2` for row 5, column 10 (`$0400 + 40*row + col`), or use
+`c64 screen --png` when pixel appearance matters.

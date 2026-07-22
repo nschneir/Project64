@@ -11,7 +11,7 @@ def _fake_attached():
     fake = Mock()
     fake.name, fake.model = "c64", "c64"
     fake.profile.basic_version = "2.0"
-    fake.profile.basic_start = 0x0401
+    fake.profile.basic_start = 0x0801
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
     fake.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -20,7 +20,7 @@ def _fake_attached():
 
 def test_load_autostarts_and_registers_symbols(tmp_path):
     prg = tmp_path / "p.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "p.lbl"
     lbl.write_text("al C:040d .start\n")
     fake, mon = _fake_attached()
@@ -35,7 +35,7 @@ def test_load_autostarts_and_registers_symbols(tmp_path):
 
 def test_load_no_run(tmp_path):
     prg = tmp_path / "p.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     fake, mon = _fake_attached()
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
@@ -68,7 +68,7 @@ def test_run_asm_builds_and_registers_labels(tmp_path):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["run", str(src)])
     assert r.exit_code == 0, r.output
-    ba.assert_called_once_with(src.resolve(), basic_start=0x0401)
+    ba.assert_called_once_with(src.resolve(), basic_start=0x0801)
     mon.autostart.assert_called_once_with(res.prg, run=True)
     fake.set_labels_path.assert_called_once_with(str(res.labels))
 

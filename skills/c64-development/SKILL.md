@@ -74,7 +74,7 @@ matters. The VIC-II's 8 hardware sprites are the idiomatic way to move
 things smoothly: registers, data layout, and the SID sound registers are in
 references/hardware.md, and working recipes are in the cookbook. Policy for
 how demos author sprite data, capture screenshots, and write graphics tests:
-`docs/specs/graphics-and-sprites.md`. Two hard rules: sprites are invisible
+`docs/superpowers/specs/graphics-and-sprites.md`. Two hard rules: sprites are invisible
 to `c64 screen` text (assert on VIC-II registers and state bytes; use
 `c64 screen --png` for visual evidence), and never relocate the screen from
 `$0400`.

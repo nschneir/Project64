@@ -108,7 +108,7 @@ def test_wait_mem_malformed_condition():
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         # valid addr, missing =VALUE -> the "use ADDR=VALUE" branch
-        r = CliRunner().invoke(main, ["wait", "--mem", "$8000"])
+        r = CliRunner().invoke(main, ["wait", "--mem", "$0400"])
     assert r.exit_code == 1 and "ADDR=VALUE" in r.output
 
 
@@ -118,7 +118,7 @@ def test_wait_mem_timeout():
          patch("c64lib.cli.wait_for_mem",
                return_value={"fired": None, "timeout": 0.1, "last_value": 7}):
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["wait", "--mem", "$8000=42", "--timeout", "0.1"])
+        r = CliRunner().invoke(main, ["wait", "--mem", "$0400=42", "--timeout", "0.1"])
     assert r.exit_code == 1 and "timeout" in r.output.lower()
 
 

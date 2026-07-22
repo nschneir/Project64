@@ -47,7 +47,7 @@ def test_poke_and_until_steps():
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     spec = _spec(steps=[
-        {"poke": {"addr": "$97", "values": [68]}},
+        {"poke": {"addr": "$CB", "values": [68]}},
         {"until": {"ref": "$0419", "count": 3}},
     ])
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
@@ -56,7 +56,7 @@ def test_poke_and_until_steps():
                              "count": 3}) as ru:
         result = run_test(spec, launch=launch)
     assert result.passed is True
-    mon.memory_write.assert_called_once_with(0x97, bytes([68]))
+    mon.memory_write.assert_called_once_with(0xCB, bytes([68]))
     ru.assert_called_once_with(s, 0x0419, timeout=2, count=3)
 
 
@@ -96,11 +96,11 @@ def test_assert_mem_equals_text():
     launch = Mock(return_value=s)
     # screen codes for "HI" are 8, 9
     mon.memory_read.return_value = bytes([8, 9])
-    spec = _spec(steps=[{"assert": {"mem": "$8000", "equals_text": "HI"}}])
+    spec = _spec(steps=[{"assert": {"mem": "$0400", "equals_text": "HI"}}])
     with patch("c64lib.testing.read_screen_text", return_value="READY."):
         result = run_test(spec, launch=launch)
     assert result.passed is True
-    mon.memory_read.assert_called_with(0x8000, 2)
+    mon.memory_read.assert_called_with(0x0400, 2)
 
 
 def test_program_bas_tokenized_and_autostarted(tmp_path):
@@ -119,7 +119,7 @@ def test_program_bas_tokenized_and_autostarted(tmp_path):
 
 def test_autorun_false_waits_for_load(tmp_path):
     prog = tmp_path / "p.prg"
-    prog.write_bytes(b"\x01\x04")
+    prog.write_bytes(b"\x01\x08")
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     screens = ["READY.",                                  # boot
@@ -150,7 +150,7 @@ def test_wait_mem_polls_until_value():
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     mon.memory_read.side_effect = [b"\x00", b"\x00", b"\x2a"]
-    spec = _spec(steps=[{"wait": {"mem": "$8000", "equals": "$2a"}}])
+    spec = _spec(steps=[{"wait": {"mem": "$0400", "equals": "$2a"}}])
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
          patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
@@ -162,7 +162,7 @@ def test_wait_mem_timeout_reports_last_value():
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     mon.memory_read.return_value = b"\x07"
-    spec = _spec(steps=[{"wait": {"mem": "$8000", "equals": "$2a", "timeout": 0.2}}])
+    spec = _spec(steps=[{"wait": {"mem": "$0400", "equals": "$2a", "timeout": 0.2}}])
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
          patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
@@ -234,11 +234,11 @@ def _assert_step(mem_bytes, assert_arg):
 
 def test_assert_mem_equals_any():
     # FT6: either alternative passes
-    r = _assert_step(bytes([81]), {"mem": "$8000", "equals_any": [[81], [98]]})
+    r = _assert_step(bytes([81]), {"mem": "$0400", "equals_any": [[81], [98]]})
     assert r.passed is True
-    r = _assert_step(bytes([98]), {"mem": "$8000", "equals_any": [[81], [98]]})
+    r = _assert_step(bytes([98]), {"mem": "$0400", "equals_any": [[81], [98]]})
     assert r.passed is True
-    r = _assert_step(bytes([32]), {"mem": "$8000", "equals_any": [[81], [98]]})
+    r = _assert_step(bytes([32]), {"mem": "$0400", "equals_any": [[81], [98]]})
     assert r.passed is False
     # failure message shows actual and every accepted alternative
     assert "20" in r.steps[0].detail        # actual, hex
@@ -247,7 +247,7 @@ def test_assert_mem_equals_any():
 
 def test_assert_mem_mask():
     # FT6: masked compare — e.g. ignore the reverse-video bit
-    arg = {"mem": "$8000", "mask": {"and": 0x7F, "equals": [81]}}
+    arg = {"mem": "$0400", "mask": {"and": 0x7F, "equals": [81]}}
     assert _assert_step(bytes([81]), arg).passed is True
     assert _assert_step(bytes([81 | 0x80]), arg).passed is True
     r = _assert_step(bytes([87]), arg)
@@ -255,13 +255,13 @@ def test_assert_mem_mask():
 
 
 def test_assert_mem_mask_multibyte():
-    arg = {"mem": "$8000", "mask": {"and": "$7f", "equals": [81, 87]}}
+    arg = {"mem": "$0400", "mask": {"and": "$7f", "equals": [81, 87]}}
     assert _assert_step(bytes([0xD1, 0x57]), arg).passed is True
 
 
 def test_assert_mem_between():
     # FT6: single-byte range check
-    arg = {"mem": "$8000", "between": {"min": 50, "max": 54}}
+    arg = {"mem": "$0400", "between": {"min": 50, "max": 54}}
     assert _assert_step(bytes([50]), arg).passed is True
     assert _assert_step(bytes([54]), arg).passed is True
     r = _assert_step(bytes([55]), arg)
@@ -270,7 +270,7 @@ def test_assert_mem_between():
 
 
 def test_assert_mem_between_hex_bounds():
-    arg = {"mem": "$8000", "between": {"min": "$30", "max": "$39"}}
+    arg = {"mem": "$0400", "between": {"min": "$30", "max": "$39"}}
     assert _assert_step(bytes([0x35]), arg).passed is True
 
 
@@ -280,7 +280,7 @@ def test_call_step_resolves_symbol_and_passes_registers(tmp_path):
     lbl = tmp_path / "p.lbl"
     lbl.write_text("al C:2000 .sndinit\n")
     prog = tmp_path / "p.prg"
-    prog.write_bytes(b"\x01\x04")
+    prog.write_bytes(b"\x01\x08")
     spec = _spec(program=str(prog), autorun=True,
                  steps=[{"call": {"routine": "sndinit", "a": 5, "x": 1}}])
     fired = {"fired": True, "registers": {"PC": 0x0400, "A": 5}, "trap": 0x0400}

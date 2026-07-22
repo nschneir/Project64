@@ -26,7 +26,7 @@ def test_record_loaded_persists_and_reloads(tmp_path, monkeypatch):
     s = _mk_session(tmp_path, monkeypatch)
     prg = tmp_path / "a.prg"
     dep = tmp_path / "a.s"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     dep.write_text(";")
     s.record_loaded(prg, [dep])
     rec = json.loads((tmp_path / "home" / "sessions" / "t.json").read_text())
@@ -40,7 +40,7 @@ def test_staleness_lists_deps_changed_since_load(tmp_path, monkeypatch):
     dep = tmp_path / "inc.s"
     dep.write_text(";")
     prg = tmp_path / "a.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     s.record_loaded(prg, [dep])
     assert staleness(s) == []
     s.loaded_at = time.time() - 60          # pretend the load was a minute ago
@@ -54,7 +54,7 @@ def test_status_reports_program_and_stale_sources(tmp_path, monkeypatch):
     dep = tmp_path / "inc.s"
     dep.write_text(";")
     prg = tmp_path / "a.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     s.record_loaded(prg, [dep])
     s.loaded_at = time.time() - 60
     dep.write_text("; edited\n")
@@ -73,7 +73,7 @@ def test_run_build_failure_names_the_running_program(tmp_path, monkeypatch):
     import stat
     s = _mk_session(tmp_path, monkeypatch)
     prg = tmp_path / "old.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     s.record_loaded(prg, [])
     monkeypatch.setattr(cli, "attach", lambda ctx: s)
     bad = tmp_path / "ca65"

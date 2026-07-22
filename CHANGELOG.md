@@ -28,7 +28,7 @@ Commodore 64.
   reference books; every live-assertable claim measured on a real x64sc.
 - **Cookbook** — 16 C64 recipes (sprites, SID sound, `$CB` input, CINV IRQ
   wedge, screen+color pokes ...), all exercised live by the test suite.
-- **Graphics & sprites spec** — `docs/specs/graphics-and-sprites.md`: how
+- **Graphics & sprites spec** — `docs/superpowers/specs/graphics-and-sprites.md`: how
   demos author sprite data, capture screenshot evidence, and write
   register/memory-based tests.
 - **C64 demo prompts** — six graded prompts (bouncing-ball sprite demo,

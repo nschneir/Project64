@@ -19,4 +19,4 @@ pointer at 2040, `$D015` reading 1, position-register samples that differ
 between reads, and screenshots showing the sprite mid-flight inside the
 character border. Sprites don't appear in `c64 screen` text — the agent
 must verify through registers and PNGs (see
-docs/specs/graphics-and-sprites.md).
+docs/superpowers/specs/graphics-and-sprites.md).

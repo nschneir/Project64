@@ -8,7 +8,7 @@ Paste this prompt into your agent:
 > a BASIC SYS stub, drawing the formation and shields in character mode at
 > $0400 with color RAM at $D800, and using **hardware sprites** for the
 > smooth movers: the laser base, the player shot, and the mystery UFO
-> (docs/specs/graphics-and-sprites.md has the authoring and testing rules).
+> (docs/superpowers/specs/graphics-and-sprites.md has the authoring and testing rules).
 > The keyboard replaces the arcade controls: A/D held down move the laser
 > base, space fires.
 >
@@ -98,7 +98,7 @@ Paste this prompt into your agent:
 > sprites are live); your SID shadow bytes captured mid-heartbeat; wave 2
 > starting lower than wave 1; a game over; and a second game whose
 > HI-SCORE is the first game's final score. Collect the screenshots as
-> evidence PNGs per docs/specs/graphics-and-sprites.md.
+> evidence PNGs per docs/superpowers/specs/graphics-and-sprites.md.
 >
 > **Ship it.** When everything passes, package the game so anyone with
 > stock VICE can play it: `c64 package` your source into

@@ -41,7 +41,7 @@ with the keyboard scan, which is why game docs say "use port 2"
 ## Sprites (VIC-II)
 
 8 hardware sprites, 24×21 pixels each, 63 bytes of data per shape.
-Policy for demos: docs/specs/graphics-and-sprites.md.
+Policy for demos: docs/superpowers/specs/graphics-and-sprites.md.
 
 | Register | Role |
 |----------|------|

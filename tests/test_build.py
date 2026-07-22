@@ -7,8 +7,8 @@ from c64lib.build import BuildError, BuildResult, build_asm, linker_config
 
 
 def test_linker_config_contents():
-    cfg = linker_config(0x0401)
-    assert "$0401" in cfg
+    cfg = linker_config(0x0801)
+    assert "$0801" in cfg
     for seg in ("LOADADDR", "EXEHDR", "CODE", "HEADER", "MAIN"):
         assert seg in cfg
 
@@ -30,7 +30,7 @@ def test_build_asm_invokes_toolchain(tmp_path, monkeypatch):
     ld65 = _stub_tool(tmp_path, "ld65", (
         "import sys, pathlib\n"
         "a = sys.argv[1:]\n"
-        "pathlib.Path(a[a.index('-o')+1]).write_bytes(b'\\x01\\x04PRG')\n"
+        "pathlib.Path(a[a.index('-o')+1]).write_bytes(b'\\x01\\x08PRG')\n"
         "pathlib.Path(a[a.index('-Ln')+1]).write_text('al 00040D .start\\n')\n"
         "pathlib.Path(__file__).with_name('ld65.args').write_text(' '.join(a))\n"
     ))
@@ -41,7 +41,7 @@ def test_build_asm_invokes_toolchain(tmp_path, monkeypatch):
     src.write_text("; test\n")
     res = build_asm(src)
     assert isinstance(res, BuildResult)
-    assert res.prg == tmp_path / "prog.prg" and res.prg.read_bytes()[:2] == b"\x01\x04"
+    assert res.prg == tmp_path / "prog.prg" and res.prg.read_bytes()[:2] == b"\x01\x08"
     assert res.labels == tmp_path / "prog.lbl" and "start" in res.labels.read_text()
     ca65_args = (tmp_path / "ca65.args").read_text()
     assert str(src) in ca65_args
@@ -84,7 +84,7 @@ def _stub_pair(tmp_path, monkeypatch, ca65_body=None, deps_line=None):
     ld65 = _stub_tool(tmp_path, "ld65", (
         "import sys, pathlib\n"
         "a = sys.argv[1:]\n"
-        "pathlib.Path(a[a.index('-o')+1]).write_bytes(b'\\x01\\x04PRG')\n"
+        "pathlib.Path(a[a.index('-o')+1]).write_bytes(b'\\x01\\x08PRG')\n"
         "pathlib.Path(a[a.index('-Ln')+1]).write_text('al 00040D .start\\n')\n"
     ))
     monkeypatch.setenv("C64_TOOLS_CA65", str(ca65))
@@ -109,9 +109,9 @@ def test_build_failure_never_touches_existing_prg(tmp_path, monkeypatch):
     src = tmp_path / "prog.s"
     src.write_text("; broken\n")
     old = tmp_path / "prog.prg"
-    old.write_bytes(b"\x01\x04OLD")
+    old.write_bytes(b"\x01\x08OLD")
     _stub_pair(tmp_path, monkeypatch,
                ca65_body="import sys\nsys.stderr.write('boom\\n')\nsys.exit(1)\n")
     with pytest.raises(BuildError):
         build_asm(src)
-    assert old.read_bytes() == b"\x01\x04OLD"  # stale binary intact, not rebuilt
+    assert old.read_bytes() == b"\x01\x08OLD"  # stale binary intact, not rebuilt

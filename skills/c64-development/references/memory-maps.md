@@ -27,6 +27,6 @@ Notes:
   even though the CPU doesn't.
 - The screen can be relocated by the VIC-II ($D018), but this toolset's
   screen reader assumes the power-on `$0400` — don't relocate it (see
-  docs/specs/graphics-and-sprites.md).
+  docs/superpowers/specs/graphics-and-sprites.md).
 - `c64` (NTSC, 60 Hz) and `c64pal` (PAL, 50 Hz) share this entire map;
   only frame timing and CPU clock differ.

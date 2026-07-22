@@ -44,15 +44,15 @@ def served():
 def test_memory_read_bytes_round_trip(served):
     c, mon, _ = served
     mon.memory_read.return_value = b"\x2a\x00"
-    assert c.memory_read(0x8000, 2) == b"\x2a\x00"
-    mon.memory_read.assert_called_once_with(0x8000, 2)
+    assert c.memory_read(0x0400, 2) == b"\x2a\x00"
+    mon.memory_read.assert_called_once_with(0x0400, 2)
 
 
 def test_memory_write_sends_bytes(served):
     c, mon, _ = served
     mon.memory_write.return_value = None    # real MonitorClient returns None
-    c.memory_write(0x8000, b"\x01\x02")
-    mon.memory_write.assert_called_once_with(0x8000, b"\x01\x02")
+    c.memory_write(0x0400, b"\x01\x02")
+    mon.memory_write.assert_called_once_with(0x0400, b"\x01\x02")
 
 
 def test_checkpoint_set_round_trip(served):
@@ -190,7 +190,7 @@ def test_remote_exception_reraises(served):
     c, mon, _ = served
     mon.memory_read.side_effect = MonitorError(0x01, 0x02)
     with pytest.raises(MonitorError):
-        c.memory_read(0x8000, 1)
+        c.memory_read(0x0400, 1)
 
 
 def test_daemon_gone_raises_connection_error(served):

@@ -58,7 +58,7 @@ def test_break_add_unknown_symbol_fails():
 
 def test_break_list_and_remove():
     fake, mon = _fake()
-    mon.checkpoint_list.return_value = [_ck(number=1, hits=3), _ck(number=2, start=0x8000)]
+    mon.checkpoint_list.return_value = [_ck(number=1, hits=3), _ck(number=2, start=0x0400)]
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "break", "list"])
@@ -73,9 +73,9 @@ def test_watch_add_store_only_with_length():
     mon.checkpoint_set.return_value = _ck(op=CP_STORE)
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["watch", "add", "$8000", "--store", "--length", "40"])
+        r = CliRunner().invoke(main, ["watch", "add", "$0400", "--store", "--length", "40"])
     assert r.exit_code == 0, r.output
-    mon.checkpoint_set.assert_called_once_with(0x8000, 0x8000 + 39, op=CP_STORE)
+    mon.checkpoint_set.assert_called_once_with(0x0400, 0x0400 + 39, op=CP_STORE)
 
 
 def test_watch_add_default_both():
@@ -83,9 +83,9 @@ def test_watch_add_default_both():
     mon.checkpoint_set.return_value = _ck(op=CP_LOAD | CP_STORE)
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["watch", "add", "$8000"])
+        r = CliRunner().invoke(main, ["watch", "add", "$0400"])
     assert r.exit_code == 0
-    mon.checkpoint_set.assert_called_once_with(0x8000, 0x8000, op=CP_LOAD | CP_STORE)
+    mon.checkpoint_set.assert_called_once_with(0x0400, 0x0400, op=CP_LOAD | CP_STORE)
 
 
 def test_break_enable_and_disable():

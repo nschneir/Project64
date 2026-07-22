@@ -7,8 +7,8 @@ from c64lib.cli import main, parse_number
 
 
 def test_parse_number():
-    assert parse_number("$8000") == 0x8000
-    assert parse_number("0x8000") == 0x8000
+    assert parse_number("$0400") == 0x0400
+    assert parse_number("0x0400") == 0x0400
     assert parse_number("1024") == 1024
 
 
@@ -47,10 +47,10 @@ def test_mem_read_hexdump():
     fake, p = _patched(mon)
     with p as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["mem", "read", "$8000", "16"])
+        r = CliRunner().invoke(main, ["mem", "read", "$0400", "16"])
     assert r.exit_code == 0
-    assert r.output.startswith("8000: 00 01 02")
-    mon.memory_read.assert_called_once_with(0x8000, 16)
+    assert r.output.startswith("0400: 00 01 02")
+    mon.memory_read.assert_called_once_with(0x0400, 16)
     mon.release.assert_called_once()
 
 
@@ -59,20 +59,20 @@ def test_mem_write():
     fake, p = _patched(mon)
     with p as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["mem", "write", "$8000", "0x01", "2", "$FF"])
+        r = CliRunner().invoke(main, ["mem", "write", "$0400", "0x01", "2", "$FF"])
     assert r.exit_code == 0
-    mon.memory_write.assert_called_once_with(0x8000, bytes([1, 2, 0xFF]))
+    mon.memory_write.assert_called_once_with(0x0400, bytes([1, 2, 0xFF]))
     mon.release.assert_called_once()
 
 
 def test_reg_get_and_set():
     mon = Mock()
-    mon.registers.return_value = {"PC": 0x0401, "A": 0x2A}
+    mon.registers.return_value = {"PC": 0x0801, "A": 0x2A}
     fake, p = _patched(mon)
     with p as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "reg"])
-        assert json.loads(r.output)["registers"]["PC"] == 0x0401
+        assert json.loads(r.output)["registers"]["PC"] == 0x0801
         r2 = CliRunner().invoke(main, ["reg", "set", "PC", "$2000"])
     assert r2.exit_code == 0
     mon.set_register.assert_called_once_with("PC", 0x2000)
@@ -125,7 +125,7 @@ def test_mem_read_json_has_bytes_array():
     mon.memory_read.return_value = bytes([42, 0, 255])
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["--json", "mem", "read", "$8000", "3"])
+        r = CliRunner().invoke(main, ["--json", "mem", "read", "$0400", "3"])
     assert r.exit_code == 0, r.output
     out = json.loads(r.output)
     assert out["bytes"] == [42, 0, 255] and out["hex"] == "2a00ff"
@@ -136,7 +136,7 @@ def test_mem_read_decimal_human_rendering():
     mon.memory_read.return_value = bytes([42, 0])
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["mem", "read", "$8000", "2", "--decimal"])
+        r = CliRunner().invoke(main, ["mem", "read", "$0400", "2", "--decimal"])
     assert r.exit_code == 0, r.output
     assert "42 0" in r.output and "2a" not in r.output
 
@@ -146,10 +146,10 @@ def test_mem_get_prints_bare_decimal():
     mon.memory_read.return_value = bytes([42])
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["mem", "get", "$8000"])
+        r = CliRunner().invoke(main, ["mem", "get", "$0400"])
     assert r.exit_code == 0, r.output
     assert r.output.strip() == "42"
-    mon.memory_read.assert_called_once_with(0x8000, 1)
+    mon.memory_read.assert_called_once_with(0x0400, 1)
 
 
 def test_mem_get_json_values():
@@ -157,8 +157,8 @@ def test_mem_get_json_values():
     mon.memory_read.return_value = bytes([1, 2, 3])
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        r = CliRunner().invoke(main, ["--json", "mem", "get", "$8000", "3"])
-    assert json.loads(r.output) == {"addr": 0x8000, "values": [1, 2, 3]}
+        r = CliRunner().invoke(main, ["--json", "mem", "get", "$0400", "3"])
+    assert json.loads(r.output) == {"addr": 0x0400, "values": [1, 2, 3]}
 
 
 def test_mem_find_pattern():
@@ -167,10 +167,10 @@ def test_mem_find_pattern():
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "find", "$2a",
-                                      "--start", "$8000", "--length", "4"])
+                                      "--start", "$0400", "--length", "4"])
     assert r.exit_code == 0, r.output
     out = json.loads(r.output)
-    assert out["matches"] == [0x8001, 0x8003]
+    assert out["matches"] == [0x0401, 0x0403]
     assert out["count"] == 2 and out["truncated"] is False
     assert out["pattern"] == [0x2A]
 

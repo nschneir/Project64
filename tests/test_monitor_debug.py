@@ -29,7 +29,7 @@ def test_checkpoint_list_collects_same_rid_infos():
     def handle(b, rid):
         return [
             resp_frame(0x11, 0, rid, _info_body(1)),
-            resp_frame(0x11, 0, rid, _info_body(2, start=0x8000)),
+            resp_frame(0x11, 0, rid, _info_body(2, start=0x0400)),
             resp_frame(0x14, 0, rid, struct.pack("<I", 2)),
         ]
 
@@ -37,7 +37,7 @@ def test_checkpoint_list_collects_same_rid_infos():
     with _client(fake) as c:
         cks = c.checkpoint_list()
     assert [ck.number for ck in cks] == [1, 2]
-    assert cks[1].start == 0x8000
+    assert cks[1].start == 0x0400
 
 
 def test_step_advances_then_reads_registers():

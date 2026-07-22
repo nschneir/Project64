@@ -44,13 +44,13 @@ def test_break_add_symbolic(tmp_path):
 
 def test_watch_add_store(tmp_path):
     s, mon = _fake()
-    mon.checkpoint_set.return_value = _ck(op=CP_STORE, start=0x8000)
+    mon.checkpoint_set.return_value = _ck(op=CP_STORE, start=0x0400)
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_watch_add",
-                             {"ref": "$8000", "on_store": True, "length": 40})
+                             {"ref": "$0400", "on_store": True, "length": 40})
     assert err is False
-    mon.checkpoint_set.assert_called_once_with(0x8000, 0x8000 + 39, op=CP_STORE)
+    mon.checkpoint_set.assert_called_once_with(0x0400, 0x0400 + 39, op=CP_STORE)
 
 
 def test_step_stays_stopped():

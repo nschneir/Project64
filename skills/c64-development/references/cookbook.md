@@ -150,7 +150,7 @@ buffer — fine for a demo while tape is unused):
 
 Sprites never appear in `c64 screen` text — verify with
 `c64 mem read '$D015' 1` (enable bits) and `c64 screen --png`. Policy and
-testing rules: docs/specs/graphics-and-sprites.md.
+testing rules: docs/superpowers/specs/graphics-and-sprites.md.
 
 ## Assembly recipes
 
@@ -690,7 +690,7 @@ The minimum hardware sprite from machine code: data in a free block,
 pointer, color, position, enable — then move it by rewriting `$D000/$D001`.
 Sprite data goes in its own segment-free block here (the cassette buffer,
 block 13 = $0340); real programs put it in a dedicated `.byte` block (see
-docs/specs/graphics-and-sprites.md for the authoring rules). The demo
+docs/superpowers/specs/graphics-and-sprites.md for the authoring rules). The demo
 enables sprite 0 as a solid square, sweeps it right across the screen,
 and writes a done marker at `$03F0`:
 

@@ -38,7 +38,7 @@ def test_real_c1541_roundtrip(tmp_path):
     assert img.exists() and img.stat().st_size > 0
 
     src = tmp_path / "prog.prg"
-    src.write_bytes(b"\x01\x04hello")
+    src.write_bytes(b"\x01\x08hello")
     name = put_file(img, src, "demo")
     assert name == "demo"
 

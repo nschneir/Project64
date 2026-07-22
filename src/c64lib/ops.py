@@ -46,11 +46,10 @@ def parse_ref(labels: dict[str, int], ref, *, screen_base: int | None = None,
     """Address forms: $hex / 0xhex / decimal / symbol, plus:
 
     - `base+N` / `base-N` — a numeric or symbol base with an offset
-      (e.g. `alienX+49`, `$8000+40`). Only applied when the tail parses
+      (e.g. `alienX+49`, `$0400+40`). Only applied when the tail parses
       as a number, so hyphenated symbol names still resolve whole.
     - `@row,col` — a screen cell, resolved against the session's screen
-      geometry (40- vs 80-column models differ; callers pass it from the
-      machine profile).
+      geometry (callers pass it from the machine profile).
     """
     r = str(ref).strip()
     if r.startswith("@"):

@@ -18,7 +18,7 @@ def test_tokenize_default_output(tmp_path):
 
 def test_detokenize_listing(tmp_path):
     prg = tmp_path / "a.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     with patch("c64lib.cli.detokenize", return_value='10 print "hi"\n'):
         r = CliRunner().invoke(main, ["basic", "detokenize", str(prg)])
     assert r.exit_code == 0

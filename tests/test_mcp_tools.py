@@ -19,7 +19,7 @@ def _fake_session(labels=None):
     s = Mock()
     s.name, s.model, s.pid, s.port, s.labels = "c64", "c64", 1, 6502, labels
     s.profile.basic_version = "2.0"
-    s.profile.basic_start = 0x0401
+    s.profile.basic_start = 0x0801
     mon = Mock()
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
     s.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -103,9 +103,9 @@ def test_watch_add_defaults_to_load_and_store():
     mon.checkpoint_set.return_value = _ck(number=9, op=CP_LOAD | CP_STORE)
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
-        err, out = call_tool("c64_watch_add", {"ref": "$8000", "length": 4})
+        err, out = call_tool("c64_watch_add", {"ref": "$0400", "length": 4})
     assert err is False and out["id"] == 9 and out["length"] == 4
-    mon.checkpoint_set.assert_called_once_with(0x8000, 0x8003,
+    mon.checkpoint_set.assert_called_once_with(0x0400, 0x0403,
                                                op=CP_LOAD | CP_STORE)
 
 
@@ -154,16 +154,16 @@ def test_wait_mem_parses_and_passes_through():
          patch("c64lib.mcp_server.wait_for_mem", return_value=result) as w:
         S.attach.return_value = s
         err, out = call_tool("c64_wait_mem",
-                             {"addr": "$8000", "equals": "42", "timeout": 5.0})
+                             {"addr": "$0400", "equals": "42", "timeout": 5.0})
     assert err is False and out == result
-    w.assert_called_once_with(s, 0x8000, 42, 5.0)
+    w.assert_called_once_with(s, 0x0400, 42, 5.0)
 
 
 # --- program running ----------------------------------------------------------
 
 def test_run_prg_autostarts(tmp_path):
     prg = tmp_path / "game.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
@@ -196,7 +196,7 @@ def test_run_unknown_extension_is_error(tmp_path):
 
 def test_load_no_run_with_symbols(tmp_path):
     prg = tmp_path / "p.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "p.lbl"
     lbl.write_text("al C:040d .start\n")
     s, mon = _fake_session()

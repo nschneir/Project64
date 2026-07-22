@@ -24,14 +24,14 @@ def test_memory_read():
 
     fake = FakeVice({Command.MEMORY_GET: handle})
     with _client(fake) as c:
-        assert c.memory_read(0x8000, 4) == b"\x01\x02\x03\x04"
-    # request body: side_effects=0, start=8000, end=8003, memspace=0, bank=0
-    assert fake.received[0][1] == bytes([0, 0x00, 0x80, 0x03, 0x80, 0, 0, 0])
+        assert c.memory_read(0x0400, 4) == b"\x01\x02\x03\x04"
+    # request body: side_effects=0, start=0400, end=0403, memspace=0, bank=0
+    assert fake.received[0][1] == bytes([0, 0x00, 0x04, 0x03, 0x04, 0, 0, 0])
 
 
 def test_events_are_queued_not_returned():
     def handle(body, rid):
-        stopped = resp_frame(0x62, 0, 0xFFFFFFFF, b"\x01\x04")  # unsolicited
+        stopped = resp_frame(0x62, 0, 0xFFFFFFFF, b"\x01\x08")  # unsolicited
         return [stopped, resp_frame(0x81, 0, rid)]
 
     fake = FakeVice({Command.PING: handle})
@@ -45,7 +45,7 @@ def test_error_code_raises_monitor_error():
     fake = FakeVice({Command.MEMORY_GET: lambda b, rid: [resp_frame(0x01, 0x02, rid)]})
     with _client(fake) as c:
         with pytest.raises(MonitorError, match="INVALID_MEMSPACE"):
-            c.memory_read(0x8000, 1)
+            c.memory_read(0x0400, 1)
 
 
 def test_resume_sends_exit():

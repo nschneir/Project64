@@ -89,7 +89,7 @@ steps:
   - wait: { text: "READY." }
   - key: "RUN\\n"
   - wait: { text: "HELLO, WORLD", timeout: 5 }
-  - assert: { mem: "$8000", equals_text: "HELLO, WORLD" }
+  - assert: { mem: "$0400", equals_text: "HELLO, WORLD" }
   - assert: { reg: pc, in_range: ["$C000", "$E000"] }
 """)
     spec = load_test(f)
@@ -122,7 +122,7 @@ def test_load_test_rejects_non_mapping(tmp_path):
 
 def test_prepare_prg_passthrough(tmp_path):
     prg = tmp_path / "x.prg"
-    prg.write_bytes(b"\x01\x04")
+    prg.write_bytes(b"\x01\x08")
     assert _prepare(str(prg), get_profile("c64")) == (prg, None)
 
 

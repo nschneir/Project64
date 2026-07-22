@@ -61,9 +61,9 @@ def test_dispatch_and_bytes_marshalling():
     d, mon = _daemon()
     mon.memory_read.return_value = b"\x2a"
     b, f, t, _ = _talk(d)
-    resp = _rpc(f, "memory_read", 0x8000, 1)
+    resp = _rpc(f, "memory_read", 0x0400, 1)
     assert resp["ok"] == {"__bytes__": "Kg=="}
-    mon.memory_read.assert_called_once_with(0x8000, 1)
+    mon.memory_read.assert_called_once_with(0x0400, 1)
     b.close(); t.join(timeout=2)
 
 
@@ -326,7 +326,7 @@ def test_connection_error_marshalled_and_daemon_quits():
     d, mon = _daemon()
     mon.memory_read.side_effect = ConnectionError("x64sc died")
     b, f, t, _ = _talk(d)
-    resp = _rpc(f, "memory_read", 0x8000, 1)
+    resp = _rpc(f, "memory_read", 0x0400, 1)
     assert resp["err"] == "ConnectionError" and "x64sc died" in resp["msg"]
     t.join(timeout=2)
     assert d._quitting is True          # daemon gives up; nothing to restore

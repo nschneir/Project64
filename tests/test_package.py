@@ -16,7 +16,7 @@ def test_version():
 
 def test_package_prg_copies_source(tmp_path):
     src = tmp_path / "game.prg"
-    src.write_bytes(b"\x01\x04\x00\x00")
+    src.write_bytes(b"\x01\x08\x00\x00")
     package_program(src, out=str(tmp_path / "copy.prg"))
     assert (tmp_path / "copy.prg").read_bytes() == src.read_bytes()
 

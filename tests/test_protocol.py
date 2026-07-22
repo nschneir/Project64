@@ -20,17 +20,17 @@ def test_encode_ping():
 
 
 def test_encode_with_body():
-    body = memory_get_body(0x8000, 0x8003)
+    body = memory_get_body(0x0400, 0x0403)
     frame = encode_command(Command.MEMORY_GET, body, request_id=1)
     # body: side_effects u8, start u16, end u16, memspace u8, bank u16
-    assert body == bytes([0x00, 0x00, 0x80, 0x03, 0x80, 0x00, 0x00, 0x00])
+    assert body == bytes([0x00, 0x00, 0x04, 0x03, 0x04, 0x00, 0x00, 0x00])
     assert frame[:11] == bytes([0x02, 0x02, 8, 0, 0, 0, 1, 0, 0, 0, 0x01])
     assert frame[11:] == body
 
 
 def test_memory_set_body():
-    body = memory_set_body(0x8000, b"\xde\xad")
-    assert body == bytes([0x00, 0x00, 0x80, 0x01, 0x80, 0x00, 0x00, 0x00]) + b"\xde\xad"
+    body = memory_set_body(0x0400, b"\xde\xad")
+    assert body == bytes([0x00, 0x00, 0x04, 0x01, 0x04, 0x00, 0x00, 0x00]) + b"\xde\xad"
 
 
 def _resp_frame(rtype, err, rid, body):
@@ -55,7 +55,7 @@ def test_decode_split_across_feeds():
 
 def test_decode_two_frames_one_feed():
     dec = FrameDecoder()
-    data = _resp_frame(0x81, 0, 1, b"") + _resp_frame(0x62, 0, 0xFFFFFFFF, b"\x01\x04")
+    data = _resp_frame(0x81, 0, 1, b"") + _resp_frame(0x62, 0, 0xFFFFFFFF, b"\x01\x08")
     out = dec.feed(data)
     assert len(out) == 2
     assert out[1].is_event  # request id 0xFFFFFFFF marks an unsolicited event

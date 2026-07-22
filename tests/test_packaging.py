@@ -55,7 +55,7 @@ def test_package_d64_autostart_first(tmp_path):
     out = package_program(HELLO_ASM, out=tmp_path / "hello.d64", title="hello")
     assert out["image"] == str(tmp_path / "hello.d64")
     # The run hint must pin the model: stock x64sc's default model need not
-    # match, and ROM-dependent behavior ($97 input semantics) breaks silently.
+    # match, and frame timing differs between the video standards.
     assert out["run"] == f"x64sc -ntsc {tmp_path / 'hello.d64'}"
     d = list_files(out["image"])
     assert d["files"], "image has no files"

@@ -23,8 +23,8 @@ exposes the same operations; see the README.
   name** is accepted anywhere an address is. Addresses additionally accept
   an **offset** (`alienX+49`, `tick-1`, `dots+$52`, `$0400+40`) and a
   **screen cell** `@row,col`
-  (e.g. `@23,18`), resolved against the session model's real screen base
-  and width — 40 vs 80 columns handled for you.
+  (e.g. `@23,18`), resolved against the session's screen geometry
+  (40×25 at `$0400`).
 - **Exit codes.** `0` on success; `1` on error, on a `c64 wait` timeout, or on
   a failing `c64 test`.
 - **Machine state.** Every session runs a monitor daemon that owns the one

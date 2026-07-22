@@ -17,8 +17,8 @@ from c64lib.protocol import (
 def test_checkpoint_set_body():
     body = checkpoint_set_body(0x040D, 0x040D, op=CP_EXEC)
     assert body == struct.pack("<HHBBBB", 0x040D, 0x040D, 1, 1, 4, 0)
-    body = checkpoint_set_body(0x8000, 0x83E7, op=CP_LOAD | CP_STORE, stop=False, temporary=True)
-    assert body == struct.pack("<HHBBBB", 0x8000, 0x83E7, 0, 1, 3, 1)
+    body = checkpoint_set_body(0x0400, 0x07E7, op=CP_LOAD | CP_STORE, stop=False, temporary=True)
+    assert body == struct.pack("<HHBBBB", 0x0400, 0x07E7, 0, 1, 3, 1)
 
 
 def test_parse_checkpoint_roundtrip():

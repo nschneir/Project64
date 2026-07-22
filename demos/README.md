@@ -20,7 +20,7 @@ These prompts were ported from the PET edition of this project, where each
 passed a real dogfooding run (an agent given only the toolset built and
 verified the result). The C64 ports await their own dogfooding runs — a
 prompt's status flips to ✅ only when a real agent run passes on the C64.
-Graphics and sprite expectations follow docs/specs/graphics-and-sprites.md.
+Graphics and sprite expectations follow docs/superpowers/specs/graphics-and-sprites.md.
 
 Reference example programs with expected output (runnable as regression tests
 via `c64 test programs`) live in `tests/programs/` — solutions that come out

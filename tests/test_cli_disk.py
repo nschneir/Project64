@@ -30,7 +30,7 @@ def test_disk_put_and_get(tmp_path):
     img = tmp_path / "t.d64"
     img.write_bytes(b"x")
     f = tmp_path / "prog.prg"
-    f.write_bytes(b"\x01\x04")
+    f.write_bytes(b"\x01\x08")
     with patch("c64lib.cli.put_file", return_value="prog") as pf:
         r = CliRunner().invoke(main, ["disk", "put", str(img), str(f)])
     assert r.exit_code == 0, r.output

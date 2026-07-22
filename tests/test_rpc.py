@@ -27,7 +27,7 @@ def test_stopinfo_and_nested_round_trip():
 
 
 def test_plain_values_pass_through():
-    v = {"PC": 1037, "s": "x", "f": 1.5, "t": True}
+    v = {"PC": 2061, "s": "x", "f": 1.5, "t": True}
     assert decode_value(encode_value(v)) == v
 
 

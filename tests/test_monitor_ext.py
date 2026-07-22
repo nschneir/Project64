@@ -107,9 +107,9 @@ def test_resource_get_string_and_int():
         if name == "BasicName":
             val = b"basic-4.bin"
             return [resp_frame(0x51, 0, rid, bytes([0, len(val)]) + val)]
-        return [resp_frame(0x51, 0, rid, bytes([1, 4]) + (2031).to_bytes(4, "little"))]
+        return [resp_frame(0x51, 0, rid, bytes([1, 4]) + (1541).to_bytes(4, "little"))]
 
     fake = FakeVice({Command.RESOURCE_GET: handle})
     with _client(fake) as c:
         assert c.resource_get("BasicName") == "basic-4.bin"
-        assert c.resource_get("Drive8Type") == 2031
+        assert c.resource_get("Drive8Type") == 1541

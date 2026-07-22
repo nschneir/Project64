@@ -17,7 +17,7 @@ def _fake_session():
 
 
 def test_parse_number_and_ref():
-    assert parse_number("$8000") == 0x8000
+    assert parse_number("$0400") == 0x0400
     assert parse_ref({}, "0x1000") == 0x1000
     assert parse_ref({"start": 0x040D}, "start") == 0x040D
     with pytest.raises(KeyError):
@@ -32,8 +32,8 @@ def test_parse_ref_symbol_plus_offset():
 
 
 def test_parse_ref_number_plus_offset():
-    assert parse_ref({}, "$8000+40") == 0x8028
-    assert parse_ref({}, "$8000+$28") == 0x8028
+    assert parse_ref({}, "$0400+40") == 0x0428
+    assert parse_ref({}, "$0400+$28") == 0x0428
 
 
 def test_parse_ref_hyphenated_symbol_still_resolves():
@@ -43,9 +43,9 @@ def test_parse_ref_hyphenated_symbol_still_resolves():
 
 
 def test_parse_ref_rowcol():
-    assert parse_ref({}, "@23,18", screen_base=0x8000, screen_width=40) == 0x83AA
-    assert parse_ref({}, "@0,0", screen_base=0x8000, screen_width=40) == 0x8000
-    assert parse_ref({}, "@1,33", screen_base=0x8000, screen_width=80) == 0x8071
+    assert parse_ref({}, "@23,18", screen_base=0x0400, screen_width=40) == 0x07AA
+    assert parse_ref({}, "@0,0", screen_base=0x0400, screen_width=40) == 0x0400
+    assert parse_ref({}, "@1,33", screen_base=0x0400, screen_width=80) == 0x0471
 
 
 def test_parse_ref_rowcol_without_geometry_raises():
@@ -55,9 +55,9 @@ def test_parse_ref_rowcol_without_geometry_raises():
 
 def test_parse_ref_rowcol_out_of_range():
     with pytest.raises(ValueError, match="row"):
-        parse_ref({}, "@25,0", screen_base=0x8000, screen_width=40)
+        parse_ref({}, "@25,0", screen_base=0x0400, screen_width=40)
     with pytest.raises(ValueError, match="col"):
-        parse_ref({}, "@0,40", screen_base=0x8000, screen_width=40)
+        parse_ref({}, "@0,40", screen_base=0x0400, screen_width=40)
 
 
 def test_wait_for_text_fires_and_times_out():
@@ -257,7 +257,7 @@ def test_wait_for_mem_timeout_returns_last_value():
     s.monitor.return_value.__exit__ = Mock(return_value=False)
     mon.memory_read.return_value = b"\x05"
     with patch("c64lib.ops.time.sleep"):
-        out = wait_for_mem(s, 0x8000, 0x2A, timeout=0.1)
+        out = wait_for_mem(s, 0x0400, 0x2A, timeout=0.1)
     assert out["fired"] is None and out["last_value"] == 5
 
 
@@ -265,11 +265,11 @@ def test_find_bytes_single_and_pattern():
     from c64lib.ops import find_bytes
     mon = Mock()
     mon.memory_read.return_value = b"\x00\x2a\x00\x2a\x2a"
-    matches, truncated = find_bytes(mon, 0x8000, 5, b"\x2a")
-    assert matches == [0x8001, 0x8003, 0x8004] and truncated is False
-    matches, _ = find_bytes(mon, 0x8000, 5, b"\x2a\x2a")
-    assert matches == [0x8003]
-    mon.memory_read.assert_called_with(0x8000, 5)
+    matches, truncated = find_bytes(mon, 0x0400, 5, b"\x2a")
+    assert matches == [0x0401, 0x0403, 0x0404] and truncated is False
+    matches, _ = find_bytes(mon, 0x0400, 5, b"\x2a\x2a")
+    assert matches == [0x0403]
+    mon.memory_read.assert_called_with(0x0400, 5)
 
 
 def test_find_bytes_limit_truncates():

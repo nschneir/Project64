@@ -49,15 +49,15 @@ def test_no_session_is_actionable_error(tmp_path):
 
 def test_mem_read_symbolic(tmp_path):
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:8000 .screen\n")
+    lbl.write_text("al C:0400 .screen\n")
     s, mon = _fake_session(labels=str(lbl))
     mon.memory_read.return_value = bytes([1, 2])
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_mem_read", {"addr": "screen", "length": 2})
     assert err is False
-    assert out["addr"] == 0x8000 and out["hex"] == "0102"
-    mon.memory_read.assert_called_once_with(0x8000, 2)
+    assert out["addr"] == 0x0400 and out["hex"] == "0102"
+    mon.memory_read.assert_called_once_with(0x0400, 2)
 
 
 def test_reg_get_includes_pc_symbol(tmp_path):
@@ -75,9 +75,9 @@ def test_mem_write():
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
-        err, out = call_tool("c64_mem_write", {"addr": "$8000", "values": [8, 9]})
+        err, out = call_tool("c64_mem_write", {"addr": "$0400", "values": [8, 9]})
     assert err is False and out["written"] == 2
-    mon.memory_write.assert_called_once_with(0x8000, bytes([8, 9]))
+    mon.memory_write.assert_called_once_with(0x0400, bytes([8, 9]))
 
 
 def test_mem_read_includes_bytes():
@@ -85,7 +85,7 @@ def test_mem_read_includes_bytes():
     mon.memory_read.return_value = bytes([42, 0])
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
-        err, out = call_tool("c64_mem_read", {"addr": "$8000", "length": 2})
+        err, out = call_tool("c64_mem_read", {"addr": "$0400", "length": 2})
     assert err is False and out["bytes"] == [42, 0] and out["hex"] == "2a00"
 
 
@@ -95,8 +95,8 @@ def test_mem_find_tool():
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_mem_find",
-                             {"values": ["$2a"], "start": "$8000", "length": 2})
-    assert err is False and out["matches"] == [0x8000]
+                             {"values": ["$2a"], "start": "$0400", "length": 2})
+    assert err is False and out["matches"] == [0x0400]
 
 
 def test_status_tool():

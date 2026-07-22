@@ -71,7 +71,7 @@ def test_live_flow_through_mcp():
                 assert fired["fired"] == "text"
                 screen = await call("c64_screen_text", {})
                 assert "HELLO VIA MCP" in screen["text"]
-                mem = await call("c64_mem_read", {"addr": "$8000", "length": 40})
+                mem = await call("c64_mem_read", {"addr": "$0400", "length": 40})
                 assert len(mem["hex"]) == 80
             finally:
                 await call("c64_session_stop", {})

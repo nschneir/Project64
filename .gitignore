@@ -8,8 +8,8 @@ dist/
 *.lbl
 *.o
 *.d64
-*.d80
-*.d82
+*.d71
+*.d81
 scratch/
 docs/superpowers/
 .coverage
