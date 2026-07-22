@@ -40,6 +40,30 @@ against `petcat` — see tests/test_docs_rom_basic.py):
 
 For the full C64 BASIC 2.0 token list, run `petcat -k2`.
 
+## How BASIC executes a statement (and why GOTO can be slow)
+
+The interpreter's main loop runs each statement through the RAM vector
+**IGONE at `$0308`** (default `$A7E4`, verified live). `$A7E4` calls CHRGET
+(`$0073`) to fetch the first token, then dispatches: a command token
+(`$80-$A2`) indexes the **command-address table at `$A00C`**, whose entries are
+stored as *routine − 1* and pushed so CHRGET's `RTS` lands in the routine (e.g.
+GOTO's slot holds `$A89F`, one before the routine at `$A8A0`).
+
+**The GOTO/GOSUB gotcha:** finding the target line means walking the line-link
+chain, and the search routine (`$A613`) always starts from `TXTTAB` (`$0801`).
+GOTO compares the target to the *current* line (`$39/$3A`): a **backward** jump
+(target ≤ current) rescans from the very start of the program every time; a
+**forward** jump scans from the line after the current one. So in a large
+program, a GOTO/GOSUB back to a low line number gets slower the bigger the
+program is — keep hot-loop targets close, and put frequently-called subroutines
+near the top so the scan is short.
+
+**Extending BASIC** uses one of two classic hooks: repoint IGONE (`$0308`) to
+intercept whole statements, or patch the RAM CHRGET routine — overwrite the
+`CMP #$3A` at `$007C` (default `C9 3A`) with a `JMP` to your wedge and chain
+back to the ROM master copy at `$E3AB`. This is how toolkits (RENUMBER, TRACE,
+custom commands) attach to the interpreter.
+
 ## Source convention (petcat)
 
 When writing `.bas` source for the tools, keywords AND string text go in
