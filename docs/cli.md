@@ -693,6 +693,11 @@ steps:
   - assert: { mem: "$1000", between: { min: 50, max: 54 } }  # byte range
   - assert: { reg: pc, in_range: ["$C000", "$E000"] }
   - assert: { reg: a, equals: "$2A" }
+  - sample: { mem: "$D000", as: x0 }        # capture a byte under a name
+  - assert: { mem: "$D000", differs: x0 }   # compare against a sample:
+  - assert: { mem: "$D000", greater_than: x0 }   # differs / greater_than /
+  - assert: { mem: "ballx", less_than: x0 }      # less_than (plain bytes —
+                                            #   wraparound is yours to handle)
 ```
 
 Step kinds: `wait` (poll until true or timeout — fails the test on

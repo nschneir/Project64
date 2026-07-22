@@ -129,3 +129,27 @@ def test_prepare_prg_passthrough(tmp_path):
 def test_prepare_unknown_extension(tmp_path):
     with pytest.raises(TestError, match="cannot run"):
         _prepare(str(tmp_path / "x.txt"), get_profile("c64"))
+
+
+def test_sample_step_validation(tmp_path):
+    f = _write(tmp_path, "steps:\n  - sample: { mem: \"$D000\", as: x0 }\n")
+    spec = load_test(f)
+    assert spec["steps"][0] == {"sample": {"mem": "$D000", "as": "x0"}}
+    bad = _write(tmp_path, "steps:\n  - sample: { mem: \"$D000\" }\n")
+    with pytest.raises(TestError, match="missing"):
+        load_test(bad)
+
+
+def test_program_test_prefers_test_yaml(tmp_path):
+    from c64lib.testing import program_test
+    d = tmp_path / "prog"
+    d.mkdir()
+    (d / "program.bas").write_text('10 print "hi"\n')
+    (d / "expect.txt").write_text("HI\n")
+    (d / "test.yaml").write_text(
+        "steps:\n  - assert: {mem: '$D015', equals: 0}\n")
+    spec = program_test(d)
+    kinds = [next(iter(s)) for s in spec["steps"]]
+    assert kinds[0] == "wait" and "assert" in kinds     # expect lines prepended
+    assert spec["program"].endswith("program.bas")
+    assert spec["name"] == "prog"

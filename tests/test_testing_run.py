@@ -303,3 +303,47 @@ def test_call_step_timeout_fails_with_detail():
         result = run_test(spec, launch=launch)
     assert result.passed is False
     assert "never returned" in result.steps[0].detail
+
+
+def test_sample_then_differs_passes():
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = [bytes([10]), bytes([12])]
+    spec = _spec(steps=[{"sample": {"mem": "$D000", "as": "x0"}},
+                        {"assert": {"mem": "$D000", "differs": "x0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True, [st.detail for st in result.steps]
+    assert "x0" in result.steps[0].detail
+
+
+def test_sample_then_differs_fails_on_equal():
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = [bytes([10]), bytes([10])]
+    spec = _spec(steps=[{"sample": {"mem": "$D000", "as": "x0"}},
+                        {"assert": {"mem": "$D000", "differs": "x0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is False
+    assert "10" in result.steps[1].detail
+
+
+def test_greater_and_less_than_samples():
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = [bytes([10]), bytes([12]), bytes([12])]
+    spec = _spec(steps=[{"sample": {"mem": "$D000", "as": "x0"}},
+                        {"assert": {"mem": "$D000", "greater_than": "x0"}},
+                        {"assert": {"mem": "$D000", "less_than": "x0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is False
+    assert result.steps[1].ok is True and result.steps[2].ok is False
+
+
+def test_unknown_sample_name_fails_actionably():
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = [bytes([10])]
+    spec = _spec(steps=[{"assert": {"mem": "$D000", "differs": "nope"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is False
+    assert "no sample named" in result.steps[0].detail
