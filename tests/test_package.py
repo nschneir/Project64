@@ -4,14 +4,22 @@ import c64lib
 from c64lib.packaging import PackageError, package_program
 
 
-def test_version():
-    # compare against pyproject so a release bump can't leave this stale
+def _pyproject_version() -> str:
     import tomllib
     from pathlib import Path
 
-    pyproject = tomllib.loads(
-        (Path(__file__).parents[1] / "pyproject.toml").read_text())
-    assert c64lib.__version__ == pyproject["project"]["version"]
+    return tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    )["project"]["version"]
+
+
+def test_version_matches_installed_metadata():
+    # __version__ is read from the installed package metadata (see
+    # c64lib/__init__.py); it must match the pyproject source of truth.
+    # A mismatch means a stale editable install — reinstall with
+    # `pip install -e '.[dev]'`. CI always installs fresh, so it is green.
+    assert c64lib.__version__ == _pyproject_version(), \
+        "stale editable install — run `pip install -e '.[dev]'`"
 
 
 def test_changelog_has_current_version():
@@ -19,9 +27,10 @@ def test_changelog_has_current_version():
     # entry for it (the release workflow tags exactly this version).
     from pathlib import Path
 
+    version = _pyproject_version()
     changelog = (Path(__file__).parents[1] / "CHANGELOG.md").read_text()
-    assert f"## [{c64lib.__version__}]" in changelog, \
-        f"CHANGELOG.md has no entry for {c64lib.__version__}"
+    assert f"## [{version}]" in changelog, \
+        f"CHANGELOG.md has no entry for {version}"
 
 
 def test_package_prg_copies_source(tmp_path):

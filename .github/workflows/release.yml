@@ -16,9 +16,10 @@ jobs:
           fetch-depth: 0
 
       # pyproject.toml is the single source of truth for the version:
-      # __init__.__version__ and the CHANGELOG heading are test-locked to
-      # it, and this workflow tags/releases exactly that version. A commit
-      # that bumps pyproject IS the release; any other push is a no-op.
+      # c64lib.__version__ is read from the installed metadata (derived from
+      # pyproject), the CHANGELOG heading is test-locked to it, and this
+      # workflow tags/releases exactly that version. A commit that bumps
+      # pyproject IS the release; any other push is a no-op.
       - name: Read version from pyproject.toml
         id: version
         run: |

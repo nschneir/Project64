@@ -108,3 +108,30 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
 - Commit locally; do not push unless the maintainer asks.
 - `docs/superpowers/` (design specs/plans in the maintainer's checkout) is
   gitignored and local-only — never commit or push anything under it.
+
+## Releases
+
+**`pyproject.toml`'s `[project].version` is the single source of truth.**
+Everything else derives from or is locked to it:
+
+- `c64lib.__version__` reads it from installed package metadata
+  (`importlib.metadata`) — never hardcode a version there.
+- Two tests fail on drift: `test_version_matches_installed_metadata`
+  (`__version__` == pyproject) and `test_changelog_has_current_version`
+  (a `## [<version>]` heading exists in `CHANGELOG.md`).
+- `.github/workflows/release.yml` runs on every push to `main`: it reads
+  the pyproject version and, **only if tag `v<version>` does not yet
+  exist**, builds the sdist/wheel and creates the tag + GitHub Release at
+  that commit. So a version bump *is* a release; any other push is a no-op.
+
+To cut a release, in one commit:
+
+1. Bump `version` in `pyproject.toml`.
+2. Add a `## [<version>] — <date>` section to `CHANGELOG.md`.
+3. `pip install -e ".[dev]"` (refresh the editable install so
+   `__version__` and its test see the new version), then `pytest -m "not
+   vice"` — the two lock tests above must pass.
+4. Merge to `main`. CI tags `v<version>` and publishes the release.
+
+Do not create tags or GitHub Releases by hand — the workflow owns them,
+so a manual tag would desync the source-of-truth model.
