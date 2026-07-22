@@ -44,7 +44,7 @@ def test_bad_output_extension_fails_before_building(tmp_path):
 def test_package_prg_only(tmp_path):
     out = package_program(HELLO_ASM, out=tmp_path / "hello.prg", title="hello")
     assert out["image"] is None and out["title"] == "HELLO"
-    assert Path(out["prg"]).read_bytes()[:2] == b"\x01\x04"
+    assert Path(out["prg"]).read_bytes()[:2] == b"\x01\x08"
     assert out["run"] == f"x64sc -ntsc {tmp_path / 'hello.prg'}"
 
 

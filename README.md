@@ -159,11 +159,10 @@ tools describe themselves.
 ## Demos — try it with your AI agent
 
 [`demos/`](demos/) is a set of ready-to-paste prompts, graded from a first
-BASIC program through a machine-level debug hunt and a full arcade Snake in
-6502 assembly (title screen, levels, high score) up to the flagships: an
-arcade-faithful Invaders with sound, waves, and a packaged disk image, and
-Ms. Muncher — a four-maze arcade chase with cutscenes and a self-playing
-demo mode ([`demos/muncher/`](demos/muncher/)). To use one:
+BASIC program through a sprite bouncing ball and a machine-level debug hunt
+up to the flagships: a full arcade Snake in 6502 assembly (title screen,
+levels, SID sound, high score) and an arcade-faithful Invaders with
+sprites, three-voice sound, waves, and a packaged disk image. To use one:
 
 1. Set up your agent (one section up — or use any shell agent with no setup).
 2. Open a demo file and copy its prompt.
