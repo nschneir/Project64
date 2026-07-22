@@ -27,7 +27,7 @@ def test_ensure_is_idempotent(tmp_path, monkeypatch):
         s2, started2 = Session.ensure(model="c64", name="ens",
                                       headless=True, warp=True)
         assert started2 is False
-        assert s2.pid == s1.pid          # attached, didn't boot a second PET
+        assert s2.pid == s1.pid          # attached, didn't boot a second C64
     finally:
         s1.stop()
     assert Session.list_all() == []      # no leaked sessions

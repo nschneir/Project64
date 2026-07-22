@@ -27,4 +27,4 @@ def test_skill_skeleton_assembles(tmp_path):
     src = tmp_path / "skeleton.s"
     src.write_text(blocks[0])
     res = build_asm(src)
-    assert res.prg.read_bytes()[:2] == b"\x01\x04"
+    assert res.prg.read_bytes()[:2] == b"\x01\x08"

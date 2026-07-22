@@ -105,7 +105,7 @@ def test_watchpoint_on_screen_ram(session, tmp_path):
 
 
 def test_mem_symbol_roundtrip_live(session, tmp_path):
-    """cli.md promises mem ADDR takes a symbol; prove it against a live PET."""
+    """cli.md promises mem ADDR takes a symbol; prove it against a live C64."""
     res = build_asm(Path("tests/programs/hello-asm/program.s"),
                     out_prg=tmp_path / "m.prg")
     session.set_labels_path(str(res.labels))

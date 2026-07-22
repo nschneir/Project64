@@ -1,4 +1,4 @@
-"""End-to-end build-pipeline tests: run every demo on a real emulated PET."""
+"""End-to-end build-pipeline tests: run every demo on a real emulated C64."""
 
 import os
 import shutil

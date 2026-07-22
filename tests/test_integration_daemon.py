@@ -69,13 +69,13 @@ def test_daemon_crash_respawns_with_warning(session, capsys):
     assert "respawning" in capsys.readouterr().err
 
 
-PET = Path(sys.executable).parent / "c64"
+C64 = Path(sys.executable).parent / "c64"
 
 
 def _c64_json(*args):
     """Run the real c64 CLI in a SEPARATE OS PROCESS — the original failure
     mode was per-process monitor connections."""
-    out = subprocess.run([str(PET), "--json", *args],
+    out = subprocess.run([str(C64), "--json", *args],
                          capture_output=True, text=True, env=os.environ.copy())
     assert out.returncode == 0, f"c64 {args}: {out.stderr}\n{out.stdout}"
     return json.loads(out.stdout)

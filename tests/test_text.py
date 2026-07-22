@@ -4,7 +4,7 @@ from c64lib.text import ascii_to_petscii, screen_code_to_char, screen_to_text
 
 
 def test_screen_code_letters_and_symbols():
-    # PET screen codes: 0='@', 1..26='A'..'Z', 27='[', 28='\\', 29=']'
+    # Commodore screen codes: 0='@', 1..26='A'..'Z', 27='[', 28='\\', 29=']'
     assert screen_code_to_char(0) == "@"
     assert screen_code_to_char(1) == "A"
     assert screen_code_to_char(26) == "Z"

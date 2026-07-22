@@ -1,6 +1,6 @@
 ---
 name: 6502-debugging
-description: Use when a PET program misbehaves at runtime — crashes, corruption, wrong values, dead input, visual glitches — and you need a procedure, not a guess. Symptom-indexed playbook of runtime debugging procedures using c64-tools.
+description: Use when a C64 program misbehaves at runtime — crashes, corruption, wrong values, dead input, visual glitches — and you need a procedure, not a guess. Symptom-indexed playbook of runtime debugging procedures using c64-tools.
 ---
 
 # 6502 debugging playbook
@@ -100,7 +100,7 @@ would miss at warp, use a store watchpoint instead of `c64 wait --mem`.
 ## Visual glyph bugs
 
 `c64 screen` decodes graphics to Unicode look-alikes — good for reading,
-ambiguous for identity (several PET codes map to similar glyphs). To
+ambiguous for identity (several screen codes map to similar glyphs). To
 assert exactly which character is in a cell: `c64 screen --codes` (raw
 code matrix) or `c64 mem get '@row,col'`. For pixel truth:
 `c64 screen --png shot.png --scale 3`.

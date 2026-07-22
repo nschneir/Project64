@@ -15,7 +15,7 @@ Where things are documented (don't duplicate them here):
 
 - `README.md` — install, quickstart, supported machine models, per-agent setup.
 - `docs/cli.md` — the full CLI reference (man page), one entry per command.
-- `skills/c64-development/` + `skills/6502-assembly/` — PET-heritage/6502 domain
+- `skills/c64-development/` + `skills/6502-assembly/` — C64/6502 domain
   knowledge: workflows, memory maps, zero page, ROM routines, cookbook.
 
 ## Commands
