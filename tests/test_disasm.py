@@ -1,4 +1,4 @@
-from petlib.disasm import OPCODES, disassemble, instruction_length
+from c64lib.disasm import OPCODES, disassemble, instruction_length
 
 
 def test_opcode_table_size_and_spotchecks():

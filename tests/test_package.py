@@ -1,7 +1,7 @@
 import pytest
 
-import petlib
-from petlib.packaging import PackageError, package_program
+import c64lib
+from c64lib.packaging import PackageError, package_program
 
 
 def test_version():
@@ -11,7 +11,7 @@ def test_version():
 
     pyproject = tomllib.loads(
         (Path(__file__).parents[1] / "pyproject.toml").read_text())
-    assert petlib.__version__ == pyproject["project"]["version"]
+    assert c64lib.__version__ == pyproject["project"]["version"]
 
 
 def test_package_prg_copies_source(tmp_path):

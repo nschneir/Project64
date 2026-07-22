@@ -29,16 +29,16 @@ def test_agents_section_covers_the_majors():
         assert path in section, f"agents section missing {path}"
 
 
-def test_readme_mcp_json_snippet_parses():
+def test_readme_mcp_json_snipc64_parses():
     text = README.read_text()
     blocks = code_blocks(text, "json")
     for block in blocks:
         json.loads(block)  # every fenced JSON snippet must be valid
-    assert any("pet-tools-mcp" in b for b in blocks), \
-        "agents section needs a fenced json mcpServers snippet using pet-tools-mcp"
+    assert any("c64-tools-mcp" in b for b in blocks), \
+        "agents section needs a fenced json mcpServers snippet using c64-tools-mcp"
 
 
-def test_readme_pet_commands_exist():
+def test_readme_c64_commands_exist():
     valid = valid_mention_paths()  # leaf commands plus bare group names
     unknown = {c for c in mentioned_commands(README.read_text()) if c not in valid}
     assert not unknown, f"README mentions nonexistent commands: {sorted(unknown)}"
@@ -47,14 +47,14 @@ def test_readme_pet_commands_exist():
 def test_supported_machines_table_matches_profiles():
     """Every fact in the README model table is enforced against machines.py
     and the captured boot banners — the table cannot drift."""
-    from petlib.machines import PROFILES
+    from c64lib.machines import PROFILES
     text = README.read_text()
     idx = text.index("## Supported machines")
     end = text.index("\n## ", idx + 1)
     section = text[idx:end]
     rows = {}
     for line in section.splitlines():
-        if line.startswith("| `pet"):
+        if line.startswith("| `c64"):
             cells = [c.strip() for c in line.strip("|").split("|")]
             rows[cells[0].strip("`")] = cells
     assert set(rows) == set(PROFILES), \

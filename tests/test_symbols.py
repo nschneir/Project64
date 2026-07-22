@@ -1,6 +1,6 @@
 import pytest
 
-from petlib.symbols import format_addr, load_labels, nearest, resolve, save_labels
+from c64lib.symbols import format_addr, load_labels, nearest, resolve, save_labels
 
 
 def test_load_ld65_and_vice_forms(tmp_path):

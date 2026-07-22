@@ -1,7 +1,7 @@
 import struct
 
-from petlib.monitor import MonitorClient, StopInfo
-from petlib.protocol import CP_EXEC, Command, checkpoint_set_body
+from c64lib.monitor import MonitorClient, StopInfo
+from c64lib.protocol import CP_EXEC, Command, checkpoint_set_body
 from tests.fake_vice import FakeVice, resp_frame
 
 

@@ -5,7 +5,7 @@ import yaml
 
 from tests.doc_helpers import mentioned_commands, valid_mention_paths
 
-SKILLS = [Path("skills/pet-development/SKILL.md"),
+SKILLS = [Path("skills/c64-development/SKILL.md"),
           Path("skills/6502-assembly/SKILL.md"),
           Path("skills/6502-debugging/SKILL.md")]
 
@@ -26,7 +26,7 @@ def test_frontmatter_parses_with_name_and_description():
         assert 20 < len(fm["description"]) < 1024
 
 
-def test_pet_commands_in_skills_exist():
+def test_c64_commands_in_skills_exist():
     valid = valid_mention_paths()  # leaf commands plus bare group names
     for p in SKILLS:
         if not p.exists():

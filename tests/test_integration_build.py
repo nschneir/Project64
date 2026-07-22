@@ -1,4 +1,4 @@
-"""End-to-end build-pipeline tests: run every demo on a real emulated PET."""
+"""End-to-end build-pipeline tests: run every demo on a real emulated C64."""
 
 import os
 import shutil
@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from petlib.basic import tokenize
-from petlib.build import build_asm
-from petlib.session import Session
-from petlib.text import ascii_to_petscii
+from c64lib.basic import tokenize
+from c64lib.build import build_asm
+from c64lib.session import Session
+from c64lib.text import ascii_to_petscii
 from tests.vice_helpers import wait_for_text
 
 PROGRAMS = sorted(p.parent for p in Path("tests/programs").glob("*/expect.txt"))
@@ -17,16 +17,16 @@ PROGRAMS = sorted(p.parent for p in Path("tests/programs").glob("*/expect.txt"))
 pytestmark = [
     pytest.mark.vice,
     pytest.mark.skipif(
-        not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-        reason="xpet not installed",
+        not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+        reason="x64sc not installed",
     ),
 ]
 
 
 @pytest.fixture
 def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="pet4032", name="buildtest", headless=True, warp=True)
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model="c64", name="buildtest", headless=True, warp=True)
     wait_for_text(s, "READY.")
     yield s
     s.stop()
@@ -39,8 +39,8 @@ def _expectations(demo: Path) -> list[str]:
 def _build_demo(demo: Path, out_dir: Path) -> Path:
     bas = demo / "program.bas"
     if bas.exists():
-        return tokenize(bas, out_dir / f"{demo.name}.prg", "4.0")
-    if shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"):
+        return tokenize(bas, out_dir / f"{demo.name}.prg", "2.0")
+    if shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
     return build_asm(demo / "program.s", out_prg=out_dir / f"{demo.name}.prg").prg
 

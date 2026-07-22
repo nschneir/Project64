@@ -1,4 +1,4 @@
-"""petlib.packaging: source -> runnable .prg / autostart-first disk image."""
+"""c64lib.packaging: source -> runnable .prg / autostart-first disk image."""
 
 import os
 import shutil
@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from petlib.packaging import PackageError, cbm_title, package_program
+from c64lib.packaging import PackageError, cbm_title, package_program
 
 needs_cc65 = pytest.mark.skipif(
-    shutil.which("ca65") is None and not os.environ.get("PET_TOOLS_CA65"),
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed")
 needs_petcat = pytest.mark.skipif(
     shutil.which("petcat") is None, reason="petcat not installed")
 needs_c1541 = pytest.mark.skipif(
-    shutil.which("c1541") is None and not os.environ.get("PET_TOOLS_C1541"),
+    shutil.which("c1541") is None and not os.environ.get("C64_TOOLS_C1541"),
     reason="c1541 not installed")
 
 HELLO_ASM = Path("tests/programs/hello-asm/program.s")
@@ -44,19 +44,19 @@ def test_bad_output_extension_fails_before_building(tmp_path):
 def test_package_prg_only(tmp_path):
     out = package_program(HELLO_ASM, out=tmp_path / "hello.prg", title="hello")
     assert out["image"] is None and out["title"] == "HELLO"
-    assert Path(out["prg"]).read_bytes()[:2] == b"\x01\x04"
-    assert out["run"] == f"xpet -model 4032 {tmp_path / 'hello.prg'}"
+    assert Path(out["prg"]).read_bytes()[:2] == b"\x01\x08"
+    assert out["run"] == f"x64sc -ntsc {tmp_path / 'hello.prg'}"
 
 
 @needs_cc65
 @needs_c1541
 def test_package_d64_autostart_first(tmp_path):
-    from petlib.disk import list_files
+    from c64lib.disk import list_files
     out = package_program(HELLO_ASM, out=tmp_path / "hello.d64", title="hello")
     assert out["image"] == str(tmp_path / "hello.d64")
-    # The run hint must pin the model: stock xpet's default model need not
+    # The run hint must pin the model: stock x64sc's default model need not
     # match, and ROM-dependent behavior ($97 input semantics) breaks silently.
-    assert out["run"] == f"xpet -model 4032 {tmp_path / 'hello.d64'}"
+    assert out["run"] == f"x64sc -ntsc {tmp_path / 'hello.d64'}"
     d = list_files(out["image"])
     assert d["files"], "image has no files"
     assert d["files"][0]["name"] == "hello"      # first file = autostart target
@@ -69,22 +69,22 @@ def test_package_d64_autostart_first(tmp_path):
 def test_package_bas_source(tmp_path):
     out = package_program(HELLO_BAS, out=tmp_path / "hi.d64")
     assert out["title"] == "PROGRAM"             # defaults to the source stem
-    assert Path(out["prg"]).read_bytes()[:2] == b"\x01\x04"
+    assert Path(out["prg"]).read_bytes()[:2] == b"\x01\x08"
 
 
 @pytest.mark.vice
 @needs_cc65
 @needs_c1541
 @pytest.mark.skipif(
-    not (shutil.which("xpet") or os.environ.get("PET_TOOLS_XPET")),
-    reason="xpet not installed")
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed")
 def test_packaged_disk_boots_live(tmp_path, monkeypatch):
     """The spec's acceptance test: a packaged d64 autostarts in stock VICE."""
-    from petlib.session import Session
+    from c64lib.session import Session
     from tests.vice_helpers import wait_for_text
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     out = package_program(HELLO_ASM, out=tmp_path / "hello.d64", title="hello")
-    s = Session.launch(model="pet4032", name="pkgtest", headless=True, warp=True)
+    s = Session.launch(model="c64", name="pkgtest", headless=True, warp=True)
     try:
         wait_for_text(s, "READY.")
         with s.monitor() as mon:

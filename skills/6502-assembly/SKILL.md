@@ -1,36 +1,36 @@
 ---
 name: 6502-assembly
-description: Use when writing or debugging 6502 assembly for the Commodore PET with ca65/ld65 via pet build or pet run. Covers the PET program skeleton, the BASIC SYS stub, calling ROM routines, and 6502 gotchas.
+description: Use when writing or debugging 6502 assembly for the Commodore 64 with ca65/ld65 via c64 build or c64 run. Covers the C64 program skeleton, the BASIC SYS stub, calling ROM routines, and 6502 gotchas.
 ---
 
-# 6502 assembly for the PET
+# 6502 assembly for the C64
 
-Assemble with ca65/ld65 through `pet build FILE.s` (produces a `.prg` plus a
-VICE label file) or run in one step with `pet run FILE.s` (assembles, loads,
+Assemble with ca65/ld65 through `c64 build FILE.s` (produces a `.prg` plus a
+VICE label file) or run in one step with `c64 run FILE.s` (assembles, loads,
 and RUNs, registering the labels on the session for symbolic debugging). The
-machine-level reference for addresses and ROM routines is the `pet-development`
+machine-level reference for addresses and ROM routines is the `c64-development`
 skill's reference files (memory map, ROM routines, zero page, PETSCII).
 
 ## The program skeleton
 
-A PET program loads at `$0401` and needs a tiny BASIC stub so that `RUN`
+A C64 program loads at `$0801` and needs a tiny BASIC stub so that `RUN`
 transfers control to your machine code. This skeleton assembles as-is (it is
 the project’s `tests/programs/hello-asm` example):
 
 ```asm
 ; print a message via the ROM CHROUT routine, then return to BASIC.
-; Layout: 2-byte load address ($0401), then a BASIC stub "10 SYS 1037",
-; then code at $040D (= 1037).
+; Layout: 2-byte load address ($0801), then a BASIC stub "10 SYS 2061",
+; then code at $080D (= 2061).
 
 CHROUT = $FFD2
 
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
 
         .segment "EXEHDR"
         .word   nextln          ; pointer to next BASIC line
         .word   10              ; line number 10
-        .byte   $9E, "1037", $00 ; SYS 1037
+        .byte   $9E, "2061", $00 ; SYS 2061
 nextln: .word   $0000           ; end of BASIC program
 
         .segment "CODE"
@@ -45,15 +45,15 @@ done:   rts
 msg:    .byte   "HELLO FROM ASM", $0D, $00
 ```
 
-### Why SYS 1037
+### Why SYS 2061
 
-The load address `$0401` is emitted by the `LOADADDR` segment (not loaded into
-RAM as data — it is the PRG header). Starting at `$0401` the `EXEHDR` segment
+The load address `$0801` is emitted by the `LOADADDR` segment (not loaded into
+RAM as data — it is the PRG header). Starting at `$0801` the `EXEHDR` segment
 lays down a single BASIC line — next-line pointer, line number 10, the `SYS`
-token `$9E`, the digits `"1037"`, and a `$00` terminator — followed by the
-`$0000` end-of-program marker. That stub occupies 12 bytes (`$0401`–`$040C`),
-so your `CODE` segment begins at `$040D`, which is decimal **1037**. Hence
-`SYS 1037` jumps to `start`. Change the message and the code, not the stub.
+token `$9E`, the digits `"2061"`, and a `$00` terminator — followed by the
+`$0000` end-of-program marker. That stub occupies 12 bytes (`$0801`–`$040C`),
+so your `CODE` segment begins at `$080D`, which is decimal **2061**. Hence
+`SYS 2061` jumps to `start`. Change the message and the code, not the stub.
 
 Segments available in the linker config: `CODE`, `RODATA`, `DATA`, `BSS`
 (and `ZEROPAGE`). Put executable code and mutable data in `CODE`/`DATA`,
@@ -64,7 +64,7 @@ constants in `RODATA`, and uninitialized storage in `BSS`.
 Define the entry point and `jsr` it. CHROUT (`$FFD2`) prints the PETSCII byte
 in `A` to the current output channel; return to BASIC with `rts`. The full
 kernal jump table (CHRIN, GETIN, STOP, OPEN/CLOSE, …) and register conventions
-are in the `pet-development` skill's ROM-routines reference. CHROUT expects
+are in the `c64-development` skill's ROM-routines reference. CHROUT expects
 **PETSCII**, not a screen code — see that skill's PETSCII reference.
 
 ## 6502 gotchas
@@ -81,7 +81,7 @@ are in the `pet-development` skill's ROM-routines reference. CHROUT expects
   `bne`/`bcc` this way once a routine passes ~120 bytes (the Ms. Muncher
   dogfood hit this three separate times while adding features).
 - Zero page is scarce and shared with BASIC/kernal — see the
-  `pet-development` skill's zero-page reference before claiming zero-page
+  `c64-development` skill's zero-page reference before claiming zero-page
   locations.
 - `jsr` pushes the return address **minus one**; `rts` compensates. This
   matters if you manipulate the stack directly.
@@ -104,7 +104,7 @@ are in the `pet-development` skill's ROM-routines reference. CHROUT expects
   loop bounded by start/end labels.
 
 For complete, tested game-loop and sound programs to copy from, see
-`skills/pet-development/references/cookbook.md` (its assembly recipes are the
+`skills/c64-development/references/cookbook.md` (its assembly recipes are the
 fastest starting point for an action game).
 
 ## Reading the keyboard and timing (game loops)
@@ -115,22 +115,22 @@ fastest starting point for an action game).
 - **Key-down state:** the IRQ's keyboard scan leaves the current key at `$97`
   (`#$FF` = no key) and the shift flag at `$98` — read these for continuous
   movement instead of waiting for key repeat. Details and the repeat-control
-  locations: the `pet-development` skill's hardware and zero-page references.
+  locations: the `c64-development` skill's hardware and zero-page references.
 - **Timing:** the jiffy clock at `$8D-$8F` (MSB first) increments 60×/second
   in the IRQ — compare its low byte for frame pacing, or hook the interrupt
   through the RAM vector at `($90)`.
-- **Screen writes:** screen RAM starts at `$8000`; the byte for column X of
-  row Y is at `$8000 + 40*Y + X` (80-column models: 80*Y). Store **screen
+- **Screen writes:** screen RAM starts at `$0400`; the byte for column X of
+  row Y is at `$0400 + 40*Y + X` (80-column models: 80*Y). Store **screen
   codes**, not PETSCII. `lda #$93 / jsr CHROUT` clears the screen.
 - **Sound:** three VIA registers (`$E84B`=`$10` on, `$E84A`=pattern,
   `$E848`=pitch; zero `$E848`/`$E84B` to stop) — see the hardware reference.
 
 ## Debugging
 
-`pet run FILE.s` registers the labels, so you can `pet break add start`, then
-`pet wait --break`, `pet reg`, `pet step`, and `pet mem read` your data by
+`c64 run FILE.s` registers the labels, so you can `c64 break add start`, then
+`c64 wait --break`, `c64 reg`, `c64 step`, and `c64 mem read` your data by
 symbol. Disassemble live memory (with your labels and ROM labels) via
-`pet rom disasm start 32`. Test one routine in isolation with
-`pet call ROUTINE` (fake JSR; stops at its RTS). For symptom-driven
+`c64 rom disasm start 32`. Test one routine in isolation with
+`c64 call ROUTINE` (fake JSR; stops at its RTS). For symptom-driven
 procedures — corruption hunts, clobber audits, deterministic
 reproduction — use the `6502-debugging` skill's playbook.

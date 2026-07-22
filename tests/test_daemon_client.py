@@ -10,10 +10,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from petlib.daemon import STOPPED, PetDaemon
-from petlib.daemon_client import DaemonMonitorClient
-from petlib.monitor import MonitorClient, MonitorError, StopInfo
-from petlib.protocol import CP_EXEC, Checkpoint
+from c64lib.daemon import STOPPED, PetDaemon
+from c64lib.daemon_client import DaemonMonitorClient
+from c64lib.monitor import MonitorClient, MonitorError, StopInfo
+from c64lib.protocol import CP_EXEC, Checkpoint
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def served():
     mon = Mock()
     mon.events = collections.deque()
     mon.poll_events.return_value = []      # _restore pumps before deciding
-    sock_path = str(Path(tempfile.mkdtemp(prefix="pet-dc-")) / "d.sock")
+    sock_path = str(Path(tempfile.mkdtemp(prefix="c64-dc-")) / "d.sock")
     listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listen.bind(sock_path)
     listen.listen(1)
@@ -95,7 +95,7 @@ def test_release_restores_running(served):
 
 
 def test_not_a_daemon_socket_raises(tmp_path_factory):
-    d = tempfile.mkdtemp(prefix="pet-dc-")
+    d = tempfile.mkdtemp(prefix="c64-dc-")
     path = str(Path(d) / "bogus.sock")
     listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listen.bind(path)
@@ -125,7 +125,7 @@ def test_close_delivers_eof_so_next_client_is_served_promptly():
     mon.ping.return_value = None
     mon.events = collections.deque()
     mon.poll_events.return_value = []
-    sock_path = str(Path(tempfile.mkdtemp(prefix="pet-dc-")) / "d.sock")
+    sock_path = str(Path(tempfile.mkdtemp(prefix="c64-dc-")) / "d.sock")
     listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listen.bind(sock_path)
     listen.listen(1)

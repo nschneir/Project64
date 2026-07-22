@@ -3,14 +3,14 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from petlib.build import BuildResult
-from petlib.cli import main
+from c64lib.build import BuildResult
+from c64lib.cli import main
 
 
 def _fake_attached():
     fake = Mock()
-    fake.name, fake.model = "pet4032", "pet4032"
-    fake.profile.basic_version = "4.0"
+    fake.name, fake.model = "c64", "c64"
+    fake.profile.basic_version = "2.0"
     fake.profile.basic_start = 0x0401
     mon = Mock()
     fake.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -24,7 +24,7 @@ def test_load_autostarts_and_registers_symbols(tmp_path):
     lbl = tmp_path / "p.lbl"
     lbl.write_text("al C:040d .start\n")
     fake, mon = _fake_attached()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["load", str(prg), "--symbols", str(lbl)])
     assert r.exit_code == 0, r.output
@@ -37,7 +37,7 @@ def test_load_no_run(tmp_path):
     prg = tmp_path / "p.prg"
     prg.write_bytes(b"\x01\x04")
     fake, mon = _fake_attached()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["load", str(prg), "--no-run"])
     assert r.exit_code == 0
@@ -49,12 +49,12 @@ def test_run_bas_tokenizes_then_autostarts(tmp_path):
     src.write_text('10 print "hi"\n')
     fake, mon = _fake_attached()
     prg = tmp_path / "d.prg"
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.tokenize", return_value=prg) as tok:
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.tokenize", return_value=prg) as tok:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "run", str(src)])
     assert r.exit_code == 0, r.output
-    tok.assert_called_once_with(src.resolve(), src.resolve().with_suffix(".prg"), "4.0")
+    tok.assert_called_once_with(src.resolve(), src.resolve().with_suffix(".prg"), "2.0")
     mon.autostart.assert_called_once_with(prg, run=True)
 
 
@@ -63,8 +63,8 @@ def test_run_asm_builds_and_registers_labels(tmp_path):
     src.write_text("; x\n")
     res = BuildResult(prg=tmp_path / "d.prg", labels=tmp_path / "d.lbl")
     fake, mon = _fake_attached()
-    with patch("petlib.cli.Session") as S, \
-         patch("petlib.cli.build_asm", return_value=res) as ba:
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.build_asm", return_value=res) as ba:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["run", str(src)])
     assert r.exit_code == 0, r.output
@@ -77,7 +77,7 @@ def test_run_unknown_extension(tmp_path):
     f = tmp_path / "d.txt"
     f.write_text("x")
     fake, _ = _fake_attached()
-    with patch("petlib.cli.Session") as S:
+    with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "run", str(f)])
     assert r.exit_code == 1

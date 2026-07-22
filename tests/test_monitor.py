@@ -1,7 +1,7 @@
 import pytest
 
-from petlib.monitor import MonitorClient, MonitorError
-from petlib.protocol import Command
+from c64lib.monitor import MonitorClient, MonitorError
+from c64lib.protocol import Command
 from tests.fake_vice import FakeVice, resp_frame
 
 

@@ -3,26 +3,26 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from petlib.build import BuildError, BuildResult
-from petlib.cli import main
+from c64lib.build import BuildError, BuildResult
+from c64lib.cli import main
 
 
 def test_build_json(tmp_path):
     src = tmp_path / "p.s"
     src.write_text("; x\n")
     res = BuildResult(prg=tmp_path / "p.prg", labels=tmp_path / "p.lbl")
-    with patch("petlib.cli.build_asm", return_value=res) as ba:
+    with patch("c64lib.cli.build_asm", return_value=res) as ba:
         r = CliRunner().invoke(main, ["--json", "build", str(src)])
     assert r.exit_code == 0, r.output
     out = json.loads(r.output)
     assert out["prg"].endswith("p.prg") and out["labels"].endswith("p.lbl")
-    ba.assert_called_once_with(src, out_prg=None, basic_start=0x0401)
+    ba.assert_called_once_with(src, out_prg=None, basic_start=0x0801)
 
 
 def test_build_error_exit_code(tmp_path):
     src = tmp_path / "p.s"
     src.write_text("bogus\n")
-    with patch("petlib.cli.build_asm", side_effect=BuildError("ca65 failed:\nsyntax error")):
+    with patch("c64lib.cli.build_asm", side_effect=BuildError("ca65 failed:\nsyntax error")):
         r = CliRunner().invoke(main, ["--json", "build", str(src)])
     assert r.exit_code == 1
     assert "syntax error" in json.loads(r.output)["error"]

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from petlib.build import BuildError, BuildResult, build_asm, linker_config
+from c64lib.build import BuildError, BuildResult, build_asm, linker_config
 
 
 def test_linker_config_contents():
@@ -34,8 +34,8 @@ def test_build_asm_invokes_toolchain(tmp_path, monkeypatch):
         "pathlib.Path(a[a.index('-Ln')+1]).write_text('al 00040D .start\\n')\n"
         "pathlib.Path(__file__).with_name('ld65.args').write_text(' '.join(a))\n"
     ))
-    monkeypatch.setenv("PET_TOOLS_CA65", str(ca65))
-    monkeypatch.setenv("PET_TOOLS_LD65", str(ld65))
+    monkeypatch.setenv("C64_TOOLS_CA65", str(ca65))
+    monkeypatch.setenv("C64_TOOLS_LD65", str(ld65))
 
     src = tmp_path / "prog.s"
     src.write_text("; test\n")
@@ -53,8 +53,8 @@ def test_build_asm_invokes_toolchain(tmp_path, monkeypatch):
 def test_build_error_includes_stderr(tmp_path, monkeypatch):
     bad = _stub_tool(tmp_path, "ca65",
                      "import sys; sys.stderr.write('prog.s(3): syntax error'); sys.exit(1)\n")
-    monkeypatch.setenv("PET_TOOLS_CA65", str(bad))
-    monkeypatch.setenv("PET_TOOLS_LD65", str(bad))
+    monkeypatch.setenv("C64_TOOLS_CA65", str(bad))
+    monkeypatch.setenv("C64_TOOLS_LD65", str(bad))
     src = tmp_path / "prog.s"
     src.write_text("bogus\n")
     with pytest.raises(BuildError, match="syntax error"):
@@ -62,8 +62,8 @@ def test_build_error_includes_stderr(tmp_path, monkeypatch):
 
 
 def test_missing_tool_message(monkeypatch):
-    monkeypatch.delenv("PET_TOOLS_CA65", raising=False)
-    monkeypatch.setattr("petlib.build.shutil.which", lambda n: None)
+    monkeypatch.delenv("C64_TOOLS_CA65", raising=False)
+    monkeypatch.setattr("c64lib.build.shutil.which", lambda n: None)
     with pytest.raises(BuildError, match="[Ii]nstall"):
         build_asm(Path("x.s"))
 
@@ -87,8 +87,8 @@ def _stub_pair(tmp_path, monkeypatch, ca65_body=None, deps_line=None):
         "pathlib.Path(a[a.index('-o')+1]).write_bytes(b'\\x01\\x04PRG')\n"
         "pathlib.Path(a[a.index('-Ln')+1]).write_text('al 00040D .start\\n')\n"
     ))
-    monkeypatch.setenv("PET_TOOLS_CA65", str(ca65))
-    monkeypatch.setenv("PET_TOOLS_LD65", str(ld65))
+    monkeypatch.setenv("C64_TOOLS_CA65", str(ca65))
+    monkeypatch.setenv("C64_TOOLS_LD65", str(ld65))
 
 
 def test_build_asm_collects_deps_and_built_at(tmp_path, monkeypatch):

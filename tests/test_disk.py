@@ -2,7 +2,7 @@ import shutil
 
 import pytest
 
-from petlib.disk import (
+from c64lib.disk import (
     DiskError,
     create_image,
     drive_type_for,
@@ -13,16 +13,16 @@ from petlib.disk import (
 
 
 def test_drive_type_for():
-    assert drive_type_for("a.d64") == 2031
-    assert drive_type_for("b.D80") == 8050
-    assert drive_type_for("c.d82") == 8250
-    with pytest.raises(DiskError, match="d71"):
-        drive_type_for("x.d71")
+    assert drive_type_for("a.d64") == 1541
+    assert drive_type_for("b.D71") == 1571
+    assert drive_type_for("c.d81") == 1581
+    with pytest.raises(DiskError, match="d80"):
+        drive_type_for("x.d80")
 
 
 def test_missing_c1541_message(monkeypatch, tmp_path):
-    monkeypatch.delenv("PET_TOOLS_C1541", raising=False)
-    monkeypatch.setattr("petlib.disk.shutil.which", lambda n: None)
+    monkeypatch.delenv("C64_TOOLS_C1541", raising=False)
+    monkeypatch.setattr("c64lib.disk.shutil.which", lambda n: None)
     with pytest.raises(DiskError, match="[Ii]nstall"):
         create_image(tmp_path / "x.d64")
 
@@ -52,15 +52,15 @@ def test_real_c1541_roundtrip(tmp_path):
 
 
 @needs_c1541
-def test_real_c1541_d80(tmp_path):
-    img = create_image(tmp_path / "t.d80")
-    assert img.stat().st_size > 500_000  # 77-track image is big
+def test_real_c1541_d81(tmp_path):
+    img = create_image(tmp_path / "t.d81")
+    assert img.stat().st_size > 500_000  # 80-track double-sided image is big
 
 
 def test_c1541_failure_raises_disk_error(tmp_path, monkeypatch):
     import subprocess
 
-    from petlib import disk
+    from c64lib import disk
 
     def fail(cmd, capture_output, text):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="bad image")
@@ -72,7 +72,7 @@ def test_c1541_failure_raises_disk_error(tmp_path, monkeypatch):
 def test_get_file_missing_output_raises(tmp_path, monkeypatch):
     import subprocess
 
-    from petlib import disk
+    from c64lib import disk
 
     def ok_but_writes_nothing(cmd, capture_output, text):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")

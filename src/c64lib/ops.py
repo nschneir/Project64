@@ -1,0 +1,394 @@
+"""Shared high-level operations used by both the CLI and the MCP server.
+
+One implementation of the wait/until primitives and symbol plumbing so the
+two front ends cannot drift.
+"""
+
+from __future__ import annotations
+
+import time
+
+from .daemon_client import DaemonMonitorClient
+from .protocol import CP_EXEC
+from .screen import read_screen_text
+from .symbols import load_labels, nearest, resolve
+from .text import ascii_to_petscii
+
+#: the current-key byte the IRQ keyboard scanner maintains (SFDX, $CB):
+#: the keyboard-matrix code of the key held right now, 64 = no key.
+KEYDOWN_ADDR = 0xCB
+
+#: C64 keyboard-matrix codes (the values SCNKEY leaves in $CB), from the
+#: published matrix table. Lowercase only — the matrix has no case.
+MATRIX_CODES = {
+    "\n": 1,
+    "3": 8, "w": 9, "a": 10, "4": 11, "z": 12, "s": 13, "e": 14,
+    "5": 16, "r": 17, "d": 18, "6": 19, "c": 20, "f": 21, "t": 22, "x": 23,
+    "7": 24, "y": 25, "g": 26, "8": 27, "b": 28, "h": 29, "u": 30, "v": 31,
+    "9": 32, "i": 33, "j": 34, "0": 35, "m": 36, "k": 37, "o": 38, "n": 39,
+    "+": 40, "p": 41, "l": 42, "-": 43, ".": 44, ":": 45, "@": 46, ",": 47,
+    "*": 49, ";": 50, "=": 53, "/": 55,
+    "1": 56, "2": 59, " ": 60, "q": 62,
+}
+
+
+def parse_number(s) -> int:
+    s = str(s).strip()
+    if s.startswith("$"):
+        return int(s[1:], 16)
+    if s.lower().startswith("0x"):
+        return int(s, 16)
+    return int(s, 10)
+
+
+def parse_ref(labels: dict[str, int], ref, *, screen_base: int | None = None,
+              screen_width: int | None = None) -> int:
+    """Address forms: $hex / 0xhex / decimal / symbol, plus:
+
+    - `base+N` / `base-N` — a numeric or symbol base with an offset
+      (e.g. `alienX+49`, `$8000+40`). Only applied when the tail parses
+      as a number, so hyphenated symbol names still resolve whole.
+    - `@row,col` — a screen cell, resolved against the session's screen
+      geometry (40- vs 80-column models differ; callers pass it from the
+      machine profile).
+    """
+    r = str(ref).strip()
+    if r.startswith("@"):
+        if screen_base is None or screen_width is None:
+            raise ValueError(
+                f"{r!r}: @row,col needs a session's screen geometry — use it "
+                "where a running session provides the model")
+        try:
+            row_s, col_s = r[1:].split(",", 1)
+            row, col = parse_number(row_s), parse_number(col_s)
+        except ValueError:
+            raise ValueError(f"{r!r}: expected @row,col, e.g. @23,18") from None
+        if not 0 <= row <= 24:
+            raise ValueError(f"{r!r}: row {row} outside 0-24")
+        if not 0 <= col < screen_width:
+            raise ValueError(f"{r!r}: col {col} outside 0-{screen_width - 1}")
+        return screen_base + row * screen_width + col
+    base_err: KeyError | None = None
+    for sign, sep in ((1, "+"), (-1, "-")):
+        if sep in r[1:]:
+            base_s, off_s = r.rsplit(sep, 1)
+            try:
+                off = parse_number(off_s)
+            except ValueError:
+                continue                 # not an offset (hyphenated name etc.)
+            try:
+                return parse_ref(labels, base_s) + sign * off
+            except KeyError as e:
+                base_err = e             # remember: report the SYMBOL below
+            except ValueError:
+                pass                     # whole string may still be a symbol
+    if r.startswith(("$", "0x", "0X")) or r.isdigit():
+        return parse_number(r)
+    try:
+        return resolve(labels, r)  # KeyError with candidates on unknown symbol
+    except KeyError:
+        if base_err is not None:
+            raise base_err from None     # 'dots+82' → unknown symbol 'dots'
+        raise
+
+
+def staleness(session) -> list[str]:
+    """Source files (from the last load's dependency list) modified since
+    the load. Non-empty means the emulator is running an out-of-date
+    program — the trap the Ms. Muncher dogfood fell into."""
+    import os
+    if not session.loaded_prg or not session.loaded_deps:
+        return []
+    out = []
+    for d in session.loaded_deps:
+        try:
+            if os.path.getmtime(d) > session.loaded_at:
+                out.append(d)
+        except OSError:
+            out.append(d)               # vanished source counts as stale
+    return out
+
+
+def session_labels(s) -> dict[str, int]:
+    if isinstance(s.labels, str) and s.labels:
+        try:
+            return load_labels(s.labels)
+        except OSError:
+            return {}
+    return {}
+
+
+def pc_symbol(labels: dict[str, int], regs: dict[str, int]) -> str | None:
+    pc = regs.get("PC")
+    if pc is None or not labels:
+        return None
+    hit = nearest(labels, pc)
+    if hit is None:
+        return None
+    name, off = hit
+    return f"{name}+{off}" if off else name
+
+
+def _screen(session) -> str:
+    with session.monitor() as mon:
+        try:
+            return read_screen_text(mon, session.profile)
+        finally:
+            mon.release()
+
+
+def wait_for_text(session, text: str, timeout: float = 30.0) -> dict:
+    start = time.monotonic()
+    deadline = start + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        last = _screen(session)
+        if text in last:
+            return {"fired": "text", "elapsed": round(time.monotonic() - start, 3)}
+        time.sleep(0.4)
+    return {"fired": None, "timeout": timeout, "screen": last}
+
+
+def wait_for_mem(session, addr: int, value: int, timeout: float = 30.0) -> dict:
+    start = time.monotonic()
+    deadline = start + timeout
+    val = None
+    while time.monotonic() < deadline:
+        with session.monitor() as mon:
+            try:
+                val = mon.memory_read(addr, 1)[0]
+            finally:
+                mon.release()
+        if val == value:
+            return {"fired": "mem", "elapsed": round(time.monotonic() - start, 3)}
+        time.sleep(0.4)
+    return {"fired": None, "timeout": timeout, "last_value": val}
+
+
+def wait_for_break(session, timeout: float = 30.0,
+                   number: int | None = None) -> dict:
+    """Checkpoint-hit wait, robust under warp.
+
+    The hit flag on a stopped checkpoint is the durable source of truth:
+    a stop=True checkpoint freezes the machine until a client resumes it,
+    and the flag is visible in CHECKPOINT_LIST even when the STOPPED event
+    was lost (Plan 03 verified; the connect-stop/resume race destroys queued
+    events, which is what made event-only waiting flaky under --warp).
+    The STOPPED event is kept as a fast-path only; every loop iteration
+    re-polls the flags, so a missed event costs at most one poll slice.
+    Timeout leaves the machine RUNNING (the documented contract)."""
+    start = time.monotonic()
+    deadline = start + timeout
+
+    def _fired(mon, number, pc=None):
+        regs = mon.registers()
+        return {"fired": "break", "checkpoint": number,
+                "pc": pc if pc is not None else regs.get("PC"),
+                "registers": regs,
+                "elapsed": round(time.monotonic() - start, 3)}
+
+    with session.monitor() as mon:
+        while True:
+            hit = next((ck for ck in mon.checkpoint_list()
+                        if ck.hit and (number is None or ck.number == number)),
+                       None)
+            if hit is not None:
+                return _fired(mon, hit.number)          # machine stays stopped
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                mon.resume()                             # timeout: leave it running
+                return {"fired": None, "timeout": timeout}
+            mon.resume()                                 # the list stopped the machine
+            info = mon.wait_for_stop(min(1.0, remaining))
+            if (info is not None and info.checkpoint is not None
+                    and (number is None or info.checkpoint == number)):
+                return _fired(mon, info.checkpoint, info.pc)
+            # Slice elapsed, or a STOPPED with no checkpoint id (e.g. another
+            # client's connect-stop): loop — the flag poll decides.
+
+
+#: default trap for call_routine's fake return address — the BASIC link
+#: bytes at the start of program text, never machine-executed.
+CALL_TRAP = 0x0400
+
+
+def call_routine(session, addr: int, a: int | None = None, x: int | None = None,
+                 y: int | None = None, timeout: float = 30.0,
+                 trap: int = CALL_TRAP) -> dict:
+    """JSR one routine in isolation and stop when it returns.
+
+    Emulates `JSR addr`: pushes a fake return address (trap-1, matching
+    real JSR semantics) on the 6502 stack, optionally sets A/X/Y, sets PC
+    to the routine, and runs until an exec checkpoint at the trap fires —
+    i.e. until the routine's own RTS. The machine is left STOPPED at the
+    trap so registers and memory can be asserted; on timeout the
+    checkpoint is removed and the machine left running.
+
+    Returns {"fired": bool, "registers": regs-or-None, "trap": trap}.
+    This is the unit-test primitive: poke inputs, call, assert outputs.
+    """
+    deadline = time.monotonic() + timeout
+    with session.monitor() as mon:
+        regs = mon.registers()          # also stops the machine
+        sp = regs["SP"]
+        ret = (trap - 1) & 0xFFFF
+        mon.memory_write(0x0100 + sp, bytes([ret >> 8]))
+        mon.memory_write(0x0100 + ((sp - 1) & 0xFF), bytes([ret & 0xFF]))
+        mon.set_register("SP", (sp - 2) & 0xFF)
+        for name, val in (("A", a), ("X", x), ("Y", y)):
+            if val is not None:
+                mon.set_register(name, val)
+        mon.set_register("PC", addr)
+        ck = mon.checkpoint_set(trap, op=CP_EXEC, temporary=False)
+        mon.resume()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                mon.checkpoint_delete(ck.number)
+                mon.resume()
+                return {"fired": False, "registers": None, "trap": trap}
+            info = mon.wait_for_stop(min(1.0, remaining))
+            if info is not None and info.checkpoint == ck.number:
+                break
+            cur = next((c for c in mon.checkpoint_list()
+                        if c.number == ck.number), None)
+            if cur is not None and (cur.hit or cur.hit_count > 0):
+                break                    # durable flag caught a lost event
+            mon.resume()                 # the list stopped the machine
+        out = mon.registers()
+        mon.checkpoint_delete(ck.number)
+        return {"fired": True, "registers": out, "trap": trap}
+
+
+def run_until(session, addr: int, timeout: float = 30.0, count: int = 1) -> dict:
+    """Run until addr is executed `count` times; the machine stays stopped at
+    the final arrival ("frame stepping" when addr is a main-loop label).
+
+    With a session daemon the whole count loop runs daemon-side in a single
+    RPC (per-hit round-trips made large counts ~0.5 s per arrival); a
+    pre-run_until daemon or a direct connection takes the client-side loop.
+    Returns {"registers": regs-or-None, "reached": k, "count": count};
+    registers is None on timeout, in which case the checkpoint is removed
+    and the machine is left running."""
+    with session.monitor() as mon:
+        if isinstance(mon, DaemonMonitorClient):
+            try:
+                return mon.run_until(addr, timeout, count)
+            except ValueError:
+                pass          # old daemon: unknown method — do it client-side
+        return _run_until_client(mon, addr, timeout, count)
+
+
+def _run_until_client(mon, addr: int, timeout: float, count: int) -> dict:
+    """The pre-daemon-verb loop: one resume + wait round-trip per arrival,
+    with the same durable hit/hit_count fallback as wait_for_break."""
+    deadline = time.monotonic() + timeout
+    ck = mon.checkpoint_set(addr, op=CP_EXEC, temporary=False)
+    for i in range(count):
+        mon.resume()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                mon.checkpoint_delete(ck.number)
+                mon.resume()
+                return {"registers": None, "reached": i, "count": count}
+            info = mon.wait_for_stop(min(1.0, remaining))
+            if info is not None and info.checkpoint == ck.number:
+                break
+            cur = next((c for c in mon.checkpoint_list()
+                        if c.number == ck.number), None)
+            if cur is not None and (cur.hit or cur.hit_count > i):
+                break                        # durable flag caught it
+            mon.resume()                     # the list stopped the machine
+    regs = mon.registers()
+    mon.checkpoint_delete(ck.number)
+    return {"registers": regs, "reached": count, "count": count}
+
+
+def key_type(session, text: str) -> dict:
+    """Type TEXT into the keyboard buffer (\\n = RETURN). ValueError from
+    unmappable characters propagates to the caller."""
+    petscii = ascii_to_petscii(text)
+    with session.monitor() as mon:
+        try:
+            mon.keyboard_feed(petscii)
+        finally:
+            mon.release()
+    return {"typed_chars": len(petscii)}
+
+
+def key_hold(session, key: str, at_addr: int, frames: int = 1,
+             timeout: float = 30.0) -> dict:
+    """Hold KEY down for `frames` game ticks: write its keyboard-matrix
+    code to $CB, run to at_addr, repeat — the machine ends STOPPED at
+    at_addr.
+
+    This is the poke-$CB debugger protocol as one operation: the IRQ
+    keyboard scan (SCNKEY) rewrites $CB every tick (64 = no key), so the
+    code must be re-poked before each frame. Programs reading the held
+    key from $CB (or via GETIN after the scan decodes it) see the key.
+    For a fully deterministic first frame, be stopped at at_addr already
+    (run_until once); mid-flight the first poke can race the next IRQ.
+
+    Returns {"frames": done, "requested": frames, "registers": regs};
+    registers is None if a frame timed out (machine left RUNNING, same
+    contract as run_until)."""
+    k = " " if key.lower() == "space" else key
+    if len(k) != 1:
+        raise ValueError(f"key must be one character or 'space', got {key!r}")
+    try:
+        code = bytes([MATRIX_CODES[k.lower()]])
+    except KeyError:
+        raise ValueError(f"no matrix code for key {key!r}") from None
+    out = {"registers": None}
+    for i in range(frames):
+        with session.monitor() as mon:
+            mon.memory_write(KEYDOWN_ADDR, code)
+        out = run_until(session, at_addr, timeout=timeout, count=1)
+        if out["registers"] is None:
+            return {"frames": i, "requested": frames, "registers": None}
+    return {"frames": frames, "requested": frames, "registers": out["registers"]}
+
+
+def find_bytes(mon, start: int, length: int, pattern: bytes,
+               limit: int = 256) -> tuple[list[int], bool]:
+    """Addresses of every occurrence of `pattern` in [start, start+length),
+    clamped to the 64 KB space. Returns (matches, truncated); truncated is
+    True when `limit` clipped the list. One bulk read; does not resume."""
+    n = max(0, min(length, 0x10000 - start))
+    data = mon.memory_read(start, n)
+    matches: list[int] = []
+    truncated = False
+    i = data.find(pattern)
+    while i != -1:
+        if len(matches) >= limit:
+            truncated = True
+            break
+        matches.append(start + i)
+        i = data.find(pattern, i + 1)
+    return matches, truncated
+
+
+def clear_checkpoints(mon, include_mask: int, exclude_mask: int = 0) -> list[int]:
+    """Delete every checkpoint whose op matches include_mask (and none of
+    exclude_mask); returns the removed checkpoint ids."""
+    removed = []
+    for ck in mon.checkpoint_list():
+        if (ck.op & include_mask) and not (ck.op & exclude_mask):
+            mon.checkpoint_delete(ck.number)
+            removed.append(ck.number)
+    return removed
+
+
+def machine_state(session) -> str:
+    """'running' / 'stopped' via the session daemon; 'unknown' without one
+    (a direct monitor connection stops the CPU, so the question is only
+    answerable via the daemon). Never raises."""
+    if not getattr(session, "socket", None):
+        return "unknown"
+    try:
+        with session.monitor() as mon:
+            status = getattr(mon, "status", None)
+            return status() if status else "unknown"
+    except (ConnectionError, TimeoutError, OSError):
+        return "unknown"

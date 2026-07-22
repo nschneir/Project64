@@ -10,8 +10,8 @@ directory contains:
 - `prompt.md` — the one-shot task the program solves (kept for AI-evaluation
   use)
 
-Run them all as tests with `pet test programs` (or via the integration
-suite): each program is built, run on a fresh emulated PET, and its
+Run them all as tests with `c64 test programs` (or via the integration
+suite): each program is built, run on a fresh emulated C64, and its
 expectations asserted. Add a directory here and it is automatically part of
 the regression suite.
 

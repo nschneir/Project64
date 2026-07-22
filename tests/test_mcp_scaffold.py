@@ -9,12 +9,12 @@ from mcp.shared.memory import (
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
-    monkeypatch.setenv("PET_TOOLS_HOME", str(tmp_path))
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
 
 
 def call_tool(name: str, args: dict) -> tuple[bool, dict]:
     """Sync helper: call one MCP tool in-memory; returns (is_error, payload)."""
-    from petlib.mcp_server import srv
+    from c64lib.mcp_server import srv
 
     async def go():
         async with client_session(srv._mcp_server) as client:
@@ -27,7 +27,7 @@ def call_tool(name: str, args: dict) -> tuple[bool, dict]:
 
 
 def test_server_lists_tools():
-    from petlib.mcp_server import srv
+    from c64lib.mcp_server import srv
 
     async def go():
         async with client_session(srv._mcp_server) as client:
@@ -35,17 +35,17 @@ def test_server_lists_tools():
 
     tools = anyio.run(go)
     names = [t.name for t in tools.tools]
-    assert "pet_session_list" in names
-    listed = next(t for t in tools.tools if t.name == "pet_session_list")
+    assert "c64_session_list" in names
+    listed = next(t for t in tools.tools if t.name == "c64_session_list")
     assert "session" in (listed.description or "").lower()
 
 
 def test_session_list_empty():
-    err, payload = call_tool("pet_session_list", {})
+    err, payload = call_tool("c64_session_list", {})
     assert err is False
     assert payload == {"sessions": []}
 
 
 def test_entry_point_importable():
-    from petlib.mcp_server import main
+    from c64lib.mcp_server import main
     assert callable(main)

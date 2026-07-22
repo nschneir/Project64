@@ -3,18 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PET PROJECT — agentic Commodore PET development</title>
-<meta name="description" content="A set of tools, skills, and an MCP that let AI agents write and debug Commodore PET software (BASIC and 6502 assembly) on the VICE emulator.">
+<title>PROJECT 64 — agentic Commodore 64 development</title>
+<meta name="description" content="A set of tools, skills, and an MCP that let AI agents write and debug Commodore 64 software (BASIC and 6502 assembly) on the VICE emulator.">
 <style>
   :root{
-    --room:#04070a;
-    --screen:#0a140c;
-    --screen-2:#0c1a0f;
-    --p:#3bf34b;           /* phosphor green */
-    --p-bright:#b9ffc4;    /* highlight */
-    --p-dim:#1f8a35;       /* muted */
-    --p-faint:#12561f;     /* faintest */
-    --glow:0 0 2px rgba(59,243,75,.55), 0 0 10px rgba(59,243,75,.22);
+    --room:#08061a;
+    --screen:#40318d;      /* C64 power-on blue */
+    --screen-2:#3a2c82;
+    --p:#8a7ce0;           /* light blue text */
+    --p-bright:#cfc8f7;    /* highlight */
+    --p-dim:#6a5cc4;       /* muted */
+    --p-faint:#5041a5;     /* faintest */
+    --glow:0 0 2px rgba(138,124,224,.55), 0 0 10px rgba(138,124,224,.22);
     --mono:ui-monospace,"Cascadia Mono","Menlo","Consolas","Courier New",monospace;
     --maxw:1080px;
   }
@@ -29,7 +29,7 @@
   /* CRT room backdrop */
   body::before{
     content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
-    background:radial-gradient(ellipse 80% 70% at 50% 30%, rgba(59,243,75,.05), transparent 70%);
+    background:radial-gradient(ellipse 80% 70% at 50% 30%, rgba(138,124,224,.06), transparent 70%);
   }
   a{color:var(--p-bright);text-decoration:none;border-bottom:1px solid var(--p-dim)}
   a:hover,a:focus-visible{background:var(--p);color:var(--room);border-bottom-color:var(--p);outline:none;text-shadow:none}
@@ -39,7 +39,7 @@
     position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;
     min-height:100vh;background:linear-gradient(180deg,var(--screen),var(--screen-2));
     padding:clamp(14px,3vw,34px);
-    box-shadow:0 0 0 2px #0d2413, 0 0 40px rgba(59,243,75,.10) inset, 0 0 60px rgba(0,0,0,.6);
+    box-shadow:0 0 0 2px #2a2168, 0 0 40px rgba(138,124,224,.10) inset, 0 0 60px rgba(0,0,0,.6);
     border-radius:14px;
   }
   /* scanlines + subtle screen curvature vignette */
@@ -56,7 +56,7 @@
   .wrap{max-width:920px;margin:0 auto}
 
   /* PETSCII-framed panel */
-  .panel{border:2px solid var(--p-dim);padding:clamp(14px,2.4vw,26px);margin:26px 0;position:relative;background:rgba(10,25,14,.35)}
+  .panel{border:2px solid var(--p-dim);padding:clamp(14px,2.4vw,26px);margin:26px 0;position:relative;background:rgba(38,28,110,.35)}
   .panel > .cap{position:absolute;top:-.75em;left:14px;background:var(--screen-2);padding:0 .5em;color:var(--p-bright);font-size:.82rem;letter-spacing:.18em}
 
   /* header / boot */
@@ -65,8 +65,9 @@
   .title{
     font-weight:700;line-height:.98;margin:.1em 0 0;
     font-size:clamp(2.1rem,9vw,5.2rem);letter-spacing:.02em;color:var(--p-bright);
-    text-shadow:0 0 4px rgba(185,255,196,.6),0 0 22px rgba(59,243,75,.45);
+    text-shadow:0 0 4px rgba(207,200,247,.6),0 0 22px rgba(138,124,224,.45);
   }
+  .marklogo{display:block;width:clamp(180px,32vw,340px);margin:6px 0 10px}
   .tag{margin:.5em 0 1.1em;max-width:60ch;color:var(--p);font-size:clamp(.95rem,2.6vw,1.15rem)}
   .cursor{display:inline-block;width:.62em;height:1.05em;background:var(--p);vertical-align:-.16em;animation:blink 1.06s steps(1) infinite;box-shadow:var(--glow)}
   @keyframes blink{50%{opacity:0}}
@@ -80,11 +81,11 @@
   p{margin:.55em 0}
   .lead{font-size:clamp(1rem,2.8vw,1.2rem)}
 
-  ul.pet{list-style:none;padding:0;margin:.4em 0}
-  ul.pet li{padding-left:1.6em;position:relative;margin:.28em 0}
-  ul.pet li::before{content:"\25B8";position:absolute;left:0;color:var(--p-dim)}
+  ul.c64{list-style:none;padding:0;margin:.4em 0}
+  ul.c64 li{padding-left:1.6em;position:relative;margin:.28em 0}
+  ul.c64 li::before{content:"\25B8";position:absolute;left:0;color:var(--p-dim)}
 
-  /* buttons: authentic PET reverse-video */
+  /* buttons: authentic C64 reverse-video */
   .btns{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 2px}
   .btn{display:inline-block;padding:.55em 1.1em;border:2px solid var(--p);background:transparent;color:var(--p-bright);
        font-family:var(--mono);font-size:.95rem;letter-spacing:.08em;cursor:pointer;text-shadow:var(--glow)}
@@ -94,14 +95,14 @@
 
   /* feature grid */
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-top:8px}
-  .card{border:2px solid var(--p-faint);padding:14px 16px;background:rgba(12,26,15,.5);transition:border-color .15s,transform .15s}
+  .card{border:2px solid var(--p-faint);padding:14px 16px;background:rgba(34,25,100,.5);transition:border-color .15s,transform .15s}
   .card:hover{border-color:var(--p);transform:translateY(-2px)}
   .card b{color:var(--p-bright);display:block;letter-spacing:.06em;margin-bottom:.2em}
   .card small{color:var(--p-dim);font-size:.82rem;letter-spacing:.04em}
   .card p{font-size:.92rem;margin:.35em 0 0}
 
   /* code blocks */
-  .code{position:relative;border:1px solid var(--p-faint);background:#071009;margin:12px 0}
+  .code{position:relative;border:1px solid var(--p-faint);background:#241c66;margin:12px 0}
   .code pre{margin:0;padding:14px 46px 14px 16px;overflow-x:auto;font-size:.9rem;line-height:1.65;color:var(--p)}
   .code .cm{color:var(--p-dim)}
   .code .pr{color:var(--p-bright)}
@@ -123,7 +124,7 @@
   /* demos table */
   table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.92rem}
   th,td{border:1px solid var(--p-faint);padding:.5em .7em;text-align:left}
-  th{color:var(--p-bright);letter-spacing:.08em;font-weight:700;background:rgba(59,243,75,.06)}
+  th{color:var(--p-bright);letter-spacing:.08em;font-weight:700;background:rgba(138,124,224,.08)}
   .ok{color:var(--p-bright)}
   .no{color:var(--p-dim)}
 
@@ -153,12 +154,13 @@
     <header>
       <div id="boot" aria-hidden="true"></div>
       <div id="hero" hidden>
-        <h1 class="title">PET&nbsp;PROJECT</h1>
+        <img class="marklogo" src="img/c64.svg" alt="Commodore 64 logo">
+        <h1 class="title">PROJECT&nbsp;64</h1>
         <p class="tag">A set of tools, skills, and an MCP that let AI agents write and
-          debug Commodore PET software &mdash; BASIC and 6502 assembly &mdash; on the
+          debug Commodore 64 software &mdash; BASIC and 6502 assembly &mdash; on the
           VICE emulator.</p>
         <div class="btns">
-          <a class="btn primary" href="https://github.com/nschneir/PET-Project">VIEW ON GITHUB &#x25B8;</a>
+          <a class="btn primary" href="https://github.com/nschneir/Project64">VIEW ON GITHUB &#x25B8;</a>
           <a class="btn" href="#start">QUICK START</a>
           <a class="btn" href="#agents">USE WITH AI</a>
         </div>
@@ -169,9 +171,11 @@
 
     <section class="reveal" id="what">
       <h2><span class="mk">&#x2500;&#x2500;</span> WHAT IS IT <span class="mk">&#x2500;&#x2500;</span></h2>
-      <p class="lead">The Commodore PET was where a generation learned to program. PET
-      Project brings it back &mdash; not just for nostalgia, but as a place an AI agent can
-      actually <b>build, run, and debug</b> real 8-bit software end to end.</p>
+      <p class="lead">The Commodore 64 is the best-selling home computer ever made &mdash;
+      where a generation learned to program, and to play. Project 64 brings it back
+      &mdash; not just for nostalgia, but as a place an AI agent can actually
+      <b>build, run, and debug</b> real 8-bit software end to end: BASIC, 6502
+      assembly, sprites, and three-voice SID sound.</p>
       <p>It drives the open-source <b>VICE</b> emulator through a clean command line
       (every command speaks JSON) and an <b>MCP server</b>, and includes the machine
       knowledge &mdash; skills, memory maps, a tested cookbook &mdash; that an agent
@@ -181,14 +185,14 @@
     <section class="reveal" id="features">
       <h2><span class="mk">&#x2500;&#x2500;</span> CAPABILITIES <span class="mk">&#x2500;&#x2500;</span></h2>
       <div class="grid">
-        <div class="card"><b>&#x25B8; SESSIONS</b><small>pet session</small><p>Boot any PET model (2001&ndash;8296) headless, in warp, with a disk attached.</p></div>
+        <div class="card"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot a C64 (NTSC or PAL) headless, in warp, with a disk attached.</p></div>
         <div class="card"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
         <div class="card"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
         <div class="card"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
-        <div class="card"><b>&#x25B8; DISK</b><small>d64 / d80 / d82</small><p>Create images, copy files in and out, attach and boot &mdash; via c1541.</p></div>
+        <div class="card"><b>&#x25B8; DISK</b><small>d64 / d71 / d81</small><p>Create images, copy files in and out, attach and boot &mdash; via c1541.</p></div>
         <div class="card"><b>&#x25B8; ROM TOOLS</b><small>info / disasm</small><p>Identify the ROM set and disassemble live memory with symbol annotations.</p></div>
         <div class="card"><b>&#x25B8; TEST RUNNER</b><small>declarative YAML</small><p>Boot, load, feed input, assert on screen / memory / registers. CI-ready.</p></div>
-        <div class="card"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>~30 MCP tools plus skills, memory maps, and a tested recipe cookbook.</p></div>
+        <div class="card"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>~30 MCP tools plus skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
       </div>
     </section>
 
@@ -201,15 +205,15 @@
 brew install vice cc65
 pip install -e .</pre>
       </div>
-      <p>Then drive an emulated PET:</p>
+      <p>Then drive an emulated C64:</p>
       <div class="code">
         <button class="copy" type="button">COPY</button>
-<pre>pet session start --model pet4032 <span class="cm"># boot a PET 4032</span>
-pet run game.s                    <span class="cm"># assemble + load + RUN</span>
-pet screen                        <span class="cm"># read the screen as text</span>
-pet break add start               <span class="cm"># symbolic breakpoint</span>
-pet wait --break                  <span class="cm"># block until it fires</span>
-pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspect</span></pre>
+<pre>c64 session start                 <span class="cm"># boot a C64 (NTSC)</span>
+c64 run game.s                    <span class="cm"># assemble + load + RUN</span>
+c64 screen                        <span class="cm"># read the screen as text</span>
+c64 break add start               <span class="cm"># symbolic breakpoint</span>
+c64 wait --break                  <span class="cm"># block until it fires</span>
+c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspect</span></pre>
       </div>
       <p>Every command takes <b>--json</b> &mdash; the interface an agent uses.</p>
     </section>
@@ -217,7 +221,7 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
     <section class="reveal" id="agents">
       <h2><span class="mk">&#x2500;&#x2500;</span> USE WITH AN AI AGENT <span class="mk">&#x2500;&#x2500;</span></h2>
       <p><b>Any agent with a shell needs zero setup</b> &mdash; the CLI plus <code>--json</code>
-      is the whole integration. For MCP-native clients, <code>pet-tools-mcp</code> exposes
+      is the whole integration. For MCP-native clients, <code>c64-tools-mcp</code> exposes
       the same operations. Pick your agent:</p>
 
       <div class="tabs" role="tablist" aria-label="AI agent setup">
@@ -231,22 +235,22 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
       <div class="tabpanel" role="tabpanel" id="p-claude" aria-labelledby="t-claude">
         <ol>
           <li>Install the skills: <code>mkdir -p .claude/skills &amp;&amp; cp -R skills/* .claude/skills/</code></li>
-          <li>Optional MCP: <code>claude mcp add pet-tools -- pet-tools-mcp</code></li>
+          <li>Optional MCP: <code>claude mcp add c64-tools -- c64-tools-mcp</code></li>
           <li>Ask for what you want &mdash; e.g. paste a prompt from <code>demos/</code>.</li>
         </ol>
         <p><small>No CLAUDE.md edits needed &mdash; installed skills load on demand.</small></p>
       </div>
       <div class="tabpanel" role="tabpanel" id="p-codex" aria-labelledby="t-codex" hidden>
         <ol>
-          <li>Add the MCP: <code>codex mcp add pet-tools -- pet-tools-mcp</code></li>
-          <li>In <code>AGENTS.md</code>: &ldquo;For PET work, first read skills/pet-development/SKILL.md and docs/cli.md.&rdquo;</li>
+          <li>Add the MCP: <code>codex mcp add c64-tools -- c64-tools-mcp</code></li>
+          <li>In <code>AGENTS.md</code>: &ldquo;For C64 work, first read skills/c64-development/SKILL.md and docs/cli.md.&rdquo;</li>
           <li>Paste a prompt from <code>demos/</code>.</li>
         </ol>
       </div>
       <div class="tabpanel" role="tabpanel" id="p-cursor" aria-labelledby="t-cursor" hidden>
         <ol>
           <li>Add the standard <code>mcpServers</code> block to <code>.cursor/mcp.json</code>.</li>
-          <li>Add a rule (<code>.cursor/rules/pet.mdc</code>) pointing at skills/pet-development/SKILL.md.</li>
+          <li>Add a rule (<code>.cursor/rules/c64.mdc</code>) pointing at skills/c64-development/SKILL.md.</li>
           <li>Paste a prompt from <code>demos/</code>.</li>
         </ol>
       </div>
@@ -269,18 +273,19 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
     <section class="reveal" id="demos">
       <h2><span class="mk">&#x2500;&#x2500;</span> DEMOS: TRY IT! <span class="mk">&#x2500;&#x2500;</span></h2>
       <p>Ready-to-paste prompts, graded from a first BASIC program up to an
-      arcade-faithful Invaders in assembly. Each is validated by handing it to a
-      real agent and confirming the result. <b>01&ndash;05 passed on the first
-      attempt; 06 took one follow-up fix.</b></p>
+      arcade-faithful Invaders in assembly with sprites and three-voice SID
+      sound. Each gets validated by handing it to a real agent and confirming
+      the result &mdash; <b>the C64 ports are freshly cut and awaiting their
+      dogfooding runs.</b></p>
       <table>
         <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="ok">[OK] passed</td></tr>
-          <tr><td>02</td><td>Bouncing ball</td><td>BASIC</td><td class="ok">[OK] passed</td></tr>
-          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="ok">[OK] passed (asm 93x faster than BASIC)</td></tr>
-          <tr><td>04</td><td>Snake</td><td>6502 assembly</td><td class="ok">[OK] passed</td></tr>
-          <tr><td>05</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="ok">[OK] passed</td></tr>
-          <tr><td>06</td><td>Invaders</td><td>6502 assembly</td><td class="ok">[OK] passed after 1 fix (playable .d64 in the repo)</td></tr>
+          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="no">[ ] awaiting dogfood</td></tr>
+          <tr><td>02</td><td>Bouncing ball (sprite)</td><td>BASIC</td><td class="no">[ ] awaiting dogfood</td></tr>
+          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="no">[ ] awaiting dogfood</td></tr>
+          <tr><td>04</td><td>Snake</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td></tr>
+          <tr><td>05</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="no">[ ] awaiting dogfood</td></tr>
+          <tr><td>06</td><td>Invaders</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td></tr>
         </tbody>
       </table>
     </section>
@@ -294,10 +299,10 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
       <p><small>Built primarily by AI (Anthropic&rsquo;s Claude, via Claude Code) under
       human direction &mdash; a working example of AI-built developer tooling.</small></p>
       <div class="links">
-        <a href="https://github.com/nschneir/PET-Project">&#x25B8; GitHub</a>
-        <a href="https://github.com/nschneir/PET-Project/blob/main/docs/cli.md">&#x25B8; CLI reference</a>
-        <a href="https://github.com/nschneir/PET-Project/tree/main/demos">&#x25B8; Demos</a>
-        <a href="https://github.com/nschneir/PET-Project/blob/main/LICENSE">&#x25B8; License</a>
+        <a href="https://github.com/nschneir/Project64">&#x25B8; GitHub</a>
+        <a href="https://github.com/nschneir/Project64/blob/main/docs/cli.md">&#x25B8; CLI reference</a>
+        <a href="https://github.com/nschneir/Project64/tree/main/demos">&#x25B8; Demos</a>
+        <a href="https://github.com/nschneir/Project64/blob/main/LICENSE">&#x25B8; License</a>
       </div>
       <p class="ready">READY.<span class="cursor" aria-hidden="true"></span></p>
     </footer>
@@ -311,10 +316,9 @@ pet step 5 &amp;&amp; pet reg             <span class="cm"># single-step, inspec
   var boot = document.getElementById("boot");
   var hero = document.getElementById("hero");
   var lines = [
-    "*** PET PROJECT ***",
+    "    **** COMMODORE 64 BASIC V2 ****",
     "",
-    " COMMODORE PET DEVELOPMENT TOOLKIT",
-    " 31743 BYTES FREE",
+    " 64K RAM SYSTEM  38911 BASIC BYTES FREE",
     "",
     "READY.",
     "█"
