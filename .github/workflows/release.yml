@@ -27,6 +27,18 @@ jobs:
           fi
           echo "tag=$next" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build packages
+        run: |
+          version="${{ steps.version.outputs.tag }}"
+          # stamp the release version into the wheel/sdist (not committed)
+          sed -i "s/^version = .*/version = \"${version#v}\"/" pyproject.toml
+          python -m pip install --quiet build
+          python -m build
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,3 +46,4 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}"
           --target "$GITHUB_SHA"
           --generate-notes
+          dist/*
