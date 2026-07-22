@@ -74,10 +74,27 @@ matters. The VIC-II's 8 hardware sprites are the idiomatic way to move
 things smoothly: registers, data layout, and the SID sound registers are in
 references/hardware.md, and working recipes are in the cookbook. Policy for
 how demos author sprite data, capture screenshots, and write graphics tests:
-`docs/superpowers/specs/graphics-and-sprites.md`. Two hard rules: sprites are invisible
-to `c64 screen` text (assert on VIC-II registers and state bytes; use
-`c64 screen --png` for visual evidence), and never relocate the screen from
-`$0400`.
+`docs/superpowers/specs/graphics-and-sprites.md`. One hard rule: sprites are
+invisible to `c64 screen` text — inspect them with `c64 sprite status`
+(decoded registers), `c64 sprite show` (ASCII art), and `c64 sprite png`
+(exact rendered shape), and assert on registers and state bytes. Screen
+relocation is followed automatically by `c64 screen` and `@row,col`.
+
+**Sprites: authoring with generative AI.** The primary path: obtain a small
+image of the shape you want — from any image-generation model, a drawing
+tool, or by rendering one yourself — then convert it:
+
+1. `c64 sprite from-png art.png` (add `--multicolor` for 3-color shapes) —
+   emits ready-to-paste `.byte %...` rows; commit the rows, never the image.
+2. Paste the rows into your source, place the block, set the pointer
+   (`block = address / 64`).
+3. Load and **verify against intent**: `c64 sprite show N` for a quick
+   terminal check, `c64 sprite png N -o check.png` for the exact rendered
+   shape with live colors.
+
+Fallback when no image is at hand: author the `.byte %...` rows directly —
+the binary literals read as a picture in the source (see the cookbook's
+sprite recipes and `tests/programs/sprite-ball/`).
 
 ## Debugging
 
