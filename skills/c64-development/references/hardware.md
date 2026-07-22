@@ -38,6 +38,42 @@ with the keyboard scan, which is why game docs say "use port 2"
 (`JSR` nothing — just `LDA $DC00 / AND #$1F`). Prefer joystick port 2 or
 `$CB` polling for game input.
 
+## CIA 6526 timers, TOD, and interrupts
+
+Both CIAs expose the same 16 registers, at an offset from `$DC00` (CIA1) or
+`$DD00` (CIA2):
+
+| Off | Name | Function |
+|-----|------|----------|
+| 0/1 | PRA/PRB | Ports A/B (CIA1: keyboard + joysticks; CIA2 PRA: VIC bank + serial bus, PRB: user port / RS-232) |
+| 2/3 | DDRA/DDRB | Data direction, 1 = output (CIA1 defaults $FF / $00 — columns out, rows in) |
+| 4/5 | TA LO/HI | Timer A: read = live count, write = latch (reload) value |
+| 6/7 | TB LO/HI | Timer B, same read/write split |
+| 8-11| TOD | Time-of-day clock, BCD: 10ths, sec, min, hr (bit 7 of hr = PM) |
+| 12  | SDR | Serial shift register (user-port SP pin), MSB first |
+| 13  | ICR | Interrupt control: read = pending flags (**and clears them**), write = enable mask |
+| 14  | CRA | Control A: bit 0 start TA, bit 3 one-shot/continuous, bit 4 force-load, bit 5 count φ2/CNT, bit 7 TOD 60/50 Hz |
+| 15  | CRB | Control B: same for TB; bit 7 = writes set the TOD **alarm** (1) or **clock** (0) |
+
+- **Timers** are 16-bit down-counters loaded from a latch; on underflow they
+  set an ICR flag and either stop (**one-shot**, CRA/CRB bit 3 = 1) or reload
+  and repeat (**continuous**, bit 3 = 0). CIA1 timer A (continuous) drives the
+  60 Hz system IRQ — don't stop it or rewrite CIA1's ICR mask casually or the
+  keyboard scan and jiffy clock die.
+- **ICR** (`$DC0D`/`$DD0D`) read flags: bit 0 timer A, 1 timer B, 2 TOD alarm,
+  3 SDR, 4 FLAG pin (CIA1 = cassette read, CIA2 = RS-232 RXD), bit 7 = this
+  chip raised its interrupt line — reading clears them. Writing sets the mask:
+  bit 7 = 1 → set each 1-bit, bit 7 = 0 → clear each 1-bit. **CIA1's line is
+  IRQ; CIA2's is NMI.**
+- **CIA2 PRA `$DD00`** beyond the VIC bank (bits 0-1, inverted — see below):
+  bit 2 RS-232 TXD, bit 3 serial ATN out, bits 4-5 CLK/DATA out, bits 6-7
+  CLK/DATA in — the serial (IEC) bus disk drives and printers use.
+- **TOD** is a BCD clock that sits **stopped at 0 from power-on** (verified: it
+  reads 0 and doesn't advance until set). Set it by writing hr, min, sec, then
+  **10ths last, which starts it**. Reading the hour latches the whole time until
+  you read 10ths, so read hr→…→10ths (or read 10ths last). The alarm register
+  overlays the same four addresses (CRB bit 7 selects it) and is write-only.
+
 ## Sprites (VIC-II)
 
 8 hardware sprites, 24×21 pixels each, 63 bytes of data per shape.
@@ -58,6 +94,11 @@ Policy for demos: docs/superpowers/specs/graphics-and-sprites.md.
 Data pointers live at screen+`$3F8` (`$07F8-$07FF` for the default screen);
 pointer value = data address / 64. Visible X range starts at 24, Y at 50
 (a sprite at X<24 is partly off the left edge).
+
+A multicolor sprite (`$D01C` bit set) trades horizontal resolution for color:
+pixels are 2 bits wide (12×21) and each pair picks a color — `00` transparent,
+`01` shared color 0 (`$D025`), `10` the sprite's own color (`$D027-$D02E`),
+`11` shared color 1 (`$D026`).
 
 ## Video modes (VIC-II)
 

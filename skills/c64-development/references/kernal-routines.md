@@ -69,6 +69,37 @@ The BASIC reserved variable `ST` reads this same byte; on the serial bus,
 `ST = -128` (bit 7) means the device didn't answer, `ST = 64` (bit 6) is the
 normal end-of-file after the last byte.
 
+## BASIC-ROM entry points (below the jump table)
+
+Unlike the KERNAL (three revisions with shifting internals), the BASIC ROM
+`$A000-$BFFF` is a *single* unchanging revision, so these internal entry
+points are about as stable as the jump table — handy from asm when you need
+floating-point math or number/string output. Every address below was verified
+with `c64 rom disasm` (and `$BDCD` run live); confirm any you depend on the
+same way. Floating point flows through **FAC1** (`$61-$66`), with the second
+operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
+
+| Addr | Name | Contract |
+|------|------|----------|
+| B391 | GIVAYF | Signed 16-bit int (A = high, Y = low) → FAC1; sets VALTYP `$0D` = numeric |
+| B1AA | —      | FAC1 → signed 16-bit int in `$64/$65` |
+| BBA2 | MOVFM  | Load FAC1 from the 5-byte constant at A (low)/Y (high) |
+| B86A | FADDT  | FAC1 = ARG + FAC1 |
+| B853 | FSUBT  | FAC1 = ARG − FAC1 |
+| BA2B | FMULT  | FAC1 = ARG × FAC1 |
+| BB12 | FDIV   | FAC1 = ARG ÷ FAC1 |
+| BF7B | FPWR   | FAC1 = ARG ^ FAC1 |
+| BC2B | SIGN   | Sign of FAC1 → A (−1 / 0 / +1) |
+| BC58 | ABS    | FAC1 = |FAC1| (clears the sign bit) |
+| BCCC | INT    | FAC1 = INT(FAC1) |
+| BDDD | FOUT   | FAC1 → ASCII digits at `$0100`; pointer returned in A (low)/Y (high) |
+| AB1E | STROUT | Print the `$00`/quote-terminated string at A (low)/Y (high) |
+| BDCD | LINPRT | Print the unsigned 16-bit int in A (high)/X (low) as decimal |
+
+Quick "print a number": load A/X and `JSR $BDCD`. Signed or floating value:
+`GIVAYF` → `FOUT` → `STROUT`. (LINPRT verified live: A = `$30`, X = `$39`
+prints `12345`.)
+
 ## Hardware vectors
 
 | Addr | Name      | Points to (stock KERNAL 901227-03) |

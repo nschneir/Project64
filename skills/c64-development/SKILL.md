@@ -218,9 +218,10 @@ Read the matching file when you need the detail:
 - `references/memory-maps.md` — the C64 memory layout (RAM, screen, ROM, I/O, banking).
 - `references/zero-page.md` — the 6510 port, BASIC pointer chain, low-memory
   usage, and handy control-flag locations (RUN/STOP, key repeat, color, region).
-- `references/kernal-routines.md` — KERNAL jump table and hardware vectors.
+- `references/kernal-routines.md` — KERNAL jump table, the ST status word,
+  hardware vectors, and stable BASIC-ROM math/output entry points.
 - `references/basic-internals.md` — program storage format, token table, disk I/O.
 - `references/petscii.md` — the three text encodings and the screen-code table.
 - `references/hardware.md` — VIC-II (sprites, bitmap & color-text modes, VIC
   bank/raster/collision IRQ), SID (voices, filter, envelopes, note table),
-  CIA chips, color RAM.
+  CIA 6526 (timers, TOD, ICR, serial bus), color RAM.
