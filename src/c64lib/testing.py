@@ -18,7 +18,7 @@ import yaml
 from .basic import tokenize
 from .build import build_asm
 from .machines import get_profile
-from .ops import call_routine, parse_ref, run_until
+from .ops import call_routine, live_screen_base, parse_ref, run_until
 from .screen import read_screen_text
 from .session import Session
 from .symbols import load_labels
@@ -186,8 +186,11 @@ def _do_step(session, kind: str, arg, default_timeout: float,
     labels = labels or {}
 
     def _addr(v) -> int:
-        # symbols, symbol+offset, and @row,col all work in step addresses
-        return parse_ref(labels, v, screen_base=session.profile.screen_addr,
+        # symbols, symbol+offset, and @row,col all work in step addresses;
+        # @row,col follows the machine's live screen base
+        base = (live_screen_base(session) if "@" in str(v)
+                else session.profile.screen_addr)
+        return parse_ref(labels, v, screen_base=base,
                          screen_width=session.profile.screen_cols)
 
     if kind == "key":

@@ -10,10 +10,22 @@ def test_read_screen_text_uses_profile_geometry():
     profile = get_profile("c64")
     mon = Mock()
     screen = bytes([18, 5, 1, 4, 25, 46]) + bytes([32] * (1000 - 6))  # "READY."
-    mon.memory_read.return_value = screen
+    mon.memory_read.side_effect = lambda a, n: {
+        0xDD00: bytes([0b11]), 0xD018: bytes([0x15]), 0x0400: screen}[a]
     text = read_screen_text(mon, profile)
-    mon.memory_read.assert_called_once_with(0x0400, 1000)
+    mon.memory_read.assert_any_call(0x0400, 1000)
     assert text.splitlines()[0] == "READY."
+
+
+def test_read_screen_text_follows_relocation():
+    profile = get_profile("c64")
+    mon = Mock()
+    screen = bytes([13, 15, 22, 5, 4]) + bytes([32] * (1000 - 5))  # "MOVED"
+    mon.memory_read.side_effect = lambda a, n: {
+        0xDD00: bytes([0b11]), 0xD018: bytes([0x35]), 0x0C00: screen}[a]
+    text = read_screen_text(mon, profile)
+    mon.memory_read.assert_any_call(0x0C00, 1000)
+    assert text.splitlines()[0] == "MOVED"
 
 
 def test_save_screenshot_png(tmp_path):

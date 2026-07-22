@@ -10,7 +10,7 @@ import time
 
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
-from .screen import read_screen_text
+from .screen import read_screen_text, screen_base
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
 
@@ -106,6 +106,17 @@ def staleness(session) -> list[str]:
         except OSError:
             out.append(d)               # vanished source counts as stale
     return out
+
+
+def live_screen_base(session) -> int:
+    """The current screen RAM base read from the running machine's VIC/CIA2
+    registers (state-preserving). Callers resolving `@row,col` use this so
+    relocated screens keep working."""
+    with session.monitor() as mon:
+        try:
+            return screen_base(mon)
+        finally:
+            mon.release()
 
 
 def session_labels(s) -> dict[str, int]:

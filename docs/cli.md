@@ -23,8 +23,8 @@ exposes the same operations; see the README.
   name** is accepted anywhere an address is. Addresses additionally accept
   an **offset** (`alienX+49`, `tick-1`, `dots+$52`, `$0400+40`) and a
   **screen cell** `@row,col`
-  (e.g. `@23,18`), resolved against the session's screen geometry
-  (40×25 at `$0400`).
+  (e.g. `@23,18`), resolved against the machine's LIVE screen base
+  (relocation-aware; 40×25, $0400 at power-on).
 - **Exit codes.** `0` on success; `1` on error, on a `c64 wait` timeout, or on
   a failing `c64 test`.
 - **Machine state.** Every session runs a monitor daemon that owns the one
@@ -128,7 +128,8 @@ also includes `"state"` in its JSON output.
 
 ### `c64 screen`
 
-Show the emulated screen. With no option, prints the screen decoded to text —
+Show the emulated screen (relocation-aware: reads wherever the VIC-II
+currently points). With no option, prints the screen decoded to text —
 the preferred way to observe program output. With `--png` it writes an image;
 with `--codes` it prints the raw screen-code matrix.
 

@@ -7,6 +7,7 @@ import pytest
 
 from c64lib.screen import read_screen_text
 from c64lib.session import Session
+from c64lib.text import ascii_to_petscii
 from tests.doc_helpers import BOOT_FREE
 from tests.vice_helpers import wait_for_text
 
@@ -101,3 +102,17 @@ def test_call_routine_isolated(session):
             assert mon.memory_read(0x1000, 1) == bytes([0x2A])
         finally:
             mon.release()
+
+
+def test_screen_relocation_followed(session):
+    """screen.py claims c64 screen follows VIC-II screen relocation:
+    move the screen to $0C00 (KERNAL base at 648 + VIC $D018) and the
+    reader must still see printed text."""
+    wait_for_text(session, "READY.")
+    with session.monitor() as mon:
+        try:
+            mon.keyboard_feed(ascii_to_petscii(
+                'poke 648,12: poke 53272,53: print chr$(147);"MOVED SCREEN"\n'))
+        finally:
+            mon.resume()
+    assert "MOVED SCREEN" in wait_for_text(session, "MOVED SCREEN", timeout=15)

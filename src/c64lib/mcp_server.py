@@ -23,6 +23,7 @@ from .ops import (
     find_bytes,
     key_hold,
     key_type,
+    live_screen_base,
     machine_state,
     parse_number,
     parse_ref,
@@ -51,10 +52,13 @@ def _attach(session: str | None = None) -> Session:
 
 
 def _ref(s, ref, labels=None):
-    """parse_ref with the session's screen geometry so @row,col works."""
+    """parse_ref with the session's screen geometry so @row,col works —
+    against the LIVE screen base (relocation-aware)."""
     if labels is None:
         labels = session_labels(s)
-    return parse_ref(labels, ref, screen_base=s.profile.screen_addr,
+    base = (live_screen_base(s) if "@" in str(ref)
+            else s.profile.screen_addr)
+    return parse_ref(labels, ref, screen_base=base,
                      screen_width=s.profile.screen_cols)
 
 

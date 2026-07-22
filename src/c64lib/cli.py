@@ -20,6 +20,7 @@ from .ops import (
     call_routine,
     clear_checkpoints,
     find_bytes,
+    live_screen_base,
     machine_state,
     parse_number,
     parse_ref,
@@ -73,13 +74,15 @@ def attach(ctx: click.Context) -> Session:
 
 
 def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
-                profile=None) -> int:
-    """parse_ref with CLI error reporting; pass the session's machine
-    profile so @row,col resolves against the real screen geometry."""
+                session=None) -> int:
+    """parse_ref with CLI error reporting; pass the session so @row,col
+    resolves against the machine's LIVE screen base (relocation-aware)."""
     kw = {}
-    if profile is not None:
-        kw = {"screen_base": profile.screen_addr,
-              "screen_width": profile.screen_cols}
+    if session is not None:
+        p = session.profile
+        base = (live_screen_base(session) if "@" in str(ref)
+                else p.screen_addr)
+        kw = {"screen_base": base, "screen_width": p.screen_cols}
     try:
         return parse_ref(labels, ref, **kw)
     except (KeyError, ValueError) as e:
@@ -330,7 +333,7 @@ def mem_read(ctx, addr, length, decimal):
     disturb run/stop state.
     """
     s = attach(ctx)
-    start = resolve_ref(ctx, session_labels(s), addr, profile=s.profile)
+    start = resolve_ref(ctx, session_labels(s), addr, session=s)
     n = parse_number(length)
     with s.monitor() as mon:
         try:
@@ -373,7 +376,7 @@ def mem_write(ctx, addr, values, from_stdin):
         lines = [[addr, *values]]
     s = attach(ctx)
     labels = session_labels(s)
-    writes = [(resolve_ref(ctx, labels, ln[0], profile=s.profile),
+    writes = [(resolve_ref(ctx, labels, ln[0], session=s),
                bytes(parse_number(v) for v in ln[1:])) for ln in lines]
     with s.monitor() as mon:
         try:
@@ -399,7 +402,7 @@ def mem_get(ctx, addr, length):
     symbol+offset, or @row,col. Does not disturb run/stop state.
     """
     s = attach(ctx)
-    start = resolve_ref(ctx, session_labels(s), addr, profile=s.profile)
+    start = resolve_ref(ctx, session_labels(s), addr, session=s)
     n = parse_number(length)
     with s.monitor() as mon:
         try:
@@ -429,7 +432,7 @@ def mem_find(ctx, values, start, length, limit):
     """
     s = attach(ctx)
     labels = session_labels(s)
-    begin = resolve_ref(ctx, labels, start, profile=s.profile)
+    begin = resolve_ref(ctx, labels, start, session=s)
     n = parse_number(length)
     pattern = bytes(parse_number(v) for v in values)
     with s.monitor() as mon:
@@ -684,7 +687,7 @@ def break_add(ctx, ref, condition, temporary, once):
     temporary = temporary or once
     s = attach(ctx)
     labels = session_labels(s)
-    addr = resolve_ref(ctx, labels, ref, profile=s.profile)
+    addr = resolve_ref(ctx, labels, ref, session=s)
     with s.monitor() as mon:
         try:
             ck = mon.checkpoint_set(addr, op=CP_EXEC, temporary=temporary)
@@ -808,7 +811,7 @@ def watch_add(ctx, ref, on_load, on_store, length):
     """Set a watchpoint on the bytes at REF (default: both load and store)."""
     s = attach(ctx)
     labels = session_labels(s)
-    addr = resolve_ref(ctx, labels, ref, profile=s.profile)
+    addr = resolve_ref(ctx, labels, ref, session=s)
     op = (CP_LOAD if on_load else 0) | (CP_STORE if on_store else 0)
     if not op:
         op = CP_LOAD | CP_STORE
@@ -901,7 +904,7 @@ def until_cmd(ctx, ref, count, timeout):
     stepping when REF is the program's main-loop label."""
     s = attach(ctx)
     labels = session_labels(s)
-    addr = resolve_ref(ctx, labels, ref, profile=s.profile)
+    addr = resolve_ref(ctx, labels, ref, session=s)
     out = run_until(s, addr, timeout, count=count)
     if out["registers"] is None:
         where = format_addr(labels, addr)
@@ -936,7 +939,7 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
     """
     s = attach(ctx)
     labels = session_labels(s)
-    addr = resolve_ref(ctx, labels, ref, profile=s.profile)
+    addr = resolve_ref(ctx, labels, ref, session=s)
     regs_in = {k: parse_number(v) for k, v in
                (("a", a_), ("x", x_), ("y", y_)) if v is not None}
     out = call_routine(s, addr, a=regs_in.get("a"), x=regs_in.get("x"),
@@ -1003,7 +1006,7 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
 
     try:
         addr_s, _, val_s = mem_cond.partition("=")
-        addr = resolve_ref(ctx, labels, addr_s.strip(), profile=s.profile)
+        addr = resolve_ref(ctx, labels, addr_s.strip(), session=s)
         want = parse_number(val_s.strip())
     except ValueError:
         fail(ctx, f"bad --mem condition {mem_cond!r}; use ADDR=VALUE")
@@ -1140,7 +1143,7 @@ def rom_disasm(ctx, start, length):
     """Disassemble live memory with ROM + session label annotations."""
     s = attach(ctx)
     labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
-    addr = resolve_ref(ctx, labels, start, profile=s.profile)
+    addr = resolve_ref(ctx, labels, start, session=s)
     n = parse_number(length)
     with s.monitor() as mon:
         try:
@@ -1251,7 +1254,7 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
     """
     s = attach(ctx)
     labels = session_labels(s)
-    addr = resolve_ref(ctx, labels, at_ref, profile=s.profile)
+    addr = resolve_ref(ctx, labels, at_ref, session=s)
     try:
         out = ops_key_hold(s, keyname, addr, frames=frames, timeout=timeout)
     except ValueError as e:

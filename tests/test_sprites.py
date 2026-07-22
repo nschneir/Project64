@@ -158,3 +158,17 @@ def test_from_image_multicolor_quantizes_to_pairs():
         multicolor=True)
     assert back == data
     assert any("multicolor" in ln for ln in lines)
+
+
+def test_screen_base_banks_and_slots():
+    from c64lib.screen import screen_base
+    mon = Mock()
+    # ($DD00 & 3, $D018) -> expected base
+    cases = {(0b11, 0x15): 0x0400,          # bank 0, slot 1 (power-on)
+             (0b11, 0x35): 0x0C00,          # bank 0, slot 3
+             (0b10, 0x15): 0x4400,          # bank 1
+             (0b00, 0x15): 0xC400}          # bank 3, slot 1
+    for (dd00, d018), want in cases.items():
+        mon.memory_read.side_effect = lambda a, n, dd00=dd00, d018=d018: {
+            0xDD00: bytes([dd00]), 0xD018: bytes([d018])}[a]
+        assert screen_base(mon) == want, f"dd00={dd00:02b} d018=${d018:02x}"
