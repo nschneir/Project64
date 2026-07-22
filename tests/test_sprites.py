@@ -116,3 +116,45 @@ def test_sprite_image_multicolor_pairs():
     assert img.getpixel((4, 0)) == C64_PALETTE[7]      # 10 sprite color
     assert img.getpixel((6, 0)) == C64_PALETTE[11]     # 11 mc_color2
     assert img.getpixel((3, 0)) == img.getpixel((2, 0))  # pair is 2 wide
+
+
+def test_from_image_hires_threshold():
+    from PIL import Image
+
+    from c64lib.sprites import sprite_from_image
+    img = Image.new("RGB", (24, 21), (255, 255, 255))
+    for x in range(8):
+        img.putpixel((x, 0), (0, 0, 0))            # dark = set
+    data, lines = sprite_from_image(img, multicolor=False)
+    assert len(data) == 63
+    assert data[0] == 0b11111111 and data[1] == 0
+    assert any(".byte %11111111" in ln for ln in lines)
+    assert any("pointer = block_address / 64" in ln for ln in lines)
+
+
+def test_from_image_resizes_arbitrary_input():
+    from PIL import Image
+
+    from c64lib.sprites import sprite_from_image
+    img = Image.new("RGBA", (240, 210), (0, 0, 0, 0))  # fully transparent
+    data, _ = sprite_from_image(img, multicolor=False)
+    assert data == bytes(63)                            # transparent = clear
+
+
+def test_from_png_roundtrip_hires():
+    from c64lib.sprites import sprite_from_image, sprite_image
+    data = bytes((i * 37) % 256 for i in range(63))
+    shared = {"mc_color1": 10, "mc_color2": 11, "background": 1, "border": 14}
+    img = sprite_image(data, _state(color=0), shared, scale=1)  # black on white
+    back, _ = sprite_from_image(img, multicolor=False)
+    assert back == data
+
+
+def test_from_image_multicolor_quantizes_to_pairs():
+    from c64lib.sprites import sprite_from_image, sprite_image
+    data = bytes([0b00011011, 0, 0] * 21)
+    back, lines = sprite_from_image(
+        sprite_image(data, _state(color=2, multicolor=True), _SHARED, scale=1),
+        multicolor=True)
+    assert back == data
+    assert any("multicolor" in ln for ln in lines)

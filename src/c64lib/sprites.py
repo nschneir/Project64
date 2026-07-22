@@ -111,3 +111,91 @@ def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
     if scale > 1:
         img = img.resize((24 * scale, 21 * scale), Image.NEAREST)
     return img
+
+
+def _luminance(px) -> float:
+    r, g, b = px[0], px[1], px[2]
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _nearest_palette(px) -> int:
+    return min(range(16), key=lambda i: sum(
+        (a - b) ** 2 for a, b in zip(px[:3], C64_PALETTE[i])))
+
+
+def _emit(rows_bytes: list[bytes], header: list[str]) -> list[str]:
+    lines = list(header)
+    for i, row in enumerate(rows_bytes):
+        bits = ", ".join(f"%{b:08b}" for b in row)
+        lines.append((f"sprite0: .byte {bits}" if i == 0
+                      else f"         .byte {bits}"))
+    return lines
+
+
+def sprite_from_image(img, multicolor: bool) -> tuple[bytes, list[str]]:
+    """Convert any PIL image to 63 sprite bytes + ready-to-paste ca65 rows.
+
+    Hires: pixel set where alpha >= 128 and luminance < 128. Multicolor:
+    background = the most common edge color; the remaining colors get pair
+    values 01/10/11 in first-appearance (raster) order — the emitted
+    header records the mapping.
+    """
+    img = img.convert("RGBA")
+    if not multicolor:
+        img = img.resize((24, 21), _resample())
+        rows = []
+        for y in range(21):
+            bits = 0
+            for x in range(24):
+                px = img.getpixel((x, y))
+                if px[3] >= 128 and _luminance(px) < 128:
+                    bits |= 1 << (23 - x)
+            rows.append(bits.to_bytes(3, "big"))
+        header = [
+            "; sprite, 24x21 hires (63 bytes: 3 bytes x 21 rows)"
+            " — c64 sprite from-png",
+            "; place in a 64-byte block; pointer = block_address / 64",
+        ]
+        return b"".join(rows), _emit(rows, header)
+
+    img = img.resize((12, 21), _resample())
+    grid = [[_nearest_palette(img.getpixel((x, y))) if img.getpixel((x, y))[3] >= 128
+             else None for x in range(12)] for y in range(21)]
+    edge = [grid[y][x] for y in range(21) for x in range(12)
+            if (x in (0, 11) or y in (0, 20)) and grid[y][x] is not None]
+    background = max(set(edge), key=edge.count) if edge else 0
+    order: list[int] = []
+    for y in range(21):
+        for x in range(12):
+            c = grid[y][x]
+            if c is not None and c != background and c not in order:
+                order.append(c)
+    order = order[:3]
+    pair_of = {background: 0, None: 0}
+    for i, c in enumerate(order):
+        pair_of[c] = i + 1                     # 01, 10, 11 in raster order
+    rows = []
+    for y in range(21):
+        bits = 0
+        for x in range(12):
+            c = grid[y][x]
+            pv = pair_of.get(c)
+            if pv is None:                     # extra color: nearest of the 4
+                chosen = min([background, *order], key=lambda k: sum(
+                    (a - b) ** 2 for a, b in zip(C64_PALETTE[c], C64_PALETTE[k])))
+                pv = pair_of[chosen]
+            bits |= pv << (22 - 2 * x)
+        rows.append(bits.to_bytes(3, "big"))
+    names = {1: "01 ($D025)", 2: "10 (sprite color)", 3: "11 ($D026)"}
+    header = [
+        "; sprite, 12x21 multicolor pairs (63 bytes) — c64 sprite from-png",
+        f"; background (00) = color {background}; "
+        + "; ".join(f"{names[i + 1]} = color {c}" for i, c in enumerate(order)),
+        "; place in a 64-byte block; pointer = block_address / 64",
+    ]
+    return b"".join(rows), _emit(rows, header)
+
+
+def _resample():
+    from PIL import Image
+    return Image.LANCZOS
