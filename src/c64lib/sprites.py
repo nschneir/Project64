@@ -120,15 +120,15 @@ def _luminance(px) -> float:
 
 def _nearest_palette(px) -> int:
     return min(range(16), key=lambda i: sum(
-        (a - b) ** 2 for a, b in zip(px[:3], C64_PALETTE[i])))
+        (a - b) ** 2 for a, b in zip(px[:3], C64_PALETTE[i], strict=True)))
 
 
 def _emit(rows_bytes: list[bytes], header: list[str]) -> list[str]:
     lines = list(header)
     for i, row in enumerate(rows_bytes):
         bits = ", ".join(f"%{b:08b}" for b in row)
-        lines.append((f"sprite0: .byte {bits}" if i == 0
-                      else f"         .byte {bits}"))
+        lines.append(f"sprite0: .byte {bits}" if i == 0
+                      else f"         .byte {bits}")
     return lines
 
 
@@ -182,7 +182,7 @@ def sprite_from_image(img, multicolor: bool) -> tuple[bytes, list[str]]:
             pv = pair_of.get(c)
             if pv is None:                     # extra color: nearest of the 4
                 chosen = min([background, *order], key=lambda k: sum(
-                    (a - b) ** 2 for a, b in zip(C64_PALETTE[c], C64_PALETTE[k])))
+                    (a - b) ** 2 for a, b in zip(C64_PALETTE[c], C64_PALETTE[k], strict=True)))
                 pv = pair_of[chosen]
             bits |= pv << (22 - 2 * x)
         rows.append(bits.to_bytes(3, "big"))
