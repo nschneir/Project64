@@ -14,6 +14,16 @@ def test_version():
     assert c64lib.__version__ == pyproject["project"]["version"]
 
 
+def test_changelog_has_current_version():
+    # pyproject is the single version source; the CHANGELOG must carry an
+    # entry for it (the release workflow tags exactly this version).
+    from pathlib import Path
+
+    changelog = (Path(__file__).parents[1] / "CHANGELOG.md").read_text()
+    assert f"## [{c64lib.__version__}]" in changelog, \
+        f"CHANGELOG.md has no entry for {c64lib.__version__}"
+
+
 def test_package_prg_copies_source(tmp_path):
     src = tmp_path / "game.prg"
     src.write_bytes(b"\x01\x08\x00\x00")
