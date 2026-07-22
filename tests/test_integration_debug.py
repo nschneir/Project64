@@ -86,7 +86,7 @@ def test_watchpoint_on_screen_ram(session, tmp_path):
 
     with session.monitor() as mon:
         try:
-            ck = mon.checkpoint_set(0x8000, 0x83E7, op=CP_STORE)
+            ck = mon.checkpoint_set(0x0400, 0x07E7, op=CP_STORE)
             mon.autostart(res.prg.resolve(), run=True)
         finally:
             mon.resume()
@@ -118,11 +118,11 @@ def test_mem_symbol_roundtrip_live(session, tmp_path):
 
 HOT_LOOP = """\
         .segment "LOADADDR"
-        .word   $0401
+        .word   $0801
         .segment "EXEHDR"
         .word   nextln
         .word   10
-        .byte   $9E, "1037", $00
+        .byte   $9E, "2061", $00
 nextln: .word   $0000
         .segment "CODE"
 start:
