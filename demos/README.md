@@ -10,7 +10,7 @@ They're graded — start at 01 if you're new:
 | # | Demo | Language | Shows off | Status |
 |---|------|----------|-----------|--------|
 | 01 | Guess the number | BASIC | The write→run→verify loop | 🔲 awaiting C64 dogfood |
-| 02 | Bouncing ball | BASIC | Hardware sprites from BASIC | 🔲 awaiting C64 dogfood |
+| 02 | Bouncing beach ball | BASIC | Multicolor sprites from BASIC | 🔲 awaiting C64 dogfood |
 | 03 | Sieve benchmark | BASIC + asm | Timing, iteration, the asm speedup | 🔲 awaiting C64 dogfood |
 | 04 | Snake | 6502 assembly | Assembler + debugger workflow, $CB input, SID sound | 🔲 awaiting C64 dogfood |
 | 05 | Debug hunt | BASIC + debugger | Breakpoints, stepping, memory inspection | 🔲 awaiting C64 dogfood |

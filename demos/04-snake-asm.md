@@ -5,8 +5,11 @@ Paste this prompt into your agent:
 > Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build a complete arcade-style Snake game for a
 > Commodore 64 in 6502 assembly, working directly with screen memory at
-> $0400 and color RAM at $D800 (40×25). I want the whole arcade experience,
-> not just a moving snake:
+> $0400 and color RAM at $D800 (40×25). **Make deliberate use of color** —
+> the C64 has a 16-color palette and this game should look vivid, not
+> monochrome: write color RAM ($D800) alongside every character you draw,
+> and give the title, border, snake, food, and HUD their own distinct
+> colors. I want the whole arcade experience, not just a moving snake:
 >
 > - **Title screen** — the game's name drawn large with PETSCII graphics
 >   characters in bright colors, plus "PRESS ANY KEY TO PLAY".
@@ -20,7 +23,8 @@ Paste this prompt into your agent:
 > - **Sound** — a short SID blip when the snake eats, a longer crash sound
 >   when it dies (the hardware reference has the register recipe).
 > - **Score and levels** — a status line showing SCORE and LEVEL during
->   play; every few pickups the level goes up and the snake speeds up.
+>   play; every few pickups the level goes up, the snake speeds up, and
+>   its color changes so each level looks distinct.
 > - **Game over and high score** — a game-over screen showing the final
 >   score and the best score so far, and a key to play again. The high
 >   score must survive across games in the same session.

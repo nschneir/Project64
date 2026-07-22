@@ -5,9 +5,12 @@ Paste this prompt into your agent:
 > Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build the closest recreation of the 1978 arcade
 > Space Invaders that a Commodore 64 can express — pure 6502 assembly with
-> a BASIC SYS stub, drawing the formation and shields in character mode at
-> $0400 with color RAM at $D800, and using **hardware sprites** for the
-> smooth movers: the laser base, the player shot, and the mystery UFO
+> a BASIC SYS stub. Push the C64's graphics to their fullest: use a
+> **graphics mode built on a custom multicolor character set** for the
+> invaders, shields, and HUD (drawn at $0400 with color RAM at $D800 —
+> design your own invader glyphs rather than settling for stock PETSCII),
+> and use **hardware sprites** for the smooth movers: the laser base, the
+> player shot, and the mystery UFO
 > (docs/superpowers/specs/graphics-and-sprites.md has the authoring and testing rules).
 > The keyboard replaces the arcade controls: A/D held down move the laser
 > base, space fires.
@@ -51,13 +54,17 @@ Paste this prompt into your agent:
 >   characters, a SCORE ADVANCE TABLE listing the point values of the
 >   three invader classes and the UFO's `? MYSTERY`, and "PRESS ANY KEY
 >   TO PLAY".
-> - **Sound** — the SID's three voices (see the c64-development hardware
->   reference): the four-note descending bass heartbeat on one voice,
->   locked to the march tempo so it accelerates naturally as the formation
->   thins; shot, invader-hit, player-explosion, and UFO warble effects on
->   the other two. Define priorities for when effects contend, and shadow
->   every SID write in RAM — the SID is write-only, and your shadow bytes
->   are the testable evidence for sound.
+> - **Sound** — push the SID chip to its **full potential** across all
+>   three voices (see the c64-development hardware reference): the four-note
+>   descending bass heartbeat on one voice, locked to the march tempo so it
+>   accelerates naturally as the formation thins; shot, invader-hit,
+>   player-explosion, and UFO warble effects on the other two. Use real
+>   ADSR envelopes, a mix of waveforms (pulse with swept pulse-width,
+>   triangle, sawtooth, and noise), and the filter — the player explosion
+>   should be filtered noise, the UFO warble a ring-modulated or
+>   fast-swept tone, the shot a short bright pulse. Define priorities for
+>   when effects contend, and shadow every SID write in RAM — the SID is
+>   write-only, and your shadow bytes are the testable evidence for sound.
 >
 > **Performance rules.** Pace the game with the jiffy clock. Redraw only
 > the character cells that changed — never repaint the whole screen. No
@@ -111,9 +118,10 @@ Paste this prompt into your agent:
 **What success looks like:** an assembled program with a BASIC SYS stub
 and the full arcade loop — attract screen → waves → game over → attract —
 plus the one-invader-per-tick march engine (so the speed-up is emergent),
-sprite-based base/shot/UFO over a character-mode formation, eroding
-shields, three bomb types, the UFO shot-count secret, and a SID heartbeat
-that audibly quickens; then a written fidelity audit with every spec
+sprite-based base/shot/UFO over a custom-charset multicolor formation,
+eroding shields, three bomb types, the UFO shot-count secret, and rich
+three-voice SID sound (real ADSR, mixed waveforms, filtered effects) with
+a heartbeat that audibly quickens; then a written fidelity audit with every spec
 bullet marked pass, the deterministic evidence trail above, and finally an
 `invaders.d64` the user can autostart in stock VICE and play with A/D and
 space. This is the toughest demo in the set — expect the agent to live in
