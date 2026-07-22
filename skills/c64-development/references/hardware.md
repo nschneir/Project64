@@ -75,18 +75,99 @@ Colors: 0 black, 1 white, 2 red, 3 cyan, 4 purple, 5 green, 6 blue,
 13 light green, 14 light blue, 15 light gray. A character cell's color is
 its nybble in color RAM `$D800+offset`.
 
+## Bitmap and color-text modes (VIC-II)
+
+Beyond standard text the VIC-II has bitmap and multicolor modes. Set enable
+bits read-modify-write so you don't clobber the rest of the register:
+
+- **Hi-res bitmap** (320×200, 1 bit/pixel): `$D011` bit 5. The 8000-byte
+  bitmap sits at an 8 KB boundary chosen by `$D018` bit 3. Color comes from
+  **screen memory**, not color RAM — each 8×8 cell's screen byte gives the
+  "1" color in the high nybble, the "0" color in the low nybble. The byte for
+  pixel (x,y) is `base + (y AND 248)*40 + (x AND 504) + (y AND 7)`; set the
+  dot with bit `7-(x AND 7)`. Memory is 8-byte cells, not linear scanlines.
+- **Multicolor bitmap** (160×200, 2 bits/pixel): bitmap bit 5 of `$D011` AND
+  multicolor bit 4 of `$D016`. Pixel pairs select 00 = background `$D021`,
+  01 = screen-mem high nybble, 10 = screen-mem low nybble, 11 = color RAM.
+- **Extended-background text** (`$D011` bit 6): the top 2 bits of each screen
+  code pick the cell background from `$D021`-`$D024`; only the first 64
+  characters remain usable. Do not combine with multicolor.
+- **Multicolor text** (`$D016` bit 4, enabled per cell by bit 3 of the color
+  nybble): pixel pairs select 00 = `$D021`, 01 = `$D022`, 10 = `$D023`,
+  11 = the low 3 bits of the cell's color nybble.
+
+Background color registers: `$D021` bg 0, `$D022` bg 1, `$D023` bg 2,
+`$D024` bg 3. A hi-res bitmap at `$2000` overlaps BASIC's variable area —
+lower the top of BASIC or move the bitmap first.
+
+## VIC bank and interrupts
+
+- **VIC 16 KB bank** — the VIC-II only sees 16 KB at a time, chosen by the
+  *inverted* low 2 bits of CIA#2 `$DD00` (make them outputs in `$DD02`
+  first): `11`→bank 0 `$0000` (power-on), `10`→bank 1 `$4000`, `01`→bank 2
+  `$8000`, `00`→bank 3 `$C000`. The character ROM image is visible to the VIC
+  only in banks 0 and 2 (at `$1000`/`$9000`). The toolset assumes the screen
+  stays at `$0400`, so treat bank switching as reference knowledge.
+- **`$D018` bit-fields** — bits 7-4 = screen base in 1 KB steps, bits 3-1 =
+  character/bitmap base in 2 KB steps, bit 0 ignored. When moving the screen,
+  also point the editor at it: `POKE 648,page` (page = address/256).
+- **VIC interrupts** — `$D019` is the flag register (bit 0 raster compare,
+  1 sprite-background collision, 2 sprite-sprite collision, 3 light pen;
+  clear a latch by writing a 1 to its bit), `$D01A` the enable mask (1 = that
+  source raises an IRQ). This is what a raster or collision IRQ needs beyond
+  reading `$D012`.
+
 ## Sound (SID)
 
 3 voices, 7 registers each from `$D400` (voice 2 at `$D407`, voice 3 at
-`$D40E`); global volume at `$D418` (0-15, low nybble). Per voice:
+`$D40E`). Per voice:
 
 | Offset | Role |
 |--------|------|
 | +0/+1  | Frequency low/high |
-| +2/+3  | Pulse width low/high (pulse waveform only) |
-| +4     | Control: waveform (bit 4 triangle, 5 sawtooth, 6 pulse, 7 noise) + gate (bit 0: 1 starts the envelope, 0 releases) |
-| +5     | Attack/decay nybbles |
-| +6     | Sustain/release nybbles |
+| +2/+3  | Pulse width low/high (12-bit; pulse waveform only; `$800` = square) |
+| +4     | Control: waveform (bit 4 triangle, 5 sawtooth, 6 pulse, 7 noise) + gate (bit 0: 1 starts attack/decay/sustain, 0 releases). Bit 1 **sync** (hard-sync to the previous voice), bit 2 **ring mod** (ring-modulate the triangle with the previous voice — bells/gongs), bit 3 **test** (reset/hold the oscillator at 0) |
+| +5     | Attack (high nybble) / decay (low nybble) |
+| +6     | Sustain *level* (high nybble) / release rate (low nybble) |
+
+Selecting two waveforms at once ANDs them; noise combined with another
+waveform can "lock up" until you toggle the test bit. Sustain is a level
+(0-15), not a time; decay and release share the rate column below.
+
+**Global and filter registers:**
+
+| Reg | Role |
+|-----|------|
+| D415 | Filter cutoff low (bits 0-2 only; 11-bit total with D416) |
+| D416 | Filter cutoff high (main 8 bits); cutoff ≈ 30 Hz–12 kHz |
+| D417 | Resonance (bits 4-7) + filter-routing (bit 0 voice1, 1 voice2, 2 voice3, 3 ext through the filter) |
+| D418 | Volume (bits 0-3, 0-15) + filter mode (bit 4 low-pass, 5 band-pass, 6 high-pass — additive, LP+HP = notch) + bit 7 disconnects voice 3 from the output (so it can drive modulation silently) |
+
+**Read-only registers** — the voice/control registers are write-only, but
+these four read back:
+
+| Reg | Role |
+|-----|------|
+| D419 / D41A | Paddle X / Y position (0-255) |
+| D41B | Oscillator 3 output — with noise on voice 3 this is a free hardware RNG; sawtooth gives a ramp for modulation |
+| D41C | Envelope 3 output — voice-3 envelope level, for modulation |
+
+**Envelope rates** (nybble value → time, at ~1 MHz; NTSC runs ~2% faster).
+Decay and release share the right column:
+
+| Val | Attack | Dec/Rel | Val | Attack | Dec/Rel |
+|-----|--------|---------|-----|--------|---------|
+| 0 | 2 ms | 6 ms | 8 | 100 ms | 300 ms |
+| 1 | 8 ms | 24 ms | 9 | 250 ms | 750 ms |
+| 2 | 16 ms | 48 ms | A | 500 ms | 1.5 s |
+| 3 | 24 ms | 72 ms | B | 800 ms | 2.4 s |
+| 4 | 38 ms | 114 ms | C | 1 s | 3 s |
+| 5 | 56 ms | 168 ms | D | 3 s | 9 s |
+| 6 | 68 ms | 204 ms | E | 5 s | 15 s |
+| 7 | 80 ms | 240 ms | F | 8 s | 24 s |
+
+So the beep's `poke 54277,9` (attack/decay `$09`) is attack 250 ms, decay
+750 ms; `poke 54278,0` is sustain level 0, release 6 ms.
 
 The classic beep from BASIC:
 
@@ -103,3 +184,19 @@ The classic beep from BASIC:
 Frequency: Fout = value × clock / 16777216 Hz (NTSC clock ≈ 1022730), so
 value ≈ Fout × 16.4. Always gate off and zero the volume when done, or the
 tone continues forever.
+
+**Playing named notes.** Fn = round(freq × 16777216 / clock); split it with
+Fhi = INT(Fn/256), Flo = Fn AND 255, then poke Fhi→`$D401`, Flo→`$D400`. One
+octave at concert pitch (NTSC; values match the PRG note table within ±1 from
+clock rounding):
+
+| Note | Fn | Fhi | Flo | Note | Fn | Fhi | Flo |
+|------|------|-----|-----|------|------|-----|-----|
+| C4  | 4292 | 16 | 196 | F#4 | 6070 | 23 | 182 |
+| C#4 | 4547 | 17 | 195 | G4  | 6430 | 25 | 30  |
+| D4  | 4817 | 18 | 209 | G#4 | 6813 | 26 | 157 |
+| D#4 | 5104 | 19 | 240 | A4  | 7218 | 28 | 50  |
+| E4  | 5407 | 21 | 31  | A#4 | 7647 | 29 | 223 |
+| F4  | 5729 | 22 | 97  | B4  | 8102 | 31 | 166 |
+
+An octave up doubles Fn; an octave down halves it.

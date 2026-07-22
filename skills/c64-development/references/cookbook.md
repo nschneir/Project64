@@ -89,7 +89,10 @@ needs a beep:
 ```
 
 Vary 54273 (the pitch: higher = higher note) and the 15-jiffy duration.
-SID registers are **write-only** — don't try to PEEK them back.
+The SID's voice and control registers are **write-only** — don't try to PEEK
+them back. (The four read-only registers are $D419-$D41C: the paddles, the
+oscillator-3 RNG at $D41B, and envelope 3 — see the hardware reference. For a
+note-frequency table, see hardware.md's SID section.)
 
 ### Switch character sets: uppercase/graphics vs lowercase
 

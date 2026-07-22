@@ -220,4 +220,6 @@ Read the matching file when you need the detail:
 - `references/kernal-routines.md` — KERNAL jump table and hardware vectors.
 - `references/basic-internals.md` — program storage format, token table, disk I/O.
 - `references/petscii.md` — the three text encodings and the screen-code table.
-- `references/hardware.md` — VIC-II (sprites), SID, CIA chips, color RAM.
+- `references/hardware.md` — VIC-II (sprites, bitmap & color-text modes, VIC
+  bank/raster/collision IRQ), SID (voices, filter, envelopes, note table),
+  CIA chips, color RAM.

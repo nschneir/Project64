@@ -10,7 +10,7 @@ anger.
 | Addr | Meaning |
 |------|---------|
 | 00   | 6510 data-direction register (default $2F) |
-| 01   | 6510 I/O port (default **$37**): bit 0 LORAM (BASIC ROM in), bit 1 HIRAM (KERNAL ROM in), bit 2 CHAREN (1 = I/O at $D000, 0 = char ROM), bits 3-5 cassette. `LDA #$35 / STA $01` banks out BASIC+KERNAL for an all-RAM machine — with interrupts disabled or repointed first. |
+| 01   | 6510 I/O port (default **$37**): bit 0 LORAM (BASIC ROM in), bit 1 HIRAM (KERNAL ROM in), bit 2 CHAREN (1 = I/O at $D000, 0 = char ROM), bit 3 cassette write, bit 4 cassette switch sense (the one **input** bit — which is why the DDR default is $2F, not $3F), bit 5 cassette motor. `LDA #$35 / STA $01` banks out BASIC+KERNAL for an all-RAM machine — with interrupts disabled or repointed first. |
 
 ## BASIC memory-management pointer chain *(live)*
 

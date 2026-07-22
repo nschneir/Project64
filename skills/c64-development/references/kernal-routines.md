@@ -27,7 +27,7 @@ Reference Guide. Disassemble any entry yourself with `c64 rom disasm NAME`.
 | FFAE | UNLSN  | Send UNLISTEN to the serial bus. |
 | FFB1 | LISTEN | Command device A to listen. |
 | FFB4 | TALK   | Command device A to talk. |
-| FFB7 | READST | Read the I/O status word into A (bit 6 = EOF, bit 7 = device not present). |
+| FFB7 | READST | Read the I/O status word ST into A (full bit table below). |
 | FFBA | SETLFS | Set file parameters: A = logical file, X = device, Y = secondary address. |
 | FFBD | SETNAM | Set filename: A = length, X/Y = pointer to the name. |
 | FFC0 | OPEN   | Open the logical file set up by SETLFS/SETNAM. |
@@ -48,6 +48,26 @@ Reference Guide. Disassemble any entry yourself with `c64 rom disasm NAME`.
 | FFED | SCREEN | Return screen size: X = columns (40), Y = rows (25). |
 | FFF0 | PLOT   | Read (carry set: X = row, Y = column) or set (carry clear) the cursor position. |
 | FFF3 | IOBASE | Return the CIA base address ($DC00) in X/Y. |
+
+## The I/O status word (ST)
+
+READST returns the status byte at `$90`. What each bit means depends on the
+device being used:
+
+| Bit | Val | Cassette read | Serial bus | Tape verify / LOAD |
+|-----|-----|---------------|------------|--------------------|
+| 0 | 1 | — | write timeout | — |
+| 1 | 2 | — | read timeout | — |
+| 2 | 4 | short block | — | short block |
+| 3 | 8 | long block | — | long block |
+| 4 | 16 | unrecoverable read error | — | verify mismatch |
+| 5 | 32 | checksum error | — | checksum error |
+| 6 | 64 | end of file | EOI (end of data) | — |
+| 7 | 128 | end of tape | device not present | end of tape |
+
+The BASIC reserved variable `ST` reads this same byte; on the serial bus,
+`ST = -128` (bit 7) means the device didn't answer, `ST = 64` (bit 6) is the
+normal end-of-file after the last byte.
 
 ## Hardware vectors
 

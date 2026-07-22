@@ -102,3 +102,82 @@ Reading the error channel (`INPUT#15,E,E$,T,S`) returns
 The 62 row is asserted live against a real drive image by
 `tests/test_integration_disk.py`; the rest follow the standard CBM DOS 2
 table (cross-checked against two period references).
+
+## Keyword abbreviations (direct entry)
+
+A keyword can be typed as its first letter(s) plus the **next letter held with
+SHIFT**; `?` is the special case for PRINT. It tokenizes to the same single
+byte (abbreviations save no memory) and LISTs back fully spelled. The one
+catch: an abbreviation can pack a line past the 80-column logical-line limit,
+and once such a line LISTs at full width it can no longer be edited in place.
+Common ones (SHIFTed letter shown uppercase): `?`=PRINT, `pO`=POKE, `pE`=PEEK,
+`gO`=GOTO, `goS`=GOSUB, `nE`=NEXT, `dA`=DATA, `sY`=SYS, `rE`=READ, `reT`=RETURN,
+`reS`=RESTORE, `cH`=CHR$, `lE`=LEFT$, `mI`=MID$, `rI`=RIGHT$, `vA`=VAL. The
+reserved variables have short forms too: `ST`, `TI`, `TI$`. (Full list:
+Appendix A of the Programmer's Reference Guide.)
+
+## Variables and numbers
+
+- **Integers** (`A%`) store in 2 bytes, range -32768..32767. **Floats** (the
+  default) store in **5 bytes**, computed to ~10 significant digits and printed
+  to 9; magnitudes below 0.01 or above 999999999 print in scientific notation.
+  Largest float ≈ **1.70141183E+38** (overflow → `?OVERFLOW`); smallest ≈
+  2.93873588E-39 (underflow silently yields 0).
+- **Names**: only the **first two characters are significant** (`SCORE` and
+  `SCORING` are the same variable); a name must start with a letter and must
+  not contain a reserved keyword. Trailing `%` = integer, `$` = string, none =
+  float.
+- **Array memory**: 5 bytes of header + 2 bytes per dimension + per element
+  2 (int) / 5 (float) / 3+length (string) bytes. An undimensioned array
+  auto-DIMs to 11 elements (0-10) on first reference — a later explicit `DIM`
+  of it then raises `?REDIM'D ARRAY`.
+
+## BASIC runtime error messages
+
+Distinct from the disk error channel above — these are interpreter errors,
+printed as `?<MESSAGE> ERROR`:
+
+> BAD DATA · BAD SUBSCRIPT · CAN'T CONTINUE · DEVICE NOT PRESENT · DIVISION BY
+> ZERO · EXTRA IGNORED · FILE NOT FOUND · FILE NOT OPEN · FILE OPEN · FORMULA
+> TOO COMPLEX · ILLEGAL DIRECT · ILLEGAL QUANTITY · LOAD · NEXT WITHOUT FOR ·
+> NOT INPUT FILE · NOT OUTPUT FILE · OUT OF DATA · OUT OF MEMORY · OVERFLOW ·
+> REDIM'D ARRAY · REDO FROM START · RETURN WITHOUT GOSUB · STRING TOO LONG ·
+> SYNTAX ERROR · TYPE MISMATCH · UNDEF'D FUNCTION · UNDEF'D STATEMENT · VERIFY
+
+The ones whose cause isn't obvious from the name:
+
+- **REDO FROM START** — non-numeric text typed to a numeric `INPUT`; BASIC
+  re-prompts on its own, so it is not fatal.
+- **ILLEGAL DIRECT** — `INPUT` (or `GET`) used in direct mode instead of a
+  running program (see the disk-I/O note above).
+- **ILLEGAL QUANTITY** — a function argument out of range (`SQR` of a negative,
+  `POKE` value > 255, bad array subscript in some paths).
+- **STRING TOO LONG** — a string grew past 255 characters.
+- **FORMULA TOO COMPLEX** — too many nested string expressions in one term.
+
+## Math functions BASIC lacks — derive them
+
+BASIC 2.0 provides only ABS, ATN, COS, EXP, INT, LOG, RND, SGN, SIN, SQR, TAN.
+The rest are built from those (every line verified on a real C64; use
+`ATN(1)*2` for π/2):
+
+```
+SEC(X)     = 1/COS(X)
+CSC(X)     = 1/SIN(X)
+COT(X)     = 1/TAN(X)
+ARCSIN(X)  = ATN(X/SQR(-X*X+1))
+ARCCOS(X)  = -ATN(X/SQR(-X*X+1)) + π/2
+ARCSEC(X)  = ARCCOS(1/X)
+ARCCSC(X)  = ARCSIN(1/X)
+ARCCOT(X)  = -ATN(X) + π/2
+SINH(X)    = (EXP(X)-EXP(-X))/2
+COSH(X)    = (EXP(X)+EXP(-X))/2
+TANH(X)    = (EXP(X)-EXP(-X))/(EXP(X)+EXP(-X))
+ARCSINH(X) = LOG(X+SQR(X*X+1))
+ARCCOSH(X) = LOG(X+SQR(X*X-1))
+ARCTANH(X) = LOG((1+X)/(1-X))/2
+```
+
+Adapted from the PRG's "Deriving Mathematical Functions" appendix, whose
+ARCSEC/ARCCSC/ARCCOT entries are given here in corrected form (the book's
+printed versions have sign/argument errors).
