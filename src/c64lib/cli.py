@@ -43,7 +43,12 @@ from .ops import (
 from .packaging import PackageError, package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE
 from .romdoc import identify, rom_labels
-from .screen import read_screen_codes, read_screen_text, save_screenshot_png
+from .screen import (
+    read_screen_codes,
+    read_screen_text,
+    save_screenshot_png,
+    screen_base,
+)
 from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import TestError, load_test, program_test, run_test
@@ -1268,3 +1273,137 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
         return
     _emit_stopped_regs(ctx, labels, out["registers"],
                        extra={"frames": out["frames"]})
+
+
+@main.group()
+def sprite() -> None:
+    """Inspect, render, and convert VIC-II sprites."""
+
+
+def _sprite_states(s):
+    from .sprites import read_sprite_states
+    with s.monitor() as mon:
+        try:
+            base = screen_base(mon)
+            return read_sprite_states(mon, base)
+        finally:
+            mon.release()
+
+
+def _sprite_index(ctx, n) -> int:
+    if not 0 <= n <= 7:
+        fail(ctx, f"sprite index {n} outside 0-7")
+    return n
+
+
+def _sprite_shape(ctx, s, n, block):
+    """(data, state, shared, block_addr) for sprite N (or an explicit block)."""
+    from .sprites import read_sprite_block
+    states, shared = _sprite_states(s)
+    st = states[_sprite_index(ctx, n)]
+    addr = resolve_ref(ctx, session_labels(s), block, session=s) \
+        if block else st.block_addr
+    with s.monitor() as mon:
+        try:
+            data = read_sprite_block(mon, addr)
+        finally:
+            mon.release()
+    return data, st, shared, addr
+
+
+@sprite.command("status")
+@click.pass_context
+def sprite_status(ctx):
+    """Decode $D000-$D02E and the sprite pointers into a per-sprite table.
+
+    State-preserving; relocation-aware (pointers read at the live screen
+    base + $3F8).
+    """
+    from dataclasses import asdict
+    s = attach(ctx)
+    states, shared = _sprite_states(s)
+    lines = []
+    for st in states:
+        flags = "".join((
+            " MC" if st.multicolor else "",
+            " XX" if st.expand_x else "",
+            " XY" if st.expand_y else "",
+            " BG" if st.behind_text else "",
+        ))
+        lines.append(
+            f"{st.index}  {'on ' if st.enabled else 'off'}  "
+            f"x={st.x:<3} y={st.y:<3}  ptr={st.pointer:<3} @${st.block_addr:04x}"
+            f"  color={st.color}{flags}")
+    lines.append(f"shared: bg={shared['background']} border={shared['border']}"
+                 f" mc1={shared['mc_color1']} mc2={shared['mc_color2']}")
+    emit(ctx, {"sprites": [asdict(st) for st in states], "shared": shared},
+         "\n".join(lines))
+
+
+@sprite.command("show")
+@click.argument("index", type=int)
+@click.option("--block", default=None,
+              help="Dump an explicit 63-byte block (address/symbol) instead "
+                   "of the sprite's current pointer target.")
+@click.pass_context
+def sprite_show(ctx, index, block):
+    """Render a sprite's shape as ASCII art (multicolor pairs double-wide)."""
+    from .sprites import sprite_ascii
+    s = attach(ctx)
+    data, st, _, addr = _sprite_shape(ctx, s, index, block)
+    rows = sprite_ascii(data, st.multicolor)
+    emit(ctx, {"rows": rows, "block_addr": addr, "multicolor": st.multicolor},
+         f"sprite {index} @${addr:04x}" + (" (multicolor)" if st.multicolor else "")
+         + "\n" + "\n".join(rows))
+
+
+@sprite.command("png")
+@click.argument("index", type=int)
+@click.option("--out", "-o", "out_path", required=True,
+              help="Output PNG path.")
+@click.option("--scale", default=8, show_default=True,
+              help="Integer nearest-neighbour upscale.")
+@click.option("--block", default=None,
+              help="Render an explicit 63-byte block instead of the "
+                   "sprite's current pointer target.")
+@click.pass_context
+def sprite_png(ctx, index, out_path, scale, block):
+    """Render a sprite's shape to a PNG (colors from the live registers)."""
+    from .sprites import sprite_image
+    s = attach(ctx)
+    data, st, shared, _ = _sprite_shape(ctx, s, index, block)
+    img = sprite_image(data, st, shared, scale=scale)
+    img.save(out_path, format="PNG")
+    emit(ctx, {"png": out_path, "width": img.width, "height": img.height},
+         f"wrote {out_path} ({img.width}x{img.height})")
+
+
+@sprite.command("from-png")
+@click.argument("image", type=click.Path())
+@click.option("--out", "-o", "out_path", default=None,
+              help="Write the ca65 .byte rows to this file instead of stdout.")
+@click.option("--multicolor", is_flag=True,
+              help="Quantize to multicolor pairs instead of hires 1-bit.")
+@click.pass_context
+def sprite_from_png(ctx, image, out_path, multicolor):
+    """Convert any PNG into ready-to-paste sprite .byte rows.
+
+    Needs no session. The image is resized to sprite resolution; hires
+    sets pixels darker than 50% luminance, multicolor quantizes to the
+    C64 palette (mapping recorded in the emitted header). Verify the
+    result against intent with `c64 sprite show`/`c64 sprite png`.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    from .sprites import sprite_from_image
+    try:
+        img = Image.open(image)
+    except (FileNotFoundError, UnidentifiedImageError) as e:
+        fail(ctx, f"cannot read image {image!r}: {e}")
+        return
+    data, lines = sprite_from_image(img, multicolor=multicolor)
+    text = "\n".join(lines) + "\n"
+    if out_path:
+        Path(out_path).write_text(text)
+    emit(ctx, {"rows": lines, "bytes": list(data), "out": out_path},
+         text if not out_path else f"wrote {out_path}")

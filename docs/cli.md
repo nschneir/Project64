@@ -577,6 +577,59 @@ Attach an image to the running C64 and LOAD+RUN its first file.
 
 ---
 
+## Sprites
+
+### `c64 sprite status`
+
+Decode the VIC-II sprite registers (`$D000-$D02E`) and the sprite data
+pointers (live screen base + `$3F8`) into a per-sprite table: enabled,
+x (MSB folded in), y, pointer/block address, color, and the multicolor /
+expand / priority flags, plus the shared colors.
+
+JSON: `{"sprites": [{"index", "enabled", "x", "y", "pointer",
+"block_addr", "color", "multicolor", "expand_x", "expand_y",
+"behind_text"}, ...], "shared": {"mc_color1", "mc_color2", "background",
+"border"}}`. Machine state preserved.
+
+### `c64 sprite show`
+
+Render a sprite's 63-byte shape as ASCII art — 21 rows of 24 cells
+(`█`/`·`; multicolor pairs render double-wide as `·▒█▓`).
+
+- `INDEX` — sprite number 0-7 (its current pointer picks the block).
+- `--block ADDR` — dump an explicit block (address or symbol) instead.
+
+JSON: `{"rows", "block_addr", "multicolor"}`. Machine state preserved.
+
+### `c64 sprite png`
+
+Render a sprite's shape to a PNG, colored from the live registers
+(sprite color, background, multicolor shared colors).
+
+- `INDEX` — sprite number 0-7.
+- `-o, --out PATH` (required) — output PNG.
+- `--scale N` (default `8`) — integer nearest-neighbour upscale.
+- `--block ADDR` — render an explicit block instead of the pointer target.
+
+JSON: `{"png", "width", "height"}`. Machine state preserved.
+
+### `c64 sprite from-png`
+
+Convert any PNG (from an image model, a drawing tool, anywhere) into
+ready-to-paste ca65 `.byte %...` sprite rows. Needs no session. The image
+is resized to sprite resolution; hires sets pixels darker than 50%
+luminance (transparent = clear), `--multicolor` quantizes to the C64
+palette and records the pair-value mapping in the emitted header. Verify
+the pasted result with `c64 sprite show` / `c64 sprite png`.
+
+- `IMAGE` — the input image file.
+- `-o, --out PATH` — write the rows to a file instead of stdout.
+- `--multicolor` — quantize to multicolor pairs instead of hires 1-bit.
+
+JSON: `{"rows", "bytes", "out"}`.
+
+---
+
 ## ROM tools
 
 ROM tooling reads ROM bytes from *your* running emulator; nothing
