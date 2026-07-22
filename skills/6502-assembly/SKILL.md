@@ -90,6 +90,22 @@ are in the `c64-development` skill's ROM-routines reference. CHROUT expects
 - **Decimal-mode trap:** `sed` switches `adc`/`sbc` to BCD, and on the NMOS
   6502 an interrupt does *not* clear the D flag. `cld` once at program start
   (and in any interrupt handler that does arithmetic) keeps you in binary.
+- **Compare sets carry as an *unsigned* test.** After `cmp`/`cpx`/`cpy`:
+  `bcs` = register **≥** operand, `bcc` = register **<** operand, `beq` =
+  equal. A compare touches only N/Z/C (never V), so `bmi`/`bpl` after a
+  compare is *not* a valid magnitude test — reaching for it on unsigned
+  bytes (screen coords, counters) is a classic wrong-branch bug.
+- **`bit` loads N and V straight from the operand's top bits.** `bit addr`
+  sets N to **bit 7** and V to **bit 6** of the memory byte (Z comes from
+  `A AND M`; A is unchanged). So to poll a hardware status bit you need no
+  mask for bits 6–7: `bit $d011 / bmi ...` branches on the raster MSB, `bvs`
+  on bit 6. A mask in A is only needed to test bits 0–5.
+- **Index-register asymmetry.** Zero-page indexed addressing uses **X only**
+  (except `ldx`/`stx`, which take `zp,Y`); `Y` indexes absolute addresses
+  but never zero page for general ops. And the read-modify-write ops
+  (`asl`/`lsr`/`rol`/`ror`/`inc`/`dec`) accept **no `,Y` form at all**. ca65
+  rejects the illegal encodings — a surprise when mechanically swapping an
+  `,X` loop to `,Y`.
 - **Segment state carries across `.include`.** ca65 does not reset the
   active segment at file boundaries: if one included file ends in
   `.segment "BSS"`, the next include's code assembles into BSS — address
@@ -120,6 +136,13 @@ fastest starting point for an action game).
 - **Timing:** the jiffy clock at `$A0-$A2` (MSB first) increments 60×/second
   in the IRQ — compare its low byte (`$A2`) for frame pacing, or hook the
   interrupt through the CINV RAM vector at `($0314)`.
+- **An interrupt saves only PC and the status byte — not A/X/Y.** A handler
+  that touches any register must preserve it, and only `A` and `P` push
+  directly, so X and Y route through A:
+  `pha / txa / pha / tya / pha` on entry, `pla / tay / pla / tax / pla / rti`
+  on exit. Skip this and you corrupt whatever the IRQ interrupted. (Hooking
+  CINV *after* the KERNAL's own save is gentler — it has already stacked the
+  registers — but a raw `$0314`/`$FFFE` handler owns the whole job.)
 - **Screen writes:** screen RAM starts at `$0400`; the byte for column X of
   row Y is at `$0400 + 40*Y + X`, with its color nybble at `$D800` + the
   same offset. Store **screen codes**, not PETSCII. `lda #$93 / jsr CHROUT`

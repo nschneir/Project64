@@ -35,6 +35,12 @@ is PC — in your code, in ROM, or in the weeds?). If PC is in unmapped or
 BSS space, the crash already happened; the question becomes "what jumped
 here," not "what is wrong here."
 
+The `brk` opcode is **$00**, so execution that runs off into zeroed or
+uninitialized RAM hits `brk` almost immediately and vectors through `$FFFE`
+into the KERNAL — a PC parked in KERNAL ROM (or a program that mysteriously
+"returns to BASIC") after running past the end of your code is the classic
+tell that it fell off the rails, not that ROM itself is at fault.
+
 ## Something is corrupting memory
 
 Symptom: a variable changes that "nothing writes to"; code bytes change;
