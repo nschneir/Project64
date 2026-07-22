@@ -84,3 +84,30 @@ def sprite_ascii(data: bytes, multicolor: bool) -> list[str]:
                           for c in range(24))
         rows.append(row)
     return rows
+
+
+def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
+    """Render a 63-byte shape to a PIL image (24x21 logical pixels)."""
+    from PIL import Image
+
+    img = Image.new("RGB", (24, 21))
+    bg = C64_PALETTE[shared["background"]]
+    if state.multicolor:
+        pair_colors = {0: bg,
+                       1: C64_PALETTE[shared["mc_color1"]],
+                       2: C64_PALETTE[state.color],
+                       3: C64_PALETTE[shared["mc_color2"]]}
+    for y in range(21):
+        bits = _row_bits(data, y)
+        if state.multicolor:
+            for p in range(12):
+                c = pair_colors[(bits >> (22 - 2 * p)) & 3]
+                img.putpixel((2 * p, y), c)
+                img.putpixel((2 * p + 1, y), c)
+        else:
+            fg = C64_PALETTE[state.color]
+            for x in range(24):
+                img.putpixel((x, y), fg if bits & (1 << (23 - x)) else bg)
+    if scale > 1:
+        img = img.resize((24 * scale, 21 * scale), Image.NEAREST)
+    return img

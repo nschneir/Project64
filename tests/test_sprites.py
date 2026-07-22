@@ -82,3 +82,37 @@ def test_sprite_ascii_multicolor_pairs():
     rows = sprite_ascii(data, multicolor=True)
     assert len(rows) == 21 and all(len(r) == 24 for r in rows)
     assert rows[0][:8] == "··▒▒██▓▓"
+
+
+def _state(**over):
+    base = dict(index=0, enabled=True, x=0, y=0, pointer=13, block_addr=832,
+                color=1, multicolor=False, expand_x=False, expand_y=False,
+                behind_text=False)
+    base.update(over)
+    return SpriteState(**base)
+
+
+_SHARED = {"mc_color1": 10, "mc_color2": 11, "background": 6, "border": 14}
+
+
+def test_sprite_image_hires_pixels_and_scale():
+    from c64lib.sprites import sprite_image
+    data = bytes([0b10000000, 0, 0] + [0] * 60)
+    img = sprite_image(data, _state(color=1), _SHARED, scale=1)
+    assert img.size == (24, 21)
+    assert img.getpixel((0, 0)) == C64_PALETTE[1]      # set -> sprite color
+    assert img.getpixel((1, 0)) == C64_PALETTE[6]      # clear -> background
+    img4 = sprite_image(data, _state(color=1), _SHARED, scale=4)
+    assert img4.size == (96, 84)
+    assert img4.getpixel((3, 3)) == C64_PALETTE[1]     # nearest-neighbour
+
+
+def test_sprite_image_multicolor_pairs():
+    from c64lib.sprites import sprite_image
+    data = bytes([0b00011011] + [0] * 62)              # 00 01 10 11
+    img = sprite_image(data, _state(color=7, multicolor=True), _SHARED, scale=1)
+    assert img.getpixel((0, 0)) == C64_PALETTE[6]      # 00 background
+    assert img.getpixel((2, 0)) == C64_PALETTE[10]     # 01 mc_color1
+    assert img.getpixel((4, 0)) == C64_PALETTE[7]      # 10 sprite color
+    assert img.getpixel((6, 0)) == C64_PALETTE[11]     # 11 mc_color2
+    assert img.getpixel((3, 0)) == img.getpixel((2, 0))  # pair is 2 wide
