@@ -16,6 +16,7 @@ BASIC:
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
 - [Score HUD: poke a changing number to the screen](#score-hud-poke-a-changing-number-to-the-screen)
 - [Show a sprite from BASIC](#show-a-sprite-from-basic)
+- [Call a KERNAL routine from BASIC (SYS and 780-783)](#call-a-kernal-routine-from-basic-sys-and-780-783)
 
 Assembly:
 - [Game loop: poll GETIN, move a ball, pace with the jiffy clock](#game-loop-poll-getin-move-a-ball-pace-with-the-jiffy-clock)
@@ -154,6 +155,28 @@ buffer — fine for a demo while tape is unused):
 Sprites never appear in `c64 screen` text — verify with
 `c64 mem read '$D015' 1` (enable bits) and `c64 screen --png`. Policy and
 testing rules: docs/superpowers/specs/graphics-and-sprites.md.
+
+### Call a KERNAL routine from BASIC (SYS and 780-783)
+
+`SYS` runs machine code, but KERNAL and BASIC ROM routines take their
+arguments in the 6510 registers. Locations **780, 781, 782, 783** are copied
+into A, X, Y, and the status register just before `SYS` jumps, and hold the
+returned values afterward — so BASIC can drive the whole KERNAL jump table
+(kernal-routines.md). This calls PLOT (`$FFF0` = 65520) to move the cursor to
+row 10, column 5, then prints there; clearing carry with `POKE 783,0` tells
+PLOT to *set* the position rather than read it:
+
+```basic
+100 rem move the cursor with kernal plot, then print there
+110 poke 781,10 : poke 782,5 : poke 783,0 : rem x=row 10, y=col 5, p=carry clear
+120 sys 65520 : rem plot ($fff0): set the cursor position
+130 print "hi"
+140 print : print "done"
+```
+
+`PEEK(781)` after `SYS 65517` (SCREEN, `$FFED`) likewise returns the column
+count in X. Clearing carry (`POKE 783,0`) is safe; never *set* bit 2 of 783,
+or you leave interrupts disabled and the keyboard goes dead.
 
 ## Assembly recipes
 

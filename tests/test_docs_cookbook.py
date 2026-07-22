@@ -147,6 +147,13 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$D015", "equals": 1}},    # sprite 0 enabled
         {"assert": {"mem": "2040", "equals": 13}},    # pointer: block 13
     ]),
+    ("basic-sys-plot", "basic", "move the cursor with kernal", [
+        {"wait": {"text": "DONE"}},
+        # PLOT moved the cursor to row 10, col 5 ($0400+10*40+5=$0595), where
+        # "HI" was printed: 'H' = screen code 8, 'I' = 9
+        {"assert": {"mem": "$0595", "equals": 8}},
+        {"assert": {"mem": "$0596", "equals": 9}},
+    ]),
 ]
 
 

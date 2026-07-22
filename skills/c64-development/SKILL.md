@@ -216,7 +216,8 @@ Read the matching file when you need the detail:
 - `references/cookbook.md` — **start here for a new program**: tested,
   copy-adaptable recipes (game loops, screen pokes, sprites, sound) in BASIC and asm.
 - `references/memory-maps.md` — the C64 memory layout (RAM, screen, ROM, I/O, banking).
-- `references/zero-page.md` — the 6510 port, BASIC pointer chain, and low-memory usage.
+- `references/zero-page.md` — the 6510 port, BASIC pointer chain, low-memory
+  usage, and handy control-flag locations (RUN/STOP, key repeat, color, region).
 - `references/kernal-routines.md` — KERNAL jump table and hardware vectors.
 - `references/basic-internals.md` — program storage format, token table, disk I/O.
 - `references/petscii.md` — the three text encodings and the screen-code table.

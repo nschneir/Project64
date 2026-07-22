@@ -29,4 +29,5 @@ Notes:
   screen reader assumes the power-on `$0400` — don't relocate it (see
   docs/superpowers/specs/graphics-and-sprites.md).
 - `c64` (NTSC, 60 Hz) and `c64pal` (PAL, 50 Hz) share this entire map;
-  only frame timing and CPU clock differ.
+  only frame timing and CPU clock differ. A running program can tell them
+  apart with `PEEK(678)` (0 = NTSC, 1 = PAL) — see zero-page.md.

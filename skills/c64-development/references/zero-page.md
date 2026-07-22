@@ -32,6 +32,8 @@ Ordering invariant: TXTTAB <= VARTAB <= ARYTAB <= STREND <= FRETOP.
 | Addr  | Meaning |
 |-------|---------|
 | 73-8A | CHRGET — BASIC's copied-to-RAM fetch-next-character routine (entry $73; CHRGOT $79 re-reads the current character; TXTPTR $7A/7B) |
+| 41-42 | DATPTR — text address READ is pulling DATA from; RESTORE resets it to TXTTAB ($2B). Save/restore this pair to READ DATA out of order |
+| 61-66 | FAC1, the primary floating-point accumulator ($61 exponent, bias 129; $62-65 mantissa; $66 sign); ARG/FAC2 at 69-6E. A USR/ML routine hands its result back to BASIC through FAC1 |
 | 8B-8F | RND seed / the previous random number |
 | 90    | Status byte ST (I/O status; source of BASIC's ST) |
 | A0-A2 | TI jiffy clock, 3 bytes, **most-significant byte first**, +1 per 1/60 s *(live)* |
@@ -47,6 +49,9 @@ Ordering invariant: TXTTAB <= VARTAB <= ARYTAB <= STREND <= FRETOP.
 | C6    | Number of characters in the keyboard buffer (write 0 to flush) |
 | CB    | Matrix code of the key held **right now** (SFDX; 64 = none) — what `c64 key hold` re-pokes *(live)* |
 | C7    | Reverse-video flag (0 = normal) |
+| 91    | Last-row keyboard scan (STKEY): 127 = STOP held, 255 = none (same row: 239 = SPACE, 223 = Commodore key) — poll STOP without the KERNAL *(live: 255 idle)* |
+| CC    | Cursor-blink enable (BLNSW): 0 = cursor flashes, nonzero = suppressed (the OS suppresses it while a program runs); `POKE 204,0` shows a blinking cursor during a GET loop |
+| D4    | Quote-mode flag (QTSW): nonzero = editor is in quote mode (cursor-control chars echo as reversed glyphs instead of acting); `POKE 212,0` force-exits it *(live: 0 idle)* |
 | D1/D2 | Pointer to screen RAM of the current line |
 | D3    | Cursor column within the line |
 | D6    | Cursor screen line |
@@ -87,3 +92,26 @@ does tape I/O, re-verify with a sentinel test first.
 routines; `$C000-$CFFF` gives 4 KB BASIC never touches — the standard home
 for anything real. If you need zero-page speed beyond $FB-$FE/$02, save and
 restore what you use.
+
+## Current I/O state
+
+| Addr  | Meaning |
+|-------|---------|
+| 99/9A | Default input (DFLTN, 0 = keyboard) / output (DFLTO, 3 = screen) device, set by CHKIN/CHKOUT *(live: $9A = 3)* |
+| BA    | FA — current device number (0 keyboard, 1 tape, 2 RS-232, 3 screen, 4-5 printer, 8-11 disk) |
+
+## Handy control locations (pages 2-3)
+
+*Mapping the Commodore 64*'s flag bytes worth knowing — mostly one-POKE
+behavior switches (verified on a live machine unless noted):
+
+| Addr (dec / $) | Effect |
+|----------------|--------|
+| 646 / $0286 | Current text color the OS writes into color RAM on every PRINT (0-15). `POKE 646,2` → red text *(verified)* |
+| 648 / $0288 | Screen memory page (HIBASE); screen start = value×256. If you relocate the screen via $D018, POKE this too or the editor keeps writing to the old address |
+| 650 / $028A | Key repeat: 128 = all keys repeat, 64 = none, 0 = default (cursor/space/INST-DEL only) *(verified)* |
+| 653 / $028D | Live modifier flags: bit 0 SHIFT, bit 1 Commodore, bit 2 CTRL (values add). The only way to read a bare modifier — $C5/$CB don't show it |
+| 657 / $0291 | 128 = lock the current character set (disable the SHIFT+Commodore case flip); 0 = allow it *(verified)* |
+| 678 / $02A6 | Region flag set at power-on: 0 = NTSC (`c64`), 1 = PAL (`c64pal`) — a program can self-detect and adjust timing *(verified: 0 on NTSC)* |
+| 780-783 | A / X / Y / status passed to (and returned from) the next `SYS` — how BASIC drives the KERNAL jump table (see cookbook.md) *(verified via PLOT)* |
+| 808 / $0328 | STOP-key vector low byte: `POKE 808,239` disables RUN/STOP (STOP/RESTORE still works), `234` disables both but breaks LIST, `237` restores |
