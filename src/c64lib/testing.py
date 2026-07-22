@@ -18,7 +18,7 @@ import yaml
 from .basic import tokenize
 from .build import build_asm
 from .machines import get_profile
-from .ops import call_routine, parse_ref, run_until
+from .ops import call_routine, live_screen_base, parse_ref, run_until
 from .screen import read_screen_text
 from .session import Session
 from .symbols import load_labels
@@ -29,7 +29,7 @@ class TestError(Exception):
     __test__ = False  # not a pytest test class despite the Test* name
 
 
-_STEP_KINDS = ("wait", "key", "assert", "poke", "until", "call")
+_STEP_KINDS = ("wait", "key", "assert", "poke", "until", "call", "sample")
 
 #: required and allowed keys for the step kinds that take a mapping we
 #: fully define (the older kinds predate validation and stay lenient).
@@ -37,6 +37,7 @@ _STEP_KEYS = {
     "poke": ({"addr"}, {"addr", "value", "values"}),
     "until": ({"ref"}, {"ref", "count", "timeout"}),
     "call": ({"routine"}, {"routine", "a", "x", "y", "timeout"}),
+    "sample": ({"mem", "as"}, {"mem", "as"}),
 }
 
 
@@ -110,6 +111,14 @@ def program_test(program_dir: str | Path) -> dict:
             "(needs program.bas/.s and expect.txt)"
         )
     steps = [{"wait": {"text": ln}} for ln in expect.read_text().splitlines() if ln.strip()]
+    extra = program_dir / "test.yaml"
+    if extra.exists():
+        spec = load_test(extra)
+        spec["name"] = program_dir.name
+        spec["program"] = str(prog.resolve())
+        spec["steps"] = steps + spec["steps"]   # expect lines still gate first
+        spec.setdefault("timeout", 45)
+        return spec
     return {"name": program_dir.name, "machine": "c64", "timeout": 45,
             "autorun": True, "program": str(prog.resolve()), "steps": steps}
 
@@ -182,13 +191,28 @@ def _loaded(text: str) -> bool:
 
 
 def _do_step(session, kind: str, arg, default_timeout: float,
-             labels: dict[str, int] | None = None) -> tuple[bool, str]:
+             labels: dict[str, int] | None = None,
+             captures: dict[str, int] | None = None) -> tuple[bool, str]:
     labels = labels or {}
+    captures = captures if captures is not None else {}
 
     def _addr(v) -> int:
-        # symbols, symbol+offset, and @row,col all work in step addresses
-        return parse_ref(labels, v, screen_base=session.profile.screen_addr,
+        # symbols, symbol+offset, and @row,col all work in step addresses;
+        # @row,col follows the machine's live screen base
+        base = (live_screen_base(session) if "@" in str(v)
+                else session.profile.screen_addr)
+        return parse_ref(labels, v, screen_base=base,
                          screen_width=session.profile.screen_cols)
+
+    if kind == "sample":
+        addr = _addr(arg["mem"])
+        with session.monitor() as mon:
+            try:
+                val = mon.memory_read(addr, 1)[0]
+            finally:
+                mon.release()
+        captures[str(arg["as"])] = val
+        return True, f"sampled mem ${addr:04x} = {val} as {arg['as']!r}"
 
     if kind == "key":
         with session.monitor() as mon:
@@ -282,6 +306,15 @@ def _do_step(session, kind: str, arg, default_timeout: float,
         elif "between" in arg:
             lo, hi = _num(arg["between"]["min"]), _num(arg["between"]["max"])
             length = 1
+        elif any(k in arg for k in ("differs", "greater_than", "less_than")):
+            cmp_key = next(k for k in ("differs", "greater_than", "less_than")
+                           if k in arg)
+            name = str(arg[cmp_key])
+            if name not in captures:
+                return False, (f"no sample named {name!r} "
+                               f"(have: {', '.join(sorted(captures)) or 'none'})")
+            ref_val = captures[name]
+            length = 1
         else:
             want_b = _bytes(arg["equals"])
             length = len(want_b)
@@ -304,6 +337,15 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             ok = got_m == want_b
             return ok, (f"mem ${addr:04x} & {mask_and:#04x} = {got_m.hex()}"
                         + ("" if ok else f" != {want_b.hex()} (raw {data.hex()})"))
+        if any(k in arg for k in ("differs", "greater_than", "less_than")):
+            val = data[0]
+            ok = {"differs": val != ref_val,
+                  "greater_than": val > ref_val,
+                  "less_than": val < ref_val}[cmp_key]
+            op = {"differs": "!=", "greater_than": ">", "less_than": "<"}[cmp_key]
+            return ok, (f"mem ${addr:04x} = {val} {op} sample {name}={ref_val}"
+                        if ok else
+                        f"mem ${addr:04x} = {val} not {op} sample {name}={ref_val}")
         if "between" in arg:
             val = data[0]
             ok = lo <= val <= hi
@@ -359,10 +401,11 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
                 if not ok:
                     raise TestError(f"program never finished loading; screen:\n{screen_text}")
         passed = True
+        captures: dict[str, int] = {}
         for i, step in enumerate(spec["steps"], start=1):
             kind = next(iter(step))
             ok, detail = _do_step(session, kind, step[kind], spec["timeout"],
-                                  labels=labels)
+                                  labels=labels, captures=captures)
             steps.append(StepResult(index=i, kind=kind, ok=ok, detail=detail))
             if not ok:
                 passed = False

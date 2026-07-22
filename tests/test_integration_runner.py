@@ -57,6 +57,20 @@ def test_program_as_test_hello_asm():
     assert result.passed, [s.detail for s in result.steps]
 
 
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+def test_program_as_test_sprite_ball():
+    """The graphics reference program: expect.txt gate plus its test.yaml
+    (sprite registers, until/sample/differs motion assertions)."""
+    spec = program_test(Path("tests/programs/sprite-ball"))
+    kinds = [next(iter(s)) for s in spec["steps"]]
+    assert "sample" in kinds            # test.yaml was merged in
+    result = run_test(spec)
+    assert result.passed, [s.detail for s in result.steps]
+
+
 def test_cli_end_to_end():
     r = CliRunner().invoke(main, ["--json", "test", "run",
                                   "tests/data/hello-autorun.yaml"])

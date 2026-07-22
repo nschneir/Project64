@@ -11,10 +11,19 @@ from .monitor import MonitorClient
 from .text import screen_to_text
 
 
+def screen_base(mon: MonitorClient) -> int:
+    """The live screen RAM base: VIC bank (CIA2 $DD00 bits 0-1, inverted)
+    plus the screen slot in $D018 bits 4-7. Follows programs that relocate
+    the screen; $0400 is only the power-on default."""
+    bank = (~mon.memory_read(0xDD00, 1)[0]) & 3
+    slot = (mon.memory_read(0xD018, 1)[0] >> 4) & 0x0F
+    return bank * 0x4000 + slot * 0x0400
+
+
 def read_screen_text(mon: MonitorClient, profile: MachineProfile,
                      style: str = "unicode", ansi_reverse: bool = False) -> str:
     size = profile.screen_cols * profile.screen_rows
-    data = mon.memory_read(profile.screen_addr, size)
+    data = mon.memory_read(screen_base(mon), size)
     return screen_to_text(data, profile.screen_cols, style, ansi_reverse)
 
 
@@ -22,7 +31,7 @@ def read_screen_codes(mon: MonitorClient, profile: MachineProfile) -> list[list[
     """The raw screen-code matrix (rows x cols) — exact values for
     asserting on glyphs without decoding ambiguity."""
     size = profile.screen_cols * profile.screen_rows
-    data = mon.memory_read(profile.screen_addr, size)
+    data = mon.memory_read(screen_base(mon), size)
     c = profile.screen_cols
     return [list(data[i:i + c]) for i in range(0, size, c)]
 

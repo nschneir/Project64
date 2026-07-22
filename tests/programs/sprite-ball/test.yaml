@@ -1,0 +1,9 @@
+timeout: 45
+steps:
+  - assert: { mem: "$D015", equals: 1 }        # sprite 0 enabled
+  - assert: { mem: "$07F8", equals: 13 }       # pointer: block 13
+  - until:  { ref: mainloop }
+  - sample: { mem: "$D000", as: x0 }
+  - until:  { ref: mainloop, count: 5 }
+  - assert: { mem: "$D000", differs: x0 }      # the ball moved
+  - assert: { mem: "ballx", differs: x0 }      # state byte tracks it

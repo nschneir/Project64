@@ -9,6 +9,8 @@ directory contains:
   (one required substring per non-empty line)
 - `prompt.md` — the one-shot task the program solves (kept for AI-evaluation
   use)
+- `test.yaml` (optional) — extra declarative steps (asserts, until/sample
+  motion checks) appended after the expect.txt gate — see sprite-ball
 
 Run them all as tests with `c64 test programs` (or via the integration
 suite): each program is built, run on a fresh emulated C64, and its

@@ -23,6 +23,7 @@ from .ops import (
     find_bytes,
     key_hold,
     key_type,
+    live_screen_base,
     machine_state,
     parse_number,
     parse_ref,
@@ -51,10 +52,13 @@ def _attach(session: str | None = None) -> Session:
 
 
 def _ref(s, ref, labels=None):
-    """parse_ref with the session's screen geometry so @row,col works."""
+    """parse_ref with the session's screen geometry so @row,col works —
+    against the LIVE screen base (relocation-aware)."""
     if labels is None:
         labels = session_labels(s)
-    return parse_ref(labels, ref, screen_base=s.profile.screen_addr,
+    base = (live_screen_base(s) if "@" in str(ref)
+            else s.profile.screen_addr)
+    return parse_ref(labels, ref, screen_base=base,
                      screen_width=s.profile.screen_cols)
 
 
@@ -639,3 +643,82 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _sprite_states(s):
+    from .screen import screen_base
+    from .sprites import read_sprite_states
+    with s.monitor() as mon:
+        try:
+            return read_sprite_states(mon, screen_base(mon))
+        finally:
+            mon.release()
+
+
+def _sprite_shape(s, index: int, block: str | None):
+    from .sprites import read_sprite_block
+    if not 0 <= index <= 7:
+        raise ValueError(f"sprite index {index} outside 0-7")
+    states, shared = _sprite_states(s)
+    st = states[index]
+    addr = _ref(s, block) if block else st.block_addr
+    with s.monitor() as mon:
+        try:
+            data = read_sprite_block(mon, addr)
+        finally:
+            mon.release()
+    return data, st, shared, addr
+
+
+@srv.tool()
+def c64_sprite_status(session: str | None = None) -> dict:
+    """Decode the VIC-II sprite registers and pointers into a per-sprite
+    table (enabled, x/y with MSB folded in, pointer/block address, color,
+    multicolor/expand/priority flags) plus the shared colors.
+    Relocation-aware and state-preserving."""
+    from dataclasses import asdict
+    s = _attach(session)
+    states, shared = _sprite_states(s)
+    return {"sprites": [asdict(st) for st in states], "shared": shared}
+
+
+@srv.tool()
+def c64_sprite_show(index: int, block: str | None = None,
+                    session: str | None = None) -> dict:
+    """Render sprite `index`'s 63-byte shape as ASCII art rows (21 rows,
+    24 cells; multicolor pairs double-wide). `block` dumps an explicit
+    block address/symbol instead of the sprite's pointer target."""
+    from .sprites import sprite_ascii
+    s = _attach(session)
+    data, st, _, addr = _sprite_shape(s, index, block)
+    return {"rows": sprite_ascii(data, st.multicolor),
+            "block_addr": addr, "multicolor": st.multicolor}
+
+
+@srv.tool()
+def c64_sprite_png(index: int, path: str, scale: int = 8,
+                   block: str | None = None,
+                   session: str | None = None) -> dict:
+    """Render sprite `index`'s shape to a PNG colored from the live
+    registers. Prefer c64_screenshot for whole-frame evidence; this shows
+    one sprite's shape exactly."""
+    from .sprites import sprite_image
+    s = _attach(session)
+    data, st, shared, _ = _sprite_shape(s, index, block)
+    img = sprite_image(data, st, shared, scale=scale)
+    img.save(path, format="PNG")
+    return {"png": path, "width": img.width, "height": img.height}
+
+
+@srv.tool()
+def c64_sprite_from_png(image: str, multicolor: bool = False) -> dict:
+    """Convert any PNG into ready-to-paste ca65 .byte sprite rows (no
+    session needed): resize to sprite resolution, hires 50% luminance
+    threshold or multicolor palette quantization (mapping recorded in the
+    emitted header). Verify the pasted result with c64_sprite_show."""
+    from PIL import Image
+
+    from .sprites import sprite_from_image
+    img = Image.open(image)
+    data, lines = sprite_from_image(img, multicolor=multicolor)
+    return {"rows": lines, "bytes": list(data)}

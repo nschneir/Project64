@@ -6,6 +6,32 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [0.2.0] — 2026-07-22
+
+Sprite tooling — the graphics/sprites spec implemented.
+
+### Added
+- **`c64 sprite` command group** (with MCP parity): `status` decodes
+  `$D000-$D02E` + the sprite pointers into a per-sprite table; `show`
+  renders any shape as ASCII art; `png` renders the exact shape with live
+  colors; `from-png` converts any image (from a generative model or
+  otherwise) into ready-to-paste `.byte %...` rows — hires threshold or
+  multicolor palette quantization, round-trip-tested against `png`.
+- **YAML motion testing** — `sample: {mem, as}` captures a byte;
+  `assert` gains `differs`/`greater_than`/`less_than` against captures.
+  Example programs may ship a `test.yaml` extending their `expect.txt`
+  gate.
+- **`tests/programs/sprite-ball/`** — sprite reference program covering
+  registers, motion sampling, and the state-byte convention end to end.
+- **Generative-AI sprite workflow** in the c64-development skill:
+  generate an image → `from-png` → paste rows → verify with
+  `sprite show`/`sprite png`.
+
+### Changed
+- **Screen reads follow VIC-II relocation**: `c64 screen`, `wait --text`,
+  and `@row,col` resolve against the live screen base (`$DD00`/`$D018`)
+  instead of assuming `$0400`. Color RAM stays `$D800`.
+
 ## [0.1.0] — 2026-07-21
 
 The founding release: everything the PET edition could do, ported to the
