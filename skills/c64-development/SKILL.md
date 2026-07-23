@@ -220,7 +220,9 @@ Read the matching file when you need the detail:
   usage, and handy control-flag locations (RUN/STOP, key repeat, color, region).
 - `references/kernal-routines.md` — KERNAL jump table, the ST status word,
   hardware vectors, and stable BASIC-ROM math/output entry points.
-- `references/basic-internals.md` — program storage format, token table, disk I/O.
+- `references/basic-internals.md` — program storage & tokens, statement
+  execution / GOTO cost, variables & number formats, keyword abbreviations,
+  runtime errors, string GC / FRE footgun, derived math functions, and disk I/O.
 - `references/petscii.md` — the three text encodings and the screen-code table.
 - `references/hardware.md` — VIC-II (sprites, bitmap & color-text modes, VIC
   bank/raster/collision IRQ), SID (voices, filter, envelopes, note table),

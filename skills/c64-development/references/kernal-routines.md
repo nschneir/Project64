@@ -81,15 +81,15 @@ operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
 
 | Addr | Name | Contract |
 |------|------|----------|
-| B391 | GIVAYF | Signed 16-bit int (A = high, Y = low) → FAC1; sets VALTYP `$0D` = numeric |
-| B1AA | —      | FAC1 → signed 16-bit int in `$64/$65` |
+| B391 | GIVAYF | Signed 16-bit int (A = high, Y = low) → FAC1; sets VALTYP (`$0D`) to 0 = numeric |
+| B1AA | AYINT  | FAC1 → signed 16-bit int in `$64/$65` (verified round-trip) |
 | BBA2 | MOVFM  | Load FAC1 from the 5-byte constant at A (low)/Y (high) |
 | BBD4 | MOVMF  | Round FAC1 and store it as a packed 5-byte float at X (low)/Y (high) — the inverse of MOVFM |
 | B86A | FADDT  | FAC1 = ARG + FAC1 |
 | B853 | FSUBT  | FAC1 = ARG − FAC1 |
-| BA2B | FMULT  | FAC1 = ARG × FAC1 |
-| BB12 | FDIV   | FAC1 = ARG ÷ FAC1 |
-| BF7B | FPWR   | FAC1 = ARG ^ FAC1 |
+| BA2B | FMULTT | FAC1 = ARG × FAC1 |
+| BB12 | FDIVT  | FAC1 = ARG ÷ FAC1 |
+| BF7B | FPWRT  | FAC1 = ARG ^ FAC1 |
 | BC2B | SIGN   | Sign of FAC1 → A (−1 / 0 / +1) |
 | BC58 | ABS    | FAC1 = |FAC1| (clears the sign bit) |
 | BCCC | INT    | FAC1 = INT(FAC1) |
@@ -107,11 +107,13 @@ prints `12345`.)
 `$FFxx` jump table and the BASIC-ROM entries above are stable across revisions;
 internal KERNAL routines are not.
 
-**The USR vector** is the other BASIC→ML hook besides `SYS` (see cookbook.md).
-`USR(x)` evaluates `x` into FAC1, then `JMP $0310`. `$0310` holds a `JMP`
-opcode; put your routine's address in `$0311/$0312` (785/786) — it reads the
-argument from FAC1 and leaves the result there before `RTS`. `POKE 784,96`
-(an `RTS` at `$0310`) makes `USR(x)=x` (verified: `USR(6)` returns 6).
+**The USR vector** is the other BASIC→ML hook besides `SYS` (the cookbook's
+"Call a KERNAL routine from BASIC" recipe covers the `SYS` side). `USR(x)`
+evaluates `x` into FAC1, then `JMP $0310`. `$0310` holds a `JMP` opcode, so
+point it at your routine by writing the address to `$0311/$0312` (785/786); the
+routine reads the argument from FAC1 and leaves the result there before `RTS`.
+Or overwrite the `JMP` itself: `POKE 784,96` (an `RTS` at `$0310`) makes
+`USR(x)=x` (verified: `USR(6)` returns 6).
 
 ## Hardware vectors
 

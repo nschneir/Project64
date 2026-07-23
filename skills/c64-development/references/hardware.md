@@ -48,8 +48,9 @@ are multiplexed between the ports by CIA1 port A, so the read must select and
 settle: turn CIA1 IRQs off (`$DC0D` ← 127, else the keyscan corrupts the
 select), make DDRA bits 6-7 outputs (`$DC02` ← 192), select the port (`$DC00` ←
 128 for port 2, 64 for port 1), then **let the A/D settle** — the pots refresh
-only every ~500 cycles, so after switching ports West burns ~1000
-(`LDX #$D0 : DEX : BNE *`) before reading X = `PEEK($D419)`, Y = `PEEK($D41A)`. Fire buttons: `PEEK($DC00) AND
+only every ~500 cycles, so after switching ports a settle loop of ~1000 cycles
+(`LDX #$D0 : DEX : BNE *`) is needed before reading X = `PEEK($D419)`, Y =
+`PEEK($D41A)`. Fire buttons: `PEEK($DC00) AND
 12` (port 2) — bit 2 = X-paddle button, bit 3 = Y-paddle button. Restore `$DC02`
 ← 255, `$DC0D` ← 129. (The emulator has no paddle injection, so this is a
 reference sequence, not a runnable recipe.)
@@ -90,11 +91,12 @@ Both CIAs expose the same 16 registers, at an offset from `$DC00` (CIA1) or
 - **CIA2 PRA `$DD00`** beyond the VIC bank (bits 0-1, inverted — see below):
   bit 2 RS-232 TXD, bit 3 serial ATN out, bits 4-5 CLK/DATA out, bits 6-7
   CLK/DATA in — the serial (IEC) bus disk drives and printers use.
-- **TOD** is a BCD clock that sits **stopped at 0 from power-on** (verified: it
-  reads 0 and doesn't advance until set). Set it by writing hr, min, sec, then
-  **10ths last, which starts it**. Reading the hour latches the whole time until
-  you read 10ths, so read hr→…→10ths (or read 10ths last). The alarm register
-  overlays the same four addresses (CRB bit 7 selects it) and is write-only.
+- **TOD** is a BCD clock. On the emulator it reads 0 and doesn't advance until
+  set (on real hardware the TOD pin is clocked from the mains line). Set it by
+  writing hr, min, sec, then **10ths last, which starts it** (verified: it then
+  ticks). Reading the hour latches the whole time until you read 10ths, so read
+  hr→…→10ths (or read 10ths last). The alarm register overlays the same four
+  addresses (CRB bit 7 selects it) and is write-only.
 
 ## Sprites (VIC-II)
 
@@ -118,20 +120,20 @@ pointer value = data address / 64. Visible X range starts at 24, Y at 50
 (a sprite at X<24 is partly off the left edge).
 
 A multicolor sprite (`$D01C` bit set) trades horizontal resolution for color:
-pixels are 2 bits wide (12×21) and each pair picks a color — `00` transparent,
+each color-pixel is 2 data bits and 2 screen-pixels wide (12×21) and each pair picks a color — `00` transparent,
 `01` shared color 0 (`$D025`), `10` the sprite's own color (`$D027-$D02E`),
 `11` shared color 1 (`$D026`).
 
 Priority and collision gotchas:
 - **Sprite-vs-sprite order is fixed, not programmable** — sprite 0 is always in
   front, 7 always behind. `$D01B` only sets sprite-vs-*character-data* priority
-  (bit 0 = sprite in front, 1 = data in front); sprites always beat the
-  background *color*.
-- **Read a collision latch (`$D01E`/`$D01F`) twice** — the bits stay set until
-  read, so the first read after an event returns stale accumulated collisions;
-  the second read gives the current state. Collisions are also flagged
-  **off-screen**, and the register can't reflect a new collision until the next
-  frame's scan.
+  (each sprite's bit: 0 = sprite in front of data, 1 = data in front); sprites
+  always beat the background *color*.
+- **Reading a collision latch (`$D01E`/`$D01F`) clears it** (verified: a second
+  back-to-back read returns 0), so each read reports every collision
+  accumulated *since your last read* — poll once per frame and treat the value
+  that way. Collisions are also flagged **off-screen**, and the register can't
+  reflect a new collision until the next frame's scan.
 - For **multicolor** sprites, only bit-pairs `10` and `11` collide; `00`/`01`
   count as transparent for collision.
 
@@ -143,8 +145,9 @@ Priority and collision gotchas:
   VIC stealing 6510 cycles — a screen-blanked compute loop runs ~5% faster.
 - `$D016` — multicolor bit 4, 38/40-column bit 3, horizontal scroll 0-2.
 - `$D018` — memory setup: screen and charset/bitmap base within the VIC
-  bank. Power-on `$15`: screen `$0400`, uppercase charset. **Leave the
-  screen at `$0400`** — the toolset's screen reader assumes it.
+  bank (bit-fields under "VIC bank and interrupts" below). Power-on `$15`:
+  screen `$0400`, uppercase charset. **Leave the screen at `$0400`** — the
+  toolset's screen reader assumes it.
 - `$D012` — raster line (read current / write compare for raster IRQ).
 - `$D020` / `$D021` — border / background color (0-15).
 
@@ -257,8 +260,8 @@ Decay and release share the right column:
 | 6 | 68 ms | 204 ms | E | 5 s | 15 s |
 | 7 | 80 ms | 240 ms | F | 8 s | 24 s |
 
-So the beep's `poke 54277,9` (attack/decay `$09`) is attack 250 ms, decay
-750 ms; `poke 54278,0` is sustain level 0, release 6 ms.
+So the beep's `poke 54277,9` (attack/decay `$09`) is attack 2 ms (high nybble
+0), decay 750 ms (low nybble 9); `poke 54278,0` is sustain level 0, release 6 ms.
 
 The classic beep from BASIC:
 

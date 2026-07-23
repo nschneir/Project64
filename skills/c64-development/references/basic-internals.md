@@ -136,7 +136,8 @@ catch: an abbreviation can pack a line past the 80-column logical-line limit,
 and once such a line LISTs at full width it can no longer be edited in place.
 Common ones (SHIFTed letter shown uppercase): `?`=PRINT, `pO`=POKE, `pE`=PEEK,
 `gO`=GOTO, `goS`=GOSUB, `nE`=NEXT, `dA`=DATA, `sY`=SYS, `rE`=READ, `reT`=RETURN,
-`reS`=RESTORE, `cH`=CHR$, `lE`=LEFT$, `mI`=MID$, `rI`=RIGHT$, `vA`=VAL. The
+`reS`=RESTORE, `cH`=CHR$, `leF`=LEFT$ (`lE` is LET), `mI`=MID$, `rI`=RIGHT$,
+`vA`=VAL. The
 reserved variables have short forms too: `ST`, `TI`, `TI$`. (Full list:
 Appendix A of the Programmer's Reference Guide.)
 
@@ -176,7 +177,7 @@ The ones whose cause isn't obvious from the name:
 - **REDO FROM START** — non-numeric text typed to a numeric `INPUT`; BASIC
   re-prompts on its own, so it is not fatal.
 - **ILLEGAL DIRECT** — `INPUT` (or `GET`) used in direct mode instead of a
-  running program (see the disk-I/O note above).
+  running program.
 - **ILLEGAL QUANTITY** — a function argument out of range (`SQR` of a negative,
   `POKE` value > 255, bad array subscript in some paths).
 - **STRING TOO LONG** — a string grew past 255 characters.
@@ -216,8 +217,9 @@ printed versions have sign/argument errors).
   bytes: `FRE(0) - (FRE(0)<0)*65536`. So `IF FRE(0)<100` misfires; always
   correct the wrap first.
 - **String garbage collection is O(N²) in the *number* of live strings** (not
-  their lengths) — roughly `0.75 ms × N²` on the C64 (≈1 s at 100 strings, ≈7 s
-  at 300). It fires automatically when string space runs out, and the machine
+  their lengths) — the time grows with the square of the string count (measured
+  on the emulator: ≈0.9 s at 100 live strings, ≈7.5 s at 300). It fires
+  automatically when string space runs out, and the machine
   **hangs with the keyboard dead** during it (RUN/STOP can't interrupt). You
   mostly hit it with large **string arrays**; a few dozen scalar strings is a
   sub-second blip. Mitigate by keeping the string *count* down (packing two
@@ -247,7 +249,9 @@ lower MEMSIZ (`$37/$38` = 55/56) and `CLR`:
 poke 56,peek(56)-8 : clr    : rem reserve 2 KB (8 pages) above BASIC
 ```
 
-`CLR` resyncs the string pointers but **loses variables**, so do this before
-defining any. To keep variables, set FRETOP (`$33/$34`), FRESPC (`$35/$36`) and
-MEMSIZ (`$37/$38`) together to the same top and skip `CLR`. (For ML, `$C000`
-gives 4 KB BASIC never touches — see zero-page.md.)
+`CLR` resyncs the string pointers but **loses variables**, so do this at the
+very start before defining any (lowering MEMSIZ after strings exist strands
+them). The bytes that bound string space are MEMSIZ (`$37/$38`) and FRETOP
+(`$33/$34`) — before any string is allocated they're equal, which is why doing
+it first is the reliable path. (For ML, `$C000` gives 4 KB BASIC never touches —
+see memory-maps.md.)

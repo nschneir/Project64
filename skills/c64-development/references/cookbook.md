@@ -152,7 +152,8 @@ buffer — fine for a demo while tape is unused):
 170 print "sprite on"
 ```
 
-Sprites never appear in `c64 screen` text — verify with
+Sprites never appear in `c64 screen` text — inspect them with the purpose-built
+commands (`c64 sprite status`, `c64 sprite show N`, `c64 sprite png N`), or
 `c64 mem read '$D015' 1` (enable bits) and `c64 screen --png`. Policy and
 testing rules: docs/superpowers/specs/graphics-and-sprites.md.
 
@@ -722,7 +723,7 @@ and writes a done marker at `$03F0`:
 
 ```asm
 ; sprite.s — enable sprite 0, sweep it right, leave $D015 on and a marker.
-SPDATA = $0340                  ; block 13 (833 = 13*64); tape unused
+SPDATA = $0340                  ; block 13 (832 = 13*64); tape unused
 JIFFLO = $A2
 
         .segment "LOADADDR"

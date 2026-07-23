@@ -83,7 +83,8 @@ does tape I/O, re-verify with a sentinel test first.
 |-------------|---------|
 | 0200-0258   | BASIC input buffer (89 bytes) |
 | 0277-0280   | Keyboard type-ahead buffer (10 chars; count at $C6) |
-| 0300-0312   | BASIC RAM vectors: error $0300, main loop $0302, tokenize $0304, LIST $0306, execute-statement IGONE $0308 (→ $A7E4), eval $030A — repoint to extend BASIC (see basic-internals.md) |
+| 0300-030B   | BASIC RAM vectors: error $0300, main loop $0302, tokenize $0304, LIST $0306, execute-statement IGONE $0308 (→ $A7E4), eval $030A — repoint to extend BASIC (see basic-internals.md) |
+| 030C-0312   | SYS register store $030C-$030F (A/X/Y/P = 780-783), then the USR JMP vector $0310-$0312 |
 | 0314-0333   | KERNAL RAM vectors (CINV, CBINV, NMINV, IOPEN at $031A, ...) — KERNAL jump-table I/O entries like OPEN $FFC0 = `JMP ($031A)` dispatch through these *(live)* |
 | 033C-03FB   | Cassette buffer (192 bytes at 828 decimal — the classic `SYS 828` home for small user ML if tape is unused) |
 | 07F8-07FF   | Sprite data pointers for the default screen (block = address/64) |
