@@ -193,6 +193,28 @@ def test_wrong_dimensions_rejected():
         encode_sprite(["###"], multicolor=True)
 
 
+def test_wrong_row_width_rejected():
+    import pytest
+    # 21 rows so the row-count check passes; one row is the wrong width so the
+    # per-row width branch trips.
+    mc = [" " * 12] * 20 + [" " * 10]
+    with pytest.raises(ValueError, match="12 or 24 chars/row"):
+        encode_sprite(mc, multicolor=True)
+    hi = [" " * 24] * 20 + [" " * 23]
+    with pytest.raises(ValueError, match="hires sprite art must be 24 chars/row"):
+        encode_sprite(hi, multicolor=False)
+
+
+def test_unknown_glyph_rejected():
+    import pytest
+    mc = [" " * 12] * 20 + ["X" + " " * 11]
+    with pytest.raises(ValueError, match="unknown multicolor sprite glyph 'X'"):
+        encode_sprite(mc, multicolor=True)
+    hi = [" " * 24] * 20 + ["X" + " " * 23]
+    with pytest.raises(ValueError, match="unknown hires sprite glyph 'X'"):
+        encode_sprite(hi, multicolor=False)
+
+
 def test_screen_base_banks_and_slots():
     from c64lib.screen import screen_base
     mon = Mock()
