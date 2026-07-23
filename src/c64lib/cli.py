@@ -1280,6 +1280,29 @@ def sprite() -> None:
     """Inspect, render, and convert VIC-II sprites."""
 
 
+def _parse_sprite_art(text: str) -> list[list[str]]:
+    """Split FILE contents into blank-line-separated groups of rows.
+
+    A separator is a truly EMPTY line (no characters at all) — a row of
+    all-background pixels is a legitimate 12/24-char row of spaces, and
+    must not be confused with the blank line between sprites. Rows are
+    kept exactly as written (no stripping); trailing spaces are
+    significant (background pixels).
+    """
+    sprites: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line == "":
+            if current:
+                sprites.append(current)
+                current = []
+        else:
+            current.append(line)
+    if current:
+        sprites.append(current)
+    return sprites
+
+
 def _sprite_states(s):
     from .sprites import read_sprite_states
     with s.monitor() as mon:
@@ -1406,4 +1429,40 @@ def sprite_from_png(ctx, image, out_path, multicolor):
     if out_path:
         Path(out_path).write_text(text)
     emit(ctx, {"rows": lines, "bytes": list(data), "out": out_path},
+         text if not out_path else f"wrote {out_path}")
+
+
+@sprite.command("encode")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--hires", is_flag=True,
+              help="Encode as hires (1 bit/pixel) instead of the default multicolor pairs.")
+@click.option("--format", "fmt", type=click.Choice(["asm", "basic"]), default="asm",
+              show_default=True, help="Rendering for the human/text output.")
+@click.option("--out", "-o", "out_path", default=None,
+              help="Write the rendered rows to this file instead of stdout.")
+@click.pass_context
+def sprite_encode(ctx, file, hires, fmt, out_path):
+    """Encode ASCII-art sprite(s) from FILE into 63 sprite bytes each.
+
+    FILE holds one or more 21-row sprites, separated by a blank line. Rows
+    use the friendly authoring legend (multicolor ' .#+', hires ' #') or
+    the glyphs `c64 sprite show` emits ('·▒█▓', '█·') — `show` output
+    round-trips straight back through `encode`. Needs no session; pairs
+    with `c64 sprite from-png` (image input instead of ASCII art) and
+    `c64 sprite show` (the inverse: bytes back to ASCII).
+    """
+    from .sprites import encode_sprite, format_bytes
+    blocks = _parse_sprite_art(file.read_text())
+    if not blocks:
+        fail(ctx, f"no sprite art found in {file}")
+        return
+    try:
+        sprites = [encode_sprite(rows, multicolor=not hires) for rows in blocks]
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
+    text = "\n\n".join(format_bytes(data, fmt) for data in sprites) + "\n"
+    if out_path:
+        Path(out_path).write_text(text)
+    emit(ctx, {"sprites": [list(data) for data in sprites]},
          text if not out_path else f"wrote {out_path}")

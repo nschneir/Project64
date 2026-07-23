@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from click.testing import CliRunner
 
 from c64lib.cli import main
+from c64lib.sprites import encode_sprite, format_bytes
 
 
 def _vic(**over):
@@ -132,3 +133,96 @@ def test_sprite_from_png_no_session(tmp_path):
 def test_sprite_from_png_missing_file():
     r = CliRunner().invoke(main, ["--json", "sprite", "from-png", "/nope.png"])
     assert r.exit_code == 1
+
+
+# --- c64 sprite encode -------------------------------------------------
+
+_DOT_ROW = "." * 12
+_HASH_ROW = "#" * 12
+_BLANK_ROW = " " * 12
+
+
+def test_sprite_encode_multi_sprite_file(tmp_path):
+    art_a = [_DOT_ROW] * 21
+    art_b = [_HASH_ROW] * 21
+    src = tmp_path / "two.txt"
+    src.write_text("\n".join(art_a) + "\n\n" + "\n".join(art_b) + "\n")
+
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert len(out["sprites"]) == 2
+    assert out["sprites"][0] == list(encode_sprite(art_a, multicolor=True))
+    assert out["sprites"][1] == list(encode_sprite(art_b, multicolor=True))
+    assert len(out["sprites"][0]) == 63 and len(out["sprites"][1]) == 63
+
+
+def test_sprite_encode_all_space_row_is_not_a_separator(tmp_path):
+    art = [_DOT_ROW] * 10 + [_BLANK_ROW] + [_HASH_ROW] * 10
+    assert len(art) == 21
+    src = tmp_path / "one.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert len(out["sprites"]) == 1                 # not split into pieces
+    assert len(out["sprites"][0]) == 63
+    assert out["sprites"][0] == list(encode_sprite(art, multicolor=True))
+
+
+def test_sprite_encode_format_basic_emits_data_lines(tmp_path):
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format", "basic"])
+    assert r.exit_code == 0, r.output
+    assert "DATA " in r.output
+    assert ".byte" not in r.output
+    expected = format_bytes(encode_sprite(art, multicolor=True), "basic")
+    assert expected in r.output
+
+
+def test_sprite_encode_format_asm_emits_byte_rows(tmp_path):
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format", "asm"])
+    assert r.exit_code == 0, r.output
+    assert ".byte $" in r.output
+    assert "DATA " not in r.output
+    expected = format_bytes(encode_sprite(art, multicolor=True), "asm")
+    assert expected in r.output
+
+
+def test_sprite_encode_json_emits_raw_bytes(tmp_path):
+    art = [_HASH_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out["sprites"] == [list(encode_sprite(art, multicolor=True))]
+
+
+def test_sprite_encode_writes_out_file(tmp_path):
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+    out_path = tmp_path / "out.s"
+
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src),
+                                  "-o", str(out_path)])
+    assert r.exit_code == 0, r.output
+    expected = format_bytes(encode_sprite(art, multicolor=True), "asm")
+    assert out_path.read_text().strip() == expected
+    out = json.loads(r.output)
+    assert out["sprites"] == [list(encode_sprite(art, multicolor=True))]
+
+
+def test_sprite_encode_missing_file():
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", "/nope.txt"])
+    assert r.exit_code != 0

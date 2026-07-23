@@ -628,6 +628,64 @@ the pasted result with `c64 sprite show` / `c64 sprite png`.
 
 JSON: `{"rows", "bytes", "out"}`.
 
+### `c64 sprite encode`
+
+Encode ASCII-art sprite(s) authored directly in a text file into 63
+sprite bytes each — the first-class way to author a sprite by hand,
+alongside `c64 sprite from-png` (image input) and the inverse of
+`c64 sprite show` (bytes back to ASCII). Needs no session.
+
+- `FILE` — one or more sprites, each exactly 21 rows, separated by a
+  truly blank line (a row of all-background pixels is 12/24 spaces and is
+  *not* a separator — only a zero-character line splits sprites).
+  Multicolor rows (the default) are 12 characters using the friendly
+  legend `' .#+'` (background/mc_color1/sprite-color/mc_color2); hires
+  rows are 24 characters using `' #'`. Either mode also accepts the
+  glyphs `c64 sprite show` emits (`·▒█▓` multicolor, `█·` hires — including
+  its double-wide 24-char multicolor rows), so `show` output round-trips
+  straight back through `encode`.
+- `--hires` — encode as hires (1 bit/pixel, 24 chars/row) instead of the
+  default multicolor pairs (12 chars/row).
+- `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte $xx, ...`
+  rows (8 values/line); `basic` emits `DATA` lines (8 values/line,
+  decimal). The `DATA` lines carry no line numbers — add them yourself
+  before the listing will store or run in a real BASIC program.
+- `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
+
+Worked example (one 12x21 multicolor sprite — a small diamond, padded
+with all-background rows). Every content row below is exactly 12
+characters wide (trailing spaces are significant — some viewers trim
+them visually, so count columns rather than trusting the rendering if
+you retype this by hand):
+
+```
+   ..##..   
+   .####.   
+   ######   
+   ######   
+   .####.   
+   ..##..   
+            
+            
+            
+... (12 more all-space rows to reach 21 total)
+```
+
+```
+$ c64 sprite encode diamond.txt
+.byte $01, $69, $40, $01, $aa, $40, $02, $aa
+.byte $80, $02, $aa, $80, $01, $aa, $40, $01
+.byte $69, $40, $00, $00, $00, $00, $00, $00
+.byte $00, $00, $00, $00, $00, $00, $00, $00
+.byte $00, $00, $00, $00, $00, $00, $00, $00
+.byte $00, $00, $00, $00, $00, $00, $00, $00
+.byte $00, $00, $00, $00, $00, $00, $00, $00
+.byte $00, $00, $00, $00, $00, $00, $00
+```
+
+JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in
+FILE.
+
 ---
 
 ## ROM tools
