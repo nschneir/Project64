@@ -47,8 +47,9 @@ the active-low bit to go 0). Pushing a port-1 stick emits spurious keys (east =
 are multiplexed between the ports by CIA1 port A, so the read must select and
 settle: turn CIA1 IRQs off (`$DC0D` ← 127, else the keyscan corrupts the
 select), make DDRA bits 6-7 outputs (`$DC02` ← 192), select the port (`$DC00` ←
-128 for port 2, 64 for port 1), **burn ~200+ cycles to let the A/D settle**,
-then read X = `PEEK($D419)`, Y = `PEEK($D41A)`. Fire buttons: `PEEK($DC00) AND
+128 for port 2, 64 for port 1), then **let the A/D settle** — the pots refresh
+only every ~500 cycles, so after switching ports West burns ~1000
+(`LDX #$D0 : DEX : BNE *`) before reading X = `PEEK($D419)`, Y = `PEEK($D41A)`. Fire buttons: `PEEK($DC00) AND
 12` (port 2) — bit 2 = X-paddle button, bit 3 = Y-paddle button. Restore `$DC02`
 ← 255, `$DC0D` ← 129. (The emulator has no paddle injection, so this is a
 reference sequence, not a runnable recipe.)
@@ -301,10 +302,10 @@ An octave up doubles Fn; an octave down halves it.
   ring-modulated voice and set its ring-mod bit; the *previous* voice supplies
   the modulator through **its frequency alone** (its waveform/gate/envelope
   don't matter). Use a **decay-only envelope**: attack/decay `= $0F`,
-  sustain/release `= $00`. Inharmonic input ratios (e.g. 110 Hz + 152 Hz) give
-  metallic timbres; retune while keeping the character by multiplying *both*
-  input frequencies by the semitone ratio 1.059463. Adding the sync bit on top
-  often enriches it.
+  sustain/release `= $00`. Inharmonic input frequency ratios give metallic
+  timbres; retune while keeping the character by multiplying *both* input
+  frequencies by the semitone ratio 1.059463. Adding the sync bit on top often
+  enriches it.
 - **Voice 3 as a modulation source.** The read-only registers `$D41B`
   (oscillator 3) and `$D41C` (envelope 3) let voice 3 drive the others from a
   60 Hz IRQ (copy `$D41B`→`$D400` for vibrato, →`$D416` for wah-wah, →`$D418`
