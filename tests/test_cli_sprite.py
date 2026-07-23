@@ -191,10 +191,38 @@ def test_sprite_encode_format_asm_emits_byte_rows(tmp_path):
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format", "asm"])
     assert r.exit_code == 0, r.output
-    assert ".byte $" in r.output
+    assert ".byte %" in r.output
     assert "DATA " not in r.output
     expected = format_bytes(encode_sprite(art, multicolor=True), "asm")
     assert expected in r.output
+
+
+def test_sprite_encode_asm_is_row_aligned_binary_with_label(tmp_path):
+    # asm output matches c64 sprite from-png's shape: a labeled block of
+    # `.byte %binary` rows, one sprite row (3 bytes) per line.
+    art = [_HASH_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src)])
+    assert r.exit_code == 0, r.output
+    assert "sprite0: .byte %" in r.output
+    assert "; place in a 64-byte block; pointer = block_address / 64" in r.output
+    byte_lines = [ln for ln in r.output.splitlines() if ".byte" in ln]
+    assert len(byte_lines) == 21                      # one line per sprite row
+    assert all(ln.count("%") == 3 for ln in byte_lines)   # 3 bytes/row
+
+
+def test_sprite_encode_multi_sprite_asm_labels_are_distinct(tmp_path):
+    art_a = [_DOT_ROW] * 21
+    art_b = [_HASH_ROW] * 21
+    src = tmp_path / "two.txt"
+    src.write_text("\n".join(art_a) + "\n\n" + "\n".join(art_b) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src)])
+    assert r.exit_code == 0, r.output
+    assert "sprite0: .byte %" in r.output       # no colliding labels between
+    assert "sprite1: .byte %" in r.output       # the two emitted blocks
 
 
 def test_sprite_encode_json_emits_raw_bytes(tmp_path):

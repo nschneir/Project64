@@ -132,21 +132,31 @@ def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
     return bytes(out)          # 63 bytes; pad byte 64 is the caller's call
 
 
-def format_bytes(data: bytes, fmt: str) -> str:
-    """Render sprite bytes as source: `fmt` is 'asm' (ca65 `.byte $xx, ...`,
-    8 values/line) or 'basic' (`DATA` lines, 8 values/line, decimal). The
-    `basic` lines carry no line numbers — add them before the listing will
-    store or run in a real BASIC program."""
+def format_bytes(data: bytes, fmt: str, index: int = 0,
+                 multicolor: bool = True) -> str:
+    """Render sprite bytes as ready-to-place source, one sprite row per line.
+
+    `fmt` is 'asm' (ca65 `.byte %...`, 3 bytes/row per line, under a
+    `spriteN:` label with a header comment — the same shape `c64 sprite
+    from-png` emits, so hand- and image-authored sprites look identical in
+    source) or 'basic' (`DATA` lines, 3 bytes/row per line, decimal). `index`
+    names the label / header sprite number when a file holds several sprites;
+    `multicolor` only affects the header wording. The `basic` lines carry no
+    line numbers — add them before the listing will store or run in a real
+    BASIC program.
+    """
     if fmt not in ("asm", "basic"):
         raise ValueError(f"unknown format {fmt!r}; use 'asm' or 'basic'")
-    lines = []
-    for i in range(0, len(data), 8):
-        chunk = data[i:i + 8]
-        if fmt == "asm":
-            lines.append(".byte " + ", ".join(f"${b:02x}" for b in chunk))
-        else:
-            lines.append("DATA " + ",".join(str(b) for b in chunk))
-    return "\n".join(lines)
+    rows = [data[i:i + 3] for i in range(0, len(data), 3)]
+    if fmt == "asm":
+        mode = "multicolor" if multicolor else "hires"
+        header = [
+            f"; sprite {index}, 24x21 {mode} (63 bytes: 3 bytes x 21 rows)"
+            " — c64 sprite encode",
+            "; place in a 64-byte block; pointer = block_address / 64",
+        ]
+        return "\n".join(_emit(rows, header, index))
+    return "\n".join("DATA " + ",".join(str(b) for b in row) for row in rows)
 
 
 def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
@@ -186,12 +196,14 @@ def _nearest_palette(px) -> int:
         (a - b) ** 2 for a, b in zip(px[:3], C64_PALETTE[i], strict=True)))
 
 
-def _emit(rows_bytes: list[bytes], header: list[str]) -> list[str]:
+def _emit(rows_bytes: list[bytes], header: list[str], index: int = 0) -> list[str]:
+    label = f"sprite{index}:"
+    cont = " " * len(label)
     lines = list(header)
     for i, row in enumerate(rows_bytes):
         bits = ", ".join(f"%{b:08b}" for b in row)
-        lines.append(f"sprite0: .byte {bits}" if i == 0
-                      else f"         .byte {bits}")
+        lines.append(f"{label} .byte {bits}" if i == 0
+                      else f"{cont} .byte {bits}")
     return lines
 
 

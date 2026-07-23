@@ -646,10 +646,14 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   straight back through `encode`.
 - `--hires` — encode as hires (1 bit/pixel, 24 chars/row) instead of the
   default multicolor pairs (12 chars/row).
-- `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte $xx, ...`
-  rows (8 values/line); `basic` emits `DATA` lines (8 values/line,
-  decimal). The `DATA` lines carry no line numbers — add them yourself
-  before the listing will store or run in a real BASIC program.
+- `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte %...` rows,
+  one sprite row (3 bytes) per line, under a `spriteN:` label with a header
+  comment — the same shape `c64 sprite from-png` emits, so hand- and
+  image-authored sprites look identical in your source. `basic` emits `DATA`
+  lines, one row (3 bytes) per line, decimal; the `DATA` lines carry no line
+  numbers — add them yourself before the listing will store or run in a real
+  BASIC program. Multiple sprites in one file get distinct labels
+  (`sprite0`, `sprite1`, …).
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Worked example (one 12x21 multicolor sprite — a small diamond, padded
@@ -673,14 +677,16 @@ you retype this by hand):
 
 ```
 $ c64 sprite encode diamond.txt
-.byte $01, $69, $40, $01, $aa, $40, $02, $aa
-.byte $80, $02, $aa, $80, $01, $aa, $40, $01
-.byte $69, $40, $00, $00, $00, $00, $00, $00
-.byte $00, $00, $00, $00, $00, $00, $00, $00
-.byte $00, $00, $00, $00, $00, $00, $00, $00
-.byte $00, $00, $00, $00, $00, $00, $00, $00
-.byte $00, $00, $00, $00, $00, $00, $00, $00
-.byte $00, $00, $00, $00, $00, $00, $00
+; sprite 0, 24x21 multicolor (63 bytes: 3 bytes x 21 rows) — c64 sprite encode
+; place in a 64-byte block; pointer = block_address / 64
+sprite0: .byte %00000001, %01101001, %01000000
+         .byte %00000001, %10101010, %01000000
+         .byte %00000010, %10101010, %10000000
+         .byte %00000010, %10101010, %10000000
+         .byte %00000001, %10101010, %01000000
+         .byte %00000001, %01101001, %01000000
+         .byte %00000000, %00000000, %00000000
+... (14 more all-background rows to reach 21 total)
 ```
 
 JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in

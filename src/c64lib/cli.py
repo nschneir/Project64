@@ -1461,7 +1461,9 @@ def sprite_encode(ctx, file, hires, fmt, out_path):
     except ValueError as e:
         fail(ctx, str(e))
         return
-    text = "\n\n".join(format_bytes(data, fmt) for data in sprites) + "\n"
+    text = "\n\n".join(
+        format_bytes(data, fmt, index=i, multicolor=not hires)
+        for i, data in enumerate(sprites)) + "\n"
     if out_path:
         Path(out_path).write_text(text)
     emit(ctx, {"sprites": [list(data) for data in sprites]},
