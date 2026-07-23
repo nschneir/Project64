@@ -142,11 +142,14 @@ Appendix A of the Programmer's Reference Guide.)
 
 ## Variables and numbers
 
-- **Integers** (`A%`) store in 2 bytes, range -32768..32767. **Floats** (the
-  default) store in **5 bytes**, computed to ~10 significant digits and printed
-  to 9; magnitudes below 0.01 or above 999999999 print in scientific notation.
-  Largest float ≈ **1.70141183E+38** (overflow → `?OVERFLOW`); smallest ≈
-  2.93873588E-39 (underflow silently yields 0).
+- **Integers** (`A%`) store their *value* in 2 bytes, range -32768..32767.
+  **Floats** (the default) store in **5 bytes**, computed to ~10 significant
+  digits and printed to 9; magnitudes below 0.01 or above 999999999 print in
+  scientific notation. Largest float ≈ **1.70141183E+38** (overflow →
+  `?OVERFLOW`); smallest ≈ 2.93873588E-39 (underflow silently yields 0).
+  But every *simple* variable's table entry is **7 bytes regardless of type**
+  (2 name + 5 value slot — verified live), so `A%` as a scalar saves nothing;
+  integers only save space as **arrays** (2 bytes/element vs 5).
 - **Names**: only the **first two characters are significant** (`SCORE` and
   `SCORING` are the same variable); a name must start with a letter and must
   not contain a reserved keyword. Trailing `%` = integer, `$` = string, none =
@@ -205,3 +208,46 @@ ARCTANH(X) = LOG((1+X)/(1-X))/2
 Adapted from the PRG's "Deriving Mathematical Functions" appendix, whose
 ARCSEC/ARCCSC/ARCCOT entries are given here in corrected form (the book's
 printed versions have sign/argument errors).
+
+## Strings, FRE, and garbage collection
+
+- **`FRE(0)` is signed** — with more than 32767 bytes free it returns a
+  *negative* number (verified: a fresh C64 prints a negative value). Real free
+  bytes: `FRE(0) - (FRE(0)<0)*65536`. So `IF FRE(0)<100` misfires; always
+  correct the wrap first.
+- **String garbage collection is O(N²) in the *number* of live strings** (not
+  their lengths) — roughly `0.75 ms × N²` on the C64 (≈1 s at 100 strings, ≈7 s
+  at 300). It fires automatically when string space runs out, and the machine
+  **hangs with the keyboard dead** during it (RUN/STOP can't interrupt). You
+  mostly hit it with large **string arrays**; a few dozen scalar strings is a
+  sub-second blip. Mitigate by keeping the string *count* down (packing two
+  strings into one roughly quarters the pause, since halving N quarters N²), and
+  by calling **`FRE(0)` at an idle moment** to force the unavoidable collection
+  when it won't be noticed — `FRE(0)` always triggers a full GC.
+
+## Robust text input
+
+Plain `INPUT A$` chokes on commas and colons (`?EXTRA IGNORED`, the string is
+truncated at the separator). Two fixes:
+
+- **Read through a file**, which suppresses both the `?` prompt and the
+  separator problem: `OPEN 3,3 : INPUT#3,A$ : CLOSE 3` reads the current screen
+  line; `OPEN 5,0 : INPUT#5,A$` reads the keyboard with no prompt (verified: no
+  `?` appears).
+- **Quote-before-INPUT** — queue a leading `"` into the keyboard buffer so the
+  whole line is taken literally: `POKE 631,34 : POKE 198,1 : INPUT A$` (631 =
+  buffer start, 198 = character count; see zero-page.md).
+
+## Reserving RAM from BASIC
+
+To protect a block at the top of memory (charset, sprite data, ML) from BASIC,
+lower MEMSIZ (`$37/$38` = 55/56) and `CLR`:
+
+```
+poke 56,peek(56)-8 : clr    : rem reserve 2 KB (8 pages) above BASIC
+```
+
+`CLR` resyncs the string pointers but **loses variables**, so do this before
+defining any. To keep variables, set FRETOP (`$33/$34`), FRESPC (`$35/$36`) and
+MEMSIZ (`$37/$38`) together to the same top and skip `CLR`. (For ML, `$C000`
+gives 4 KB BASIC never touches — see zero-page.md.)

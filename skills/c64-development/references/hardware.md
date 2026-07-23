@@ -36,7 +36,28 @@ leaves results where code can read them cheaply:
 up/down/left/right, bit 4 = fire, 0 = active. Reading `$DC01` collides
 with the keyboard scan, which is why game docs say "use port 2"
 (`JSR` nothing — just `LDA $DC00 / AND #$1F`). Prefer joystick port 2 or
-`$CB` polling for game input.
+`$CB` polling for game input. A one-line BASIC reader that yields a
+screen-offset delta (−41..+41): `PP=PEEK(56320) : P=((PP AND 4)=0)-((PP AND
+8)=0)+40*((PP AND 1)=0)-40*((PP AND 2)=0)`. To block until fire on port 2:
+`WAIT 56320,16,16` (the third `WAIT` arg XORs before the mask, so it waits for
+the active-low bit to go 0). Pushing a port-1 stick emits spurious keys (east =
+"2", west = CTRL), another reason to favor port 2.
+
+**Paddles** (analog) are fiddlier — the two SID pot registers `$D419`/`$D41A`
+are multiplexed between the ports by CIA1 port A, so the read must select and
+settle: turn CIA1 IRQs off (`$DC0D` ← 127, else the keyscan corrupts the
+select), make DDRA bits 6-7 outputs (`$DC02` ← 192), select the port (`$DC00` ←
+128 for port 2, 64 for port 1), **burn ~200+ cycles to let the A/D settle**,
+then read X = `PEEK($D419)`, Y = `PEEK($D41A)`. Fire buttons: `PEEK($DC00) AND
+12` (port 2) — bit 2 = X-paddle button, bit 3 = Y-paddle button. Restore `$DC02`
+← 255, `$DC0D` ← 129. (The emulator has no paddle injection, so this is a
+reference sequence, not a runnable recipe.)
+
+**Light pen** (port 1 only): the VIC latches the pen position into two
+read-only registers — `$D013` = X (2-pixel units, ≈30-190 NTSC), `$D014` = Y
+(1 raster line, ≈50-250). Convert `col=(X-30)/4`, `row=(Y-50)/8`. It jitters
+even held still and won't trigger on black; plugging one in also disables keys
+B, C, M, Z, f1, left-SHIFT, and period.
 
 ## CIA 6526 timers, TOD, and interrupts
 
@@ -100,10 +121,25 @@ pixels are 2 bits wide (12×21) and each pair picks a color — `00` transparent
 `01` shared color 0 (`$D025`), `10` the sprite's own color (`$D027-$D02E`),
 `11` shared color 1 (`$D026`).
 
+Priority and collision gotchas:
+- **Sprite-vs-sprite order is fixed, not programmable** — sprite 0 is always in
+  front, 7 always behind. `$D01B` only sets sprite-vs-*character-data* priority
+  (bit 0 = sprite in front, 1 = data in front); sprites always beat the
+  background *color*.
+- **Read a collision latch (`$D01E`/`$D01F`) twice** — the bits stay set until
+  read, so the first read after an event returns stale accumulated collisions;
+  the second read gives the current state. Collisions are also flagged
+  **off-screen**, and the register can't reflect a new collision until the next
+  frame's scan.
+- For **multicolor** sprites, only bit-pairs `10` and `11` collide; `00`/`01`
+  count as transparent for collision.
+
 ## Video modes (VIC-II)
 
 - `$D011` — mode bits (bitmap enable bit 5, extended color bit 6, screen
-  blank bit 4, vertical scroll bits 0-2, raster bit 8 in bit 7).
+  blank/DEN bit 4, **RSEL bit 3** (1 = 25 rows, 0 = 24), vertical scroll bits
+  0-2, raster bit 8 in bit 7). Default `$1B`. Clearing DEN (bit 4) stops the
+  VIC stealing 6510 cycles — a screen-blanked compute loop runs ~5% faster.
 - `$D016` — multicolor bit 4, 38/40-column bit 3, horizontal scroll 0-2.
 - `$D018` — memory setup: screen and charset/bitmap base within the VIC
   bank. Power-on `$15`: screen `$0400`, uppercase charset. **Leave the
@@ -157,6 +193,19 @@ lower the top of BASIC or move the bitmap first.
   clear a latch by writing a 1 to its bit), `$D01A` the enable mask (1 = that
   source raises an IRQ). This is what a raster or collision IRQ needs beyond
   reading `$D012`.
+
+**Raster-interrupt technique** (split-screen effects, distinct from the
+cookbook's CIA/CINV wedge). Setup, interrupts disabled: write the compare line
+to `$D012` (and clear `$D011` bit 7 to keep it < 256), set `$D01A` = `#1` to
+enable the raster source, point the IRQ vector `($0314)` at your handler (and
+disable the CIA1 timer IRQ with `$DC0D` ← 127 if you want a stable, jitter-free
+split — the keyboard scan otherwise adds ~15 lines of jitter). The handler
+**must acknowledge by writing a 1 to `$D019` bit 0** (`LDA #1 : STA $D019`) or
+it re-fires immediately; then it flips `$D011`/`$D018`/colors, re-latches
+`$D012` to the next boundary, and exits — through `$EA31` on the once-per-frame
+interrupt (keeps the keyboard/clock alive) or `$EA81` (registers + RTI only) on
+the others. Firing several raster IRQs per frame and rewriting the sprite X/Y
+and pointers at each is how demos show **more than 8 sprites** (multiplexing).
 
 ## Sound (SID)
 
@@ -241,3 +290,41 @@ clock rounding):
 | F4  | 5729 | 22 | 97  | B4  | 8102 | 31 | 166 |
 
 An octave up doubles Fn; an octave down halves it.
+
+### SID technique and gotchas
+
+- **Zero all SID registers at program start.** SID registers keep their values
+  when a program stops, and RUN/STOP-RESTORE does not fully silence the chip —
+  a left-over gate bit can keep a voice sounding or block a new note. Begin a
+  sound program with `FOR J=54272 TO 54296:POKE J,0:NEXT`.
+- **Bells / gongs (ring modulation).** Put the **triangle** waveform in the
+  ring-modulated voice and set its ring-mod bit; the *previous* voice supplies
+  the modulator through **its frequency alone** (its waveform/gate/envelope
+  don't matter). Use a **decay-only envelope**: attack/decay `= $0F`,
+  sustain/release `= $00`. Inharmonic input ratios (e.g. 110 Hz + 152 Hz) give
+  metallic timbres; retune while keeping the character by multiplying *both*
+  input frequencies by the semitone ratio 1.059463. Adding the sync bit on top
+  often enriches it.
+- **Voice 3 as a modulation source.** The read-only registers `$D41B`
+  (oscillator 3) and `$D41C` (envelope 3) let voice 3 drive the others from a
+  60 Hz IRQ (copy `$D41B`→`$D400` for vibrato, →`$D416` for wah-wah, →`$D418`
+  for tremolo). Silence voice 3 itself with `$D418` bit 7 so it modulates
+  inaudibly.
+- **Instrument approximations** (waveform + ADSR nybbles, poke `16*A+D` to +5,
+  `16*S+R` to +6):
+
+  | Instrument | Waveform | A | D | S | R |
+  |-----------|----------|---|---|---|---|
+  | Piano | pulse (PW 2048) | 0 | 9 | 0 | 0 |
+  | Organ | pulse (PW 1024) | 1 | 2 | 5 | 1 |
+  | Flute | triangle | 4 | 2 | 10 | 5 |
+  | Trumpet | sawtooth (band-pass) | 6 | 0 | 10 | 1 |
+  | Accordion | sawtooth (high-pass) | 6 | 7 | 5 | 3 |
+  | Banjo | pulse (PW 410) | 0 | 9 | 0 | 0 |
+  | Cymbal | noise (high-pass) | 4 | 11 | 0 | 0 |
+
+- **6581 caveats.** The analog filter **varies between machines** — never rely
+  on exact cutoff/resonance for a specific sound. Low (bass) notes sound
+  **weaker** than high notes of the same amplitude; raise the sustain level of
+  low notes to compensate. Long decays step audibly rather than falling
+  smoothly.

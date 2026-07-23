@@ -84,6 +84,7 @@ operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
 | B391 | GIVAYF | Signed 16-bit int (A = high, Y = low) → FAC1; sets VALTYP `$0D` = numeric |
 | B1AA | —      | FAC1 → signed 16-bit int in `$64/$65` |
 | BBA2 | MOVFM  | Load FAC1 from the 5-byte constant at A (low)/Y (high) |
+| BBD4 | MOVMF  | Round FAC1 and store it as a packed 5-byte float at X (low)/Y (high) — the inverse of MOVFM |
 | B86A | FADDT  | FAC1 = ARG + FAC1 |
 | B853 | FSUBT  | FAC1 = ARG − FAC1 |
 | BA2B | FMULT  | FAC1 = ARG × FAC1 |
@@ -99,6 +100,18 @@ operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
 Quick "print a number": load A/X and `JSR $BDCD`. Signed or floating value:
 `GIVAYF` → `FOUT` → `STROUT`. (LINPRT verified live: A = `$30`, X = `$39`
 prints `12345`.)
+
+**Detect the KERNAL revision** before trusting any *internal* KERNAL address:
+`$FF80` (65408) holds the revision number — `$00` = original (901227-01/02),
+`$03` = the common 901227-03 (verified: `$03` on the stock image). The
+`$FFxx` jump table and the BASIC-ROM entries above are stable across revisions;
+internal KERNAL routines are not.
+
+**The USR vector** is the other BASIC→ML hook besides `SYS` (see cookbook.md).
+`USR(x)` evaluates `x` into FAC1, then `JMP $0310`. `$0310` holds a `JMP`
+opcode; put your routine's address in `$0311/$0312` (785/786) — it reads the
+argument from FAC1 and leaves the result there before `RTS`. `POKE 784,96`
+(an `RTS` at `$0310`) makes `USR(x)=x` (verified: `USR(6)` returns 6).
 
 ## Hardware vectors
 
