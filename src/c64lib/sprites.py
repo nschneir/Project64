@@ -86,6 +86,68 @@ def sprite_ascii(data: bytes, multicolor: bool) -> list[str]:
     return rows
 
 
+# Encode legends. Accept the plain-ASCII authoring set AND the glyphs
+# `sprite_ascii` emits, so `c64 sprite show` output round-trips through encode.
+_MC_ENCODE = {" ": 0, ".": 1, "#": 2, "+": 3,   # friendly
+              "·": 0, "▒": 1, "█": 2, "▓": 3}    # == _MC_GLYPHS (show output)
+_HIRES_ENCODE = {" ": 0, "#": 1, "·": 0, "█": 1}
+
+
+def _mc_pixels(row: str) -> list[int]:
+    # Accept 12 glyphs (one/pixel) or 24 (the doubled form `show` emits).
+    if len(row) == 24:
+        row = row[::2]           # collapse each doubled pair
+    if len(row) != 12:
+        raise ValueError("multicolor sprite art must be 12 or 24 chars/row")
+    try:
+        return [_MC_ENCODE[ch] for ch in row]
+    except KeyError as e:
+        raise ValueError(f"unknown multicolor sprite glyph {e.args[0]!r}") from None
+
+
+def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
+    """Encode ASCII-art rows to 63 sprite bytes (the inverse of `sprite_ascii`).
+
+    Accepts either the friendly authoring legend (' .#+' / ' #') or the
+    glyphs `sprite_ascii` emits ('·▒█▓' / '█·'), so `c64 sprite show` output
+    round-trips through `encode_sprite`. `art` must have exactly 21 rows.
+    """
+    if len(art) != 21:
+        raise ValueError(f"sprite art must be 21 rows, got {len(art)}")
+    out = bytearray()
+    for row in art:
+        bits = 0
+        if multicolor:
+            for px in _mc_pixels(row):
+                bits = (bits << 2) | px
+        else:
+            if len(row) != 24:
+                raise ValueError(f"hires sprite art must be 24 chars/row, got {len(row)}")
+            try:
+                for ch in row:
+                    bits = (bits << 1) | _HIRES_ENCODE[ch]
+            except KeyError as e:
+                raise ValueError(f"unknown hires sprite glyph {e.args[0]!r}") from None
+        out += bits.to_bytes(3, "big")
+    return bytes(out)          # 63 bytes; pad byte 64 is the caller's call
+
+
+def format_bytes(data: bytes, fmt: str) -> str:
+    """Render sprite bytes as ready-to-paste source: `fmt` is 'asm' (ca65
+    `.byte $xx, ...`, 8 values/line) or 'basic' (`DATA` lines, 8 values/line,
+    decimal)."""
+    if fmt not in ("asm", "basic"):
+        raise ValueError(f"unknown format {fmt!r}; use 'asm' or 'basic'")
+    lines = []
+    for i in range(0, len(data), 8):
+        chunk = data[i:i + 8]
+        if fmt == "asm":
+            lines.append(".byte " + ", ".join(f"${b:02x}" for b in chunk))
+        else:
+            lines.append("DATA " + ",".join(str(b) for b in chunk))
+    return "\n".join(lines)
+
+
 def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
     """Render a 63-byte shape to a PIL image (24x21 logical pixels)."""
     from PIL import Image

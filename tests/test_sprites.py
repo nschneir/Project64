@@ -3,6 +3,7 @@ from unittest.mock import Mock
 from c64lib.sprites import (
     C64_PALETTE,
     SpriteState,
+    encode_sprite,
     read_sprite_block,
     read_sprite_states,
     sprite_ascii,
@@ -158,6 +159,38 @@ def test_from_image_multicolor_quantizes_to_pairs():
         multicolor=True)
     assert back == data
     assert any("multicolor" in ln for ln in lines)
+
+
+def test_multicolor_row_encodes_two_bits_per_pixel():
+    art = [" .#+" + " " * 8] + ["            "] * 20
+    data = encode_sprite(art, multicolor=True)
+    assert len(data) == 63
+    # ' .#+' -> 00 01 10 11 -> 0b00011011
+    assert data[0] == 0b00011011
+
+
+def test_hires_row_encodes_one_bit_per_pixel():
+    art = ["#" * 8 + " " * 16] + [" " * 24] * 20
+    data = encode_sprite(art, multicolor=False)
+    assert data[0] == 0xFF and data[1] == 0x00
+
+
+def test_encode_accepts_show_glyphs_and_roundtrips_multicolor():
+    data = bytes((i * 37) % 256 for i in range(63))
+    art = sprite_ascii(data, multicolor=True)      # 24-char doubled rows
+    assert encode_sprite(art, multicolor=True) == data
+
+
+def test_encode_accepts_show_glyphs_and_roundtrips_hires():
+    data = bytes((i * 29) % 256 for i in range(63))
+    art = sprite_ascii(data, multicolor=False)     # 24-char █/·
+    assert encode_sprite(art, multicolor=False) == data
+
+
+def test_wrong_dimensions_rejected():
+    import pytest
+    with pytest.raises(ValueError):
+        encode_sprite(["###"], multicolor=True)
 
 
 def test_screen_base_banks_and_slots():
