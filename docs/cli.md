@@ -622,6 +622,12 @@ luminance (transparent = clear), `--multicolor` quantizes to the C64
 palette and records the pair-value mapping in the emitted header. Verify
 the pasted result with `c64 sprite show` / `c64 sprite png`.
 
+- `IMAGE` — the input image file.
+- `-o, --out PATH` — write the rows to a file instead of stdout.
+- `--multicolor` — quantize to multicolor pairs instead of hires 1-bit.
+
+JSON: `{"rows", "bytes", "out"}`.
+
 ### `c64 sprite encode`
 
 Encode ASCII-art sprite(s) authored directly in a text file into 63
@@ -642,19 +648,23 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   default multicolor pairs (12 chars/row).
 - `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte $xx, ...`
   rows (8 values/line); `basic` emits `DATA` lines (8 values/line,
-  decimal).
+  decimal). The `DATA` lines carry no line numbers — add them yourself
+  before the listing will store or run in a real BASIC program.
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Worked example (one 12x21 multicolor sprite — a small diamond, padded
-with all-background rows):
+with all-background rows). Every content row below is exactly 12
+characters wide (trailing spaces are significant — some viewers trim
+them visually, so count columns rather than trusting the rendering if
+you retype this by hand):
 
 ```
-   ..##..
-   .####.
-   ######
-   ######
-   .####.
-   ..##..
+   ..##..   
+   .####.   
+   ######   
+   ######   
+   .####.   
+   ..##..   
             
             
             
@@ -675,12 +685,6 @@ $ c64 sprite encode diamond.txt
 
 JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in
 FILE.
-
-- `IMAGE` — the input image file.
-- `-o, --out PATH` — write the rows to a file instead of stdout.
-- `--multicolor` — quantize to multicolor pairs instead of hires 1-bit.
-
-JSON: `{"rows", "bytes", "out"}`.
 
 ---
 
