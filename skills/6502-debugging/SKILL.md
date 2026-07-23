@@ -71,6 +71,30 @@ destroys X or Y. Two procedures:
 Clobber bugs cluster in helpers added to an existing loop late in
 development (sound triggers, HUD updates) — audit those first.
 
+## An index or address lands one cell off
+
+Symptom: a computed screen offset, sprite pointer, or table index is
+consistently wrong by a small, constant amount — never wildly wrong, just
+one row, one cell, or one entry off — and it doesn't misfire the same way
+on every run. Before doubting the formula, doubt carry: `adc` always folds
+in the carry bit, so a stray carry left set by an *earlier*, unrelated
+operation (a `cmp`, a prior `adc` chain, a `sec` from a subtraction that
+never got re-cleared) silently turns `10*y + x` into `10*y + x + 1`.
+Because the stray carry depends on whatever ran before it, the miscount
+comes and goes with control flow instead of failing identically every
+time — the hallmark of a hard-to-reproduce off-by-one.
+
+Rule: `clc` before **every** `adc` chain, no exceptions — including the
+ones you're sure already start from a clear carry. Prefer computing index
+math fresh in registers over reusing one zero-page temp for two roles in
+the same routine; the second role silently inherits whatever carry state
+the first left behind. (The carry/decimal rules themselves live in the
+`6502-assembly` skill's gotchas — this is the runtime symptom they cause.)
+
+To confirm before fixing: `c64 reg` at the suspect `adc` — its `FL` byte's
+bit 0 is carry; if it's set going in and nothing upstream was meant to
+leave it that way, that's the bug, not the arithmetic.
+
 ## Reproducing a timing-dependent bug deterministically
 
 Wall-clock time is poison under `--warp` (seconds of your time are emulated

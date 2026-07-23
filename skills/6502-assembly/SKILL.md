@@ -151,6 +151,59 @@ fastest starting point for an action game).
   ADSR, and gated waveform; see the hardware reference and the cookbook's
   beep recipe. SID registers are write-only.
 
+## Sprite invisible? Check in order
+
+Work down this list before reaching for the emulator — most "invisible
+sprite" bugs are exactly one of these, and checking in order finds the
+actual cause fastest. Register meanings and priority/collision details:
+the `c64-development` skill's hardware reference, "Sprites" section.
+
+1. `$D015` — is the sprite's enable bit set?
+2. The data pointer at `screen+$3F8` (`$07F8-$07FF` for the default screen)
+   holds `data_address / 64`, not the data address itself.
+3. The sprite data is aligned to a 64-byte boundary — a pointer can only
+   select multiples of 64, so data starting anywhere else displays the
+   wrong 63 bytes.
+4. X is in the visible range **24-343** (X > 255 needs its bit set in
+   `$D010`, one bit per sprite).
+5. Y is in the visible range **50-249**.
+6. Nothing has overwritten the sprite's own 63 bytes of data — a program
+   that grew into its data region is a common cause (below).
+
+## Where runtime data lives (and how it actually loads)
+
+Sprite shapes, charsets, and other data your program writes at runtime
+need RAM outside `CODE`/`DATA`/`BSS` — and outside anything the running
+program itself touches (the sprite-overwrite case above).
+
+**Picking a safe address.** Stay clear of the `$0801+` program area — your
+code, then BASIC's variables/arrays/strings growing upward from the end of
+it. `$3000-$3FFF` is a convenient hole below most BASIC-stub programs;
+`$C000-$CFFF` is the 4 KB BASIC never touches at all if you need more
+headroom or an address independent of program size (see the
+`c64-development` skill's memory map). Either way, the trap is a `.prg`
+that grows into its own data region as you add code: check that the end
+address (`load_addr + len - 2`) still lands below wherever you placed the
+data, every time the code grows.
+
+**Getting a linked-in segment there.** A `.prg` is a *flat* binary — file
+bytes map straight onto consecutive addresses starting at the load
+address. That's no trouble for a hand-picked address you poke into
+directly (like `$3000` above), but if you instead give the linker a
+*second* MEMORY area at a high address, the gap between it and `CODE`
+must ship as real zero bytes in the file, or everything after the gap
+loads at the wrong address. Tell ld65 to pad the low area with
+`fill = yes`:
+
+```
+MAIN: start = $080D, size = $37F3, fill = yes, file = %O;
+HIGH: start = $4000, size = $2000, file = %O;
+```
+
+`fill = yes` on `MAIN` pads `$080D-$3FFF` with zeros so a segment linked
+into `HIGH` lands at `$4000` in the finished file instead of collapsing to
+right after `MAIN`'s last real byte.
+
 ## Debugging
 
 `c64 run FILE.s` registers the labels, so you can `c64 break add start`, then
