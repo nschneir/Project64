@@ -133,9 +133,10 @@ def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
 
 
 def format_bytes(data: bytes, fmt: str) -> str:
-    """Render sprite bytes as ready-to-paste source: `fmt` is 'asm' (ca65
-    `.byte $xx, ...`, 8 values/line) or 'basic' (`DATA` lines, 8 values/line,
-    decimal)."""
+    """Render sprite bytes as source: `fmt` is 'asm' (ca65 `.byte $xx, ...`,
+    8 values/line) or 'basic' (`DATA` lines, 8 values/line, decimal). The
+    `basic` lines carry no line numbers — add them before the listing will
+    store or run in a real BASIC program."""
     if fmt not in ("asm", "basic"):
         raise ValueError(f"unknown format {fmt!r}; use 'asm' or 'basic'")
     lines = []
