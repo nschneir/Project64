@@ -20,6 +20,11 @@ c64-tools-mcp = "c64lib.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/c64lib"]
+# cart.inc and the ROM label tables are data, not modules, and hatchling selects
+# files through the VCS: `*.lbl` in .gitignore silently dropped basic2.lbl from
+# the wheel. `artifacts` overrides that, so `cart_include_dir()` and
+# `romdoc.rom_labels()` both resolve in an installed package.
+artifacts = ["src/c64lib/data/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

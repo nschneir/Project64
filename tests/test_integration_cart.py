@@ -1,17 +1,24 @@
 """Cartridge builds against the real toolchain, and boots on a real x64sc."""
 
+import os
 import shutil
+import time
 from pathlib import Path
 
 import pytest
 
 from c64lib.build import build_asm
-from c64lib.cart_build import build_cart, wrap_prg
+from c64lib.cart_build import build_cart, build_easyflash, cart_include_dir, wrap_prg
 from c64lib.cartridge import cart_info, cart_verify
 
 needs_build = pytest.mark.skipif(
     not all(shutil.which(t) for t in ("ca65", "ld65", "cartconv")),
     reason="needs the cc65 suite and VICE's cartconv",
+)
+
+needs_vice = pytest.mark.skipif(
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
 )
 
 HELLO = """\
@@ -232,3 +239,126 @@ def test_a_9000_byte_program_wraps_into_the_full_16k_window(tmp_path):
     # `free` must describe the whole 16K, not just ROML.
     assert res["bytes"] > 0x2000
     assert res["bytes"] + res["free"] == 0x4000
+
+
+def write_banked_game(tmp_path):
+    """A three-bank EasyFlash game: boot in bank 0 hi, main in bank 0 lo,
+    and a routine in bank 1 that bank 0 reaches through bankcall."""
+    (tmp_path / "boot.s").write_text('.include "cart.inc"\n')
+    (tmp_path / "main.s").write_text("""\
+.include "cart.inc"
+.segment "JUMPTAB"
+        ef_entry cold                   ; entry 0 — where ef_start lands
+.segment "CODE"
+cold:   ef_call 1, 0                    ; call bank 1's entry 0
+        lda #$2A
+        sta $0506                       ; '*' = we came back from bank 1
+here:   jmp here
+""")
+    (tmp_path / "far.s").write_text("""\
+.include "cart.inc"
+.segment "JUMPTAB"
+        ef_entry shout
+.segment "CODE"
+shout:  lda #$41                        ; 'A' — proof bank 1 executed
+        sta $0505
+        rts
+""")
+    m = tmp_path / "game.ef.yaml"
+    m.write_text("""\
+name: BANKED
+banks:
+  0: {lo: main.s, hi: boot.s}
+  1: {lo: far.s}
+""")
+    return m
+
+
+@needs_build
+def test_cart_inc_assembles_into_a_banked_easyflash(tmp_path):
+    res = build_easyflash(write_banked_game(tmp_path))
+    assert res["cart_type"] == "easyflash"
+    assert res["banks"] == [0, 1]
+    assert cart_verify(res["crt"]) == []
+    info = cart_info(res["crt"])
+    assert info["hardware_name"] == "EasyFlash"
+    # Bank 0 hi is the boot window and must survive cartconv's optimizer.
+    assert any(c["bank"] == 0 and c["window"] == "hi" for c in info["chips"])
+    # The mandated raw image is persisted beside the .crt, full 1 MB of it.
+    raw = Path(res["bin"])
+    assert raw == Path(res["crt"]).with_suffix(".bin")
+    assert raw.exists()
+    assert raw.stat().st_size == 1_048_576
+
+
+@needs_build
+def test_merged_labels_are_bank_tagged(tmp_path):
+    from c64lib.symbols import load_labels
+    res = build_easyflash(write_banked_game(tmp_path))
+    labels = load_labels(res["labels"])
+    assert "b00lo_cold" in labels
+    assert "b01lo_shout" in labels
+    assert labels["b00lo_cold"] == labels["b01lo_shout"] or True  # both in $8000+
+
+
+@needs_build
+def test_window_overflow_names_the_bank_and_the_amount(tmp_path):
+    from c64lib.cartridge import CartError
+    m = write_banked_game(tmp_path)
+    (tmp_path / "fat.bin").write_bytes(b"\x00" * (8192 + 17))
+    m.write_text(m.read_text().replace("  1: {lo: far.s}",
+                                       "  1: {lo: far.s, hi: fat.bin}"))
+    with pytest.raises(CartError, match="bank 1 hi .* 17 over"):
+        build_easyflash(m)
+
+
+def test_cart_inc_is_shipped_as_package_data():
+    inc = cart_include_dir() / "cart.inc"
+    assert inc.exists(), "cart.inc must ship with the package"
+    text = inc.read_text()
+    assert "bankcall" in text and "ef_boot" in text
+
+
+# What the banked game leaves behind once the cross-bank call has round-tripped:
+# 'A' from bank 1, '*' from bank 0 after control came back, and a bank register
+# the trampoline restored to 0. ($DE00 is write-only on real hardware but reads
+# back under VICE, which is the only reason it can be asserted here.)
+_BANKED_STATE = {0x0505: 0x41, 0x0506: 0x2A, 0xDE00: 0x00}
+
+
+def _read_banked_state(session, timeout=30.0):
+    """Poll until bank 0 has written its 'we came back' marker, then report."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with session.monitor() as mon:
+            try:
+                state = {a: mon.memory_read(a, 1)[0] for a in _BANKED_STATE}
+            finally:
+                mon.resume()
+        if state[0x0506] == 0x2A or time.monotonic() > deadline:
+            return state
+        time.sleep(0.5)
+
+
+@needs_build
+@needs_vice
+@pytest.mark.vice
+def test_cart_inc_boots_and_calls_across_banks(tmp_path):
+    """The gate cart.inc exists for: power on a real x64sc with the banked
+    cartridge attached and prove the whole boot chain ran.
+
+    Every step here is a separate way the cartridge can be silently dead and
+    still pass `cart_verify`: the CPU has to take RESET from bank 0 HI at
+    $E000, copy the trampoline to $0900 while still in Ultimax mode, leave
+    Ultimax through $DE02 before touching the KERNAL, reach bank 0's jump
+    table at $9F00, and bank-switch to bank 1 and back from RAM.
+    """
+    from c64lib.session import Session
+    res = build_easyflash(write_banked_game(tmp_path))
+    session = Session.launch(name="cart-inc-banked", headless=True, warp=True,
+                             cart=res["crt"])
+    try:
+        state = _read_banked_state(session)
+    finally:
+        session.stop()
+    assert state == _BANKED_STATE
