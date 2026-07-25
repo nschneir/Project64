@@ -147,15 +147,20 @@ def _screen(session) -> str:
             mon.release()
 
 
-def wait_for_text(session, text: str, timeout: float = 30.0) -> dict:
+def wait_for_text(session, text: str, timeout: float = 30.0,
+                  since: bool = False) -> dict:
+    """Block until `text` is on screen. With since=True, block until it
+    appears MORE times than it already does right now — the way to wait for
+    a repeated prompt or verdict without matching the stale one above it."""
     start = time.monotonic()
     deadline = start + timeout
-    last = ""
+    last = _screen(session)
+    baseline = last.count(text) if since else 0
     while time.monotonic() < deadline:
-        last = _screen(session)
-        if text in last:
+        if last.count(text) > baseline:
             return {"fired": "text", "elapsed": round(time.monotonic() - start, 3)}
         time.sleep(0.4)
+        last = _screen(session)
     return {"fired": None, "timeout": timeout, "screen": last}
 
 

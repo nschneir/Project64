@@ -27,6 +27,12 @@ def test_wait_requires_exactly_one_condition():
     assert r.exit_code == 1 and r2.exit_code == 1
 
 
+def test_wait_since_rejected_without_text():
+    r = CliRunner().invoke(main, ["wait", "--mem", "$1000=1", "--since"])
+    assert r.exit_code == 1
+    assert "--since only applies to --text" in r.output
+
+
 def test_wait_text_fires():
     fake, mon = _fake()
     with patch("c64lib.cli.Session") as S, \
@@ -48,6 +54,18 @@ def test_wait_text_timeout_includes_screen():
         r = CliRunner().invoke(main, ["--json", "wait", "--text", "NEVER", "--timeout", "0.5"])
     assert r.exit_code == 1
     assert "STUCK" in json.loads(r.output)["error"]
+
+
+def test_wait_text_since_forwarded_to_wait_for_text():
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_text",
+               return_value={"fired": "text", "elapsed": 0.1}) as wft:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--text", "TOO HIGH",
+                                      "--since", "--timeout", "5"])
+    assert r.exit_code == 0, r.output
+    wft.assert_called_once_with(fake, "TOO HIGH", 5.0, since=True)
 
 
 def test_wait_mem_fires():

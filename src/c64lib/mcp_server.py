@@ -398,12 +398,14 @@ def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
 
 
 @srv.tool()
-def c64_wait_text(text: str, timeout: float = 30.0,
+def c64_wait_text(text: str, timeout: float = 30.0, since: bool = False,
                   session: str | None = None) -> dict:
     """Block until TEXT appears on the screen. A timeout returns
     {"fired": null, "screen": ...} (not an error) so you can inspect what
-    the program actually displayed."""
-    return wait_for_text(_attach(session), text, timeout)
+    the program actually displayed.
+    since=True fires only on an occurrence appearing after the call starts —
+    use it for a prompt or verdict that repeats."""
+    return wait_for_text(_attach(session), text, timeout, since=since)
 
 
 @srv.tool()

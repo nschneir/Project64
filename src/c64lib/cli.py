@@ -997,10 +997,14 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
               default=None,
               help="Wait for a checkpoint hit; give an ID to wait for that "
                    "checkpoint only (leftover breakpoints can't intercept).")
+@click.option("--since", is_flag=True,
+              help="With --text: fire only on an occurrence appearing AFTER "
+                   "this command starts, so a repeated prompt or verdict "
+                   "does not match the stale one already on screen.")
 @click.option("--timeout", default=30.0, show_default=True,
               help="Give up after this many seconds.")
 @click.pass_context
-def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
+def wait_cmd(ctx, text_cond, mem_cond, break_cond, since, timeout):
     """Block until exactly one condition fires; report which one.
 
     Give exactly one of --text, --mem, or --break. This is the primary
@@ -1008,6 +1012,9 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
     """
     if sum(bool(x) for x in (text_cond, mem_cond, break_cond)) != 1:
         fail(ctx, "give exactly one of --text, --mem, --break")
+        return
+    if since and not text_cond:
+        fail(ctx, "--since only applies to --text")
         return
     s = attach(ctx)
     labels = session_labels(s)
@@ -1031,7 +1038,7 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
         return
 
     if text_cond:
-        out = wait_for_text(s, text_cond, timeout)
+        out = wait_for_text(s, text_cond, timeout, since=since)
         if out["fired"]:
             emit(ctx, {"fired": "text", "elapsed": out["elapsed"]}, "text condition met")
             return

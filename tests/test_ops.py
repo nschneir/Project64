@@ -2,6 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from c64lib import ops
 from c64lib.monitor import StopInfo
 from c64lib.ops import parse_number, parse_ref, run_until, wait_for_break, wait_for_text
 from c64lib.protocol import CP_EXEC, Checkpoint
@@ -71,6 +72,21 @@ def test_wait_for_text_fires_and_times_out():
          patch("c64lib.ops.time.sleep"):
         out2 = wait_for_text(s2, "Never", timeout=0.3)
     assert out2["fired"] is None and "STUCK" in out2["screen"]
+
+
+def test_wait_for_text_since_ignores_the_existing_occurrence(monkeypatch):
+    screens = iter(["TOO HIGH", "TOO HIGH", "TOO HIGH\nTOO HIGH"])
+    monkeypatch.setattr(ops, "_screen", lambda s: next(screens))
+    monkeypatch.setattr(ops.time, "sleep", lambda _: None)
+    out = ops.wait_for_text(object(), "TOO HIGH", timeout=5, since=True)
+    assert out["fired"] == "text"
+
+
+def test_wait_for_text_without_since_matches_stale_text(monkeypatch):
+    monkeypatch.setattr(ops, "_screen", lambda s: "TOO HIGH")
+    monkeypatch.setattr(ops.time, "sleep", lambda _: None)
+    out = ops.wait_for_text(object(), "TOO HIGH", timeout=5)
+    assert out["fired"] == "text"
 
 
 def test_wait_for_break_already_hit():

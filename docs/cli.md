@@ -417,6 +417,12 @@ Block until exactly one condition fires; reports which one. This is the primary
 synchronization primitive for scripted use.
 
 - `--text STR` — wait until STR appears on the screen.
+- `--since` — with `--text`, fire only when the string appears *more times*
+  than it did when the command started. Screen output persists, so a
+  repeated prompt (`YOUR GUESS?`) or verdict (`TOO HIGH`) otherwise matches
+  the stale copy already on screen and returns instantly. On a screen that
+  scrolls the count can stay flat as an old copy scrolls off; anchor on a
+  cell there instead (`c64 wait --mem '@6,0=20'`).
 - `--mem ADDR=VALUE` — wait until the byte at ADDR equals VALUE (e.g.
   `'$1000=42'`).
 - `--break [CK_ID]` — wait until a checkpoint fires; **leaves the machine
@@ -766,6 +772,7 @@ steps:
   - wait:   { text: "READY." }              # screen text appears
   - key:    "run\n"                         # type keys (\n = RETURN)
   - wait:   { text: "HELLO", timeout: 5 }   # per-step timeout override
+  - wait:   { text: "TOO LOW", since: true }  # only a NEW occurrence counts
   - wait:   { mem: "$1000", equals: 42 }    # byte reaches a value
   - until:  { ref: mainloop, count: 3 }     # frame-step to a label; the
                                             #   machine STAYS stopped there

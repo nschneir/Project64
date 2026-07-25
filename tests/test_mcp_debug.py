@@ -97,6 +97,17 @@ def test_wait_text_timeout_not_error():
     assert out["fired"] is None and "STUCK" in out["screen"]
 
 
+def test_wait_text_since_forwarded():
+    s, mon = _fake()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.wait_for_text",
+               return_value={"fired": "text", "elapsed": 0.1}) as wft:
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_text", {"text": "TOO HIGH", "since": True})
+    assert err is False and out["fired"] == "text"
+    wft.assert_called_once_with(s, "TOO HIGH", 30.0, since=True)
+
+
 def test_until_timeout_error_is_loud():
     s, _ = _fake()
     with patch("c64lib.mcp_server.Session") as S, \
