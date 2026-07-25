@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from c64lib.build import build_asm
 from c64lib.cart_build import build_cart, wrap_prg
 from c64lib.cartridge import cart_info, cart_verify
 
@@ -162,3 +163,72 @@ def test_wrapping_an_assembly_program_uses_the_ml_path(tmp_path):
     res = wrap_prg(src, cart_type="8k", title="WRAPML")
     assert res["kind"] == "ml"
     assert cart_verify(res["crt"]) == []
+
+
+# The layout skills/6502-assembly documents and both reference programs use:
+# a BASIC `10 SYS 2061` stub at $0801 ahead of the code.
+CANONICAL_ASM = """\
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+        .segment "CODE"
+start:  lda     #1
+        sta     $0400
+        jmp     start
+"""
+
+
+@needs_build
+def test_wrapping_a_sys_stub_assembly_program_runs_it_through_basic(tmp_path):
+    """The canonical .s layout must not be jumped into directly.
+
+    `jmp $0801` would land on the BASIC line-link bytes ($0B $08 $0A $00) and
+    execute them as code — a silently dead cartridge that `cart_verify` still
+    calls fine. The SYS stub has to be reached through the interpreter.
+    """
+    src = tmp_path / "canon.s"
+    src.write_text(CANONICAL_ASM)
+    res = wrap_prg(src, cart_type="8k", title="CANON")
+    assert res["kind"] == "basic"
+    assert cart_verify(res["crt"]) == []
+    # The embedded image must survive .incbin byte-for-byte: a wrong offset
+    # here is invisible to every other assertion.
+    body = build_asm(src, out_prg=tmp_path / "canon.prg").prg.read_bytes()[2:]
+    assert body.startswith(bytes([0x0B, 0x08, 0x0A, 0x00, 0x9E]))
+    assert body in Path(res["bin"]).read_bytes()
+
+
+@needs_build
+def test_a_built_prg_and_its_source_agree_on_the_wrap_kind(tmp_path):
+    """Wrapping foo.s and wrapping the foo.prg it builds must not disagree."""
+    src = tmp_path / "canon.s"
+    src.write_text(CANONICAL_ASM)
+    prg = build_asm(src, out_prg=tmp_path / "canon.prg").prg
+    from_source = wrap_prg(src, out=tmp_path / "a.crt", title="A")
+    from_prg = wrap_prg(prg, out=tmp_path / "b.crt", title="B")
+    assert from_source["kind"] == from_prg["kind"] == "basic"
+
+
+@needs_build
+def test_a_9000_byte_program_wraps_into_the_full_16k_window(tmp_path):
+    """The 8k rejection points at --cart-type 16k, so 16k has to actually work.
+
+    A 16K wrap gets one contiguous $8000-$BFFF area: binding the launcher to
+    ROML only would cap it at 8K and make that hint a lie.
+    """
+    prg = tmp_path / "big.prg"
+    body = bytes(range(256)) * 35 + bytes(40)       # 9000 bytes, not $FF-heavy
+    assert len(body) == 9000
+    prg.write_bytes(bytes([0x00, 0xC0]) + body)     # loads at $C000 -> ml path
+    res = wrap_prg(prg, cart_type="16k", title="BIG16")
+    assert res["kind"] == "ml" and res["load_addr"] == 0xC000
+    assert cart_verify(res["crt"]) == []
+    assert Path(res["bin"]).stat().st_size == 0x4000
+    assert body in Path(res["bin"]).read_bytes()
+    # `free` must describe the whole 16K, not just ROML.
+    assert res["bytes"] > 0x2000
+    assert res["bytes"] + res["free"] == 0x4000

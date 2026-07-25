@@ -119,6 +119,36 @@ def cart_linker_config(cart_type: str) -> str:
         "with an EasyFlash manifest instead")
 
 
+def wrap_linker_config(cart_type: str) -> str:
+    """Linker config for the wrap path: one contiguous ROM area.
+
+    A wrapped program is a single STARTUP segment — launcher code immediately
+    followed by the `.incbin`'d image — so it cannot be split across two
+    windows the way a hand-written cart's segments can. A 16K cartridge maps
+    $8000-$BFFF contiguously and cartconv takes the $4000 image as one CHIP
+    packet, so binding STARTUP to a single $4000 area makes the whole window
+    genuinely usable. Sharing `cart_linker_config` here would cap a 16K wrap at
+    ROML's 8K — turning the 8K rejection's "retry with --cart-type 16k" into a
+    guaranteed linker overflow and overstating `free` by up to 8192 bytes.
+    Native builds keep the split config: their segments can span both windows.
+    """
+    ct = get_cart_type(cart_type)
+    if cart_type not in ("8k", "16k"):
+        raise CartError(
+            f"the wrap path builds 8k and 16k cartridges, not {cart_type!r}")
+    return (
+        "MEMORY {\n"
+        f"{_ZP}\n"
+        f"{_ram_area(RAM_SIZE)}\n"
+        f"    ROM:  file = %O, start = ${ROML_START:04X}, "
+        f"size = ${ct.image_bytes:04X}, fill = yes, fillval = $FF;\n"
+        "}\n"
+        "SEGMENTS {\n"
+        f"{_SEG_COMMON.format(rom='ROM ')}\n"
+        "}\n"
+    )
+
+
 # The reset stub an 8K/16K cartridge boots through. $8000-$8001 is the cold
 # vector, $8002-$8003 the warm/NMI vector, $8004-$8008 the signature the
 # KERNAL reset routine scans for. Without the signature the machine silently
@@ -393,22 +423,17 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
     raw = crt.with_suffix(".bin")
     name = cart_title(title if title is not None else source.stem)
     profile = get_profile(model)
-    ca65 = _find_tool("ca65", "C64_TOOLS_CA65")
-    ld65 = _find_tool("ld65", "C64_TOOLS_LD65")
 
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
         ext = source.suffix.lower()
         if ext == ".prg":
             prg = source
-            kind = "basic" if _looks_like_basic(source, profile.basic_start) else "ml"
         elif ext == ".bas":
             prg = tokenize(source, td / "wrapped.prg", profile.basic_version)
-            kind = "basic"
         elif ext == ".s":
             prg = build_asm(source, out_prg=td / "wrapped.prg",
                             basic_start=profile.basic_start).prg
-            kind = "ml"
         else:
             raise CartError(
                 f"cannot wrap {ext or source.name!r} (use .prg, .bas, or .s)")
@@ -421,6 +446,8 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
         load_addr = int.from_bytes(image[:2], "little")
         body = image[2:]
         prog_end = load_addr + len(body)
+        # Read off the image, never the extension: see _wrap_kind.
+        kind = _wrap_kind(load_addr, body, profile.basic_start)
 
         budget = ct.image_bytes
         if len(body) + 256 > budget:            # 256 ≈ the launcher's own size
@@ -437,10 +464,15 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
         src_path = td / "_launcher.s"
         src_path.write_text(launcher_source(load_addr, prog_end, kind, blob.name))
         obj = td / "_launcher.o"
+        # Looked up here, not at entry: every check above is a validation
+        # error about the input, and must read the same on a machine with no
+        # cc65 installed. Only from this line on is the toolchain the answer.
+        ca65 = _find_tool("ca65", "C64_TOOLS_CA65")
+        ld65 = _find_tool("ld65", "C64_TOOLS_LD65")
         _run([ca65, str(src_path), "-o", str(obj), "-I", str(td),
               "--bin-include-dir", str(td)])
         cfg = td / "cart.cfg"
-        cfg.write_text(cart_linker_config(cart_type))
+        cfg.write_text(wrap_linker_config(cart_type))
         try:
             _run([ld65, "-o", str(raw), "-C", str(cfg), "-Ln", str(labels),
                   str(obj)])
@@ -463,10 +495,33 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
             "wrapped": str(source), "load_addr": load_addr, "kind": kind}
 
 
-def _looks_like_basic(prg: Path, basic_start: int) -> bool:
-    """A .prg loading at the BASIC start is treated as a BASIC program."""
-    head = prg.read_bytes()[:2]
-    return len(head) == 2 and int.from_bytes(head, "little") == basic_start
+# A tokenized BASIC line opens with a 2-byte link to the next line and a
+# 2-byte line number, then the tokens, then a $00 terminator.
+_BASIC_LINE_HEADER = 4
+
+
+def _wrap_kind(load_addr: int, body: bytes, basic_start: int) -> str:
+    """Decide how to launch a wrapped image — from the image, not the filename.
+
+    A program at the BASIC start that opens with a well-formed BASIC line
+    header runs through the interpreter; anything else is entered with a JMP.
+
+    This has to be a content sniff. The repo's canonical .s layout (build.py's
+    EXEHDR segment, both reference programs, the assembly cookbook) emits a
+    `10 SYS 2061` stub at $0801, so its first bytes are the line link — and a
+    `jmp $0801` would execute those as code ($0B $08 is an undocumented opcode,
+    then BRK), leaving a cartridge that is silently dead but passes
+    `cart_verify`. Deciding by extension also made `foo.s` and the `foo.prg`
+    built from it disagree about the very same bytes.
+    """
+    if load_addr != basic_start or len(body) < _BASIC_LINE_HEADER:
+        return "ml"
+    link = int.from_bytes(body[:2], "little")
+    # The link points at the next line: forward, and no further than the end.
+    if not load_addr < link <= load_addr + len(body):
+        return "ml"
+    # Every tokenized line is $00-terminated; a SYS stub carries the $9E token.
+    return "basic" if b"\x00" in body[_BASIC_LINE_HEADER:] else "ml"
 
 
 # --- EasyFlash ------------------------------------------------------------

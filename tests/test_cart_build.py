@@ -2,11 +2,13 @@ import re
 
 import pytest
 
+from c64lib import build as build_mod
 from c64lib.cart_build import (
     EF_JUMPTABLE,
     EF_RESIDENT,
     VECTORS_SIZE,
     _used_bytes,
+    _wrap_kind,
     boot_stub_source,
     cart_linker_config,
     cart_title,
@@ -17,6 +19,7 @@ from c64lib.cart_build import (
     launcher_source,
     load_manifest,
     merge_bank_labels,
+    wrap_linker_config,
     wrap_prg,
 )
 from c64lib.cartridge import CartError
@@ -284,3 +287,67 @@ def test_merge_bank_labels_drops_linker_internals(tmp_path):
     out = merge_bank_labels({(0, "lo"): lbl}, tmp_path / "m.lbl")
     assert "__RAMCODE_LOAD__" not in out.read_text()
     assert ".b00lo_main" in out.read_text()
+
+
+# A `10 SYS 2061` stub as the canonical .s layout emits it: link pointer to
+# $080B, line number 10, the $9E SYS token, "2061", terminator, end-of-program.
+SYS_STUB = bytes([0x0B, 0x08, 0x0A, 0x00, 0x9E]) + b"2061" + b"\x00\x00\x00"
+
+
+def test_a_sys_stub_program_wraps_as_basic_not_ml():
+    """The repo's canonical .s layout puts a BASIC `10 SYS 2061` stub at $0801.
+
+    Jumping straight at $0801 executes the line-link bytes as code ($0B $08 =
+    an undocumented opcode, then BRK) and the cartridge is silently dead, so
+    the kind has to be read off the image rather than the file extension.
+    """
+    assert _wrap_kind(0x0801, SYS_STUB, 0x0801) == "basic"
+
+
+def test_plain_basic_text_wraps_as_basic():
+    body = bytes([0x0D, 0x08, 0x0A, 0x00, 0x99]) + b'"HI"' + b"\x00\x00\x00"
+    assert _wrap_kind(0x0801, body, 0x0801) == "basic"
+
+
+def test_machine_code_at_the_basic_start_wraps_as_ml():
+    # lda #1 / sta $0400 / jmp $0801 — no BASIC line header to be found.
+    body = bytes([0xA9, 0x01, 0x8D, 0x00, 0x04, 0x4C, 0x01, 0x08])
+    assert _wrap_kind(0x0801, body, 0x0801) == "ml"
+
+
+def test_code_away_from_the_basic_start_wraps_as_ml():
+    # Same bytes, loaded at $C000: BASIC cannot run it wherever it looks like.
+    assert _wrap_kind(0xC000, SYS_STUB, 0x0801) == "ml"
+
+
+def test_wrap_config_gives_16k_one_contiguous_window():
+    """The launcher is one STARTUP segment (code immediately followed by the
+    .incbin'd image), so it cannot straddle a ROML/ROMH split. A 16K cart maps
+    $8000-$BFFF contiguously, so the wrap path binds the whole $4000."""
+    cfg = wrap_linker_config("16k")
+    assert "start = $8000, size = $4000" in cfg
+    assert "ROMH" not in cfg
+    # The native config still splits the windows — that path is unchanged.
+    assert "start = $A000, size = $2000" in cart_linker_config("16k")
+
+
+def test_wrap_config_8k_is_a_single_window():
+    cfg = wrap_linker_config("8k")
+    assert "start = $8000, size = $2000" in cfg
+    assert "fill = yes, fillval = $FF" in cfg
+
+
+def test_wrap_validation_errors_do_not_need_the_toolchain(tmp_path, monkeypatch):
+    """A malformed or oversized input is a validation error, not an environment
+    error: it must report itself the same way on a machine without cc65."""
+    monkeypatch.setattr(build_mod.shutil, "which", lambda _name: None)
+    monkeypatch.delenv("C64_TOOLS_CA65", raising=False)
+    monkeypatch.delenv("C64_TOOLS_LD65", raising=False)
+    truncated = tmp_path / "t.prg"
+    truncated.write_bytes(b"\x01")
+    with pytest.raises(CartError, match="load address"):
+        wrap_prg(truncated, cart_type="8k", title="T")
+    big = tmp_path / "big.prg"
+    big.write_bytes(bytes([0x01, 0x08]) + b"\x00" * 9000)
+    with pytest.raises(CartError, match="--cart-type 16k"):
+        wrap_prg(big, cart_type="8k", title="BIG")
