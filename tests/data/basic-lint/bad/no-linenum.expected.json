@@ -1,0 +1,2 @@
+{"expect": [{"line": null, "severity": "warning", "rule": "E10"}],
+ "_verified": "petcat invents a number — an unnumbered line between 10 and 30 became line 12 and the program ran (VICE x64sc, 2026-07-24)"}

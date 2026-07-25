@@ -1,0 +1,2 @@
+{"expect": [{"line": 64000, "severity": "warning", "rule": "E11"}],
+ "_verified": "loads and RUNs clean; only the screen editor refuses >63999 (VICE x64sc, 2026-07-24)"}

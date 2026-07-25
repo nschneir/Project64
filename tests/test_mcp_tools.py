@@ -297,3 +297,20 @@ def test_test_run_and_programs(tmp_path):
         err, out = call_tool("c64_test_programs", {"directory": str(tmp_path)})
     assert err is False and out["passed"] is True and len(out["tests"]) == 1
     pt.assert_called_once_with(d)
+
+
+def test_basic_check_returns_the_cli_payload(tmp_path):
+    src = tmp_path / "bad.bas"
+    src.write_text("10 goto 999\n")
+    is_error, data = call_tool("c64_basic_check", {"source_path": str(src)})
+    assert not is_error, data
+    assert data["errors"] == 1 and data["warnings"] == 0
+    assert data["issues"][0]["rule"] == "E20"
+    assert data["tokenized_bytes"] == 12
+
+
+def test_basic_check_clean_program(tmp_path):
+    src = tmp_path / "ok.bas"
+    src.write_text('10 print "hi"\n20 goto 10\n')
+    is_error, data = call_tool("c64_basic_check", {"source_path": str(src)})
+    assert not is_error and data["issues"] == []

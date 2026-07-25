@@ -1,0 +1,4 @@
+{"expect": [{"line": 10, "severity": "error", "rule": "E154"},
+            {"line": 20, "severity": "error", "rule": "E154"},
+            {"line": 30, "severity": "error", "rule": "E154"}],
+ "_verified": "?TYPE MISMATCH ERROR IN 10 (VICE x64sc, 2026-07-24)"}

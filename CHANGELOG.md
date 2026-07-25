@@ -6,6 +6,25 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [Unreleased]
+
+### Added
+- **`c64 basic check`** (with MCP parity as `c64_basic_check`) — static lint
+  for BASIC V2 that models the real cruncher, so crunched code parses
+  correctly and keyword fusion is caught: `total=5` tokenizes as `TO TAL=5`
+  on a C64 and cannot run. Also checks jump targets, `IF`/`THEN` shape,
+  parentheses, `FOR`/`NEXT` and `GOSUB`/`RETURN` structure, reachability,
+  constant hardware ranges, simple type mismatches, `DEF FN` definitions,
+  V2 vocabulary, two-character variable aliasing, and exact program size
+  against the 38911 free bytes. `--json` reports `tokenized_bytes`.
+- `c64lib.basic_tokens` — a cruncher-faithful BASIC V2 tokenizer whose byte
+  sizes are checked against real petcat output, so a program's loaded size
+  is computed exactly rather than estimated.
+- Fixture corpus under `tests/data/basic-lint/`, plus a gate asserting every
+  known-good BASIC program in the repo (example programs and the cookbook
+  recipes) lints error-free. Each bad fixture records the failure a real
+  C64 produces, observed on VICE.
+
 ## [0.2.0] — 2026-07-22
 
 Sprite tooling — the graphics/sprites spec implemented.

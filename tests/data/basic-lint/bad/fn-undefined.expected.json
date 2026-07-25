@@ -1,0 +1,2 @@
+{"expect": [{"line": 10, "severity": "error", "rule": "E140"}],
+ "_verified": "?UNDEF'D FUNCTION ERROR IN 10 (VICE x64sc, 2026-07-24)"}

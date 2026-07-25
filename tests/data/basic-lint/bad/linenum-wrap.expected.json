@@ -1,0 +1,2 @@
+{"expect": [{"line": 70000, "severity": "error", "rule": "E11"}],
+ "_verified": "petcat wrapped it to line 4464 — a different program (VICE x64sc, 2026-07-24)"}
