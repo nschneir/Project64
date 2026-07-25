@@ -126,3 +126,73 @@ def test_data_items_are_immune_to_fusion_checks():
 
 def test_rem_text_is_immune():
     assert lint_source("10 rem total score\n20 end\n") == []
+
+
+def test_goto_to_a_missing_line():
+    assert rules("10 goto 999\n") == [(10, "error", "E20")]
+
+
+def test_then_number_is_a_jump_target():
+    assert rules("10 ifathen999\n") == [(10, "error", "E20")]
+
+
+def test_on_goto_checks_every_target():
+    # Line 20 returns, so the ON list entry is a well-formed subroutine.
+    src = "10 on a gosub 20,999\n20 return\n"
+    assert rules(src) == [(10, "error", "E20")]
+
+
+def test_goto_without_a_target():
+    assert rules("10 goto\n") == [(10, "error", "E21")]
+
+
+def test_on_without_goto_or_gosub():
+    assert rules("10 on a print 5\n") == [(10, "error", "E22")]
+
+
+def test_negative_constant_selector():
+    assert rules("10 on -1 goto 20\n20 end\n") == [(10, "error", "E23")]
+
+
+def test_selector_beyond_the_target_list():
+    assert rules("10 on 4 goto 20,30\n20 end\n30 end\n") == [(10, "warning", "W50")]
+
+
+def test_next_without_for():
+    assert rules("10 next\n") == [(10, "error", "E130")]
+
+
+def test_for_without_next():
+    assert rules("10 fori=1to10\n20 end\n") == [(10, "warning", "W131")]
+
+
+def test_next_variable_mismatch():
+    src = "10 fori=1to2\n20 forj=1to2\n30 nexti\n40 nextj\n"
+    assert (30, "warning", "W130") in rules(src)
+
+
+def test_return_with_no_gosub():
+    assert (10, "warning", "W140") in rules("10 return\n")
+
+
+def test_gosub_target_with_no_return():
+    src = '10 gosub 100\n20 end\n100 print "x"\n110 end\n'
+    assert (100, "warning", "W141") in rules(src)
+
+
+def test_unreachable_line():
+    assert rules('10 goto 30\n20 print "dead"\n30 end\n') == [(20, "warning", "W70")]
+
+
+def test_gosub_falls_through():
+    assert lint_source('10 gosub 100\n20 print "back"\n30 end\n'
+                       '100 x=1:return\n') == []
+
+
+def test_trailing_if_never_terminates_the_line():
+    # `130 if k$="q" then end` must not make the next line unreachable.
+    assert lint_source('10 get k$\n20 if k$="q" then end\n30 goto 10\n') == []
+
+
+def test_data_after_end_is_not_unreachable():
+    assert lint_source('10 read a:print a\n20 end\n30 data 1,2,3\n') == []

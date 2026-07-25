@@ -291,7 +291,156 @@ def _check_shape(prog: Program) -> list[LintIssue]:
     return out
 
 
-_CHECKS = (_check_line_length, _check_size, _check_shape)
+_JUMPS = ("goto", "gosub", "run", "then")
+_TERMINATORS = ("end", "stop", "return")
+
+
+def _targets(stmt: list[Token]) -> list[tuple[Token, int]]:
+    """(keyword token, line number) for every literal jump in the statement —
+    `goto n`, `gosub n`, `run n`, `then n`, and every entry of an ON list."""
+    out = []
+    for k, t in enumerate(stmt):
+        if t.kind != "KEYWORD" or t.text not in _JUMPS:
+            continue
+        j = k + 1
+        while j < len(stmt) and stmt[j].kind == "NUMBER":
+            out.append((t, int(float(stmt[j].text))))
+            j += 1
+            if j < len(stmt) and stmt[j].kind == "OP" and stmt[j].text == ",":
+                j += 1
+            else:
+                break
+    return out
+
+
+def _check_flow(prog: Program) -> list[LintIssue]:
+    out = []
+    for line in prog.lines:
+        for stmt in line.statements:
+            for tok, n in _targets(stmt):
+                if n not in prog.by_number:
+                    out.append(LintIssue(line.number, "error", "E20",
+                                         f"{tok.text} target {n} does not exist"))
+            for k, t in enumerate(stmt):
+                if t.kind == "KEYWORD" and t.text in ("goto", "gosub") \
+                        and (k + 1 >= len(stmt) or stmt[k + 1].kind != "NUMBER"):
+                    out.append(LintIssue(line.number, "error", "E21",
+                                         f"{t.text} without target"))
+            if any(t.kind == "KEYWORD" and t.text == "on" for t in stmt):
+                out.extend(_check_on(line, stmt))
+    return out
+
+
+def _check_on(line: Line, stmt: list[Token]) -> list[LintIssue]:
+    k = next(i for i, t in enumerate(stmt) if t.kind == "KEYWORD" and t.text == "on")
+    tail = stmt[k + 1:]
+    if not any(t.kind == "KEYWORD" and t.text in ("goto", "gosub") for t in tail):
+        return [LintIssue(line.number, "error", "E22", "on without goto/gosub")]
+    # Constant selector: `on <literal> goto ...` (a leading '-' is its own OP).
+    sel = None
+    if len(tail) > 1 and tail[0].kind == "OP" and tail[0].text == "-" \
+            and tail[1].kind == "NUMBER":
+        sel = -int(float(tail[1].text))
+    elif tail and tail[0].kind == "NUMBER":
+        sel = int(float(tail[0].text))
+    if sel is None:
+        return []
+    if sel < 0:
+        return [LintIssue(line.number, "error", "E23",
+                          f"on selector {sel} is negative (?illegal quantity error)")]
+    count = len(_targets(stmt))
+    if sel > count:
+        return [LintIssue(line.number, "warning", "W50",
+                          f"on selector {sel} exceeds {count} targets")]
+    return []
+
+
+def _check_loops(prog: Program) -> list[LintIssue]:
+    """Program-order heuristics. Only NEXT-with-nothing-open is impossible;
+    flow can legitimately leave a loop or a subroutine, so the rest warn."""
+    out, stack = [], []                        # stack of (var, line number)
+    has_gosub = any(t.kind == "KEYWORD" and t.text == "gosub"
+                    for ln in prog.lines for t in ln.tokens)
+    for line in prog.lines:
+        for stmt in line.statements:
+            head = _head(stmt)
+            if head == "for":
+                var = next((t.text for t in stmt[1:] if t.kind == "IDENT"), "")
+                stack.append((var, line.number))
+            elif head == "next":
+                names = [t.text for t in stmt[1:] if t.kind == "IDENT"] or [""]
+                for name in names:              # `next k,j` closes two loops
+                    if not stack:
+                        out.append(LintIssue(line.number, "error", "E130",
+                                             "next without for"))
+                        continue
+                    var, at = stack.pop()
+                    if name and name != var:
+                        out.append(LintIssue(line.number, "warning", "W130",
+                                             f"next {name} does not match for "
+                                             f"{var} (line {at})"))
+            elif head == "return" and not has_gosub:
+                out.append(LintIssue(line.number, "warning", "W140",
+                                     "return with no gosub in program"))
+    for var, at in stack:
+        out.append(LintIssue(at, "warning", "W131",
+                             f"for {var} (line {at}) has no next"))
+    out.extend(_check_subroutines(prog))
+    return out
+
+
+def _check_subroutines(prog: Program) -> list[LintIssue]:
+    """W141: a GOSUB target with no RETURN at or after it anywhere."""
+    out = []
+    targets = {n for line in prog.lines for stmt in line.statements
+               for tok, n in _targets(stmt) if tok.text == "gosub"}
+    for n in sorted(targets & set(prog.by_number)):
+        later = [ln for ln in prog.lines if ln.number >= n]
+        if not any(t.kind == "KEYWORD" and t.text == "return"
+                   for ln in later for t in ln.tokens):
+            out.append(LintIssue(n, "warning", "W141",
+                                 f"subroutine at {n} has no return"))
+    return out
+
+
+def _check_reach(prog: Program) -> list[LintIssue]:
+    """W70. Edges: fallthrough (unless the line ends in an UNCONDITIONAL
+    goto/end/stop/return), plus every literal jump target. GOSUB also falls
+    through — execution comes back."""
+    if not prog.lines:
+        return []
+    order = [ln.number for ln in prog.lines]
+    edges: dict[int, set[int]] = {n: set() for n in order}
+    for idx, line in enumerate(prog.lines):
+        n = line.number
+        last = line.statements[-1] if line.statements else []
+        head = _head(last) if last else None
+        # An IF anywhere on the line makes everything after it conditional,
+        # so `130 if k$="q" then print "bye" : end` still falls through.
+        conditional = any(_head(s) == "if" for s in line.statements)
+        terminal = not conditional and (head == "goto" or head in _TERMINATORS)
+        if not terminal and idx + 1 < len(order):
+            edges[n].add(order[idx + 1])
+        for stmt in line.statements:
+            for _tok, target in _targets(stmt):
+                if target in edges:
+                    edges[n].add(target)
+    seen, stack = set(), [order[0]]
+    while stack:
+        n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        stack.extend(edges.get(n, ()))
+    # DATA/REM-only lines are not code — a DATA block after END is idiomatic.
+    inert = {ln.number for ln in prog.lines
+             if all(_head(s) in ("data", "rem") for s in ln.statements)}
+    return [LintIssue(n, "warning", "W70", "unreachable line")
+            for n in order if n not in seen and n not in inert]
+
+
+_CHECKS = (_check_line_length, _check_size, _check_shape, _check_flow,
+           _check_loops, _check_reach)
 
 
 def lint_source(text: str) -> list[LintIssue]:
