@@ -322,7 +322,9 @@ def screen_cmd(ctx, png_path, scale, border, codes_, style, ansi_reverse,
     Printing the screen is the preferred way to observe program output.
     Graphics decode to Unicode box/block/shape glyphs (mazes and sprites
     read naturally); --style ascii restores the conservative legacy
-    mapping. Does not disturb run/stop state.
+    mapping. --numbered adds row indices and a column ruler, so @row,col
+    references can be read straight off the output. Does not disturb
+    run/stop state.
     """
     s = attach(ctx)
     with s.monitor() as mon:

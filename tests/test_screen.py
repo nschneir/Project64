@@ -1,7 +1,9 @@
-from unittest.mock import Mock
+from dataclasses import replace
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
+from c64lib import mcp_server
 from c64lib.machines import get_profile
 from c64lib.screen import number_screen_text, read_screen_text, save_screenshot_png
 
@@ -95,3 +97,59 @@ def test_save_screenshot_png_scale(tmp_path):
     assert img.getpixel((3, 0)) == (0, 255, 0)
     assert img.getpixel((5, 2)) == (0, 255, 0)
     assert img.getpixel((2, 2)) == (0, 0, 0)
+
+
+def _fake_session(cols: int):
+    """A session whose profile is NOT 40 columns wide, so a hardcoded 40
+    anywhere on the screen path shows up as a wrong ruler."""
+    fake = Mock()
+    fake.name, fake.model = "wide", "wide"
+    fake.profile = replace(get_profile("c64"), screen_cols=cols)
+    mon = Mock()
+    fake.monitor.return_value.__enter__ = Mock(return_value=mon)
+    fake.monitor.return_value.__exit__ = Mock(return_value=False)
+    return fake, mon
+
+
+def _numbering_spy(seen: dict):
+    def spy(text, cols=40):
+        seen["cols"] = cols
+        return number_screen_text(text, cols)
+    return spy
+
+
+def test_cli_numbered_uses_profile_screen_cols():
+    """`c64 screen --numbered` must number against the machine profile's
+    width, not number_screen_text's 40-column default."""
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+
+    fake, mon = _fake_session(22)
+    seen: dict = {}
+    with patch("c64lib.cli.Session") as S, \
+            patch("c64lib.cli.read_screen_text", return_value="HI\nTHERE"), \
+            patch("c64lib.cli.number_screen_text",
+                  side_effect=_numbering_spy(seen)):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["screen", "--numbered"])
+    assert r.exit_code == 0, r.output
+    assert seen["cols"] == 22                       # profile value, not 40
+    assert r.output.splitlines()[0] == "   " + "0123456789" * 2 + "01"
+    mon.release.assert_called_once()
+
+
+def test_mcp_screen_text_numbered_uses_profile_screen_cols():
+    """Same threading through the MCP tool, which numbers outside the
+    monitor block."""
+    fake, mon = _fake_session(22)
+    seen: dict = {}
+    with patch("c64lib.mcp_server.Session") as S, \
+            patch("c64lib.mcp_server.read_screen_text", return_value="HI"), \
+            patch("c64lib.mcp_server.number_screen_text",
+                  side_effect=_numbering_spy(seen)):
+        S.attach.return_value = fake
+        out = mcp_server.c64_screen_text(numbered=True)
+    assert seen["cols"] == 22                       # profile value, not 40
+    assert out["text"].splitlines()[0] == "   " + "0123456789" * 2 + "01"
+    mon.release.assert_called_once()
