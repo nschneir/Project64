@@ -162,8 +162,10 @@ tools describe themselves.
 [`demos/`](demos/) is a set of ready-to-paste prompts, graded from a first
 BASIC program through a sprite bouncing ball and a machine-level debug hunt
 up to the flagships: a full arcade Snake in 6502 assembly (title screen,
-levels, SID sound, high score) and an arcade-faithful Invaders with
-sprites, three-voice sound, waves, and a packaged disk image. To use one:
+levels, SID sound, high score), an arcade-faithful Invaders with sprites,
+three-voice sound, waves, and a packaged disk image, and a bitmap-graphics
+demo that paints rotating shapes to a SID arrangement of the 1812 Overture.
+To use one:
 
 1. Set up your agent (one section up — or use any shell agent with no setup).
 2. Open a demo file and copy its prompt.

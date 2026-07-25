@@ -19,8 +19,10 @@ exposes the same operations; see the README.
     before the subcommand.
   - `--version` — print `c64 <version>` and exit. Must come before the
     subcommand.
-  - `--help` — print usage and exit. Works on every command and group, in
-    either position (e.g. `c64 session start --help`).
+  - `--help` — print usage and exit. Works on every command and group, but
+    always describes the level it is typed at: `c64 session start --help`
+    documents that command, while `c64 --help session start` prints the
+    top-level help. `c64 help session start` is the subcommand spelling.
 - **Numbers.** Address and value arguments accept `$hex` (e.g. `$0400`),
   `0xhex`, or decimal. Where a label file is registered on the session (via
   `c64 build`/`c64 run` of assembly, or `c64 load --symbols`), a **symbol
@@ -223,8 +225,10 @@ preserved.
 
 Print LENGTH (default 1) byte values at ADDR in decimal — bare,
 space-separated, pipe-friendly (`[ $(c64 mem get score) -gt 0 ]`). JSON:
-`{"addr": N, "values": [ints]}`. ADDR is `$hex`/`0x`/decimal or a symbol
-from the loaded label file. Does not disturb run/stop state. (MCP note:
+`{"addr": N, "values": [ints]}`. ADDR takes everything the rest of the CLI
+does — `$hex`/`0x`/decimal, a symbol from the loaded label file,
+`symbol+offset`, or a screen cell `@row,col`. Does not disturb run/stop
+state. (MCP note:
 there is deliberately no `c64_mem_get` tool — `c64_mem_read` already
 returns a decimal `bytes` array.)
 

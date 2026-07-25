@@ -142,8 +142,11 @@ class JsonAwareGroup(click.Group):
 @click.group(cls=JsonAwareGroup)
 @click.version_option(__version__, "--version", prog_name="c64",
                       message="%(prog)s %(version)s")
-@click.option("--json", "json_out", is_flag=True, help="Machine-readable JSON output.")
-@click.option("--session", "-s", "session_name", default=None, help="Target session name.")
+@click.option("--json", "json_out", is_flag=True,
+              help="Machine-readable JSON output. Accepted here or after the "
+                   "subcommand (`c64 screen --json`).")
+@click.option("--session", "-s", "session_name", default=None,
+              help="Target session name. Must come before the subcommand.")
 @click.pass_context
 def main(ctx: click.Context, json_out: bool, session_name: str | None) -> None:
     """c64-tools: develop and debug Commodore 64 software on VICE."""
@@ -718,7 +721,12 @@ def load_cmd(ctx, prg, do_run, symbols):
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
 def run_cmd(ctx, source):
-    """Build/tokenize SOURCE as needed, then load and RUN it."""
+    """Build/tokenize SOURCE as needed, then load and RUN it.
+
+    `.bas` is tokenized, `.s` is assembled and its labels registered on the
+    session (so symbols work in later commands), `.prg` is loaded directly.
+    Leaves the machine running.
+    """
     s = attach(ctx)
     src = source.resolve()
     ext = src.suffix.lower()
@@ -1233,7 +1241,11 @@ def rom_info(ctx):
 @click.argument("length", default="32")
 @click.pass_context
 def rom_disasm(ctx, start, length):
-    """Disassemble live memory with ROM + session label annotations."""
+    """Disassemble live memory with ROM + session label annotations.
+
+    START is an address or symbol (e.g. CHROUT); LENGTH defaults to 32
+    bytes. Does not disturb run/stop state.
+    """
     s = attach(ctx)
     labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
     addr = resolve_ref(ctx, labels, start, session=s)
@@ -1274,7 +1286,11 @@ def _emit_test_results(ctx, results) -> None:
 @click.argument("yaml_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
 def test_run(ctx, yaml_file):
-    """Run one YAML test file (spec §8 format)."""
+    """Run one YAML test file (format documented in docs/cli.md).
+
+    Boots its own fresh headless+warp session, loads the program, then runs
+    the wait/key/poke/until/call/assert steps fail-fast. Exit 1 if it fails.
+    """
     try:
         spec = load_test(yaml_file)
         result = run_test(spec)
@@ -1289,7 +1305,11 @@ def test_run(ctx, yaml_file):
                 type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.pass_context
 def test_programs(ctx, directory):
-    """Run every example program in DIRECTORY as a generated test."""
+    """Run every example program in DIRECTORY as a generated test.
+
+    DIRECTORY defaults to `tests/programs`; an example program is any
+    subdirectory holding an `expect.txt`. Exit 1 if any program fails.
+    """
     program_dirs = sorted(d for d in directory.iterdir() if (d / "expect.txt").exists())
     if not program_dirs:
         fail(ctx, f"no example programs found in {directory}")

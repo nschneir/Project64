@@ -17,10 +17,11 @@ They're graded — start at 01 if you're new:
 | 06 | [Invaders](invaders/) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | 🔲 awaiting C64 dogfood |
 | 07 | [1812](1812/) | 6502 assembly | Spec→plan→build, bitmap mode, rotating polygon rasterizer, 3-voice SID | 🔲 awaiting C64 dogfood |
 
-These prompts were ported from the PET edition of this project, where each
+Demos 01–06 were ported from the PET edition of this project, where each
 passed a real dogfooding run (an agent given only the toolset built and
-verified the result). The C64 ports await their own dogfooding runs — a
-prompt's status flips to ✅ only when a real agent run passes on the C64.
+verified the result); 07 was written for the C64. The ports still marked 🔲
+await their own dogfooding runs — a prompt's status flips to ✅ only when a
+real agent run passes on the C64.
 Graphics and sprite expectations follow docs/superpowers/specs/graphics-and-sprites.md.
 
 Reference example programs with expected output (runnable as regression tests

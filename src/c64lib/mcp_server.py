@@ -655,7 +655,8 @@ def c64_rom_disasm(start: str, length: int = 32,
 
 @srv.tool()
 def c64_test_run(yaml_file: str) -> dict:
-    """Run a declarative YAML test (boots its own fresh C64; see spec §8)."""
+    """Run a declarative YAML test (boots its own fresh C64; the file
+    format is documented in docs/cli.md under `c64 test run`)."""
     return run_test(load_test(Path(yaml_file))).to_dict()
 
 
