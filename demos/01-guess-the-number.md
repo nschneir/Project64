@@ -14,12 +14,12 @@ Paste this prompt into your agent:
 **What success looks like:** the agent boots a session, writes lowercase
 BASIC source, checks it with `c64 basic check`, runs it, drives a round with
 `c64 key type` plus `c64 wait --text ... --since` (a bare `--text` wait
-matches the *previous* `TOO HIGH` still on screen), and finishes with:
-
-- a screen containing `YOU GOT IT`, shown via `c64 screen`;
-- the recolor proved from the registers — `c64 mem read '$D020' 2` shows
-  `f0 fb` for black-on-dark-grey, because VIC-II color registers are 4-bit
-  and read back with the high nybble set;
-- a `c64 screen --png shot.png --border --scale 2` screenshot. `--border`
-  matters: without it the capture is the 320x200 inner screen only and the
-  border color is cropped out.
+matches the *previous* `TOO HIGH` still on screen), and finishes on a screen
+containing `YOU GOT IT` as shown by `c64 screen`, with the recolor proved
+from the registers rather than the picture — `c64 mem read '$D020' 2` reads
+back whichever pair of colors the agent picked, say `f0 fb` for a black
+border on a dark-grey background, because VIC-II color registers are 4-bit
+and read back with the high nybble set — plus a
+`c64 screen --png shot.png --border --scale 2` screenshot, where `--border`
+matters because without it the capture is the 320x200 inner screen only and
+the border color is cropped out.
