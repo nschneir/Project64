@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from c64lib.build import build_asm
-from c64lib.session import Session, _pid_alive
+from c64lib.session import Session, _pid_alive, sessions_dir
 from c64lib.symbols import load_labels
 from tests.test_integration_debug import HOT_LOOP
 from tests.vice_helpers import wait_for_text
@@ -28,7 +28,8 @@ pytestmark = [
 
 
 @pytest.fixture
-def session(tmp_path, monkeypatch):
+def own_session(tmp_path, monkeypatch):
+    """A private emulator, for the tests that damage the one they run on."""
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     s = Session.launch(model="c64", name="dmntest", headless=True, warp=True)
     wait_for_text(s, "READY.")
@@ -36,10 +37,10 @@ def session(tmp_path, monkeypatch):
     s.stop()
 
 
-def test_daemon_spawned_and_recorded(session, tmp_path):
+def test_daemon_spawned_and_recorded(session):
     assert session.daemon_pid and _pid_alive(session.daemon_pid)
     assert session.socket and Path(session.socket).exists()
-    rec = json.loads((tmp_path / "sessions" / "dmntest.json").read_text())
+    rec = json.loads((sessions_dir() / f"{session.name}.json").read_text())
     assert rec["daemon_pid"] == session.daemon_pid
     assert rec["socket"] == session.socket
 
@@ -58,7 +59,10 @@ def test_stopped_state_survives_across_ipc_connections(session):
         mon.resume()                     # leave it running for teardown
 
 
-def test_daemon_crash_respawns_with_warning(session, capsys):
+def test_daemon_crash_respawns_with_warning(own_session, capsys):
+    """Its own emulator: SIGKILLing the daemon is not something to inflict on
+    a session other tests share."""
+    session = own_session
     old = session.daemon_pid
     os.kill(old, signal.SIGKILL)
     time.sleep(0.3)
