@@ -1057,8 +1057,9 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
                    "checkpoint only (leftover breakpoints can't intercept).")
 @click.option("--since", is_flag=True,
               help="With --text: fire only on an occurrence appearing AFTER "
-                   "this command starts, so a repeated prompt or verdict "
-                   "does not match the stale one already on screen.")
+                   "this command starts. For a gapped appearance; an instant "
+                   "reply can print first and be swallowed by the baseline — "
+                   "anchor a cell with --mem '@row,col' for turn-by-turn play.")
 @click.option("--timeout", default=30.0, show_default=True,
               help="Give up after this many seconds.")
 @click.pass_context

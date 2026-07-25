@@ -34,7 +34,8 @@ Driving interactive programs — the gaps a demo-01 dogfooding run turned up.
 
 ### Fixed
 - **`c64 key type` decodes a literal `\n` — the two characters backslash and
-  n — as RETURN** (MCP: `c64_key_type`, and YAML `key:` steps). `--help`,
+  n — as RETURN** (MCP: `c64_key_type`; YAML `key:` steps already decode
+  `\n` at the YAML layer in double-quoted strings). `--help`,
   `docs/cli.md` and the cookbook all documented `c64 key type "50\n"` as
   typing 50 and pressing RETURN, but shell double quotes pass backslash-n
   through untouched, so the screen got `50\N` and an `INPUT` stayed blocked.

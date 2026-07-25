@@ -411,7 +411,9 @@ def c64_wait_text(text: str, timeout: float = 30.0, since: bool = False,
     {"fired": null, "screen": ...} (not an error) so you can inspect what
     the program actually displayed.
     since=True fires only on an occurrence appearing after the call starts —
-    use it for a prompt or verdict that repeats."""
+    use it when a real gap separates the trigger from the appearance; an
+    instant reply can print before the call samples its baseline, so for
+    turn-by-turn prompts anchor a cell with c64_wait_mem instead."""
     return wait_for_text(_attach(session), text, timeout, since=since)
 
 
