@@ -15,6 +15,8 @@ from . import __version__
 from .basic import BasicError, detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import BuildError, build_asm
+from .cart_build import build_easyflash
+from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
 from .disk import DiskError, create_image, get_file, list_files, put_file
 from .machines import get_profile
@@ -188,15 +190,19 @@ def session() -> None:
 @click.option("--warp", is_flag=True,
               help="Run at maximum speed — recommended for automation.")
 @click.option("--disk", "disk8", default=None, help="Attach a d64/d71/d81 image to drive 8.")
+@click.option("--cart", "cart", default=None,
+              help="Attach a .crt cartridge at power-on.")
 @click.pass_context
-def session_start(ctx, model, name, headless, warp, disk8):
+def session_start(ctx, model, name, headless, warp, disk8, cart):
     """Boot a fresh emulated C64 and start its monitor daemon.
 
     Leaves the machine running; reports the new session's name, model, pid,
-    and monitor port.
+    and monitor port. A cartridge is mapped at power-on, so `--cart` boots
+    straight into it — there is nothing to load afterwards.
     """
     try:
-        s = Session.launch(model=model, name=name, headless=headless, warp=warp, disk8=disk8)
+        s = Session.launch(model=model, name=name, headless=headless, warp=warp,
+                           disk8=disk8, cart=cart)
     except (SessionError, DiskError, KeyError) as e:
         fail(ctx, str(e))
         return
@@ -582,11 +588,21 @@ def build_cmd(ctx, source, output, model):
 @click.option("--title", default=None,
               help="CBM file/disk name (uppercased, max 16 chars; defaults "
                    "to the source stem).")
+@click.option("--format", "fmt", type=click.Choice(["prg", "crt"]), default=None,
+              help="Artifact format; defaults to the output extension "
+                   "(.prg, .d64/.d71/.d81, or .crt).")
+@click.option("--cart-type", type=click.Choice(["8k", "16k", "ultimax"]),
+              default="8k", show_default=True,
+              help="Cartridge geometry for --format crt. --wrap needs 8k "
+                   "for anything BASIC has to start.")
+@click.option("--wrap", is_flag=True,
+              help="Force launcher-stub mode: assemble SOURCE to a .prg first, "
+                   "then wrap it, instead of building cart-native code.")
 @click.option("--model", default="c64", show_default=True,
               help="Target model — selects the BASIC load address and is "
                    "pinned in the reported run command.")
 @click.pass_context
-def package_cmd(ctx, source, output, title, model):
+def package_cmd(ctx, source, output, title, fmt, cart_type, wrap, model):
     """Package SOURCE into an artifact any VICE user can run.
 
     The reported run command pins the model: stock x64sc boots its own
@@ -594,9 +610,17 @@ def package_cmd(ctx, source, output, title, model):
     (-ntsc / -pal) explicitly.
     """
     try:
-        res = package_program(source, out=output, title=title, model=model)
-    except (BuildError, BasicError, DiskError, PackageError, KeyError) as e:
+        res = package_program(source, out=output, title=title, model=model,
+                              fmt=fmt, cart_type=cart_type, wrap=wrap)
+    except (BuildError, BasicError, DiskError, PackageError, CartError,
+            KeyError) as e:
         fail(ctx, str(e))
+        return
+    if res.get("cart_type"):
+        emit(ctx, res,
+             f"packaged {res['title']!r} -> {res['crt']} "
+             f"({res['bytes']:,} bytes used, {res['free']:,} free)\n"
+             f"run it with: {res['run']}")
         return
     emit(ctx, res,
          f"packaged {res['title']!r} -> {res['image'] or res['prg']}\n"
@@ -724,12 +748,35 @@ def run_cmd(ctx, source):
     """Build/tokenize SOURCE as needed, then load and RUN it.
 
     `.bas` is tokenized, `.s` is assembled and its labels registered on the
-    session (so symbols work in later commands), `.prg` is loaded directly.
+    session (so symbols work in later commands), `.prg` is loaded directly,
+    and a `.crt` reboots the session with the cartridge attached.
     Leaves the machine running.
     """
-    s = attach(ctx)
     src = source.resolve()
     ext = src.suffix.lower()
+    if ext == ".crt":
+        # A cartridge is mapped at power-on, so "running" one means booting a
+        # fresh session with it attached rather than loading into this one.
+        try:
+            old = Session.attach(ctx.obj["session"])
+            name, model = old.name, old.model
+            old.stop()
+        except SessionError:
+            name, model = None, "c64"
+        try:
+            new = Session.launch(model=model, name=name, headless=False,
+                                 warp=False, cart=str(src))
+        except (SessionError, KeyError) as e:
+            fail(ctx, str(e))
+            return
+        lbl = src.with_suffix(".lbl")
+        if lbl.exists():
+            new.set_labels_path(str(lbl))
+        emit(ctx, {"cart": str(src), "session": new.name, "model": new.model,
+                   "symbols": str(lbl) if lbl.exists() else None},
+             f"booted {new.name} with {src} attached")
+        return
+    s = attach(ctx)
     labels = None
     deps: tuple = ()
     try:
@@ -741,7 +788,9 @@ def run_cmd(ctx, source):
             res = build_asm(src, basic_start=s.profile.basic_start)
             prg, labels, deps = res.prg, res.labels, res.deps
         else:
-            fail(ctx, f"don't know how to run {ext!r} files (use .bas, .s, or .prg)")
+            fail(ctx,
+                 f"don't know how to run {ext!r} files "
+                 "(use .bas, .s, .prg, or .crt)")
             return
     except (BasicError, BuildError) as e:
         msg = str(e)
@@ -1212,6 +1261,147 @@ def disk_boot(ctx, image):
         finally:
             mon.resume()
     emit(ctx, {"booted": str(image.resolve())}, f"booting {image}")
+
+
+@main.group()
+def cart() -> None:
+    """Build, inspect, and debug .crt cartridge images."""
+
+
+@cart.command("build")
+@click.argument("manifest", type=click.Path(exists=True, dir_okay=False,
+                                            path_type=Path))
+@click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
+              default=None, help="Output .crt path (defaults next to MANIFEST).")
+@click.pass_context
+def cart_build(ctx, manifest, output):
+    """Build a multi-bank EasyFlash .crt from an .ef.yaml MANIFEST.
+
+    Every window is exactly 8192 bytes; a window that overflows is a hard
+    error naming the bank and the overflow amount. The per-bank fill table is
+    always reported. Offline; no session.
+    """
+    try:
+        res = build_easyflash(manifest, out=output)
+    except (CartError, BuildError) as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, res, f"{res['fill']}\nbuilt {res['crt']}\nrun it with: {res['run']}")
+
+
+@cart.command("info")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.pass_context
+def cart_info_cmd(ctx, file):
+    """Decode a .crt header and every CHIP packet (offline; no session)."""
+    try:
+        info = cart_info(file)
+    except CartError as e:
+        fail(ctx, str(e))
+        return
+    rows = [f"{info['name']}  {info['hardware_name']} (id {info['hardware']})",
+            f"mode {info['mode']}  exrom={info['exrom']} game={info['game']}  "
+            f"crt v{info['version']}",
+            "bank window addr   size",
+            *[f"{c['bank']:>4} {c['window']:>6} {c['load_addr']} {c['size']:>6}"
+              for c in info["chips"]],
+            f"{len(info['chips'])} packet(s), {info['total_bytes']:,} bytes"]
+    emit(ctx, info, "\n".join(rows))
+
+
+@cart.command("verify")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.pass_context
+def cart_verify_cmd(ctx, file):
+    """Check that a .crt should actually boot.
+
+    Catches the silent failures: no CBM80 signature (the machine just boots to
+    BASIC), a cold or reset vector pointing outside the cartridge, a wrong
+    image size, and an EasyFlash image with no bank 0 HIROM window. Exits 1
+    with a reason per problem. Offline; no session.
+    """
+    try:
+        reasons = cart_verify(file)
+    except CartError as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, {"path": str(file), "ok": not reasons, "reasons": reasons},
+         "ok" if not reasons else "\n".join(reasons))
+    if reasons:
+        sys.exit(1)
+
+
+@cart.command("dump")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--bank", type=int, default=0, show_default=True,
+              help="Bank number to extract.")
+@click.option("--window", type=click.Choice(["lo", "hi"]), default="lo",
+              show_default=True, help="lo = $8000, hi = $A000/$E000.")
+@click.option("-o", "--output", required=True,
+              type=click.Path(dir_okay=False, path_type=Path),
+              help="Where to write the raw window bytes.")
+@click.pass_context
+def cart_dump_cmd(ctx, file, bank, window, output):
+    """Extract one bank window's bytes for offline disassembly."""
+    try:
+        data = cart_dump(file, bank, window)
+    except CartError as e:
+        fail(ctx, str(e))
+        return
+    output.write_bytes(data)
+    emit(ctx, {"path": str(output), "bank": bank, "window": window,
+               "bytes": len(data)},
+         f"wrote {len(data):,} bytes of bank {bank} {window} to {output}")
+
+
+@cart.command("bank")
+@click.pass_context
+def cart_bank(ctx):
+    """Report live EasyFlash state: bank register, mode register, memory mode.
+
+    VICE lets these registers be read back; on real EasyFlash hardware they
+    are write-only, so treat this as a debugging aid, not a program interface.
+    """
+    s = attach(ctx)
+    with s.monitor() as mon:
+        try:
+            regs = mon.memory_read(0xDE00, 3)
+        finally:
+            mon.release()          # an inspection command: never resume a halt
+    bank_reg, mode_reg = regs[0], regs[2]
+    mode = {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}.get(mode_reg, "unknown")
+    emit(ctx, {"bank": bank_reg, "de00": f"${bank_reg:02X}",
+               "de02": f"${mode_reg:02X}", "mode": mode,
+               "led": bool(mode_reg & 0x80)},
+         f"bank {bank_reg}  $DE00=${bank_reg:02X}  $DE02=${mode_reg:02X}  "
+         f"mode {mode}")
+
+
+@cart.command("convert")
+@click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--type", "cart_type", default=None,
+              help="cartconv type id or name (see `cartconv --types`).")
+@click.option("--name", default=None, help="Cartridge name for the .crt header.")
+@click.pass_context
+def cart_convert(ctx, source, output, cart_type, name):
+    """Convert between raw .bin and .crt with VICE's cartconv.
+
+    The escape hatch for cartridge types this tool does not model natively.
+    """
+    args = ["-i", str(source), "-o", str(output)]
+    if cart_type:
+        args += ["-t", cart_type]
+    if name:
+        args += ["-n", name]
+    try:
+        out = run_cartconv(args)
+    except CartError as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, {"source": str(source), "output": str(output),
+               "cartconv": out.strip()},
+         f"converted {source} -> {output}")
 
 
 @main.group()

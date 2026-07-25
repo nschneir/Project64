@@ -71,6 +71,8 @@ Boot a fresh emulated C64.
 - `--headless` — suppress the VICE window (video/audio dummied).
 - `--warp` — run at maximum speed (recommended for automation).
 - `--disk PATH` — attach a `.d64`/`.d71`/`.d81` image to drive 8 at boot.
+- `--cart PATH` — attach a `.crt` cartridge at power-on. The machine boots
+  straight into it; there is nothing to load afterwards.
 
 Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port"}`. Machine left running.
@@ -476,19 +478,42 @@ JSON: `{"prg", "labels"}`. No session required.
 
 ### `c64 package`
 
-Package a program into an artifact any VICE user can run — a bare `.prg`, or
-a disk image with the program as its first (autostart) file. Pure file
-operation; no session required.
+Package a program into an artifact any VICE user can run — a bare `.prg`, a
+disk image with the program as its first (autostart) file, or a bootable
+cartridge. Pure file operation; no session required.
 
 - `SOURCE` — a `.s`, `.bas`, or `.prg` file (assembled/tokenized as needed).
 - `-o, --output PATH` — the artifact; the extension picks the format:
   `.d64`/`.d71`/`.d81` build the `.prg` and write it to a fresh image
-  (the `.prg` is kept beside it); `.prg` (or omitted) builds just the
-  program file. Existing outputs are overwritten.
+  (the `.prg` is kept beside it); `.crt` builds a cartridge; `.prg` (or
+  omitted) builds just the program file. Existing outputs are overwritten.
 - `--title NAME` — the CBM file/disk name (uppercased, max 16 characters;
-  defaults to the source stem).
+  defaults to the source stem). For a cartridge it is the `.crt` name field
+  (up to 32 characters).
+- `--format prg|crt` — pick the format explicitly instead of by extension
+  (disk images are always chosen by extension).
+- `--cart-type 8k|16k|ultimax` (default `8k`) — cartridge geometry, for
+  `--format crt` only.
+- `--wrap` — force launcher-stub mode: build `SOURCE` to a `.prg` first, then
+  wrap it in a launcher cartridge, instead of building cart-native code.
 - `--model MODEL` (default `c64`) — selects the BASIC load address and
   is pinned in the reported run command.
+
+**Cartridges.** A `.s` is treated as cart-native code (it owns the boot
+sequence: export `cart_main`, or supply your own `STARTUP` segment) unless
+`--wrap` says otherwise; a `.bas` or `.prg` is always wrapped, because an
+existing program has to be copied down to its load address and started. The
+`8k` and `16k` geometries are **not** interchangeable for `--wrap`: a 16K
+cartridge maps ROM over `$8000-$BFFF`, which covers the BASIC interpreter at
+`$A000`, so any program BASIC has to start — a tokenized `.bas`, or the
+`10 SYS` stub the standard `.s` layout emits — must be wrapped as `8k`.
+Wrapping into `ultimax` is rejected outright: the launcher chains through the
+KERNAL, and an Ultimax cartridge replaces it. Multi-bank EasyFlash images
+come from `c64 cart build`, not from here.
+
+Cartridge output is `x64sc -ntsc -cartcrt game.crt`; check it first with
+`c64 cart verify`, which catches the boot failures that are silent on
+hardware.
 
 The recipient needs only stock VICE: `x64sc -ntsc game.d64` (or the
 `.prg`) autostarts it, and from inside the emulator `LOAD"NAME",8` then
@@ -499,7 +524,10 @@ match the profile the program was tested on.
 
 JSON: `{"prg", "image", "title", "run"}` — `run` is the exact command to
 hand to the recipient (model pinned); `image` is `null` for `.prg`-only
-output.
+output. For a cartridge the payload is the cartridge dict instead:
+`{"crt", "bin", "labels", "title", "cart_type", "run", "bytes", "free"}`
+(plus `"wrapped"`, `"load_addr"` and `"kind"` on the `--wrap` path) — `bytes`
+is what the program actually spent and `free` what is left in the window.
 
 ---
 
@@ -580,9 +608,17 @@ Build/tokenize `SOURCE` as needed, then load and RUN it. `.bas` is tokenized,
 `.s` is assembled (its labels are registered on the session automatically),
 `.prg` is loaded directly.
 
-- `SOURCE` — a `.bas`, `.s`, or `.prg` file.
+- `SOURCE` — a `.bas`, `.s`, `.prg`, or `.crt` file.
 
 JSON: `{"source", "prg", "symbols"}`. Machine left running.
+
+**Cartridges.** A `.crt` cannot be loaded into a running machine — it is
+mapped at power-on — so `c64 run game.crt` stops the current session and boots
+a fresh one of the same name and model with the cartridge attached (with no
+session running it boots a `c64`). A `.lbl` beside the `.crt` is registered on
+the new session, so symbols work straight away.
+
+JSON for a `.crt`: `{"cart", "session", "model", "symbols"}`.
 
 ---
 
@@ -629,6 +665,134 @@ JSON: `{"image", "name", "dest"}`.
 Attach an image to the running C64 and LOAD+RUN its first file.
 
 - `IMAGE` — the image file. JSON: `{"booted": PATH}`. Machine left running.
+
+---
+
+## Cartridges
+
+A cartridge is mapped at power-on, not loaded: the machine boots straight into
+it and there is nothing to `LOAD`. Build one with `c64 package --format crt`
+(single-bank) or `c64 cart build` (multi-bank EasyFlash), check it with
+`c64 cart verify`, and boot it with `c64 run game.crt` or
+`c64 session start --cart game.crt`.
+
+### `c64 cart build`
+
+Build a multi-bank EasyFlash `.crt` from an `.ef.yaml` manifest. Offline; no
+session required.
+
+```
+c64 cart build game.ef.yaml
+```
+
+- `MANIFEST` — the `.ef.yaml` file: a cartridge `name` and a `banks` map of
+  bank number to `lo`/`hi` window sources (`.s` files are assembled against
+  that window's own linker config; anything else is included verbatim).
+- `-o, --output PATH` — output `.crt` (defaults next to the manifest).
+
+Every window is exactly 8192 bytes and an overflow is a hard error naming the
+bank, the window, and the overflow amount — never a silent truncation. The
+per-bank fill table is always printed, so a window filling up is visible
+before it overflows. The raw 1 MB image is kept beside the `.crt` as `.bin`,
+and the per-bank label files are merged into one `.lbl` with every symbol
+tagged by bank.
+
+JSON: `{"crt", "bin", "labels", "title", "cart_type", "run", "banks",
+"windows", "fill", "bytes", "free"}`.
+
+### `c64 cart info`
+
+Decode a `.crt` header and every CHIP packet. Offline; no session required —
+the container is parsed directly, with no `cartconv` round trip.
+
+```
+c64 cart info game.crt
+```
+
+- `FILE` — the `.crt` image.
+
+Human output is the cartridge name and hardware type, the memory mode with
+its EXROM/GAME lines, then one row per CHIP packet (bank, window, load
+address, size).
+
+JSON: `{"path", "name", "hardware", "hardware_name", "version", "exrom",
+"game", "mode", "banks", "chips": [{"bank", "window", "load_addr", "size",
+"type", "offset"}], "total_bytes"}`.
+
+### `c64 cart verify`
+
+Check that a `.crt` should actually boot, without an emulator round trip.
+Offline; no session required.
+
+```
+c64 cart verify game.crt
+```
+
+- `FILE` — the `.crt` image.
+
+Catches the failures that are silent on hardware: a missing CBM80 signature
+(the machine boots straight to BASIC and says nothing), a cold or reset vector
+pointing outside the cartridge, a wrong image size, and an EasyFlash image
+with no bank 0 HIROM window — which is where the reset vector lives. Prints
+`ok` and exits 0 when clean, otherwise one line per problem and exit 1. A file
+that is not a `.crt` at all is an error, not a reason.
+
+JSON: `{"path", "ok", "reasons": [...]}`.
+
+### `c64 cart dump`
+
+Extract one bank window's bytes for offline disassembly. Offline; no session
+required.
+
+```
+c64 cart dump game.crt --bank 3 --window hi -o bank3hi.bin
+```
+
+- `FILE` — the `.crt` image.
+- `--bank N` (default `0`) — the bank to extract.
+- `--window lo|hi` (default `lo`) — `lo` is the `$8000` window, `hi` the
+  `$A000` one (the same window an Ultimax cartridge maps at `$E000`).
+- `-o, --output PATH` (required) — where to write the raw window bytes.
+
+Asking for a window the image does not have is an error listing the windows
+it does have.
+
+JSON: `{"path", "bank", "window", "bytes"}`.
+
+### `c64 cart bank`
+
+Report the live EasyFlash state of the running machine: the bank register at
+`$DE00`, the mode register at `$DE02`, and the memory mode they select.
+
+```
+c64 cart bank
+```
+
+VICE lets these registers be read back; on real EasyFlash hardware they are
+write-only, so treat this as a debugging aid, not a program interface. With
+no EasyFlash cartridge mapped, `$DE00`/`$DE02` read back as open bus (`$FF`,
+reported as mode `unknown`) — the command is only meaningful on an EasyFlash
+image. Inspection only — the machine's run/stop state is preserved.
+
+JSON: `{"bank", "de00", "de02", "mode", "led"}`.
+
+### `c64 cart convert`
+
+Convert between a raw `.bin` and a `.crt` with VICE's `cartconv` — the escape
+hatch for cartridge types this tool does not model natively. Offline; no
+session required.
+
+```
+c64 cart convert rom.bin rom.crt --type normal --name "MY CART"
+```
+
+- `SOURCE` — the input file.
+- `OUTPUT` — the output file.
+- `--type TYPE` — a `cartconv` type id or name (see `cartconv --types`).
+- `--name NAME` — the cartridge name written into the `.crt` header.
+
+JSON: `{"source", "output", "cartconv"}` — `cartconv` is the tool's own
+output.
 
 ---
 

@@ -1,12 +1,26 @@
 import json
+import os
+import shutil
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
+from c64lib.cartridge import CartError, cart_info, cart_verify
 from c64lib.cli import main
 from c64lib.packaging import PackageError
 
 SRC = "tests/programs/hello-asm/program.s"
+
+needs_cart_build = pytest.mark.skipif(
+    not all(shutil.which(t) or os.environ.get(f"C64_TOOLS_{t.upper()}")
+            for t in ("ca65", "ld65", "cartconv")),
+    reason="needs the cc65 suite and VICE's cartconv")
+
+CART_RET = {"crt": "g.crt", "bin": "g.bin", "labels": "g.lbl", "title": "G",
+            "cart_type": "8k", "run": "x64sc -ntsc -cartcrt g.crt",
+            "bytes": 300, "free": 7892}
 
 
 def test_package_json_passthrough(tmp_path):
@@ -35,3 +49,68 @@ def test_package_error_is_actionable():
         r = CliRunner().invoke(main, ["--json", "package", SRC])
     assert r.exit_code == 1
     assert "16" in json.loads(r.output)["error"]
+
+
+def test_package_threads_the_cart_options_through(tmp_path):
+    with patch("c64lib.cli.package_program", return_value=CART_RET) as pp:
+        r = CliRunner().invoke(main, [
+            "package", SRC, "-o", str(tmp_path / "g.crt"), "--format", "crt",
+            "--cart-type", "16k", "--wrap"])
+    assert r.exit_code == 0, r.output
+    _, kwargs = pp.call_args
+    assert kwargs["fmt"] == "crt" and kwargs["cart_type"] == "16k"
+    assert kwargs["wrap"] is True
+
+
+def test_package_crt_human_output_reports_the_budget(tmp_path):
+    with patch("c64lib.cli.package_program", return_value=CART_RET):
+        r = CliRunner().invoke(main, ["package", SRC, "-o", str(tmp_path / "g.crt")])
+    assert r.exit_code == 0, r.output
+    assert "g.crt" in r.output and "7,892 free" in r.output
+    assert "x64sc -ntsc -cartcrt g.crt" in r.output
+
+
+def test_package_crt_json_is_the_cartridge_dict(tmp_path):
+    with patch("c64lib.cli.package_program", return_value=CART_RET):
+        r = CliRunner().invoke(main, ["--json", "package", SRC,
+                                      "-o", str(tmp_path / "g.crt")])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output) == CART_RET
+
+
+def test_package_cart_error_is_reported(tmp_path):
+    with patch("c64lib.cli.package_program",
+               side_effect=CartError("a 16K cartridge maps ROM over $A000")):
+        r = CliRunner().invoke(main, ["--json", "package", SRC,
+                                      "-o", str(tmp_path / "g.crt")])
+    assert r.exit_code == 1
+    assert "$A000" in json.loads(r.output)["error"]
+
+
+def test_package_rejects_an_unsupported_format(tmp_path):
+    r = CliRunner().invoke(main, ["package", SRC, "--format", "d64"])
+    assert r.exit_code != 0
+    assert "d64" in r.output
+
+
+@needs_cart_build
+def test_package_wraps_a_program_into_a_bootable_crt(tmp_path):
+    out = tmp_path / "hello.crt"
+    r = CliRunner().invoke(main, ["--json", "package", SRC, "-o", str(out),
+                                  "--wrap", "--title", "HELLO"])
+    assert r.exit_code == 0, r.output
+    data = json.loads(r.output)
+    assert data["cart_type"] == "8k" and data["title"] == "HELLO"
+    assert Path(data["crt"]) == out and out.exists()
+    assert cart_verify(out) == []
+    assert cart_info(out)["name"] == "HELLO"
+
+
+@needs_cart_build
+def test_package_format_crt_infers_the_output_path(tmp_path):
+    src = tmp_path / "hello.s"
+    src.write_text(Path(SRC).read_text())
+    r = CliRunner().invoke(main, ["--json", "package", str(src), "--format", "crt",
+                                  "--wrap"])
+    assert r.exit_code == 0, r.output
+    assert Path(json.loads(r.output)["crt"]) == src.with_suffix(".crt")

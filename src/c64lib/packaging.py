@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .basic import tokenize
 from .build import build_asm
+from .cart_build import build_cart, wrap_prg
 from .disk import IMAGE_DRIVE_TYPES, create_image, put_file
 from .machines import get_profile
 
@@ -39,18 +40,42 @@ def cbm_title(raw: str) -> str:
 
 
 def package_program(source, out=None, title: str | None = None,
-                    model: str = "c64") -> dict:
+                    model: str = "c64", fmt: str | None = None,
+                    cart_type: str = "8k", wrap: bool = False) -> dict:
     """Build SOURCE (.s/.bas/.prg) and package it as OUT.
 
-    OUT's extension picks the format: .prg (default) or .d64/.d71/.d81 (the
-    built .prg is written as the image's first file, plus kept beside it).
-    Returns {"prg", "image", "title", "run"}; `run` is the exact command a
-    recipient uses, `image` is None for .prg-only output. Existing outputs
-    are overwritten."""
+    The format comes from `fmt` when given, otherwise from OUT's extension:
+    .prg (default), .d64/.d71/.d81 (an autostart-first disk image), or .crt
+    (a bootable cartridge). The disk/prg formats return
+    {"prg", "image", "title", "run"} — `run` is the exact command a recipient
+    uses, `image` is None for .prg-only output; .crt returns the cartridge
+    dict from cart_build. Existing outputs are overwritten."""
     source = Path(source)
+    out = Path(out) if out is not None else None
+    if fmt is None and out is not None and out.suffix.lower() == ".crt":
+        fmt = "crt"
+    if fmt == "crt":
+        crt_out = out if out is not None else source.with_suffix(".crt")
+        # A .s is cartridge-native code unless --wrap says otherwise; anything
+        # else is an existing program the launcher stub has to copy down.
+        if source.suffix.lower() == ".s" and not wrap:
+            # build_cart takes no model: cart-native code owns its own boot
+            # sequence and never touches the BASIC start address.
+            return build_cart(source, out=crt_out, cart_type=cart_type,
+                              title=title)
+        return wrap_prg(source, out=crt_out, cart_type=cart_type, title=title,
+                        model=model)
+    if fmt not in (None, "prg"):
+        raise PackageError(
+            f"unsupported format {fmt!r} (use 'prg' or 'crt', or pick a disk "
+            "image by output extension)")
+    if wrap:
+        raise PackageError(
+            "wrap only applies to cartridges; pass --format crt or name a "
+            ".crt output")
     profile = get_profile(model)
     t = cbm_title(title if title is not None else source.stem)
-    out = Path(out) if out is not None else source.with_suffix(".prg")
+    out = out if out is not None else source.with_suffix(".prg")
     ext = out.suffix.lower()
     if ext == ".prg":
         image, prg_path = None, out

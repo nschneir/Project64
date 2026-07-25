@@ -3,6 +3,7 @@
 import os
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -95,3 +96,42 @@ def test_packaged_disk_boots_live(tmp_path, monkeypatch):
         wait_for_text(s, "HELLO FROM ASM", timeout=45.0)
     finally:
         s.stop()
+
+
+def test_crt_format_comes_from_the_output_extension(tmp_path):
+    """A .crt output picks the cartridge path without an explicit --format."""
+    out = tmp_path / "hello.crt"
+    with patch("c64lib.packaging.build_cart", return_value={"crt": str(out)}) as bc:
+        assert package_program(HELLO_ASM, out=out)["crt"] == str(out)
+    bc.assert_called_once_with(Path(HELLO_ASM), out=out, cart_type="8k",
+                               title=None)
+
+
+def test_wrap_sends_a_native_source_down_the_launcher_path(tmp_path):
+    out = tmp_path / "hello.crt"
+    with patch("c64lib.packaging.wrap_prg", return_value={"crt": str(out)}) as wp:
+        package_program(HELLO_ASM, out=out, wrap=True, cart_type="16k",
+                        model="c64pal")
+    wp.assert_called_once_with(Path(HELLO_ASM), out=out, cart_type="16k",
+                               title=None, model="c64pal")
+
+
+def test_a_prg_source_is_always_wrapped(tmp_path):
+    prg = tmp_path / "game.prg"
+    prg.write_bytes(b"\x01\x08rest")
+    with patch("c64lib.packaging.wrap_prg", return_value={"crt": "g.crt"}) as wp:
+        package_program(prg, fmt="crt")
+    wp.assert_called_once_with(prg, out=prg.with_suffix(".crt"), cart_type="8k",
+                               title=None, model="c64")
+
+
+def test_wrap_without_a_cartridge_format_is_an_error(tmp_path):
+    with pytest.raises(PackageError) as e:
+        package_program(HELLO_ASM, out=tmp_path / "x.prg", wrap=True)
+    assert "--format crt" in str(e.value)
+
+
+def test_unknown_format_names_the_supported_ones(tmp_path):
+    with pytest.raises(PackageError) as e:
+        package_program(HELLO_ASM, out=tmp_path / "x.prg", fmt="tap")
+    assert "'prg'" in str(e.value) and "'crt'" in str(e.value)

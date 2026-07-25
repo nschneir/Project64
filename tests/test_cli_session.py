@@ -32,7 +32,8 @@ def test_session_start_json():
     out = json.loads(r.output)
     assert out["name"] == "c64" and out["port"] == 6502
     S.launch.assert_called_once_with(
-        model="c64", name=None, headless=False, warp=False, disk8=None
+        model="c64", name=None, headless=False, warp=False, disk8=None,
+        cart=None
     )
 
 
@@ -109,7 +110,8 @@ def test_session_start_dash_s_alias():
         r = CliRunner().invoke(main, ["--json", "session", "start", "-s", "snake"])
     assert r.exit_code == 0, r.output
     S.launch.assert_called_once_with(
-        model="c64", name="snake", headless=False, warp=False, disk8=None
+        model="c64", name="snake", headless=False, warp=False, disk8=None,
+        cart=None
     )
 
 
