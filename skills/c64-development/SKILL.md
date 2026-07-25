@@ -199,6 +199,10 @@ source of bugs:
 - A sprite demo that "shows nothing" in `c64 screen` — sprites never appear
   in decoded text. Check `$D015` and positions with `c64 mem read '$D000' 17`
   and capture `c64 screen --png` for the visual.
+- **Reading back a VIC-II color register and comparing to the value you
+  poked.** `$D020`/`$D021` are 4-bit; the high nybble reads as 1s, so
+  `POKE 53280,0` reads back as `$F0`. Mask with `AND $0F`
+  (`mask: { and: "$0f", equals: [0] }` in a YAML test).
 
 ## When something goes wrong — diagnosis table
 
@@ -216,6 +220,7 @@ reproduction, use the `6502-debugging` skill.)
 | `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg`. |
 | Machine appears frozen after debugging | It's stopped (step/finish/until/wait --break leave it stopped) — `c64 continue`. |
 | Program vanished after `c64 run` | Autostart resets the machine first — that's normal; reload anything else you need. |
+| A color register assert fails with `f0 != 00` (or `fb != 0b`) | VIC-II color registers are 4-bit — the high nybble reads as 1s. Mask with `and: "$0f"`. |
 | Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). |
 
 ## When the tooling itself misbehaves

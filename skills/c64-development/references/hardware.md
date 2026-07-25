@@ -149,7 +149,11 @@ Priority and collision gotchas:
   screen `$0400`, uppercase charset. **Leave the screen at `$0400`** — the
   toolset's screen reader assumes it.
 - `$D012` — raster line (read current / write compare for raster IRQ).
-- `$D020` / `$D021` — border / background color (0-15).
+- `$D020` / `$D021` — border / background color (0-15). **These registers
+  are 4 bits wide: reads return the unused high nybble set**, so after
+  `POKE 53280,0` a read of `$D020` gives `$F0`, not `$00`. Mask with
+  `AND $0F` before comparing — in a YAML test that is
+  `assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }`.
 
 Colors: 0 black, 1 white, 2 red, 3 cyan, 4 purple, 5 green, 6 blue,
 7 yellow, 8 orange, 9 brown, 10 light red, 11 dark gray, 12 medium gray,
@@ -178,7 +182,8 @@ bits read-modify-write so you don't clobber the rest of the register:
   11 = the low 3 bits of the cell's color nybble.
 
 Background color registers: `$D021` bg 0, `$D022` bg 1, `$D023` bg 2,
-`$D024` bg 3. A hi-res bitmap at `$2000` overlaps BASIC's variable area —
+`$D024` bg 3 (same 4-bit readback issue as `$D020` / `$D021` above —
+mask with `AND $0F` before comparing). A hi-res bitmap at `$2000` overlaps BASIC's variable area —
 lower the top of BASIC or move the bitmap first.
 
 ## VIC bank and interrupts
