@@ -65,10 +65,10 @@ LIVE_RECIPES = [
     ("basic-prompt-loop", "basic", "guess the number", [
         {"wait": {"text": "YOUR GUESS?"}},
         {"key": "50\n"},
-        # row-anchored, not `wait: {text, since}` — the verdict lands well
-        # inside a single poll interval of the key step, so a since-baseline
-        # taken after the key is already typed races the fresh occurrence
-        # and never sees a second one. See cookbook.md's "Driving it from
+        # row-anchored, not `wait: {text, since}` — the program prints its
+        # verdict before the next step samples its `since` baseline, so the
+        # fresh occurrence is already counted and `since` would wait for a
+        # second one that never comes. See cookbook.md's "Driving it from
         # the CLI" note and tests/programs/guess-the-number/test.yaml.
         {"wait": {"mem": "@6,0", "equals": 20}},        # 20 = screen code 'T'
         {"assert": {"mem": "@6,0", "equals_text": "TOO HIGH"}},
@@ -180,6 +180,12 @@ LIVE_RECIPE_SUBS = {
 def test_every_live_recipe_key_resolves():
     for _name, lang, key, _steps in LIVE_RECIPES:
         _block_by_key(lang, key)
+    # A substitution keyed on a renamed recipe silently stops applying (the
+    # guard below only fires for a recipe that is actually selected), which
+    # would turn a seeded live run back into a coin flip.
+    names = {n for n, _l, _k, _s in LIVE_RECIPES}
+    assert set(LIVE_RECIPE_SUBS) <= names, \
+        f"stale sub keys: {set(LIVE_RECIPE_SUBS) - names}"
 
 
 def _slug(title: str) -> str:

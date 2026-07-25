@@ -99,7 +99,10 @@ and the wait hangs waiting for a second one that never comes. `--since`
 earns its keep on recipes with a real gap between the triggering key and
 the result (an animation, a multi-second countdown); for an instant verdict
 like this one, anchor to the screen cell instead — `wait --mem` polls the
-byte directly, so there's no count to race:
+byte directly, so there's no count to race, provided you anchor the row the
+verdict you are waiting for *will* land on: each turn prints two rows
+further down (6, 8, 10, …), so re-using `@6,0` for the second guess matches
+the first verdict instantly, the same stale-match trap `--text` has:
 
 ```bash
 c64 run guess.bas
