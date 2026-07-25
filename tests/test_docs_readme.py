@@ -9,6 +9,7 @@ from tests.doc_helpers import (
 )
 
 README = Path("README.md")
+AGENT_SETUP = Path("docs/agent-setup.md")
 
 
 def test_install_section_near_top():
@@ -18,30 +19,37 @@ def test_install_section_near_top():
     assert "apt install vice cc65" in text
 
 
-def test_agents_section_covers_the_majors():
+def test_readme_links_the_agent_setup_doc():
     text = README.read_text()
     idx = text.index("## Using with AI coding agents")
-    section = text[idx:]
+    section = text[idx:text.index("\n## ", idx + 1)]
+    assert "docs/agent-setup.md" in section, \
+        "the agents section must link the moved setup doc"
+
+
+def test_agent_setup_covers_the_majors():
+    text = AGENT_SETUP.read_text()
     for agent in ("Claude Code", "Codex", "Cursor", "Gemini", "Antigravity"):
-        assert agent in section, f"agents section missing {agent}"
+        assert agent in text, f"agent setup doc missing {agent}"
     for path in ("CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursor/mcp.json",
                  "config.toml", "mcp_config.json", ".gemini/settings.json"):
-        assert path in section, f"agents section missing {path}"
+        assert path in text, f"agent setup doc missing {path}"
 
 
-def test_readme_mcp_json_snipc64_parses():
-    text = README.read_text()
-    blocks = code_blocks(text, "json")
-    for block in blocks:
+def test_mcp_json_snipc64_parses():
+    readme_blocks = code_blocks(README.read_text(), "json")
+    setup_blocks = code_blocks(AGENT_SETUP.read_text(), "json")
+    for block in readme_blocks + setup_blocks:
         json.loads(block)  # every fenced JSON snippet must be valid
-    assert any("c64-tools-mcp" in b for b in blocks), \
-        "agents section needs a fenced json mcpServers snippet using c64-tools-mcp"
+    assert any("c64-tools-mcp" in b for b in setup_blocks), \
+        "agent setup doc needs a fenced json mcpServers snippet using c64-tools-mcp"
 
 
 def test_readme_c64_commands_exist():
     valid = valid_mention_paths()  # leaf commands plus bare group names
-    unknown = {c for c in mentioned_commands(README.read_text()) if c not in valid}
-    assert not unknown, f"README mentions nonexistent commands: {sorted(unknown)}"
+    for doc in (README, AGENT_SETUP):
+        unknown = {c for c in mentioned_commands(doc.read_text()) if c not in valid}
+        assert not unknown, f"{doc} mentions nonexistent commands: {sorted(unknown)}"
 
 
 def test_supported_machines_table_matches_profiles():

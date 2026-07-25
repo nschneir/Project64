@@ -1,7 +1,7 @@
 # Demos — prompts to try with your AI agent
 
 Each file in this directory is a ready-to-paste prompt for an AI coding agent
-set up with this toolset (see the README's "Using with AI coding agents").
+set up with this toolset (see [docs/agent-setup.md](../docs/agent-setup.md)).
 Paste one into your agent and watch it write, run, and debug real
 Commodore 64 software on the emulated machine.
 
