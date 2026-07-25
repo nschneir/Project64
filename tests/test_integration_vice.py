@@ -20,14 +20,6 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
-def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="c64", name="itest", headless=True, warp=True)
-    yield s
-    s.stop()
-
-
 def test_boots_to_ready(session):
     text = wait_for_text(session, "READY.")
     assert "COMMODORE BASIC" in text or "BASIC" in text

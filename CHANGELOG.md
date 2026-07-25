@@ -6,6 +6,29 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [0.3.1] — 2026-07-25
+
+Test-suite change only — no library, CLI, or MCP behavior changed.
+
+### Changed
+- **Live tests share one emulator.** Each `@pytest.mark.vice` test used to
+  launch its own `x64sc` — 60 per run, each one stealing window focus on
+  macOS. The tests that only need a C64 at the READY prompt now share a
+  single warp+headless session (`tests/conftest.py`), reset between tests:
+  every checkpoint deleted (they survive a machine reset, and a stray
+  non-stopping one crawls the emulator), a hard reset confirmed by a screen
+  sentinel, and the session record's label/loaded-program bookkeeping
+  cleared. Specs run through `run_test` — the cookbook recipes and the YAML
+  runner tests — share it too, via an injected launcher, and stay one test
+  case each. Tests keep their own emulator where sharing would lie:
+  per-model parameterization, anything attaching a disk image (the binary
+  monitor has no detach command), and anything asserting launch or
+  daemon-spawn behavior itself. 60 → 14 launches, 6:07 → 3:27 for a full run.
+- Emulators orphaned by a suite killed before teardown are reaped by the next
+  run: pids are recorded at spawn, and only ones still alive that still look
+  like an emulator or its daemon are killed, so a concurrent run and the
+  developer's own sessions are never touched.
+
 ## [0.3.0] — 2026-07-24
 
 BASIC linting — catch the errors petcat accepts before spending a run cycle.

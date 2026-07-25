@@ -8,7 +8,6 @@ import pytest
 
 from c64lib.basic import tokenize
 from c64lib.build import build_asm
-from c64lib.session import Session
 from c64lib.text import ascii_to_petscii
 from tests.vice_helpers import wait_for_text
 
@@ -21,15 +20,6 @@ pytestmark = [
         reason="x64sc not installed",
     ),
 ]
-
-
-@pytest.fixture
-def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="c64", name="buildtest", headless=True, warp=True)
-    wait_for_text(s, "READY.")
-    yield s
-    s.stop()
 
 
 def _expectations(demo: Path) -> list[str]:
