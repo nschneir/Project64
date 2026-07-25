@@ -176,7 +176,9 @@ preserved.
 
 ### `c64 key type`
 
-Type text into the running C64's keyboard buffer (`\n` = RETURN). Use it to
+Type text into the running C64's keyboard buffer (`\n` = RETURN, whether
+written as a real newline or as the two characters backslash-n; `\\` types
+a literal backslash). Use it to
 answer `INPUT` prompts or drive menus; for typing in whole programs prefer
 `c64 basic type`. Buffered keys never touch the live current-key state at
 `$CB` — to steer a game that reads held keys, use `c64 key hold`.
