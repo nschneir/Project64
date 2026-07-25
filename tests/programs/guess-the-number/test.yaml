@@ -1,0 +1,35 @@
+# Plays a full deterministic round. Line 30 seeds with rnd(-1), so the
+# secret is fixed at 33 and a binary search takes exactly seven guesses.
+#
+# Each verdict is asserted at the row it lands on rather than with a bare
+# `wait: {text: "TOO HIGH"}` — screen output persists, so the same verdict
+# repeats down the screen and a text wait would match the copy above it.
+# Screen code 20 is 'T', the first letter of both verdicts.
+timeout: 45
+steps:
+  - key:    "50\n"
+  - wait:   { mem: "@6,0", equals: 20 }
+  - assert: { mem: "@6,0", equals_text: "TOO HIGH" }
+  - key:    "25\n"
+  - wait:   { mem: "@8,0", equals: 20 }
+  - assert: { mem: "@8,0", equals_text: "TOO LOW" }
+  - key:    "37\n"
+  - wait:   { mem: "@10,0", equals: 20 }
+  - assert: { mem: "@10,0", equals_text: "TOO HIGH" }
+  - key:    "31\n"
+  - wait:   { mem: "@12,0", equals: 20 }
+  - assert: { mem: "@12,0", equals_text: "TOO LOW" }
+  - key:    "34\n"
+  - wait:   { mem: "@14,0", equals: 20 }
+  - assert: { mem: "@14,0", equals_text: "TOO HIGH" }
+  - key:    "32\n"
+  - wait:   { mem: "@16,0", equals: 20 }
+  - assert: { mem: "@16,0", equals_text: "TOO LOW" }
+  - key:    "33\n"
+  - wait:   { text: "YOU GOT IT IN 7 GUESSES!" }
+  # VIC-II color registers are 4 bits wide: reads return the unused high
+  # nybble set, so $D020 reads $F0 after POKE 53280,0. Mask before comparing.
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [11] } }
+  - key:    "n\n"
+  - wait:   { text: "BYE" }
