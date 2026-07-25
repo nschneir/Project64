@@ -73,3 +73,39 @@ def test_key_type_rejects_unmappable_text():
         r = CliRunner().invoke(main, ["key", "type", "café"])   # é has no PETSCII
     assert r.exit_code == 1
     mon.keyboard_feed.assert_not_called()
+
+
+def test_check_clean_program_exits_zero(tmp_path):
+    src = tmp_path / "ok.bas"
+    src.write_text('10 print "hi"\n20 goto 10\n')
+    r = CliRunner().invoke(main, ["basic", "check", str(src)])
+    assert r.exit_code == 0, r.output
+    assert r.output.strip() == "clean"
+
+
+def test_check_reports_errors_and_exits_one(tmp_path):
+    src = tmp_path / "bad.bas"
+    src.write_text("10 goto 999\n")
+    r = CliRunner().invoke(main, ["basic", "check", str(src)])
+    assert r.exit_code == 1
+    assert "ERROR E20: line 10: goto target 999 does not exist" in r.output
+
+
+def test_check_warnings_alone_exit_zero(tmp_path):
+    src = tmp_path / "warn.bas"
+    src.write_text('10 print "oops\n20 end\n')
+    r = CliRunner().invoke(main, ["basic", "check", str(src)])
+    assert r.exit_code == 0, r.output
+    assert "WARNING W40: line 10:" in r.output
+
+
+def test_check_json_payload(tmp_path):
+    src = tmp_path / "bad.bas"
+    src.write_text("10 goto 999\n")
+    r = CliRunner().invoke(main, ["--json", "basic", "check", str(src)])
+    assert r.exit_code == 1
+    data = json.loads(r.output)
+    assert data["errors"] == 1 and data["warnings"] == 0
+    assert data["issues"][0]["rule"] == "E20"
+    # GOTO=1 + space=1 + "999"=3 -> 5 text bytes, +5 line overhead, +2 trailing.
+    assert data["tokenized_bytes"] == 12

@@ -495,6 +495,30 @@ Print a `.prg` back as a BASIC listing.
 
 JSON: `{"listing"}`. No session required.
 
+### `c64 basic check`
+
+Statically check a BASIC V2 source file for the errors `petcat` accepts and
+the C64 rejects at RUN. Offline; no session. **Run it after writing or
+editing BASIC and before `c64 run`** — every issue it finds is an emulator
+round trip saved.
+
+- `SOURCE` — the `.bas` file.
+
+The check models the real BASIC cruncher, so crunched code (`fori=1to10`) is
+parsed correctly and keyword fusion is detected: `total=5` tokenizes as
+`TO TAL = 5` on a C64 and cannot run. Rules have stable IDs — `E…` means the
+program will not run correctly, `W…` means legal but suspect.
+
+Human output is one line per issue
+(`ERROR E20: line 10: goto target 999 does not exist`), or `clean`. Exit
+status is 1 if any error-severity issue was found, 0 otherwise (warnings
+never fail the command).
+
+JSON: `{"issues": [{"line", "severity", "rule", "message"}], "errors",
+"warnings", "tokenized_bytes"}`. `tokenized_bytes` is the exact loaded size
+(the 2-byte load address excluded); C64 BASIC has 38911 bytes free, so it is
+the number to watch as a program grows.
+
 ### `c64 basic type`
 
 Type a BASIC program into the running C64 through the keyboard (exercises the

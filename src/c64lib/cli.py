@@ -6,12 +6,14 @@ from __future__ import annotations
 import json as _json
 import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import click
 
 from . import __version__
 from .basic import BasicError, detokenize, tokenize
+from .basic_lint import lint_source, tokenized_bytes
 from .build import BuildError, build_asm
 from .disasm import disassemble
 from .disk import DiskError, create_image, get_file, list_files, put_file
@@ -582,6 +584,31 @@ def basic_detokenize(ctx, prg, model):
         fail(ctx, str(e))
         return
     emit(ctx, {"listing": listing}, listing.rstrip("\n"))
+
+
+@basic.command("check")
+@click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.pass_context
+def basic_check(ctx, source):
+    """Statically check a BASIC V2 SOURCE for errors petcat accepts.
+
+    Catches keyword fusion (`total=5` really tokenizes as `TO TAL=5`), missing
+    GOTO/GOSUB targets, out-of-range POKEs, non-V2 keywords and oversize
+    programs — before a run cycle. Offline; no session. Exits 1 if any
+    error-severity issue is found.
+    """
+    text = source.read_text()
+    issues = lint_source(text)
+    errors = sum(1 for i in issues if i.severity == "error")
+    lines = [f"{i.severity.upper()} {i.rule}: "
+             f"{'line ' + str(i.line) if i.line is not None else 'file'}: {i.message}"
+             for i in issues]
+    emit(ctx, {"issues": [asdict(i) for i in issues], "errors": errors,
+               "warnings": len(issues) - errors,
+               "tokenized_bytes": tokenized_bytes(text)},
+         "\n".join(lines) if lines else "clean")
+    if errors:
+        sys.exit(1)
 
 
 @basic.command("type")
