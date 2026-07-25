@@ -193,16 +193,15 @@ def test_toc_lists_every_recipe_bidirectionally():
 )
 @pytest.mark.parametrize("name,lang,key,steps",
                          LIVE_RECIPES, ids=[r[0] for r in LIVE_RECIPES])
-def test_cookbook_recipe_runs_live(tmp_path, monkeypatch, name, lang, key, steps):
+def test_cookbook_recipe_runs_live(tmp_path, shared_launch, name, lang, key, steps):
     if lang == "asm" and shutil.which("ca65") is None \
             and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
-    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     src = tmp_path / f"{name}{'.bas' if lang == 'basic' else '.s'}"
     src.write_text(_block_by_key(lang, key))
     spec = {"name": name, "machine": "c64", "timeout": 30,
             "autorun": True, "program": str(src), "steps": steps}
-    result = run_test(spec)
+    result = run_test(spec, launch=shared_launch)
     assert result.passed, [s.detail for s in result.steps] + [result.screen]
 
 

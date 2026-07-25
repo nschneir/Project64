@@ -244,3 +244,25 @@ def session(_shared_c64) -> Session:
     s = _shared_c64.clean()
     yield s
     _shared_c64.clean()
+
+
+class _KeepAlive(Session):
+    """The shared session, handed to code that owns its session's lifetime."""
+
+    def stop(self) -> None:
+        pass                                # it outlives this one test
+
+
+@pytest.fixture
+def shared_launch(session):
+    """A ``launch`` for ``run_test``, which otherwise boots — and stops — an
+    emulator per spec. Specs the shared machine cannot serve (another model,
+    a disk image) still get one of their own.
+    """
+    def launch(model="c64", name=None, headless=False, warp=False, **kwargs):
+        if model != session.model or kwargs.get("disk8"):
+            return Session.launch(model=model, name=name, headless=headless,
+                                  warp=warp, **kwargs)
+        return _KeepAlive(**vars(session))
+
+    return launch
