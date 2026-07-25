@@ -62,6 +62,17 @@ LIVE_RECIPES = [
         {"key": "q"},
         {"wait": {"text": "BYE"}},
     ]),
+    ("basic-prompt-loop", "basic", "guess the number", [
+        {"wait": {"text": "YOUR GUESS?"}},
+        {"key": "50\n"},
+        # row-anchored, not `wait: {text, since}` — the verdict lands well
+        # inside a single poll interval of the key step, so a since-baseline
+        # taken after the key is already typed races the fresh occurrence
+        # and never sees a second one. See cookbook.md's "Driving it from
+        # the CLI" note and tests/programs/guess-the-number/test.yaml.
+        {"wait": {"mem": "@6,0", "equals": 20}},        # 20 = screen code 'T'
+        {"assert": {"mem": "@6,0", "equals_text": "TOO HIGH"}},
+    ]),
     ("basic-poke-stars", "basic", "three stars", [
         {"wait": {"text": "DONE"}},
         # 1024 + 40*5 + 10 = $04D2 holds screen code 42 ('*')
@@ -156,6 +167,15 @@ LIVE_RECIPES = [
     ]),
 ]
 
+# Some recipes seed RND from the jiffy clock (RND(-TI)) so every run deals
+# a different game — great for the docs, useless for an assertion. Keyed by
+# recipe name, (old, new) is substituted into the extracted block before it
+# is written to disk, so the live run is deterministic. See
+# tests/programs/guess-the-number/program.bas for the fixed-seed rationale.
+LIVE_RECIPE_SUBS = {
+    "basic-prompt-loop": ("130 x=rnd(-ti)", "130 x=rnd(-1)"),
+}
+
 
 def test_every_live_recipe_key_resolves():
     for _name, lang, key, _steps in LIVE_RECIPES:
@@ -198,7 +218,13 @@ def test_cookbook_recipe_runs_live(tmp_path, shared_launch, name, lang, key, ste
             and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
     src = tmp_path / f"{name}{'.bas' if lang == 'basic' else '.s'}"
-    src.write_text(_block_by_key(lang, key))
+    text = _block_by_key(lang, key)
+    if name in LIVE_RECIPE_SUBS:
+        old, new = LIVE_RECIPE_SUBS[name]
+        assert old in text, \
+            f"{name}: substitution target {old!r} not found in recipe block"
+        text = text.replace(old, new, 1)
+    src.write_text(text)
     spec = {"name": name, "machine": "c64", "timeout": 30,
             "autorun": True, "program": str(src), "steps": steps}
     result = run_test(spec, launch=shared_launch)

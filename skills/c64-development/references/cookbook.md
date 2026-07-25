@@ -11,6 +11,7 @@ stub).
 
 BASIC:
 - [Game loop: non-blocking key read + jiffy pacing](#game-loop-non-blocking-key-read--jiffy-pacing)
+- [Prompt loop: INPUT, validate, play again](#prompt-loop-input-validate-play-again)
 - [Poke characters at a screen position](#poke-characters-at-a-screen-position)
 - [Sound: a beep subroutine](#sound-a-beep-subroutine)
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
@@ -51,6 +52,68 @@ prints a dot per frame at ~10 frames/second and quits on `Q`:
 
 Line 160 is the pacer: wait until 6 jiffies (1/10 s) have passed since the
 frame started. Lower the 6 for a faster game.
+
+### Prompt loop: INPUT, validate, play again
+
+`INPUT` blocks until RETURN, prints its own `? ` after the prompt string,
+and raises `?REDO FROM START` on non-numeric text typed to a numeric
+variable (BASIC re-asks, so the loop survives it). `RND(1)` returns the
+next value in 0..1 and `INT(RND(1)*N)+1` rolls 1..N — but the sequence is
+identical after every reset, so seed it: `RND(-TI)` for a different game
+each run, `RND(-1)` for a **fixed** sequence you can write a test against.
+
+```basic
+100 rem guess the number
+110 poke 53280,0:poke 53281,11:poke 646,1
+120 print "{clr}"
+130 x=rnd(-ti)
+140 print "    * guess the number *"
+150 print
+160 n=int(rnd(1)*100)+1:c=0
+170 print "i am thinking of a number from 1 to 100"
+180 print
+190 input "your guess";g
+200 c=c+1
+210 if g>n then print "too high":goto 190
+220 if g<n then print "too low":goto 190
+230 print "you got it in";c;"guesses!"
+240 print
+250 input "play again (y/n)";a$
+260 if a$="y" then 120
+270 if a$="n" then print "bye":end
+280 goto 250
+```
+
+Variable names are one or two characters on purpose: `guess` would tokenize
+as fused keywords, and only the first two characters are significant
+anyway. `print "you got it in";c;"guesses!"` needs no extra spaces —
+BASIC prints a numeric value with a leading and trailing space of its own.
+
+**Driving it from the CLI.** Screen output persists, so every prompt and
+verdict repeats on screen; a bare `c64 wait --text "TOO HIGH"` matches the
+copy from three turns ago and returns instantly. `wait --since` only counts
+an occurrence landing *after the wait command starts* — but this loop
+answers in far less than a CLI round-trip, so by the time `--since` takes
+its baseline the fresh "TOO HIGH" is already on screen and already counted,
+and the wait hangs waiting for a second one that never comes. `--since`
+earns its keep on recipes with a real gap between the triggering key and
+the result (an animation, a multi-second countdown); for an instant verdict
+like this one, anchor to the screen cell instead — `wait --mem` polls the
+byte directly, so there's no count to race:
+
+```bash
+c64 run guess.bas
+c64 wait --text "YOUR GUESS?"
+c64 key type "50\n"
+c64 wait --mem "@6,0=20"                 # 20 = screen code 'T' (TOO HIGH/TOO LOW)
+c64 screen --numbered                    # read off @row,col to confirm the verdict
+```
+
+In a YAML test, anchor each verdict to the row it lands on
+(`assert: { mem: "@6,0", equals_text: "TOO HIGH" }`) as
+`tests/programs/guess-the-number/` does — `since: true` has the identical
+race in the step runner, since nothing separates a `key` step from the
+`wait` step that follows it.
 
 ### Poke characters at a screen position
 
