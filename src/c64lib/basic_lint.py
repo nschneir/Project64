@@ -128,7 +128,170 @@ def _check_size(prog: Program) -> list[LintIssue]:
     return []
 
 
-_CHECKS = (_check_line_length, _check_size)
+# Keywords that can never begin a statement. Each is legal in exactly one
+# grammatical context; anywhere else it is a misplacement — and when it is
+# glued to identifier characters, it is keyword fusion (`total=5` -> TO TAL).
+_CLAUSE_KEYWORDS = ("to", "then", "step", "and", "or", "not", "fn", "tab(", "spc(")
+_VAR_LIST_HEADS = ("input", "input#", "read", "get", "next", "dim")
+_VALUE_ENDERS = ("IDENT", "NUMBER", "STRING", "ESCAPE")
+_OPENERS = ("(", "tab(", "spc(")
+
+
+def _head(stmt: list[Token]) -> str | None:
+    return stmt[0].text if stmt[0].kind == "KEYWORD" else None
+
+
+def _ends_value(t: Token | None) -> bool:
+    if t is None:
+        return False
+    return t.kind in _VALUE_ENDERS or (t.kind == "OP" and t.text == ")")
+
+
+def _depths(stmt: list[Token]) -> list[int]:
+    """Paren depth BEFORE each token. `tab(`/`spc(` open a paren too."""
+    out, depth = [], 0
+    for t in stmt:
+        out.append(depth)
+        if t.text in _OPENERS and t.kind in ("OP", "KEYWORD"):
+            depth += 1
+        elif t.kind == "OP" and t.text == ")":
+            depth -= 1
+    return out
+
+
+def _clause_ok(stmt: list[Token], k: int) -> bool:
+    """Does V2's grammar allow this clause keyword here?"""
+    if k == 0:
+        return False                                  # never starts a statement
+    kw, head, prev = stmt[k].text, _head(stmt), stmt[k - 1]
+    before = stmt[1:k]
+    if kw == "to":
+        return head == "for" and any(t.kind == "OP" and t.text == "=" for t in before)
+    if kw == "step":
+        return head == "for" and any(t.kind == "KEYWORD" and t.text == "to"
+                                     for t in before)
+    if kw == "then":
+        return head == "if"
+    if kw in ("and", "or"):
+        return _ends_value(prev)
+    if kw == "not":
+        return not _ends_value(prev)
+    if kw in ("tab(", "spc("):
+        return head in ("print", "print#", "cmd")
+    return True                                       # fn: legal anywhere but 0
+
+
+def _run_around(line: Line, tok: Token) -> str:
+    """The source identifier run the keyword is glued into, e.g. 'total'."""
+    text, start, end = line.text, tok.col, tok.col + len(tok.raw)
+    while start > 0 and (text[start - 1].isalnum() or text[start - 1] in "$%"):
+        start -= 1
+    while end < len(text) and (text[end].isalnum() or text[end] in "$%"):
+        end += 1
+    return text[start:end]
+
+
+def _fusion_message(line: Line, tok: Token) -> str:
+    run = _run_around(line, tok)
+    split = " ".join(t.text.upper() for t in tokenize_line(run))
+    return (f"'{run}' tokenizes as {split} on a C64 — rename the variable "
+            f"(embedded keyword '{tok.text}')")
+
+
+def _misplaced(line: Line, tok: Token, rule: str) -> LintIssue:
+    """Fusion evidence decides severity: glued means it cannot run."""
+    if tok.fused:
+        return LintIssue(line.number, "error", rule, _fusion_message(line, tok))
+    return LintIssue(line.number, "warning", "W110",
+                     f"statement cannot start with '{tok.text}'")
+
+
+def _variable_positions(stmt: list[Token], depths: list[int]) -> list[int]:
+    """Indexes where V2 requires a variable name, so any keyword there is a
+    fusion bug (`input total`, `score=1`, `paint 1,2`)."""
+    head = _head(stmt)
+    eq = next((i for i, t in enumerate(stmt)
+               if depths[i] == 0 and t.kind == "OP" and t.text == "="), None)
+    if head is None or head == "let":                      # assignment
+        start = 1 if head == "let" else 0
+        stop = eq if eq is not None else len(stmt)
+        if eq is None and stop - start == 1 and stmt[start].kind == "IDENT":
+            return []                                      # a lone `10 x`, not fusion
+        return [i for i in range(start, stop) if depths[i] == 0]
+    if head in _VAR_LIST_HEADS:
+        return [i for i in range(1, len(stmt)) if depths[i] == 0]
+    if head == "for":
+        stop = eq if eq is not None else len(stmt)
+        return [i for i in range(1, stop) if depths[i] == 0]
+    return []
+
+
+def _check_statement(line: Line, stmt: list[Token]) -> list[LintIssue]:
+    out, flagged = [], set()
+    depths = _depths(stmt)
+    # E111 first: keywords where the grammar demands a variable name.
+    for k in _variable_positions(stmt, depths):
+        if stmt[k].kind != "KEYWORD":
+            continue
+        flagged.add(k)
+        out.append(_misplaced(line, stmt[k], "E111"))
+    # E110: clause keywords the grammar forbids at this position.
+    for k, tok in enumerate(stmt):
+        if k in flagged or tok.kind != "KEYWORD" or tok.text not in _CLAUSE_KEYWORDS:
+            continue
+        if not _clause_ok(stmt, k):
+            out.append(_misplaced(line, tok, "E110"))
+    out.extend(_check_if(line, stmt))
+    return out
+
+
+def _check_parens(line: Line) -> list[LintIssue]:
+    depth = 0
+    for t in line.tokens:
+        if t.text in _OPENERS and t.kind in ("OP", "KEYWORD"):
+            depth += 1
+        elif t.kind == "OP" and t.text == ")":
+            depth -= 1
+    if depth != 0:
+        return [LintIssue(line.number, "error", "E121", "unbalanced parentheses")]
+    return []
+
+
+def _check_strings(line: Line) -> list[LintIssue]:
+    for t in line.tokens:
+        if t.kind == "STRING" and not (len(t.raw) > 1 and t.raw.endswith('"')):
+            return [LintIssue(line.number, "warning", "W40",
+                              "unterminated string (legal on C64, but check "
+                              "it's intended)")]
+    return []
+
+
+def _check_if(line: Line, stmt: list[Token]) -> list[LintIssue]:
+    """E120/E122. `if x goto 100` is legal V2 — GOTO may replace THEN."""
+    if _head(stmt) != "if":
+        return []
+    kws = [t.text for t in stmt if t.kind == "KEYWORD"]
+    if "then" not in kws and "goto" not in kws:
+        return [LintIssue(line.number, "error", "E120", "if without then or goto")]
+    branch = "then" if "then" in kws else "goto"
+    k = next(i for i, t in enumerate(stmt) if t.kind == "KEYWORD" and t.text == branch)
+    if k == len(stmt) - 1:
+        return [LintIssue(line.number, "error", "E122",
+                          "then with no statement or line number")]
+    return []
+
+
+def _check_shape(prog: Program) -> list[LintIssue]:
+    out = []
+    for line in prog.lines:
+        out.extend(_check_parens(line))
+        out.extend(_check_strings(line))
+        for stmt in line.statements:
+            out.extend(_check_statement(line, stmt))
+    return out
+
+
+_CHECKS = (_check_line_length, _check_size, _check_shape)
 
 
 def lint_source(text: str) -> list[LintIssue]:
