@@ -14,7 +14,8 @@ import re
 from dataclasses import dataclass
 
 BASIC_FREE_BYTES = 38911        # free BASIC RAM on a stock C64
-MAX_LINE_NUMBER = 63999
+MAX_LINE_NUMBER = 63999     # highest the screen editor will accept
+MAX_LINE_WORD = 65535       # highest the 2-byte line-number field can hold
 
 _STATEMENTS = (
     "end for next data input# input dim read let goto run if restore gosub return "

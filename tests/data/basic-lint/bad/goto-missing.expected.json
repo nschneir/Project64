@@ -1,3 +1,4 @@
 {"expect": [{"line": 10, "severity": "error", "rule": "E20"},
             {"line": 20, "severity": "error", "rule": "E20"},
-            {"line": 30, "severity": "error", "rule": "E20"}]}
+            {"line": 30, "severity": "error", "rule": "E20"}],
+ "_verified": "?UNDEF'D STATEMENT ERROR IN 30 (VICE x64sc, 2026-07-24)"}

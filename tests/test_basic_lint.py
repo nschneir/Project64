@@ -9,16 +9,24 @@ def test_clean_program_has_no_issues():
     assert lint_source('10 print "hi"\n20 goto 10\n') == []
 
 
-def test_missing_line_number_is_an_error():
-    assert rules('print "hi"\n') == [(None, "error", "E10")]
+def test_missing_line_number_is_a_warning():
+    # Verified on x64sc: petcat invents a number rather than failing.
+    assert rules('print "hi"\n') == [(None, "warning", "E10")]
 
 
-def test_line_number_out_of_range():
-    assert rules("64000 end\n") == [(64000, "error", "E11")]
+def test_line_number_above_the_editor_limit_is_a_warning():
+    # Verified on x64sc: `64000 end` loads and runs; only the editor refuses it.
+    assert rules("64000 end\n") == [(64000, "warning", "E11")]
+
+
+def test_line_number_that_does_not_fit_the_word_is_an_error():
+    # Verified: petcat wrapped `70000 print "hi"` to line 4464.
+    assert rules('70000 print "hi"\n') == [(70000, "error", "E11")]
 
 
 def test_duplicate_line_number():
-    assert ("error", "E12") in [(s, r) for _, s, r in rules("10 end\n10 end\n")]
+    # Verified on x64sc: both copies run in order; goto reaches only the first.
+    assert ("warning", "E12") in [(s, r) for _, s, r in rules("10 end\n10 end\n")]
 
 
 def test_out_of_order_is_a_warning():
@@ -52,8 +60,8 @@ def test_oversized_program_errors():
 
 
 def test_message_text_names_the_rule_subject():
-    issues = lint_source("64000 end\n")
-    assert issues[0].message == "line number 64000 out of range (0-63999)"
+    issues = lint_source('70000 print "hi"\n')
+    assert issues[0].message == "line number 70000 exceeds 65535 and wraps to 4464"
 
 
 def test_fused_to_at_statement_start_is_an_error():
@@ -100,7 +108,9 @@ def test_if_goto_is_legal():
 
 
 def test_then_with_nothing_after_it():
-    assert rules("10 if a=1 then\n") == [(10, "error", "E122")]
+    # Warning, not error: verified on x64sc — a taken `IF ... THEN` with
+    # nothing after it falls through to the next line without faulting.
+    assert rules("10 if a=1 then\n") == [(10, "warning", "E122")]
 
 
 def test_unbalanced_parens():

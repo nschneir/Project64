@@ -1,2 +1,3 @@
-{"expect": [{"line": 10, "severity": "error", "rule": "E12"},
-            {"line": 5, "severity": "warning", "rule": "W20"}]}
+{"expect": [{"line": 10, "severity": "warning", "rule": "E12"},
+            {"line": 5, "severity": "warning", "rule": "W20"}],
+ "_verified": "RUNs and prints A then B — no fault; goto 10 reaches only the first (VICE x64sc, 2026-07-24)"}

@@ -1,1 +1,2 @@
-{"expect": [{"line": 10, "severity": "error", "rule": "E151"}]}
+{"expect": [{"line": 10, "severity": "error", "rule": "E151"}],
+ "_verified": "?OVERFLOW ERROR IN 10 (VICE x64sc, 2026-07-24)"}

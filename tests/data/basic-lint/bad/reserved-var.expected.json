@@ -1,2 +1,3 @@
 {"expect": [{"line": 10, "severity": "error", "rule": "E152"},
-            {"line": 20, "severity": "error", "rule": "E152"}]}
+            {"line": 20, "severity": "error", "rule": "E152"}],
+ "_verified": "?SYNTAX ERROR IN 10 (VICE x64sc, 2026-07-24)"}

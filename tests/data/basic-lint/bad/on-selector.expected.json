@@ -1,2 +1,3 @@
 {"expect": [{"line": 10, "severity": "warning", "rule": "W50"},
-            {"line": 15, "severity": "error", "rule": "E23"}]}
+            {"line": 15, "severity": "error", "rule": "E23"}],
+ "_verified": "?ILLEGAL QUANTITY ERROR IN 15 (VICE x64sc, 2026-07-24)"}

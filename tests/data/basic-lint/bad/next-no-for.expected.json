@@ -1,1 +1,2 @@
-{"expect": [{"line": 10, "severity": "error", "rule": "E130"}]}
+{"expect": [{"line": 10, "severity": "error", "rule": "E130"}],
+ "_verified": "?NEXT WITHOUT FOR ERROR IN 10 (VICE x64sc, 2026-07-24)"}

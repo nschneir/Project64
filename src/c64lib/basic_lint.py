@@ -18,6 +18,7 @@ from .basic_tokens import (
     BASIC_FREE_BYTES,
     LATER_BASIC,
     MAX_LINE_NUMBER,
+    MAX_LINE_WORD,
     RESERVED_VARS,
     Token,
     merge_tokens,
@@ -75,8 +76,12 @@ def _parse(text: str) -> tuple[Program, list[LintIssue]]:
         while body[len(digits):len(digits) + 1].isdigit():
             digits += body[len(digits)]
         if not digits:
-            issues.append(LintIssue(None, "error", "E10",
-                                    f"missing line number (file line {n})"))
+            # Warning, not error: verified on x64sc 2026-07-24 — petcat
+            # silently INVENTS a number (`print "b"` between 10 and 30 became
+            # line 12) and the program runs. Wrong program, not a crash.
+            issues.append(LintIssue(None, "warning", "E10",
+                                    f"missing line number (file line {n}); "
+                                    "petcat will invent one"))
             continue
         number = int(digits)
         rest = body[len(digits):]
@@ -85,13 +90,25 @@ def _parse(text: str) -> tuple[Program, list[LintIssue]]:
         line = Line(number, rest, raw, n, merged, _split_statements(merged),
                     text_bytes(rest, toks))     # sizes come from UNMERGED tokens
         sizes.append(line.size)
-        if number > MAX_LINE_NUMBER:
+        # Two different failures, verified on x64sc 2026-07-24: a number above
+        # 63999 still LOADs and RUNs (only the screen editor refuses it), but
+        # one above 65535 does not fit the 2-byte field and petcat wraps it —
+        # `70000 print "hi"` came back as line 4464, a different program.
+        if number > MAX_LINE_WORD:
             issues.append(LintIssue(number, "error", "E11",
-                                    f"line number {number} out of range "
-                                    f"(0-{MAX_LINE_NUMBER})"))
+                                    f"line number {number} exceeds {MAX_LINE_WORD} "
+                                    f"and wraps to {number % (MAX_LINE_WORD + 1)}"))
+        elif number > MAX_LINE_NUMBER:
+            issues.append(LintIssue(number, "warning", "E11",
+                                    f"line number {number} is above "
+                                    f"{MAX_LINE_NUMBER}; it runs, but the C64 "
+                                    "screen editor cannot re-enter the line"))
         if number in prog.by_number:
-            issues.append(LintIssue(number, "error", "E12",
-                                    f"duplicate line number {number}"))
+            # Warning: both copies load and RUN in order; the cost is that
+            # goto/gosub can only ever reach the first (verified on x64sc).
+            issues.append(LintIssue(number, "warning", "E12",
+                                    f"duplicate line number {number}; "
+                                    "goto/gosub can only reach the first"))
         else:
             prog.by_number[number] = line
         # Strictly-decreasing only: an equal number is a duplicate, already E12.
@@ -278,8 +295,12 @@ def _check_if(line: Line, stmt: list[Token]) -> list[LintIssue]:
     branch = "then" if "then" in kws else "goto"
     k = next(i for i, t in enumerate(stmt) if t.kind == "KEYWORD" and t.text == branch)
     if k == len(stmt) - 1:
-        return [LintIssue(line.number, "error", "E122",
-                          "then with no statement or line number")]
+        # WARNING, not error: verified on x64sc 2026-07-24 — a taken `IF ...
+        # THEN` with nothing after it does not fault, it falls through to the
+        # next line. Always an unfinished edit, never a runtime failure.
+        return [LintIssue(line.number, "warning", "E122",
+                          "then with no statement or line number "
+                          "(falls through — probably unfinished)")]
     return []
 
 
