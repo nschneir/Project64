@@ -154,13 +154,20 @@ def wait_for_text(session, text: str, timeout: float = 30.0,
     a repeated prompt or verdict without matching the stale one above it."""
     start = time.monotonic()
     deadline = start + timeout
-    last = _screen(session)
-    baseline = last.count(text) if since else 0
+    last: str | None = None
+    baseline = 0
+    if since:
+        last = _screen(session)            # only --since needs a baseline read
+        baseline = last.count(text)
     while time.monotonic() < deadline:
+        # read at the TOP: every read is checked before the loop can exit on
+        # the deadline, so a match landing on the final poll is never dropped.
         last = _screen(session)
         if last.count(text) > baseline:
             return {"fired": "text", "elapsed": round(time.monotonic() - start, 3)}
         time.sleep(0.4)
+    if last is None:                        # timeout<=0 and no baseline read
+        last = _screen(session)             # the contract: report a screen
     return {"fired": None, "timeout": timeout, "screen": last}
 
 

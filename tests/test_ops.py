@@ -94,7 +94,43 @@ def test_wait_for_text_since_ignores_the_existing_occurrence(monkeypatch):
     assert len(calls) == 3, f"fired on the wrong read: {calls}"
 
 
-def test_wait_for_text_checks_the_screen_read_on_the_final_poll(monkeypatch):
+def test_wait_for_text_since_does_not_fire_on_the_stale_occurrence(monkeypatch):
+    """Negative control for the --since baseline, pinning the mechanism.
+
+    A baseline that silently broke (stuck at 0, say) would still let the
+    happy-path test above fire — just one read early. These three cases
+    only pass together if the count really is snapshotted before polling:
+    on a screen that never changes, since=True must NOT fire on the stale
+    copy while since=False fires on that very same screen; and since=True
+    must fire as soon as a NEW occurrence lands.
+    """
+    monkeypatch.setattr(ops.time, "sleep", lambda _: None)
+    monkeypatch.setattr(ops, "_screen", lambda s: "GUESS?\nTOO HIGH")
+
+    stale = ops.wait_for_text(object(), "TOO HIGH", timeout=0.2, since=True)
+    assert stale["fired"] is None, "since=True fired on the pre-existing copy"
+    assert "TOO HIGH" in stale["screen"]        # it WAS on screen the whole time
+
+    fresh = ops.wait_for_text(object(), "TOO HIGH", timeout=0.2)
+    assert fresh["fired"] == "text"             # same screen, no baseline
+
+    screens = iter(["GUESS?\nTOO HIGH",         # baseline read: count 1
+                    "GUESS?\nTOO HIGH",         # poll: still 1, keep waiting
+                    "GUESS?\nTOO HIGH\nTOO HIGH"])   # a NEW one: count 2
+    monkeypatch.setattr(ops, "_screen", lambda s: next(screens))
+    out = ops.wait_for_text(object(), "TOO HIGH", timeout=5, since=True)
+    assert out["fired"] == "text"
+
+
+@pytest.mark.parametrize("since,screens", [
+    # since=False: no baseline read, so the loop's own first read is the one
+    # that must be checked before the deadline can end the wait.
+    (False, ["TARGET APPEARS"]),
+    # since=True: the baseline read is consumed first ("" -> baseline 0).
+    (True, ["", "TARGET APPEARS"]),
+])
+def test_wait_for_text_checks_the_screen_read_on_the_final_poll(
+        monkeypatch, since, screens):
     """Regression: a fresh read taken on the last iteration before the
     deadline expires must be checked before giving up. A prior shape
     stored that read into `last` but exited the loop before testing it,
@@ -110,11 +146,37 @@ def test_wait_for_text_checks_the_screen_read_on_the_final_poll(monkeypatch):
                           # right after checking the fresh read, using
                           # this same value for the elapsed calculation.
     monkeypatch.setattr(ops.time, "monotonic", lambda: next(clocks))
-    screens = iter(["", "TARGET APPEARS"])
-    monkeypatch.setattr(ops, "_screen", lambda s: next(screens))
+    it = iter(screens)
+    monkeypatch.setattr(ops, "_screen", lambda s: next(it))
     monkeypatch.setattr(ops.time, "sleep", lambda _: None)
-    out = ops.wait_for_text(object(), "TARGET", timeout=0.1)
+    out = ops.wait_for_text(object(), "TARGET", timeout=0.1, since=since)
     assert out["fired"] == "text"
+
+
+def test_wait_for_text_without_since_skips_the_baseline_read(monkeypatch):
+    """A since=False wait costs no extra monitor round-trip: the pre-loop
+    read exists only to snapshot a --since baseline."""
+    reads = []
+    monkeypatch.setattr(ops, "_screen",
+                        lambda s: (reads.append(1), "READY.")[1])
+    monkeypatch.setattr(ops.time, "sleep", lambda _: None)
+    assert ops.wait_for_text(object(), "READY.", timeout=5)["fired"] == "text"
+    assert len(reads) == 1, "since=False took a baseline read it never needed"
+    reads.clear()
+    assert ops.wait_for_text(object(), "READY.", timeout=0.2,
+                             since=True)["fired"] is None    # baseline eats it
+    assert len(reads) > 1                                    # baseline + polls
+
+
+def test_wait_for_text_zero_timeout_still_reports_a_screen(monkeypatch):
+    """The loop never runs, but the timeout contract still carries the
+    latest screen text — one read, taken only because it is owed."""
+    reads = []
+    monkeypatch.setattr(ops, "_screen",
+                        lambda s: (reads.append(1), "STUCK")[1])
+    out = ops.wait_for_text(object(), "NEVER", timeout=0)
+    assert out["fired"] is None and out["screen"] == "STUCK"
+    assert len(reads) == 1
 
 
 def test_wait_for_text_without_since_matches_stale_text(monkeypatch):
