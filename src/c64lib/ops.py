@@ -327,10 +327,35 @@ def _run_until_client(mon, addr: int, timeout: float, count: int) -> dict:
     return {"registers": regs, "reached": count, "count": count}
 
 
+#: The only backslash sequences `key type` decodes. Deliberately tiny: a
+#: shell single-quotes or double-quotes the argument, so `"\n"` arrives as
+#: the two characters '\' and 'n' and would otherwise be typed literally.
+_TYPE_ESCAPES = {"n": "\n", "\\": "\\"}
+
+
+def _decode_type_escapes(text: str) -> str:
+    """Decode `\\n` to a newline and `\\\\` to one backslash; leave every
+    other backslash pair alone (`\\q` stays two characters). Real newlines
+    pass through untouched."""
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text) and text[i + 1] in _TYPE_ESCAPES:
+            out.append(_TYPE_ESCAPES[text[i + 1]])
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def key_type(session, text: str) -> dict:
-    """Type TEXT into the keyboard buffer (\\n = RETURN). ValueError from
-    unmappable characters propagates to the caller."""
-    petscii = ascii_to_petscii(text)
+    """Type TEXT into the keyboard buffer. A literal `\\n` in TEXT is
+    decoded to RETURN (as a real newline already is) and `\\\\` to one
+    backslash; no other escape is interpreted. ValueError from unmappable
+    characters propagates to the caller."""
+    petscii = ascii_to_petscii(_decode_type_escapes(text))
     with session.monitor() as mon:
         try:
             mon.keyboard_feed(petscii)

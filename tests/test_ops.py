@@ -298,6 +298,64 @@ def test_key_type_feeds_buffer_and_releases():
     assert out == {"typed_chars": 3}
 
 
+def test_key_type_decodes_literal_backslash_n_as_return():
+    """A shell hands `key type "50\\n"` over as '5','0','\\','n' — that must
+    press RETURN, exactly as a real newline does."""
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    out = key_type(s, "50\\n")
+    mon.keyboard_feed.assert_called_once_with(b"50\r")
+    assert out == {"typed_chars": 3}
+
+
+def test_key_type_double_backslash_escapes_the_n():
+    r"""`\\n` (backslash backslash n) is the escape hatch: one literal
+    backslash followed by the letter n, no RETURN."""
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    key_type(s, "\\\\n")
+    mon.keyboard_feed.assert_called_once_with(b"\\N")
+
+
+def test_key_type_double_backslash_pairs_collapse():
+    """Four backslashes are two escaped pairs -> two literal backslashes."""
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    key_type(s, "\\\\\\\\")
+    mon.keyboard_feed.assert_called_once_with(b"\\\\")
+
+
+def test_key_type_decodes_escape_in_the_middle():
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    key_type(s, "abc\\ndef\\n")
+    mon.keyboard_feed.assert_called_once_with(b"ABC\rDEF\r")
+
+
+def test_key_type_leaves_other_backslash_pairs_alone():
+    """Only \\n and \\\\ are decoded; \\q stays two typed characters."""
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    out = key_type(s, "\\q")
+    mon.keyboard_feed.assert_called_once_with(b"\\Q")
+    assert out == {"typed_chars": 2}
+
+
+def test_key_type_trailing_lone_backslash_is_typed():
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    key_type(s, "a\\")
+    mon.keyboard_feed.assert_called_once_with(b"A\\")
+
+
+def test_key_type_real_newline_unchanged():
+    """The pre-existing path — a real newline — still maps to RETURN."""
+    from c64lib.ops import key_type
+    s, mon = _fake_session()
+    key_type(s, "50\n")
+    mon.keyboard_feed.assert_called_once_with(b"50\r")
+
+
 def test_matrix_codes_cover_game_keys():
     from c64lib.ops import MATRIX_CODES
     # spot checks against the published keyboard-matrix table ($CB values)

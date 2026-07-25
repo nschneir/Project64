@@ -562,7 +562,8 @@ def c64_basic_type(text: str, run: bool = False,
 
 @srv.tool()
 def c64_key_type(text: str, session: str | None = None) -> dict:
-    """Type text into the running C64's keyboard buffer (\\n = RETURN).
+    """Type text into the running C64's keyboard buffer (\\n = RETURN,
+    literal backslash-n included; \\\\ types one backslash).
     Buffered keys never touch the live current-key state — games reading $CB
     need c64_key_hold."""
     s = _attach(session)

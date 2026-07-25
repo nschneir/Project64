@@ -1333,7 +1333,9 @@ def key() -> None:
 @click.argument("text")
 @click.pass_context
 def key_type(ctx, text):
-    """Type TEXT into the running C64 (\\n = RETURN). For whole programs
+    """Type TEXT into the running C64 (\\n = RETURN, whether it reaches the
+    CLI as a real newline or as the two characters backslash-n; write \\\\
+    for a literal backslash). For whole programs
     prefer `c64 basic type`; this is for interactive input and menus.
     Buffered keys never touch the live current-key state — games reading $CB
     need `c64 key hold`."""
