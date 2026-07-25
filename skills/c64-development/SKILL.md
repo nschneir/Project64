@@ -10,7 +10,8 @@ the equivalent `c64-tools` MCP tools). Full command reference: `docs/cli.md`.
 Every command takes `--json` for machine-readable output.
 
 **Using MCP instead of the CLI?** The tools map mechanically — `c64 screen`
-→ `c64_screen_text`, `c64 break add` → `c64_break_add`, and so on — with the
+→ `c64_screen_text`, `c64 break add` → `c64_break_add`, `c64 basic check`
+→ `c64_basic_check`, and so on — with the
 same sessions, semantics, and stopped-state rule. Two differences: `c64 wait`
 is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break`, and wait
 timeouts return `{"fired": null, ...}` as data instead of an error.
@@ -20,12 +21,16 @@ timeouts return `{"fired": null, ...}` as data instead of an error.
 Write → run → observe → fix:
 
 1. Write BASIC (`.bas`) or 6502 assembly (`.s`).
-2. `c64 run FILE` — tokenizes/assembles as needed, loads, and RUNs.
-3. Observe with `c64 screen` (decoded screen text) — this is the primary way
+2. For BASIC, `c64 basic check FILE` first — it catches keyword fusion
+   (`total=5` tokenizes as `TO TAL=5` and cannot run), missing GOTO/GOSUB
+   targets, out-of-range POKEs, non-V2 keywords and oversize programs without
+   an emulator round trip. Fix every `E…` before running.
+3. `c64 run FILE` — tokenizes/assembles as needed, loads, and RUNs.
+4. Observe with `c64 screen` (decoded screen text) — this is the primary way
    to see output. Use `c64 wait --text "..."` to block until expected output
    appears; loading and running take a few emulated seconds even in warp, so
    never assume a program has finished — wait for a signal.
-4. Fix and repeat.
+5. Fix and repeat.
 
 Start a machine with `c64 session start` before anything else, and
 `c64 session stop` when done.
@@ -51,11 +56,31 @@ displays as uppercase — so `10 print "hello"` shows on screen as
 which shows as graphics characters instead of letters. This is the single most
 common mistake.
 
+- `c64 basic check prog.bas` — static check before running (see below).
 - `c64 run prog.bas` — tokenize, load, and RUN in one step.
 - `c64 basic type prog.bas --run` — type the program in through the keyboard
   instead, which works mid-session and exercises the real ROM tokenizer.
 - `c64 basic tokenize` / `c64 basic detokenize` — convert between `.bas` and
   `.prg` without a session.
+
+Conventions `c64 basic check` enforces (know them even without running it):
+
+- **Never embed a keyword in a variable name.** The C64 tokenizes greedily at
+  every character, so `total`, `score` and `paint` become `TO TAL`, `SC OR E`
+  and `PA INT` — use `tot`, `sc`, `pnt`. petcat accepts all of them silently;
+  the machine does not.
+- **Only the first two characters are significant**, so `speed` and `spent`
+  are the *same* variable.
+- **Logical lines ≤ 80 characters.** petcat tokenizes longer lines and they
+  run, but the screen editor cannot re-enter them, and >255 tokenized bytes
+  break outright.
+- **Line numbers 0–63999**, ascending, no duplicates — and in steps of 10, so
+  a later insertion doesn't force a renumber.
+- **BASIC V2 keywords only.** No 3.5/7.0 words (`else`, `do`/`loop`, `sound`,
+  `graphic`, `joy`, `volume`, …): on a C64 they tokenize as fused variables
+  and fail at RUN.
+- **Program + variables ≤ 38911 bytes.** `c64 basic check --json` reports
+  `tokenized_bytes`; watch it as a game grows.
 
 ## Writing assembly
 
@@ -139,6 +164,16 @@ source of bugs:
 ## Common pitfalls
 
 - Uppercase in BASIC source → graphics garbage on screen (write lowercase).
+- Write PETSCII control codes as `{clr}`-style escapes — petcat supports them;
+  see references/basic-internals.md. No accented or non-PETSCII characters
+  anywhere, including inside strings.
+- **Scope check before coding.** If a game needs 3D, physics, or more than
+  ~38K of program plus variables, simplify the design first.
+- **Prefer keyboard input (`get`) over joystick** for games: the keyboard is
+  drivable from tests (`c64 basic type`, `c64 key hold`); the emulator has no
+  joystick injection, so a joystick game cannot be driven by tests.
+- **Playtest from the source, not from guesses.** Before playing or testing a
+  game, read the code and derive the controls, win/lose conditions and timing.
 - Multi-file assembly crashing with `?SYNTAX ERROR` at RUN, or a build
   failing with branch "Range error" after adding code — both are ca65
   traps (segment state leaking across `.include`; short branches
