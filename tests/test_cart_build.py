@@ -378,6 +378,38 @@ def test_wrap_config_8k_is_a_single_window():
     assert "fill = yes, fillval = $FF" in cfg
 
 
+def test_a_basic_program_cannot_wrap_into_a_16k_cartridge(tmp_path):
+    """16K asserts EXROM=0/GAME=0 and maps cart ROM over $8000-$BFFF, which
+    covers the BASIC ROM at $A000-$BFFF. The BASIC launcher's tail is
+    `jsr $A659` / `jmp $A7AE` — under 16k both land in cart ROM, not the
+    interpreter, and the cart bricks at boot while cart_verify still passes.
+    Same reasoning as the Ultimax rejection, which this mirrors.
+    """
+    prg = tmp_path / "b.prg"
+    prg.write_bytes(bytes([0x01, 0x08]) + SYS_STUB)
+    with pytest.raises(CartError, match="BASIC ROM"):
+        wrap_prg(prg, cart_type="16k", title="B")
+
+
+def test_an_oversized_basic_program_is_not_pointed_at_16k(tmp_path):
+    """The 8k "retry with 16k" hint must not route a BASIC program into the
+    dead build the test above rejects."""
+    prg = tmp_path / "big.prg"
+    prg.write_bytes(bytes([0x01, 0x08]) + SYS_STUB + b"\x00" * 9000)
+    with pytest.raises(CartError) as excinfo:
+        wrap_prg(prg, cart_type="8k", title="BIG")
+    assert "--cart-type 16k" not in str(excinfo.value)
+    assert "BASIC ROM" in str(excinfo.value)
+
+
+def test_an_oversized_machine_code_program_still_gets_the_16k_hint(tmp_path):
+    """ML-kind never touches the BASIC ROM, so 16k is a genuine retry for it."""
+    prg = tmp_path / "m.prg"
+    prg.write_bytes(bytes([0x00, 0xC0]) + b"\xA9\x01" + b"\x00" * 9000)
+    with pytest.raises(CartError, match="--cart-type 16k"):
+        wrap_prg(prg, cart_type="8k", title="M")
+
+
 def test_wrap_validation_errors_do_not_need_the_toolchain(tmp_path, monkeypatch):
     """A malformed or oversized input is a validation error, not an environment
     error: it must report itself the same way on a machine without cc65."""

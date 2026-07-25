@@ -402,6 +402,22 @@ def launcher_source(load_addr: int, prog_end: int, kind: str,
                             load_addr=load_addr, prg_name=prg_name)
 
 
+def _too_big_hint(cart_type: str, kind: str) -> str:
+    """What to suggest when a wrapped program does not fit its window.
+
+    Only an ML-kind program can be pointed at 16k. A BASIC-kind wrap needs the
+    BASIC interpreter, and a 16K cartridge maps ROM over the BASIC ROM — so
+    `--cart-type 16k` is not a retry for it, it is the rejection above. Saying
+    otherwise would route the author straight into a cart that bricks at boot.
+    """
+    if cart_type == "8k" and kind == "ml":
+        return "; retry with --cart-type 16k"
+    if cart_type == "8k":
+        return ("; a program BASIC has to start must fit 8K, because a 16K "
+                "cartridge covers the BASIC ROM it needs")
+    return "; a program this large needs the native or EasyFlash path"
+
+
 def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
              model: str = "c64") -> dict:
     """Wrap an existing program in a launcher cartridge.
@@ -448,15 +464,21 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
         prog_end = load_addr + len(body)
         # Read off the image, never the extension: see _wrap_kind.
         kind = _wrap_kind(load_addr, body, profile.basic_start)
+        if kind == "basic" and cart_type == "16k":
+            raise CartError(
+                f"{source}: a 16K cartridge maps ROM over $8000-$BFFF, which "
+                "covers the BASIC ROM at $A000-$BFFF — the launcher's "
+                "`jsr $A659` / `jmp $A7AE` would land in cart ROM instead of "
+                "the interpreter. This program needs BASIC to start it (a "
+                "tokenized program, or the `10 SYS` stub the standard .s "
+                "layout emits), so wrap it with --cart-type 8k")
 
         budget = ct.image_bytes
         if len(body) + 256 > budget:            # 256 ≈ the launcher's own size
-            nxt = "16k" if cart_type == "8k" else None
-            hint = (f"; retry with --cart-type {nxt}" if nxt
-                    else "; use the native or EasyFlash path")
             raise CartError(
                 f"{source}: the program is {len(body)} bytes and will not fit "
-                f"a {cart_type} cartridge ({budget} bytes){hint}")
+                f"a {cart_type} cartridge ({budget} bytes)"
+                f"{_too_big_hint(cart_type, kind)}")
 
         blob = td / "wrapped.prg"
         if Path(prg).resolve() != blob.resolve():
@@ -478,13 +500,10 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
                   str(obj)])
         except BuildError as e:
             if "range" in str(e).lower() or "overflow" in str(e).lower():
-                nxt = "16k" if cart_type == "8k" else None
-                hint = (f"; retry with --cart-type {nxt}" if nxt else
-                        "; a program this large needs the native or EasyFlash path")
                 raise CartError(
                     f"{source}: the wrapped program ({len(body)} bytes) plus the "
                     f"launcher does not fit a {cart_type} cartridge"
-                    f"{hint}\n{e}") from None
+                    f"{_too_big_hint(cart_type, kind)}\n{e}") from None
             raise
         used = _used_bytes(raw.read_bytes())
         bin_to_crt(raw, crt, cart_type, name)
@@ -520,7 +539,9 @@ def _wrap_kind(load_addr: int, body: bytes, basic_start: int) -> str:
     # The link points at the next line: forward, and no further than the end.
     if not load_addr < link <= load_addr + len(body):
         return "ml"
-    # Every tokenized line is $00-terminated; a SYS stub carries the $9E token.
+    # Every tokenized line ends in $00 — the `10 SYS` stub's line included.
+    # Deliberately not a $9E/SYS check: a plain BASIC program has no SYS token
+    # and must still be recognised.
     return "basic" if b"\x00" in body[_BASIC_LINE_HEADER:] else "ml"
 
 
