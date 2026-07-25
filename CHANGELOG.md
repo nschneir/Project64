@@ -6,7 +6,9 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
-## [Unreleased]
+## [0.3.0] — 2026-07-24
+
+BASIC linting — catch the errors petcat accepts before spending a run cycle.
 
 ### Added
 - **`c64 basic check`** (with MCP parity as `c64_basic_check`) — static lint
@@ -24,6 +26,10 @@ commit).
   known-good BASIC program in the repo (example programs and the cookbook
   recipes) lints error-free. Each bad fixture records the failure a real
   C64 produces, observed on VICE.
+- **`c64 basic check` guidance in the `c64-development` skill** — the lint is
+  step 2 of the write → run → observe loop, with the conventions it enforces
+  (no keywords inside variable names, two significant characters, 80-char
+  lines, V2 vocabulary, the 38911-byte budget) stated alongside it.
 
 ## [0.2.0] — 2026-07-22
 
