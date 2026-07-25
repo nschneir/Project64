@@ -39,10 +39,20 @@ everything else runs against `tests/fake_vice.py`, an in-process fake of the
 VICE binary monitor. `c64 build` needs cc65 (`ca65`/`ld65`); `c64 basic`
 needs `petcat`; `c64 disk` needs `c1541` — all external subprocesses.
 
-Live-test caution: a setup failure inside a vice-marked test can skip
-teardown and leak a warp-mode x64sc eating a CPU core. Check
-`pgrep -fl x64sc` between live runs and kill leftovers. Give live tests
-generous timeouts (minutes, not seconds).
+Most live tests share **one** warp+headless emulator, via the session-scoped
+fixtures in `tests/conftest.py` — a full run launches ~14 emulators rather than
+one per test. Ask for the `session` fixture to get a live C64 at the READY
+prompt; it is reset between tests (checkpoints deleted, hard reset, session
+record cleared). Only launch your own when sharing would lie: per-model
+parameterization, anything attaching a disk image (the binary monitor has no
+detach, so an attached image cannot be cleaned up), or a test asserting
+launch/daemon-spawn behavior itself.
+
+A run killed before teardown (`kill -9`, CI timeout) still leaks warp-mode
+x64sc processes eating a CPU core; the next run reaps them (pids are recorded
+at spawn, and only ones that still look like an emulator are killed). To clean
+up without running the suite: `pgrep -fl x64sc`. Give live tests generous
+timeouts (minutes, not seconds).
 
 ## Architecture
 
@@ -89,7 +99,10 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   - CLI: `CliRunner` + `patch("c64lib.cli.Session")` + a Mock monitor
     (the `_fake()` helper pattern in `tests/test_cli_break.py`);
   - MCP: in-memory client via `tests/test_mcp_scaffold.call_tool`;
-  - daemon: `PetDaemon` + a real socketpair (`tests/test_daemon.py`).
+  - daemon: `PetDaemon` + a real socketpair (`tests/test_daemon.py`);
+  - live: the shared `session` fixture (`tests/conftest.py`), and
+    `shared_launch` for specs run through `run_test`, which would otherwise
+    boot an emulator per spec.
 - Reserve `@pytest.mark.vice` for what genuinely needs a live emulator;
   unit-test everything else against the fakes.
 - **Docs are tested.** The `tests/test_docs_*.py` suite verifies docs
