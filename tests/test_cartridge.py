@@ -108,6 +108,17 @@ def test_rejects_garbage_where_a_chip_packet_should_start(tmp_path):
         parse_crt(path)
 
 
+def test_rejects_a_chip_packet_whose_size_field_overruns_the_packet(tmp_path):
+    # A size field bigger than the packet body bleeds into the NEXT packet.
+    # The file length still adds up, so the truncation check cannot see it.
+    first = bytearray(chip_packet(0, 0x8000, b"\xFF" * 0x2000))
+    first[14:16] = (0x3000).to_bytes(2, "big")   # claims $3000, carries $2000
+    path = make_crt(tmp_path, chips=[bytes(first),
+                                     chip_packet(1, 0x8000, b"\xFF" * 0x2000)])
+    with pytest.raises(CartError, match="declares 12288 data bytes"):
+        parse_crt(path)
+
+
 def test_cart_info_reports_header_and_every_packet(tmp_path):
     chips = [chip_packet(0, 0xA000, b"\xFF" * 0x2000, chip_type=2),
              chip_packet(5, 0x8000, b"\xFF" * 0x2000, chip_type=2)]

@@ -164,6 +164,11 @@ def parse_crt(path: str | Path) -> Crt:
                 f"{path}: CHIP packet at ${off:06x} claims {total} bytes but "
                 f"only {len(raw) - off} remain — truncated image")
         size = _u16(raw, off + 14)
+        if size > total - CHIP_HEADER_LEN:
+            raise CartError(
+                f"{path}: CHIP packet at ${off:06x} declares {size} data bytes "
+                f"but the packet holds only {total - CHIP_HEADER_LEN} — "
+                f"malformed image")
         start = off + CHIP_HEADER_LEN
         chips.append(Chip(bank=_u16(raw, off + 10), load_addr=_u16(raw, off + 12),
                           size=size, chip_type=_u16(raw, off + 8), offset=off,
