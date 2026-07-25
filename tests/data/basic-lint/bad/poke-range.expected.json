@@ -1,0 +1,4 @@
+{"expect": [{"line": 10, "severity": "error", "rule": "E150"},
+            {"line": 20, "severity": "error", "rule": "E150"},
+            {"line": 30, "severity": "error", "rule": "E150"},
+            {"line": 40, "severity": "error", "rule": "E150"}]}

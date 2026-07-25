@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 
 from .basic_tokens import (
     BASIC_FREE_BYTES,
+    LATER_BASIC,
     MAX_LINE_NUMBER,
+    RESERVED_VARS,
     Token,
     merge_tokens,
     petscii_len,
@@ -439,8 +441,248 @@ def _check_reach(prog: Program) -> list[LintIssue]:
             for n in order if n not in seen and n not in inert]
 
 
+_FLOAT_MAX = 1.70141183e38
+_RANGES = {"poke": ((0, 65535), (0, 255)), "wait": ((0, 65535), (0, 255)),
+           "sys": ((0, 65535),), "peek": ((0, 65535),), "chr$": ((0, 255),),
+           "tab(": ((0, 255),), "spc(": ((0, 255),)}
+_CALLS = ("peek", "chr$", "tab(", "spc(")
+
+
+def _literal(toks: list[Token]) -> float | None:
+    """A signed numeric literal, or None if this is anything else."""
+    if len(toks) == 2 and toks[0].kind == "OP" and toks[0].text == "-" \
+            and toks[1].kind == "NUMBER":
+        return -float(toks[1].text)
+    if len(toks) == 1 and toks[0].kind == "NUMBER":
+        return float(toks[0].text)
+    return None
+
+
+def _args(stmt: list[Token], k: int) -> list[list[Token]]:
+    """Comma-separated argument groups after stmt[k], stopping at the end of
+    the call (matching ')' for a function, end of statement for a command).
+
+    Deliberately stops at the first paren closing back to depth 0, so
+    `poke 1024+len(a$),32` yields a malformed group rather than the 32: it
+    under-reports, never false-reports."""
+    i, depth, groups = k + 1, 0, [[]]
+    if stmt[k].text in _CALLS:
+        if stmt[k].kind == "KEYWORD" and stmt[k].text in ("tab(", "spc("):
+            depth = 1
+        elif i < len(stmt) and stmt[i].kind == "OP" and stmt[i].text == "(":
+            depth, i = 1, i + 1
+        else:
+            return []
+    while i < len(stmt):
+        t = stmt[i]
+        if t.kind == "OP" and t.text in ("(", ")"):
+            depth += 1 if t.text == "(" else -1
+            if depth == 0:
+                break
+            groups[-1].append(t)
+        elif t.kind == "OP" and t.text == "," and depth <= 1:
+            groups.append([])
+        else:
+            groups[-1].append(t)
+        i += 1
+    return [g for g in groups if g]
+
+
+def _check_ranges(line: Line, stmt: list[Token]) -> list[LintIssue]:
+    out = []
+    for k, t in enumerate(stmt):
+        if t.kind != "KEYWORD" or t.text not in _RANGES:
+            continue
+        for arg, (lo, hi) in zip(_args(stmt, k), _RANGES[t.text], strict=False):
+            v = _literal(arg)
+            if v is not None and not lo <= v <= hi:
+                shown = int(v) if v == int(v) else v
+                out.append(LintIssue(line.number, "error", "E150",
+                                     f"?illegal quantity: {t.text} {shown} "
+                                     f"(valid {lo}-{hi})"))
+    return out
+
+
+def _var_type(t: Token) -> str | None:
+    """'str' | 'num' for a single operand whose type is known from shape."""
+    if t.kind == "STRING":
+        return "str"
+    if t.kind == "NUMBER":
+        return "num"
+    if t.kind == "IDENT":
+        return "str" if t.text.endswith("$") else "num"
+    return None
+
+
+_RELOPS = ("<", ">", "=", "<=", ">=", "<>")
+
+
+def _check_comparison(line: Line, stmt: list[Token]) -> list[LintIssue]:
+    """E154 for `if <operand> <relop> <operand>` — both sides single tokens."""
+    if _head(stmt) != "if" or len(stmt) < 4:
+        return []
+    a, op, b = stmt[1], stmt[2], stmt[3]
+    if op.kind != "OP" or op.text not in _RELOPS:
+        return []
+    at, bt = _var_type(a), _var_type(b)
+    if at and bt and at != bt:
+        return [LintIssue(line.number, "error", "E154",
+                          f"?type mismatch: {a.text} vs {b.text}")]
+    return []
+
+
+def _check_assignment(line: Line, stmt: list[Token]) -> list[LintIssue]:
+    out = []
+    head = _head(stmt)
+    depths = _depths(stmt)
+    eq = next((i for i, t in enumerate(stmt)
+               if depths[i] == 0 and t.kind == "OP" and t.text == "="), None)
+    if head == "for":
+        var = next((t for t in stmt[1:] if t.kind == "IDENT"), None)
+        if var is not None and var.text[-1] in "$%":
+            out.append(LintIssue(line.number, "error", "E153",
+                                 f"for variable {var.text} must be a plain "
+                                 "numeric variable"))
+    if eq is not None and head in (None, "let"):
+        first = 1 if head == "let" else 0
+        target = stmt[first]
+        if target.kind == "IDENT" and target.text in ("ti", "st"):
+            out.append(LintIssue(line.number, "error", "E152",
+                                 f"cannot assign to reserved variable {target.text}"))
+        rhs = stmt[eq + 1:]
+        if eq == first + 1 and len(rhs) == 1:      # both sides a single token
+            lt, rt = _var_type(target), _var_type(rhs[0])
+            if lt and rt and lt != rt:
+                out.append(LintIssue(line.number, "error", "E154",
+                                     f"?type mismatch: {target.text} vs {rhs[0].text}"))
+    out.extend(_check_comparison(line, stmt))
+    return out
+
+
+def _check_values(prog: Program) -> list[LintIssue]:
+    out = []
+    for line in prog.lines:
+        for t in line.tokens:
+            if t.kind == "NUMBER" and float(t.text) > _FLOAT_MAX:
+                out.append(LintIssue(line.number, "error", "E151",
+                                     f"?overflow: literal {t.text} exceeds "
+                                     "C64 float range"))
+        for stmt in line.statements:
+            out.extend(_check_ranges(line, stmt))
+            out.extend(_check_assignment(line, stmt))
+    return out
+
+
+def _check_defs(prog: Program) -> list[LintIssue]:
+    out, defined, dimmed, used = [], set(), {}, []
+    has_data = any(t.kind == "KEYWORD" and t.text == "data"
+                   for ln in prog.lines for t in ln.tokens)
+    for line in prog.lines:
+        toks = line.tokens
+        for k, t in enumerate(toks):
+            if t.kind == "KEYWORD" and t.text == "fn" and k + 1 < len(toks) \
+                    and toks[k + 1].kind == "IDENT":
+                name = toks[k + 1].text[:2]
+                if k and toks[k - 1].kind == "KEYWORD" and toks[k - 1].text == "def":
+                    defined.add(name)
+                else:
+                    used.append((line.number, toks[k + 1].text, name))
+            if t.kind == "KEYWORD" and t.text == "read" and not has_data:
+                out.append(LintIssue(line.number, "warning", "W80",
+                                     "read with no data (?out of data error "
+                                     "when executed)"))
+        for stmt in line.statements:
+            if _head(stmt) != "dim":
+                continue
+            for k, t in enumerate(stmt):
+                if k and t.kind == "IDENT" and k + 1 < len(stmt) \
+                        and stmt[k + 1].text == "(":
+                    if t.text in dimmed:
+                        out.append(LintIssue(line.number, "warning", "W81",
+                                             f"array {t.text} dimensioned twice "
+                                             "(?redim'd array error if both run)"))
+                    dimmed[t.text] = line.number
+    for at, full, name in used:
+        if name not in defined:
+            out.append(LintIssue(at, "error", "E140",
+                                 f"fn {full} used but never defined"))
+    out.extend(_check_subscripts(prog, dimmed))
+    return out
+
+
+def _check_subscripts(prog: Program, dimmed: dict[str, int]) -> list[LintIssue]:
+    """W82: undimensioned arrays only go up to index 10."""
+    out = []
+    for line in prog.lines:
+        toks = line.tokens
+        for k, t in enumerate(toks):
+            if t.kind != "IDENT" or t.text in dimmed:
+                continue
+            if k + 3 < len(toks) and toks[k + 1].text == "(" \
+                    and toks[k + 2].kind == "NUMBER" and toks[k + 3].text == ")" \
+                    and float(toks[k + 2].text) > 10:
+                out.append(LintIssue(line.number, "warning", "W82",
+                                     f"{t.text}({toks[k + 2].text}) needs dim — "
+                                     "undimensioned arrays stop at 10"))
+    return out
+
+
+_W90_CONSEQUENCE = {"new": "wipes the running program",
+                    "list": "stops the program", "cont": "cannot continue"}
+
+
+def _check_vocab(prog: Program) -> list[LintIssue]:
+    out = []
+    for line in prog.lines:
+        for t in line.tokens:
+            if t.kind == "KEYWORD" and t.text in _W90_CONSEQUENCE:
+                out.append(LintIssue(line.number, "warning", "W90",
+                                     f"{t.text} inside a program "
+                                     f"{_W90_CONSEQUENCE[t.text]}"))
+            if t.kind == "IDENT" and t.text in LATER_BASIC:
+                out.append(LintIssue(line.number, "warning", "W60",
+                                     f"'{t.text}' is not BASIC V2; it will not "
+                                     "run on a C64"))
+    out.extend(_check_aliases(prog))
+    return out
+
+
+def _check_aliases(prog: Program) -> list[LintIssue]:
+    """W61: only the first two characters are significant on a C64. Scalars,
+    `$`, `%` and arrays live in separate namespaces, so only collide in kind."""
+    seen: dict[tuple[str, str], str] = {}
+    out = []
+    for line in prog.lines:
+        toks = line.tokens
+        for k, t in enumerate(toks):
+            if t.kind != "IDENT" or t.text in RESERVED_VARS:
+                continue
+            base = t.text.rstrip("$%")
+            if len(base) < 3:
+                continue                          # already 2 significant chars
+            kind = ("array" if k + 1 < len(toks) and toks[k + 1].text == "("
+                    else "scalar")
+            suffix = t.text[-1] if t.text[-1] in "$%" else ""
+            key = (base[:2] + suffix, kind)
+            other = seen.setdefault(key, t.text)
+            if other != t.text:
+                out.append(LintIssue(line.number, "warning", "W61",
+                                     f"variables {other} and {t.text} are the "
+                                     "same variable on a C64 (only 2 chars "
+                                     "significant)"))
+                seen[key] = t.text                # report each pair once
+    return out
+
+
+def _drop_redundant(issues: list[LintIssue]) -> list[LintIssue]:
+    """A name that already tripped a fusion rule is reported; don't also
+    report it as an alias (spec §5, W61)."""
+    fused = {i.line for i in issues if i.rule in ("E110", "E111")}
+    return [i for i in issues if not (i.rule == "W61" and i.line in fused)]
+
+
 _CHECKS = (_check_line_length, _check_size, _check_shape, _check_flow,
-           _check_loops, _check_reach)
+           _check_loops, _check_reach, _check_values, _check_defs, _check_vocab)
 
 
 def lint_source(text: str) -> list[LintIssue]:
@@ -448,7 +690,8 @@ def lint_source(text: str) -> list[LintIssue]:
     prog, issues = _parse(text)
     for check in _CHECKS:
         issues.extend(check(prog))
-    return sorted(issues, key=lambda i: (-1 if i.line is None else i.line, i.rule))
+    return sorted(_drop_redundant(issues),
+                  key=lambda i: (-1 if i.line is None else i.line, i.rule))
 
 
 def tokenized_bytes(text: str) -> int:
