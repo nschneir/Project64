@@ -362,9 +362,10 @@ def test_unknown_sample_name_fails_actionably():
     assert "no sample named" in result.steps[0].detail
 
 
-def test_cart_spec_skips_the_program_path(tmp_path):
-    """A cart boots straight into its program and never prints READY., so the
-    runner must not wait for it and must not autostart anything."""
+def test_cart_spec_resolves_and_leaves_program_unset(tmp_path):
+    """`cart:` resolves against the spec's own directory and never becomes a
+    program (the runner's skip of the READY./autostart path is asserted by
+    test_run_test_forwards_cart_and_skips_the_ready_gate)."""
     from c64lib.testing import load_test
 
     crt = tmp_path / "game.crt"
@@ -394,3 +395,119 @@ def test_missing_cart_file_is_named(tmp_path):
     spec_file.write_text("cart: gone.crt\nsteps: []\n")
     with pytest.raises(TestError, match="gone.crt"):
         load_test(spec_file)
+
+
+# --- the cart execution path -------------------------------------------------
+
+def _crt(path: Path) -> Path:
+    path.write_bytes(b"C64 CARTRIDGE   " + bytes(48))
+    return path
+
+
+def test_run_test_forwards_cart_and_skips_the_ready_gate(tmp_path):
+    """A cart is mapped at power-on and boots straight into its own code: the
+    runner hands it to launch(), never gates on READY., and autostarts nothing."""
+    crt = _crt(tmp_path / "game.crt")
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(cart=str(crt), dir=str(tmp_path))
+    with patch("c64lib.testing.read_screen_text", return_value="GAME OVER"), \
+         patch("c64lib.testing._wait_screen") as waited:
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert launch.call_args.kwargs["cart"] == str(crt)
+    waited.assert_not_called()          # no READY. gate for a cartridge
+    mon.autostart.assert_not_called()   # and nothing to autostart
+
+
+def test_run_test_without_cart_still_gates_on_ready(tmp_path):
+    """The counterpart: a cart-less spec keeps the READY. gate it always had."""
+    s, _ = _fake_session()
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen",
+               return_value=(True, "READY.")) as waited:
+        launch = Mock(return_value=s)
+        run_test(_spec(), launch=launch)
+    assert launch.call_args.kwargs["cart"] is None
+    assert waited.called
+
+
+def test_run_test_loads_cart_labels_when_present(tmp_path):
+    """A cart's .lbl feeds symbols to until/poke steps, exactly as a program's does."""
+    crt = _crt(tmp_path / "game.crt")
+    (tmp_path / "game.lbl").write_text("al 00C000 .entry\n")
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(cart=str(crt), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="X"):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    assert mon.memory_read.call_args.args[0] == 0xC000   # symbol resolved
+
+
+def test_prepare_cart_passes_a_crt_through_with_its_sibling_labels(tmp_path):
+    from c64lib.testing import prepare_cart
+
+    crt = _crt(tmp_path / "game.crt")
+    assert prepare_cart(tmp_path, "game.crt") == (crt.resolve(), None)
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al 000801 .start\n")
+    assert prepare_cart(tmp_path, "game.crt") == (crt.resolve(), lbl.resolve())
+
+
+def test_prepare_cart_resolves_relative_to_the_spec_dir(tmp_path, monkeypatch):
+    """A spec is portable: `cart:` follows the spec's directory, not the cwd."""
+    from c64lib.testing import prepare_cart
+
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    crt = _crt(specs / "game.crt")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert prepare_cart(specs, "game.crt")[0] == crt.resolve()
+    # an already-absolute cart is not re-resolved against the spec dir
+    assert prepare_cart(elsewhere, str(crt))[0] == crt.resolve()
+
+
+def test_prepare_cart_builds_a_source_cart(tmp_path, monkeypatch):
+    from c64lib import testing as testing_mod
+
+    (tmp_path / "game.s").write_text("nop\n")
+    seen = {}
+
+    def fake_build_cart(source, cart_type="8k"):
+        seen["source"], seen["cart_type"] = Path(source), cart_type
+        return {"crt": str(tmp_path / "out.crt"), "labels": str(tmp_path / "out.lbl")}
+
+    monkeypatch.setattr(testing_mod, "build_cart", fake_build_cart)
+    crt, lbl = testing_mod.prepare_cart(tmp_path, "game.s", "16k")
+    assert seen["source"] == (tmp_path / "game.s").resolve()
+    assert seen["cart_type"] == "16k"
+    assert (crt, lbl) == (tmp_path / "out.crt", tmp_path / "out.lbl")
+
+
+@pytest.mark.parametrize("name", ["game.ef.yaml", "game.ef.yml"])
+def test_prepare_cart_builds_an_easyflash_manifest(tmp_path, monkeypatch, name):
+    from c64lib import testing as testing_mod
+
+    (tmp_path / name).write_text("name: game\n")
+    seen = {}
+
+    def fake_build_easyflash(manifest):
+        seen["manifest"] = Path(manifest)
+        return {"crt": str(tmp_path / "ef.crt"), "labels": str(tmp_path / "ef.lbl")}
+
+    monkeypatch.setattr(testing_mod, "build_easyflash", fake_build_easyflash)
+    crt, lbl = testing_mod.prepare_cart(tmp_path, name)
+    assert seen["manifest"] == (tmp_path / name).resolve()
+    assert (crt, lbl) == (tmp_path / "ef.crt", tmp_path / "ef.lbl")
+
+
+def test_prepare_cart_rejects_an_unknown_extension(tmp_path):
+    from c64lib.testing import prepare_cart
+
+    (tmp_path / "game.prg").write_bytes(b"\x01\x08")
+    with pytest.raises(TestError, match=r"must be a \.crt"):
+        prepare_cart(tmp_path, "game.prg")

@@ -53,6 +53,13 @@ def _num(v) -> int:
     return int(s)
 
 
+def _cart_path(spec_dir: str | Path, cart: str | Path) -> Path:
+    """A spec's `cart:` is relative to the spec's own directory, never the cwd,
+    so a test runs the same from anywhere. An absolute cart is left alone —
+    joining it is a no-op, which keeps re-resolution harmless."""
+    return (Path(spec_dir) / Path(cart)).resolve()
+
+
 def load_test(path: str | Path) -> dict:
     path = Path(path)
     spec = yaml.safe_load(path.read_text())
@@ -65,12 +72,13 @@ def load_test(path: str | Path) -> dict:
     spec.setdefault("steps", [])
     spec.setdefault("cart", None)
     spec.setdefault("cart_type", "8k")
+    spec.setdefault("dir", str(path.parent.resolve()))  # what `cart:` is relative to
     if spec["cart"]:
         if spec.get("program"):
             raise TestError(
                 f"{path}: a spec sets either `cart` or `program`, not both — "
                 "a cartridge boots itself and nothing is autostarted")
-        cart = (path.parent / spec["cart"]).resolve()
+        cart = _cart_path(path.parent, spec["cart"])
         if not cart.exists():
             raise TestError(f"{path}: cart {cart} not found")
         spec["cart"] = str(cart)
@@ -134,7 +142,8 @@ def program_test(program_dir: str | Path) -> dict:
         spec.setdefault("timeout", 45)
         return spec
     return {"name": program_dir.name, "machine": "c64", "timeout": 45,
-            "autorun": True, "program": str(prog.resolve()), "steps": steps}
+            "autorun": True, "program": str(prog.resolve()), "steps": steps,
+            "dir": str(program_dir.resolve())}
 
 
 @dataclass
@@ -180,14 +189,17 @@ def _prepare(program: str, profile) -> tuple[Path, Path | None]:
     raise TestError(f"cannot run {ext!r} programs (use .bas, .s, or .prg)")
 
 
-def prepare_cart(cart: str | Path, cart_type: str = "8k") -> tuple[Path, Path | None]:
+def prepare_cart(spec_dir: str | Path, cart: str | Path,
+                 cart_type: str = "8k") -> tuple[Path, Path | None]:
     """Resolve a spec's `cart:` to a .crt plus its label file.
 
-    A .crt is used as-is; a .s is built as a single-region cartridge and an
-    .ef.yaml manifest as an EasyFlash image, so a reference program can live
-    in source and still be regression-covered.
+    `cart` is taken relative to `spec_dir` (the directory holding the spec), so
+    the helper is self-sufficient whether it is handed a raw `cart:` value or a
+    path `load_test` already resolved. A .crt is used as-is; a .s is built as a
+    single-region cartridge and an .ef.yaml manifest as an EasyFlash image, so
+    a reference program can live in source and still be regression-covered.
     """
-    cart = Path(cart)
+    cart = _cart_path(spec_dir, cart)
     suffix = "".join(cart.suffixes[-2:]).lower()
     if cart.suffix.lower() == ".crt":
         lbl = cart.with_suffix(".lbl")
@@ -420,7 +432,10 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
     screen_text = ""
     cart_path, cart_labels = (None, None)
     if spec.get("cart"):
-        crt, cart_labels = prepare_cart(spec["cart"], spec.get("cart_type", "8k"))
+        # load_test already resolved `cart:` against the spec's directory;
+        # a hand-built spec carries that directory in `dir` (cwd if absent).
+        crt, cart_labels = prepare_cart(spec.get("dir", "."), spec["cart"],
+                                        spec.get("cart_type", "8k"))
         cart_path = str(crt)
     session = launch(model=spec["machine"], name=session_name,
                      headless=True, warp=True, cart=cart_path)
