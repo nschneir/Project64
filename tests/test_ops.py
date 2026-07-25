@@ -75,10 +75,45 @@ def test_wait_for_text_fires_and_times_out():
 
 
 def test_wait_for_text_since_ignores_the_existing_occurrence(monkeypatch):
-    screens = iter(["TOO HIGH", "TOO HIGH", "TOO HIGH\nTOO HIGH"])
-    monkeypatch.setattr(ops, "_screen", lambda s: next(screens))
+    # Discriminates a correct baseline (1, the pre-existing occurrence)
+    # from a broken one (e.g. always 0): record which read triggered the
+    # fire. The third screen is the first with a NEW occurrence (count 2 >
+    # baseline 1); a baseline stuck at 0 would fire on the second read
+    # instead (count 1 > 0), consuming only two reads.
+    screens = ["TOO HIGH", "TOO HIGH", "TOO HIGH\nTOO HIGH"]
+    calls = []
+
+    def fake_screen(s):
+        calls.append(screens[len(calls)])
+        return calls[-1]
+
+    monkeypatch.setattr(ops, "_screen", fake_screen)
     monkeypatch.setattr(ops.time, "sleep", lambda _: None)
     out = ops.wait_for_text(object(), "TOO HIGH", timeout=5, since=True)
+    assert out["fired"] == "text"
+    assert len(calls) == 3, f"fired on the wrong read: {calls}"
+
+
+def test_wait_for_text_checks_the_screen_read_on_the_final_poll(monkeypatch):
+    """Regression: a fresh read taken on the last iteration before the
+    deadline expires must be checked before giving up. A prior shape
+    stored that read into `last` but exited the loop before testing it,
+    so a genuine match appearing only on the final poll was silently
+    dropped (returned fired=None with the match sitting in out["screen"]).
+    """
+    clocks = iter([0.0,   # start
+                   0.05,  # while-condition check: True, loop entered
+                   0.2])  # OLD shape: re-check after the fresh read ->
+                          # False, deadline passed, loop exits without
+                          # testing the fresh read.
+                          # NEW shape: never reached here — it returns
+                          # right after checking the fresh read, using
+                          # this same value for the elapsed calculation.
+    monkeypatch.setattr(ops.time, "monotonic", lambda: next(clocks))
+    screens = iter(["", "TARGET APPEARS"])
+    monkeypatch.setattr(ops, "_screen", lambda s: next(screens))
+    monkeypatch.setattr(ops.time, "sleep", lambda _: None)
+    out = ops.wait_for_text(object(), "TARGET", timeout=0.1)
     assert out["fired"] == "text"
 
 
