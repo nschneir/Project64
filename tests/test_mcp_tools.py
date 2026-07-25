@@ -54,6 +54,20 @@ def test_screenshot():
     mon.release.assert_called_once()
 
 
+@pytest.mark.parametrize("args,want", [({}, False), ({"border": True}, True)])
+def test_screenshot_border_threads_through(args, want):
+    """border must reach save_screenshot_png(border=...); default is False."""
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.save_screenshot_png",
+               return_value=(384, 272)) as save:
+        S.attach.return_value = s
+        err, out = call_tool("c64_screenshot", {"path": "shot.png", **args})
+    assert err is False, out
+    save.assert_called_once()
+    assert save.call_args.kwargs["border"] is want
+
+
 def test_reg_set_parses_hex():
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:

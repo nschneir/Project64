@@ -104,7 +104,7 @@ class DaemonMonitorClient:
         self._call("keyboard_feed", petscii)
 
     def display(self, full: bool = False):
-        w, h, px = self._call("display", full)
+        w, h, px = self._call("display", full=full)
         return w, h, px
 
     def palette(self):
