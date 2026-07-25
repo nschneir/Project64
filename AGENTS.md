@@ -34,6 +34,13 @@ python -m coverage run -m pytest && python -m coverage combine && python -m cove
 ruff check src tests            # lint (config in pyproject.toml); must be clean
 ```
 
+Keep shell invocations in the plain form above: one command, executable
+first. Wrapping them — `VAR=x .venv/bin/python -m pytest`, `cd dir && …`,
+`time …`, `for`/`until` loops — defeats the maintainer's approval allowlist
+(it matches on the command prefix) and turns routine commands into approval
+prompts. Set environment variables inline only where a test genuinely needs
+them, and prefer several simple calls over one chained command.
+
 Tests marked `@pytest.mark.vice` launch a real VICE emulator (`x64sc`);
 everything else runs against `tests/fake_vice.py`, an in-process fake of the
 VICE binary monitor. `c64 build` needs cc65 (`ca65`/`ld65`); `c64 basic`
@@ -94,6 +101,10 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
 - TDD: write the failing test first; every behavior change lands with tests
   in the same commit. Keep `pytest -m "not vice"` green at all times, and
   keep coverage ≥ 90% (`fail_under` is enforced by the coverage config).
+- Match the run to the change. `pytest -m "not vice"` (~40s) covers doc,
+  changelog, and version edits — docs are tested, so run *something*, just
+  not the emulators. Save the full suite (~3.5 min of live x64sc) for
+  changes to `src/` or to live-test code.
 - Use the house harnesses instead of inventing new ones:
   - monitor-level: `tests/fake_vice.py` (`FakeVice` + `resp_frame`);
   - CLI: `CliRunner` + `patch("c64lib.cli.Session")` + a Mock monitor
