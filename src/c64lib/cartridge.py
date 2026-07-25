@@ -247,3 +247,129 @@ def bin_to_crt(raw: str | Path, out: str | Path, cart_type: str,
     run_cartconv(["-t", ct.cartconv_type, "-i", str(raw), "-o", str(out),
                   "-n", name])
     return out
+
+
+# "CBM80" in the PETSCII form the KERNAL reset routine scans for at $8004.
+CBM80_SIGNATURE = bytes([0xC3, 0xC2, 0xCD, 0x38, 0x30])
+
+_GENERIC_SIZES = (0x2000, 0x3000, 0x4000)
+
+
+def _vector(data: bytes, offset: int) -> int | None:
+    if len(data) < offset + 2:
+        return None
+    return int.from_bytes(data[offset:offset + 2], "little")
+
+
+def _verify_generic(crt: Crt) -> list[str]:
+    reasons: list[str] = []
+    if len(crt.chips) != 1:
+        reasons.append(
+            f"a generic cartridge holds one CHIP packet; this image has "
+            f"{len(crt.chips)} CHIP packets")
+        return reasons
+    chip = crt.chips[0]
+    if chip.size != len(chip.data):
+        reasons.append(
+            f"CHIP packet declares {chip.size} bytes but carries "
+            f"{len(chip.data)}")
+        return reasons
+    if crt.mode == "ultimax":
+        if chip.load_addr != ULTIMAX_ROMH_ADDR:
+            reasons.append(
+                f"an Ultimax cartridge maps ROMH at $E000; this one loads at "
+                f"${chip.load_addr:04X}")
+        if chip.size != BANK_WINDOW:
+            reasons.append(
+                f"an Ultimax cartridge is {BANK_WINDOW} bytes; this one is "
+                f"{chip.size} bytes")
+        reset = _vector(chip.data, 0x1FFC)
+        if reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
+            reasons.append(
+                f"reset vector ${reset:04X} at $FFFC points outside the ROMH "
+                f"window ($E000-$FFFF) — the CPU will start executing RAM")
+        return reasons
+    if chip.load_addr != ROML_ADDR:
+        reasons.append(
+            f"an 8K/16K cartridge maps ROML at $8000; this one loads at "
+            f"${chip.load_addr:04X}")
+    if chip.size not in _GENERIC_SIZES:
+        sizes = ", ".join(str(s) for s in _GENERIC_SIZES)
+        reasons.append(
+            f"a generic cartridge is {sizes} bytes; this one is {chip.size} bytes")
+    if chip.data[4:9] != CBM80_SIGNATURE:
+        reasons.append(
+            "no CBM80 autostart signature at $8004: the KERNAL will ignore "
+            "this cartridge and boot to BASIC")
+    cold = _vector(chip.data, 0)
+    top = chip.load_addr + chip.size - 1
+    if cold is not None and not (chip.load_addr <= cold <= top):
+        reasons.append(
+            f"cold vector ${cold:04X} at $8000 points outside the cartridge "
+            f"(${chip.load_addr:04X}-${top:04X})")
+    return reasons
+
+
+def _verify_easyflash(crt: Crt) -> list[str]:
+    reasons: list[str] = []
+    seen: set[tuple[int, str]] = set()
+    for chip in crt.chips:
+        key = (chip.bank, chip.window)
+        if key in seen:
+            reasons.append(f"bank {chip.bank} {chip.window} appears twice")
+        seen.add(key)
+        if not 0 <= chip.bank < EF_MAX_BANKS:
+            reasons.append(
+                f"bank {chip.bank} is outside the EasyFlash range "
+                f"(0-{EF_MAX_BANKS - 1})")
+        if chip.load_addr not in (ROML_ADDR, ROMH_ADDR):
+            reasons.append(
+                f"bank {chip.bank} loads at ${chip.load_addr:04X}; EasyFlash "
+                f"windows are $8000 and $A000")
+        if chip.size != BANK_WINDOW:
+            reasons.append(
+                f"bank {chip.bank} {chip.window} is {chip.size} bytes; every "
+                f"EasyFlash window is {BANK_WINDOW} bytes")
+    if crt.mode != "ultimax":
+        reasons.append(
+            f"an EasyFlash cartridge boots in Ultimax mode (EXROM=1, GAME=0); "
+            f"this image declares {crt.mode}")
+    boot = crt.chip(0, "hi")
+    if boot is None:
+        reasons.append(
+            "an EasyFlash cartridge boots through the reset vector at $FFFC, "
+            "which lives in bank 0's HIROM window — but bank 0 has no HIROM "
+            "packet")
+    else:
+        reset = _vector(boot.data, 0x1FFC)
+        if reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
+            reasons.append(
+                f"reset vector ${reset:04X} at $FFFC points outside the ROMH "
+                f"window ($E000-$FFFF)")
+    return reasons
+
+
+def cart_verify(path: str | Path) -> list[str]:
+    """Static pre-flight for a .crt: [] means it should boot.
+
+    Every rule here corresponds to a failure that is silent on real hardware —
+    a cartridge with no CBM80 signature simply boots to BASIC, and an EasyFlash
+    with no bank 0 HIROM never runs a single instruction.
+    """
+    crt = parse_crt(path)
+    reasons: list[str] = []
+    if not crt.chips:
+        reasons.append("image contains no CHIP packets")
+        return reasons
+    if crt.mode == "off":
+        reasons.append(
+            "EXROM and GAME are both inactive: nothing will be mapped")
+    if crt.hardware == HW_EASYFLASH:
+        reasons += _verify_easyflash(crt)
+    elif crt.hardware == HW_GENERIC:
+        reasons += _verify_generic(crt)
+    else:
+        reasons.append(
+            f"hardware type {crt.hardware} is not one this tool builds; "
+            f"`c64 cart info` still decodes it")
+    return reasons

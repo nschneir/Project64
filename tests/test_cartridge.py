@@ -1,10 +1,12 @@
 import pytest
 
 from c64lib.cartridge import (
+    CBM80_SIGNATURE,
     CartError,
     Chip,
     cart_dump,
     cart_info,
+    cart_verify,
     describe_mode,
     parse_crt,
 )
@@ -133,3 +135,100 @@ def test_cart_dump_names_the_missing_bank(tmp_path):
     path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, b"\xFF" * 0x2000)])
     with pytest.raises(CartError, match="no lo window in bank 3"):
         cart_dump(path, 3, "lo")
+
+
+def good_8k_body(entry=0x8009):
+    body = bytearray(b"\xFF" * 0x2000)
+    body[0:2] = entry.to_bytes(2, "little")      # cold vector
+    body[2:4] = entry.to_bytes(2, "little")      # warm vector
+    body[4:9] = CBM80_SIGNATURE
+    return bytes(body)
+
+
+def ef_hi_body(reset=0xE010):
+    body = bytearray(b"\xFF" * 0x2000)
+    body[0x1FFA:0x1FFC] = reset.to_bytes(2, "little")   # NMI
+    body[0x1FFC:0x1FFE] = reset.to_bytes(2, "little")   # RESET
+    body[0x1FFE:0x2000] = reset.to_bytes(2, "little")   # IRQ
+    return bytes(body)
+
+
+def test_verify_passes_a_well_formed_8k_cart(tmp_path):
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, good_8k_body())])
+    assert cart_verify(path) == []
+
+
+def test_verify_catches_a_missing_cbm80_signature(tmp_path):
+    body = bytearray(good_8k_body())
+    body[4:9] = b"\xFF" * 5
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, bytes(body))])
+    reasons = cart_verify(path)
+    assert len(reasons) == 1
+    # Measured: without it the KERNAL boots straight to BASIC and says nothing.
+    assert "CBM80" in reasons[0] and "boot to BASIC" in reasons[0]
+
+
+def test_verify_catches_a_cold_vector_outside_the_window(tmp_path):
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, good_8k_body(0x1234))])
+    assert any("cold vector $1234" in r for r in cart_verify(path))
+
+
+def test_verify_catches_a_wrong_sized_generic_image(tmp_path):
+    path = make_crt(tmp_path,
+                    chips=[chip_packet(0, 0x8000, good_8k_body()[:0x1000])])
+    assert any("4096 bytes" in r for r in cart_verify(path))
+
+
+def test_verify_catches_a_generic_cart_with_extra_packets(tmp_path):
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, good_8k_body()),
+                                     chip_packet(1, 0x8000, good_8k_body())])
+    assert any("2 CHIP packets" in r for r in cart_verify(path))
+
+
+def test_verify_checks_the_ultimax_reset_vector(tmp_path):
+    body = bytearray(b"\xFF" * 0x2000)
+    body[0x1FFC:0x1FFE] = (0x0801).to_bytes(2, "little")   # points at RAM
+    path = make_crt(tmp_path, exrom=1, game=0,
+                    chips=[chip_packet(0, 0xE000, bytes(body))])
+    assert any("reset vector $0801" in r for r in cart_verify(path))
+
+
+def test_verify_passes_a_well_formed_easyflash(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2),
+             chip_packet(0, 0x8000, b"\xFF" * 0x2000, chip_type=2),
+             chip_packet(7, 0x8000, b"\xFF" * 0x2000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert cart_verify(path) == []       # sparse bank 7 is fine, not a gap
+
+
+def test_verify_requires_easyflash_bank_zero_hi(tmp_path):
+    # Measured: EasyFlash boots through $FFFC in bank 0's HIROM window.
+    chips = [chip_packet(0, 0x8000, b"\xFF" * 0x2000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("bank 0 has no HIROM" in r for r in cart_verify(path))
+
+
+def test_verify_catches_duplicate_bank_windows(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2),
+             chip_packet(3, 0x8000, b"\xFF" * 0x2000, chip_type=2),
+             chip_packet(3, 0x8000, b"\xFF" * 0x2000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("bank 3 lo appears twice" in r for r in cart_verify(path))
+
+
+def test_verify_catches_an_out_of_range_bank(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2),
+             chip_packet(70, 0x8000, b"\xFF" * 0x2000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("bank 70" in r for r in cart_verify(path))
+
+
+def test_verify_catches_both_lines_inactive(tmp_path):
+    path = make_crt(tmp_path, exrom=1, game=1,
+                    chips=[chip_packet(0, 0x8000, good_8k_body())])
+    assert any("nothing will be mapped" in r for r in cart_verify(path))
+
+
+def test_verify_reports_an_empty_image(tmp_path):
+    path = make_crt(tmp_path, chips=[])
+    assert any("no CHIP packets" in r for r in cart_verify(path))
