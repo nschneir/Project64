@@ -94,6 +94,15 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
 - TDD: write the failing test first; every behavior change lands with tests
   in the same commit. Keep `pytest -m "not vice"` green at all times, and
   keep coverage ≥ 90% (`fail_under` is enforced by the coverage config).
+- **Run the narrowest test run that can actually fail.** The full suite
+  launches real emulators (~4 min) — reserve it for cross-cutting `src/`
+  behavior changes and one pre-merge verification, and reuse a green run
+  instead of repeating it when nothing has changed since (or only docs and
+  test-local files have). Ladder: `.md`-only change → just the focused
+  `tests/test_docs_*.py` file(s) covering those docs; a single test file
+  changed → run that file; one `src/` module changed → its tests plus
+  direct callers' tests, with the `-m "not vice"` sweep only for
+  widely-called code.
 - Use the house harnesses instead of inventing new ones:
   - monitor-level: `tests/fake_vice.py` (`FakeVice` + `resp_frame`);
   - CLI: `CliRunner` + `patch("c64lib.cli.Session")` + a Mock monitor
