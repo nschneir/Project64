@@ -1,11 +1,18 @@
-# Invaders in 6502 assembly
+# Invaders — the 1978 arcade game, recreated
+
+The toughest demo in the set: a faithful Space Invaders in pure 6502
+assembly — custom multicolor charset, hardware sprites, the authentic
+one-invader-per-tick march engine, three-voice SID, and an explicit
+audit-and-improve loop that runs until every spec bullet passes.
 
 Paste this prompt into your agent:
 
 > Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 > skill, and docs/cli.md), build the closest recreation of the 1978 arcade
 > Space Invaders that a Commodore 64 can express — pure 6502 assembly with
-> a BASIC SYS stub. Push the C64's graphics to their fullest: use a
+> a BASIC SYS stub. Everything for this demo lives in `demos/invaders/`.
+>
+> Push the C64's graphics to their fullest: use a
 > **graphics mode built on a custom multicolor character set** for the
 > invaders, shields, and HUD (drawn at $0400 with color RAM at $D800 —
 > design your own invader glyphs rather than settling for stock PETSCII),
@@ -109,7 +116,8 @@ Paste this prompt into your agent:
 >
 > **Ship it.** When everything passes, package the game so anyone with
 > stock VICE can play it: `c64 package` your source into
-> `invaders.d64` with `--title "INVADERS"` (the `.prg` lands beside it),
+> `demos/invaders/invaders.d64` with `--title "INVADERS"` (the `.prg` lands
+> beside it),
 > and tell the user the exact run command `c64 package` prints
 > (`x64sc -ntsc invaders.d64` — the video-standard flag keeps the timing
 > you tested). On a real keyboard, the $CB scan then gives them exactly
