@@ -77,6 +77,47 @@ def test_ultimax_build_maps_romh_at_e000(tmp_path):
 
 
 @needs_build
+def test_16k_romh_data_does_not_charge_for_the_roml_fill(tmp_path):
+    """One byte in ROMH used to make the whole ROML fill region count as used."""
+    src = tmp_path / "romh.s"
+    src.write_text(
+        '.export cart_main\n'
+        '.segment "CODE"\n'
+        'cart_main: jmp cart_main\n'
+        '.segment "ROMH"\n'
+        'table:  .byte 42\n'
+    )
+    res = build_cart(src, cart_type="16k", title="ROMH")
+    # Boot stub + 3-byte program + 1 byte of ROMH: nowhere near the ~8 KB the
+    # whole-image rstrip reported.
+    assert 0 < res["bytes"] < 256
+    assert res["free"] == 16384 - res["bytes"]
+    assert cart_verify(res["crt"]) == []
+
+
+@needs_build
+@pytest.mark.parametrize("cart_type,size", [
+    ("8k", 8192), ("16k", 16384), ("ultimax", 8192),
+])
+def test_bss_variables_link_into_ram(tmp_path, cart_type, size):
+    """Mutable state goes in BSS, which must resolve to a RAM area and cost no
+    image bytes — a cartridge cannot write to its own ROM."""
+    src = tmp_path / "bss.s"
+    src.write_text(
+        '.export cart_main\n'
+        '.segment "BSS"\n'
+        'counter: .res 2\n'
+        '.segment "CODE"\n'
+        'cart_main:\n'
+        '        inc counter\n'
+        '        jmp cart_main\n'
+    )
+    res = build_cart(src, cart_type=cart_type, title="BSS")
+    assert cart_verify(res["crt"]) == []
+    assert Path(res["bin"]).stat().st_size == size
+
+
+@needs_build
 def test_missing_cart_main_export_explains_itself(tmp_path):
     from c64lib.cartridge import CartError
     src = tmp_path / "bad.s"

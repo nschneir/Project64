@@ -34,26 +34,44 @@ ULTIMAX_START = 0xE000
 VECTORS_ADDR = 0xFFFA
 VECTORS_SIZE = 6
 
+# Where a cartridge's mutable state lives. $0800 is the first byte the boot
+# stub does not clobber: RAMTAS clears $0002-$0101 and $0200-$03FF, and CINT
+# clears the $0400-$07FF screen. The area stops below the cart window at $8000.
+RAM_START = 0x0800
+RAM_SIZE = 0x7800                     # $0800-$7FFF
+# An Ultimax cartridge only has RAM at $0000-$0FFF — everything else is open
+# bus or cart ROM — so BSS gets the $0800-$0FFF half of it.
+ULTIMAX_RAM_SIZE = 0x0800
+
 _ZP = "    ZP:   start = $0000, size = $0100;"
 _SEG_COMMON = """\
     ZEROPAGE: load = ZP,   type = zp, optional = yes;
     STARTUP:  load = {rom}, type = ro, optional = yes;
     CODE:     load = {rom}, type = ro;
     RODATA:   load = {rom}, type = ro, optional = yes;
-    DATA:     load = {rom}, type = ro, optional = yes;"""
+    DATA:     load = {rom}, type = ro, optional = yes;
+    BSS:      load = RAM,  type = bss, optional = yes, define = yes;"""
+
+
+def _ram_area(size: int) -> str:
+    """A RAM memory area for BSS. No `file` attribute: it is address space
+    only and must never contribute bytes to the ROM image."""
+    return f"    RAM:  start = ${RAM_START:04X}, size = ${size:04X}, define = yes;"
 
 
 def cart_linker_config(cart_type: str) -> str:
     """ld65 config placing code in ROM windows instead of at the BASIC start.
 
     DATA is `type = ro`: a cartridge's data segment lives in ROM and cannot be
-    written. Mutable state belongs in a BSS segment the author places in RAM.
+    written. Mutable state belongs in BSS, which every config maps to a RAM
+    area — see RAM_START — so `.segment "BSS"` links without further setup.
     """
     get_cart_type(cart_type)        # raises CartError naming the known types
     if cart_type == "8k":
         return (
             "MEMORY {\n"
             f"{_ZP}\n"
+            f"{_ram_area(RAM_SIZE)}\n"
             f"    ROM:  file = %O, start = ${ROML_START:04X}, "
             f"size = ${BANK_WINDOW:04X}, fill = yes, fillval = $FF;\n"
             "}\n"
@@ -65,6 +83,7 @@ def cart_linker_config(cart_type: str) -> str:
         return (
             "MEMORY {\n"
             f"{_ZP}\n"
+            f"{_ram_area(RAM_SIZE)}\n"
             f"    ROML: file = %O, start = ${ROML_START:04X}, "
             f"size = ${BANK_WINDOW:04X}, fill = yes, fillval = $FF;\n"
             f"    ROMH: file = %O, start = ${ROMH_START:04X}, "
@@ -79,6 +98,7 @@ def cart_linker_config(cart_type: str) -> str:
         return (
             "MEMORY {\n"
             f"{_ZP}\n"
+            f"{_ram_area(ULTIMAX_RAM_SIZE)}\n"
             f"    ROM:  file = %O, start = ${ULTIMAX_START:04X}, "
             f"size = ${BANK_WINDOW - VECTORS_SIZE:04X}, fill = yes, fillval = $FF;\n"
             f"    VEC:  file = %O, start = ${VECTORS_ADDR:04X}, "
@@ -251,13 +271,20 @@ def build_cart(source, out=None, cart_type: str = "8k",
 def _used_bytes(image: bytes, reserved_tail: int = 0) -> int:
     """Bytes before the $FF fill tail — what the author actually spent.
 
+    Measured per $2000 window, because each window is padded independently: a
+    16K image is ROML followed by ROMH, so a single byte of ROMH data sits
+    after ~8 KB of ROML fill. Scanning the concatenated image as one block
+    would charge the author for that fill.
+
     `reserved_tail` is a fixed always-occupied region at the end of the image
     (the Ultimax reset vectors at $FFFA). Those bytes are never $FF, so the
     fill heuristic has to stop short of them and count them separately —
     otherwise every Ultimax cart reports as completely full.
     """
     body = image[:len(image) - reserved_tail] if reserved_tail else image
-    return len(body.rstrip(b"\xFF")) + reserved_tail
+    used = sum(len(body[i:i + BANK_WINDOW].rstrip(b"\xFF"))
+               for i in range(0, len(body), BANK_WINDOW))
+    return used + reserved_tail
 
 
 # A wrapped program is copied out of ROM to its load address, then started.

@@ -36,6 +36,25 @@ def test_ultimax_config_puts_romh_at_e000_and_reserves_the_vectors():
     assert "VECTORS:" in cfg
 
 
+@pytest.mark.parametrize("cart_type", ["8k", "16k", "ultimax"])
+def test_every_config_gives_bss_a_ram_home(cart_type):
+    """The docstring tells authors to put mutable state in a BSS segment, so
+    every config has to declare one — ld65 refuses to link without it."""
+    cfg = cart_linker_config(cart_type)
+    assert "RAM:" in cfg
+    assert "BSS:" in cfg
+    assert "load = RAM" in cfg
+    assert "type = bss" in cfg
+
+
+def test_ram_areas_clear_the_screen_and_respect_the_ultimax_limit():
+    # RAMTAS clears $0200-$03FF and CINT clears the $0400-$07FF screen, so BSS
+    # starts above them at $0800. Under an Ultimax cart only $0000-$0FFF is RAM.
+    for cart_type in ("8k", "16k"):
+        assert "start = $0800, size = $7800" in cart_linker_config(cart_type)
+    assert "start = $0800, size = $0800" in cart_linker_config("ultimax")
+
+
 def test_unknown_cart_type_lists_the_known_ones():
     with pytest.raises(CartError, match="available: 16k, 8k, easyflash, ultimax"):
         cart_linker_config("nes")
@@ -87,6 +106,17 @@ def test_used_bytes_counts_a_reserved_tail_as_spent():
     assert _used_bytes(image, VECTORS_SIZE) == 2 + VECTORS_SIZE
     # Without the reservation the non-$FF tail hides the whole fill region.
     assert _used_bytes(image) == 0x2000
+
+
+def test_used_bytes_measures_each_bank_window_separately():
+    """A 16K image is two independent $2000 windows, not one 16K block.
+
+    A single byte of ROMH data must not make the whole ROML fill region count
+    as used — that over-reported a nearly empty cart by about 8 KB.
+    """
+    roml = b"\xA9\x15" + b"\xFF" * (0x2000 - 2)
+    romh = b"\x2A" + b"\xFF" * (0x2000 - 1)
+    assert _used_bytes(roml + romh) == 3
 
 
 def test_cart_title_uppercases_and_bounds_length():
