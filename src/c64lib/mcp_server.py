@@ -13,6 +13,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from .basic import tokenize
+from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
 from .disasm import disassemble
 from .disk import create_image, get_file, list_files, put_file
@@ -506,6 +507,25 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
     if symbols:
         s.set_labels_path(str(Path(symbols).resolve()))
     return {"loaded": str(p), "run": run, "symbols": symbols}
+
+
+@srv.tool()
+def c64_basic_check(source_path: str) -> dict:
+    """Statically check a BASIC V2 source file before running it. Run this
+    after writing or editing BASIC and BEFORE c64_run / c64_basic_type — it
+    catches keyword fusion (`total=5` tokenizes as `TO TAL=5` on a C64),
+    missing GOTO/GOSUB targets, out-of-range POKEs, non-V2 keywords and
+    oversize programs without an emulator round trip. Needs no session.
+    Returns issues with stable rule IDs (E... will not run, W... suspect)
+    plus the exact tokenized size (38911 bytes are free)."""
+    from dataclasses import asdict
+
+    text = Path(source_path).read_text()
+    issues = lint_source(text)
+    errors = sum(1 for i in issues if i.severity == "error")
+    return {"issues": [asdict(i) for i in issues], "errors": errors,
+            "warnings": len(issues) - errors,
+            "tokenized_bytes": tokenized_bytes(text)}
 
 
 @srv.tool()
