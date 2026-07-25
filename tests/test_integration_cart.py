@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from c64lib.cart_build import build_cart
+from c64lib.cart_build import build_cart, wrap_prg
 from c64lib.cartridge import cart_info, cart_verify
 
 needs_build = pytest.mark.skipif(
@@ -98,4 +98,26 @@ def test_own_startup_suppresses_the_generated_stub(tmp_path):
         'mine:   jmp mine\n'
     )
     res = build_cart(src, cart_type="8k", title="OWN")
+    assert cart_verify(res["crt"]) == []
+
+
+@needs_build
+def test_wrapping_a_basic_program_builds_a_bootable_cart(tmp_path):
+    bas = tmp_path / "hello.bas"
+    bas.write_text('10 print "wrapped basic ok"\n20 goto 20\n')
+    res = wrap_prg(bas, cart_type="8k", title="WRAPBAS")
+    assert res["kind"] == "basic" and res["load_addr"] == 0x0801
+    assert cart_verify(res["crt"]) == []
+
+
+@needs_build
+def test_wrapping_an_assembly_program_uses_the_ml_path(tmp_path):
+    src = tmp_path / "m.s"
+    src.write_text(
+        '.segment "LOADADDR"\n        .word $0801\n'
+        '.segment "CODE"\n'
+        'start:  lda #1\n        sta $0400\n        jmp start\n'
+    )
+    res = wrap_prg(src, cart_type="8k", title="WRAPML")
+    assert res["kind"] == "ml"
     assert cart_verify(res["crt"]) == []

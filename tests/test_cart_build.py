@@ -9,6 +9,8 @@ from c64lib.cart_build import (
     cart_linker_config,
     cart_title,
     has_own_startup,
+    launcher_source,
+    wrap_prg,
 )
 from c64lib.cartridge import CartError
 
@@ -93,3 +95,41 @@ def test_cart_title_uppercases_and_bounds_length():
         cart_title("x" * 33)
     with pytest.raises(CartError, match="empty"):
         cart_title("   ")
+
+
+def test_basic_launcher_chains_through_the_interpreter():
+    src = launcher_source(0x0801, 0x0825, "basic")
+    # Measured boot sequence for a wrapped BASIC program.
+    for token in ("$E453", "$E3BF", "$A659", "$A7AE"):
+        assert token in src
+    assert "$2D" in src and "$32" in src        # VARTAB..STREND get set
+    assert ".incbin" in src
+
+
+def test_ml_launcher_jumps_to_the_load_address():
+    src = launcher_source(0xC000, 0xC100, "ml")
+    # Whitespace-tolerant: the launcher is column-aligned assembly.
+    assert re.search(r"jmp\s+\$C000", src)
+    # A machine-code program does not touch the BASIC pointers.
+    assert "$A7AE" not in src
+
+
+def test_wrap_rejects_ultimax(tmp_path):
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(bytes([0x01, 0x08]) + b"\x00" * 8)
+    with pytest.raises(CartError, match="Ultimax"):
+        wrap_prg(prg, cart_type="ultimax", title="P")
+
+
+def test_wrap_rejects_a_program_too_big_for_the_window(tmp_path):
+    prg = tmp_path / "big.prg"
+    prg.write_bytes(bytes([0x01, 0x08]) + b"\x00" * 9000)
+    with pytest.raises(CartError, match="--cart-type 16k"):
+        wrap_prg(prg, cart_type="8k", title="BIG")
+
+
+def test_wrap_rejects_a_truncated_prg(tmp_path):
+    prg = tmp_path / "t.prg"
+    prg.write_bytes(b"\x01")
+    with pytest.raises(CartError, match="load address"):
+        wrap_prg(prg, cart_type="8k", title="T")
