@@ -108,19 +108,35 @@ def _set_json(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
     return value
 
 
+def _append_json_option(cmd: click.Command) -> None:
+    """Give `cmd` a trailing --json option, unless it already declares one
+    (true for `main`, which gets --json via its own group decorator)."""
+    existing = {o for p in cmd.params for o in getattr(p, "opts", [])}
+    if "--json" not in existing:
+        cmd.params.append(click.Option(
+            ["--json", "json_out"], is_flag=True, expose_value=False,
+            callback=_set_json, help="Machine-readable JSON output."))
+
+
 class JsonAwareCommand(click.Command):
     """A command that also accepts the global --json in trailing position."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.params.append(click.Option(
-            ["--json", "json_out"], is_flag=True, expose_value=False,
-            callback=_set_json, help="Machine-readable JSON output."))
+        _append_json_option(self)
 
 
 class JsonAwareGroup(click.Group):
+    """A group that also accepts --json directly, so groups that act as
+    leaf commands themselves (e.g. `reg`, declared with
+    invoke_without_command=True) support --json in trailing position too."""
+
     command_class = JsonAwareCommand
     group_class = type          # nested groups inherit this behaviour
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        _append_json_option(self)
 
 
 @click.group(cls=JsonAwareGroup)

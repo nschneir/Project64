@@ -10,15 +10,17 @@ exposes the same operations; see the README.
   tracked in a registry under `~/.c64-tools/sessions/` (override the base with
   `$C64_TOOLS_HOME`). A command with no `--session` targets the single running
   session; if several are running you must name one.
-- **Global options** (before the subcommand):
+- **Global options**:
   - `--json` — emit machine-readable JSON on stdout instead of human text.
     This is the intended interface for AI agents. Every command supports it,
     in either position: `c64 --json session list` and
     `c64 session list --json` are equivalent.
-  - `--session, -s NAME` — target a specific session by name.
-  - `--version` — print `c64 <version>` and exit.
-  - `--help` — print usage and exit. Works on every command and group
-    (e.g. `c64 session start --help`).
+  - `--session, -s NAME` — target a specific session by name. Must come
+    before the subcommand.
+  - `--version` — print `c64 <version>` and exit. Must come before the
+    subcommand.
+  - `--help` — print usage and exit. Works on every command and group, in
+    either position (e.g. `c64 session start --help`).
 - **Numbers.** Address and value arguments accept `$hex` (e.g. `$0400`),
   `0xhex`, or decimal. Where a label file is registered on the session (via
   `c64 build`/`c64 run` of assembly, or `c64 load --symbols`), a **symbol
