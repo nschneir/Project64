@@ -12,6 +12,7 @@ dist/
 *.d81
 scratch/
 docs/superpowers/
+.superpowers/
 .coverage
 .coverage.*
 htmlcov/
