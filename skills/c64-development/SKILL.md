@@ -9,6 +9,11 @@ This skill drives an emulated Commodore 64 through the `c64` command line (or
 the equivalent `c64-tools` MCP tools). Full command reference: `docs/cli.md`.
 Every command takes `--json` for machine-readable output.
 
+**Finding the binary.** `c64` is installed into this project's virtualenv,
+not onto `PATH` — invoke it as `.venv/bin/c64` from the repository root, or
+`source .venv/bin/activate` once per shell. If `.venv` is missing, stop and
+say so rather than substituting another environment.
+
 **Using MCP instead of the CLI?** The tools map mechanically — `c64 screen`
 → `c64_screen_text`, `c64 break add` → `c64_break_add`, `c64 basic check`
 → `c64_basic_check`, and so on — with the
@@ -30,6 +35,12 @@ Write → run → observe → fix:
    to see output. Use `c64 wait --text "..."` to block until expected output
    appears; loading and running take a few emulated seconds even in warp, so
    never assume a program has finished — wait for a signal.
+   For a text-mode program, decoded text is also the *cheapest* observation —
+   prefer it over `--png` for verification, and read color back from the
+   registers (`c64 mem read '$D020' 2`) rather than from an image. Reach for
+   `c64 screen --png` when the appearance itself is the artifact (sprites,
+   bitmap modes, a screenshot for a human); add `--border` when the border
+   color matters, or it is cropped out.
 5. Fix and repeat.
 
 Start a machine with `c64 session start` before anything else, and
@@ -81,6 +92,28 @@ Conventions `c64 basic check` enforces (know them even without running it):
   and fail at RUN.
 - **Program + variables ≤ 38911 bytes.** `c64 basic check --json` reports
   `tokenized_bytes`; watch it as a game grows.
+
+## Driving an interactive program
+
+A program that blocks on `INPUT` or `GET` is driven by feeding the keyboard
+and reading the screen back. The trap: **screen output persists**, so every
+prompt and verdict is still on screen the next time round, and a bare
+`c64 wait --text "YOUR GUESS?"` matches the stale copy and returns
+immediately. Two ways through:
+
+1. `c64 wait --text STR --since` — fires only on an occurrence that appears
+   after the command starts. The default for turn-by-turn play.
+2. Anchor on the cell the text lands in — `c64 wait --mem '@6,0=20'`, or in
+   a YAML test `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`. Sturdier
+   than `--since` on a screen that scrolls, because a count of occurrences
+   can stay flat when an old copy scrolls off. `c64 screen --numbered`
+   prints row indices and a column ruler so you can read the reference off
+   the screen instead of computing it.
+
+`c64 key type` fills the keyboard buffer and returns — it does **not** wait
+for the machine to consume the keys. Always follow it with a `wait` before
+asserting; asserting straight after a `key` is a race that passes on a fast
+host and fails on a slow one.
 
 ## Writing assembly
 
@@ -248,6 +281,12 @@ Prove a change works, don't assume it. Either assert on output with
 `c64 test run mytest.yaml` (a `program` plus `wait`/`key`/`assert` steps —
 full format under `c64 test run` in docs/cli.md). Existing example
 programs can all be run as tests with `c64 test programs`.
+
+A program with randomness cannot be pinned by a static test until it is
+seeded. `RND(-X)` reseeds deterministically (`30 x=rnd(-1)`), so the run is
+reproducible; `RND(-TI)` gives a different game each run. Keep the seeding
+call on its own line so a test can substitute it — see the cookbook's
+prompt-loop recipe.
 
 ## References
 

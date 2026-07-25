@@ -808,7 +808,9 @@ steps:
 ```
 
 Step kinds: `wait` (poll until true or timeout — fails the test on
-timeout), `key` (feed keyboard input), `assert` (check once, now),
+timeout), `key` (feed keyboard input — fills the buffer and returns
+immediately; it does not wait for the machine to consume the keys, so
+follow it with a `wait` before asserting), `assert` (check once, now),
 `poke` (write bytes; `value:` or `values:`), `until` (run to `ref`
 `count` times via a checkpoint and leave the machine stopped there —
 deterministic frame stepping; fails on timeout with the reached count),

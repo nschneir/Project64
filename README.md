@@ -78,8 +78,9 @@ across commands: when the agent halts the machine at a breakpoint, it stays
 halted while the agent inspects memory, registers, and screen in separate tool
 calls. There are two ways an agent can use it — pick either or both:
 
-- **The CLI** — every `c64` command takes `--json`. Works with *any* agent
-  that can run shell commands; nothing to configure.
+- **The CLI** — every `c64` command takes `--json` (the binary lives at
+  `.venv/bin/c64` in a source checkout). Works with *any* agent that can
+  run shell commands; nothing to configure.
 - **The MCP server** — `c64-tools-mcp` exposes the same operations as MCP
   tools over stdio. CLI and MCP share the same sessions, so they are
   interchangeable.
