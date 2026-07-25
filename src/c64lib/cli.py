@@ -98,7 +98,32 @@ def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
         raise AssertionError("unreachable") from None
 
 
-@click.group()
+def _set_json(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+    """Let --json be given after the subcommand as well as before it."""
+    if value:
+        root = ctx.find_root()
+        if root.obj is None:
+            root.obj = {"json": False, "session": None}
+        root.obj["json"] = True
+    return value
+
+
+class JsonAwareCommand(click.Command):
+    """A command that also accepts the global --json in trailing position."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.params.append(click.Option(
+            ["--json", "json_out"], is_flag=True, expose_value=False,
+            callback=_set_json, help="Machine-readable JSON output."))
+
+
+class JsonAwareGroup(click.Group):
+    command_class = JsonAwareCommand
+    group_class = type          # nested groups inherit this behaviour
+
+
+@click.group(cls=JsonAwareGroup)
 @click.version_option(__version__, "--version", prog_name="c64",
                       message="%(prog)s %(version)s")
 @click.option("--json", "json_out", is_flag=True, help="Machine-readable JSON output.")

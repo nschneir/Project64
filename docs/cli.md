@@ -12,7 +12,9 @@ exposes the same operations; see the README.
   session; if several are running you must name one.
 - **Global options** (before the subcommand):
   - `--json` — emit machine-readable JSON on stdout instead of human text.
-    This is the intended interface for AI agents. Every command supports it.
+    This is the intended interface for AI agents. Every command supports it,
+    in either position: `c64 --json session list` and
+    `c64 session list --json` are equivalent.
   - `--session, -s NAME` — target a specific session by name.
   - `--version` — print `c64 <version>` and exit.
   - `--help` — print usage and exit. Works on every command and group
