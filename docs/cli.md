@@ -430,11 +430,19 @@ synchronization primitive for scripted use.
 
 - `--text STR` — wait until STR appears on the screen.
 - `--since` — with `--text`, fire only when the string appears *more times*
-  than it did when the command started. Screen output persists, so a
-  repeated prompt (`YOUR GUESS?`) or verdict (`TOO HIGH`) otherwise matches
-  the stale copy already on screen and returns instantly. On a screen that
-  scrolls the count can stay flat as an old copy scrolls off; anchor on a
-  cell there instead (`c64 wait --mem '@6,0=20'`).
+  than it did when the command started. Screen output persists, so a string
+  already printed once (a `READY.` from the last load, a banner from the
+  previous level) otherwise matches the stale copy and returns instantly.
+  Use it when a real gap separates the trigger from the appearance — a
+  countdown or animation frame due a second or two from now, a slow render
+  finishing mid-screen. Two cases where it does not apply: a *fast*
+  responder prints the new text before the wait command has even started,
+  so the baseline already counts it and the wait holds out for a second
+  occurrence that never comes; and on a screen that scrolls the count can
+  stay flat as an old copy scrolls off the top. In both, anchor on the cell
+  the text lands in instead (`c64 wait --mem '@6,0=20'`, and in YAML
+  `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`) — polling the byte
+  has no count to race.
 - `--mem ADDR=VALUE` — wait until the byte at ADDR equals VALUE (e.g.
   `'$1000=42'`).
 - `--break [CK_ID]` — wait until a checkpoint fires; **leaves the machine
@@ -784,7 +792,11 @@ steps:
   - wait:   { text: "READY." }              # screen text appears
   - key:    "run\n"                         # type keys (\n = RETURN)
   - wait:   { text: "HELLO", timeout: 5 }   # per-step timeout override
-  - wait:   { text: "TOO LOW", since: true }  # only a NEW occurrence counts
+  - wait:   { text: "LIFTOFF", since: true } # only a NEW occurrence counts —
+                                            #   for text a real gap away (a
+                                            #   countdown, an animation frame)
+  - wait:   { mem: "@6,0", equals: 20 }     # an instant reply races `since`:
+  - assert: { mem: "@6,0", equals_text: "TOO HIGH" }  # anchor its cell instead
   - wait:   { mem: "$1000", equals: 42 }    # byte reaches a value
   - until:  { ref: mainloop, count: 3 }     # frame-step to a label; the
                                             #   machine STAYS stopped there

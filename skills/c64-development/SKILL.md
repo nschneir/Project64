@@ -103,18 +103,25 @@ prompt and verdict is still on screen the next time round, and a bare
 `c64 wait --text "YOUR GUESS?"` matches the stale copy and returns
 immediately. Two ways through:
 
-1. `c64 wait --text STR --since` — fires only on an occurrence that appears
-   after the command starts. The default for turn-by-turn play.
-2. Anchor on the cell the text lands in — `c64 wait --mem '@6,0=20'`, or in
-   a YAML test `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`. Sturdier
-   than `--since` on a screen that scrolls, because a count of occurrences
-   can stay flat when an old copy scrolls off. `c64 screen --numbered`
-   prints row indices and a column ruler so you can read the reference off
-   the screen instead of computing it.
+1. Anchor on the cell the text lands in — `c64 wait --mem '@6,0=20'`, or in
+   a YAML test `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`. **The
+   default for turn-by-turn play**: `wait --mem` polls the byte directly, so
+   there is no occurrence count to race and nothing breaks when an old copy
+   scrolls off. `c64 screen --numbered` prints row indices and a column
+   ruler so you can read the reference off the screen instead of computing
+   it.
+2. `c64 wait --text STR --since` — fires only on an occurrence that appears
+   after the command starts. Use it when a real gap separates the trigger
+   from the appearance (an animation, a multi-second countdown, a slow
+   render). It does **not** fit an instant responder: `--since` takes its
+   baseline when the wait starts, so a program that answers faster than a
+   CLI round-trip (or a YAML `key` step) has already printed the new text
+   into that baseline, and the wait hangs out for a second occurrence that
+   never comes.
 
-Under MCP both waits are separate tools — `c64_wait_text` (which takes the
-same `since` flag) and `c64_wait_mem`; see "Using MCP instead of the CLI?"
-above.
+Under MCP both waits are separate tools — `c64_wait_mem` and `c64_wait_text`
+(which takes the same `since` flag, with the same caveat); see "Using MCP
+instead of the CLI?" above.
 
 `c64 key type` fills the keyboard buffer and returns — it does **not** wait
 for the machine to consume the keys. Always follow it with a `wait` before
