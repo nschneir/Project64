@@ -4,9 +4,11 @@ import pytest
 
 from c64lib import build as build_mod
 from c64lib.cart_build import (
+    _EF_LO_BODY,
     EF_JUMPTABLE,
     EF_RESIDENT,
     VECTORS_SIZE,
+    _ef_window_used,
     _used_bytes,
     _wrap_kind,
     boot_stub_source,
@@ -22,7 +24,7 @@ from c64lib.cart_build import (
     wrap_linker_config,
     wrap_prg,
 )
-from c64lib.cartridge import CartError
+from c64lib.cartridge import BANK_WINDOW, CartError
 
 
 def test_8k_config_fills_one_window_at_8000():
@@ -127,6 +129,45 @@ def test_used_bytes_measures_each_bank_window_separately():
     roml = b"\xA9\x15" + b"\xFF" * (0x2000 - 2)
     romh = b"\x2A" + b"\xFF" * (0x2000 - 1)
     assert _used_bytes(roml + romh) == 3
+
+
+def test_ef_boot_window_does_not_charge_for_the_reset_vectors():
+    """Bank 0 hi ends with the $FFFA vectors, which are never $FF.
+
+    Measuring it with a plain rstrip reports every boot window as
+    8,192/8,192 (0 free) however small the program is — the same trap
+    `_used_bytes`' reserved tail exists to avoid for Ultimax.
+    """
+    image = b"\xAA\xBB" + b"\xFF" * (BANK_WINDOW - 8) + b"\x00\xE0\x00\xE0\x00\xE0"
+    assert len(image) == BANK_WINDOW
+    assert _ef_window_used(image, "hi", boot=True) == 2 + VECTORS_SIZE
+    # What a plain rstrip would have said.
+    assert len(image.rstrip(b"\xFF")) == BANK_WINDOW
+
+
+def test_ef_lo_window_measures_the_jump_table_page_separately():
+    """A LOROM window is a $1F00 body plus the reserved $9F00 page.
+
+    They are fill-padded apart, so one JUMPTAB entry must not charge the
+    author for the ~7.7 KB of pad sitting in front of it.
+    """
+    body = b"\x01" * 4 + b"\xFF" * (_EF_LO_BODY - 4)
+    jt = b"\x4C\x00\x80" + b"\xFF" * (0x0100 - 3)
+    image = body + jt
+    assert len(image) == BANK_WINDOW
+    assert _ef_window_used(image, "lo", boot=False) == 4 + 3
+    # What a plain rstrip would have said.
+    assert len(image.rstrip(b"\xFF")) == _EF_LO_BODY + 3
+
+
+def test_ef_plain_windows_measure_the_whole_block():
+    """Neither correction applies to a plain hi window or a short blob, and
+    applying one anyway would over-report them."""
+    hi = b"\x2A" * 10 + b"\xFF" * (BANK_WINDOW - 10)
+    assert _ef_window_used(hi, "hi", boot=False) == 10
+    # A raw .bin shorter than the $1F00 body must not be split.
+    blob = b"\x11" * 100
+    assert _ef_window_used(blob, "lo", boot=False) == 100
 
 
 def test_cart_title_uppercases_and_bounds_length():
