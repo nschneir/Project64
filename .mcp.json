@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "c64-tools": {
+      "command": ".venv/bin/c64-tools-mcp"
+    }
+  }
+}

@@ -43,6 +43,19 @@ def test_happy_path_key_wait_assert(tmp_path):
     s.stop.assert_called_once()
 
 
+def test_wait_text_since_ignores_stale_occurrence():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    screens = ["READY.", "TOO HIGH", "TOO HIGH", "TOO HIGH\nTOO HIGH", "TOO HIGH\nTOO HIGH"]
+    spec = _spec(steps=[
+        {"wait": {"text": "TOO HIGH", "since": True}},
+    ])
+    with patch("c64lib.testing.read_screen_text", side_effect=screens):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert [st.ok for st in result.steps] == [True]
+
+
 def test_poke_and_until_steps():
     s, mon = _fake_session()
     launch = Mock(return_value=s)

@@ -37,8 +37,11 @@ def read_screen_codes(mon: MonitorClient, profile: MachineProfile) -> list[list[
 
 
 def save_screenshot_png(mon: MonitorClient, path: str | Path,
-                        scale: int = 1) -> tuple[int, int]:
-    width, height, pixels = mon.display()
+                        scale: int = 1, border: bool = False) -> tuple[int, int]:
+    """Save the emulated display as a PNG. By default captures the 320x200
+    inner screen; border=True captures the whole frame, so `POKE 53280`
+    border colors are visible."""
+    width, height, pixels = mon.display(full=border)
     palette = mon.palette()
     img = Image.new("P", (width, height))
     flat = []
@@ -50,3 +53,11 @@ def save_screenshot_png(mon: MonitorClient, path: str | Path,
         img = img.resize((width * scale, height * scale), Image.NEAREST)
     img.save(Path(path), format="PNG")
     return img.width, img.height
+
+
+def number_screen_text(text: str, cols: int = 40) -> str:
+    """Prefix each screen row with its index and print a column ruler, so
+    `@row,col` references can be read straight off the output."""
+    ruler = "   " + "".join(str(c % 10) for c in range(cols))
+    rows = [f"{i:2d}|{line}" for i, line in enumerate(text.splitlines())]
+    return "\n".join([ruler, *rows])

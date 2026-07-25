@@ -260,9 +260,11 @@ def _do_step(session, kind: str, arg, default_timeout: float,
     if kind == "wait":
         timeout = arg.get("timeout", default_timeout)
         if "text" in arg:
-            ok, _ = _wait_screen(session, lambda t: arg["text"] in t, timeout)
-            return ok, (f"text {arg['text']!r} seen" if ok
-                        else f"text {arg['text']!r} not seen in {timeout}s")
+            want = str(arg["text"])
+            base = _screen(session).count(want) if arg.get("since") else 0
+            ok, _ = _wait_screen(session, lambda t: t.count(want) > base, timeout)
+            return ok, (f"text {want!r} seen" if ok
+                        else f"text {want!r} not seen in {timeout}s")
         if "mem" in arg:
             addr, want = _addr(arg["mem"]), _num(arg["equals"])
             deadline = time.monotonic() + timeout

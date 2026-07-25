@@ -224,6 +224,21 @@ def test_screen_png_scale():
     assert json.loads(r.output)["width"] == 760
 
 
+def test_screen_png_border_flag_threads_through():
+    """--border must reach save_screenshot_png(border=...); absent it is False."""
+    for argv, want in ((["--border"], True), ([], False)):
+        mon = Mock()
+        fake, p = _patched(mon)
+        with p as S, patch("c64lib.cli.save_screenshot_png",
+                           return_value=(320, 200)) as save:
+            S.attach.return_value = fake
+            r = CliRunner().invoke(main, ["--json", "screen", "--png",
+                                          "/tmp/x.png", *argv])
+        assert r.exit_code == 0, r.output
+        save.assert_called_once()
+        assert save.call_args.kwargs["border"] is want
+
+
 def test_mem_write_stdin():
     mon = Mock()
     fake, p = _patched(mon)

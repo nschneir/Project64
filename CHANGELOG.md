@@ -6,6 +6,71 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [0.4.0] — 2026-07-25
+
+Driving interactive programs — the gaps a demo-01 dogfooding run turned up.
+
+### Added
+- **`c64 screen --png --border`** (MCP: `c64_screenshot(border=True)`) —
+  capture the whole frame instead of the 320×200 inner screen, so a
+  `POKE 53280` border color is visible. The bordered frame was always in the
+  VICE response; it was being cropped away.
+- **`c64 wait --text --since`** (MCP: `c64_wait_text(since=True)`; YAML
+  `wait: {text: ..., since: true}`) — fire only on an occurrence appearing
+  after the wait starts. Screen output persists, so a string already printed
+  once otherwise matches the stale copy and returns instantly.
+- **`c64 screen --numbered`** (MCP: `c64_screen_text(numbered=True)`) — row
+  indices and a column ruler, for reading off `@row,col` references.
+- **`tests/programs/guess-the-number/`** — an interactive BASIC program as a
+  regression test, seeded with `RND(-1)` and driven through a full round via
+  `test.yaml` key steps and row-anchored asserts.
+
+### Changed
+- `--json` is now accepted after the subcommand as well as before it:
+  `c64 session list --json` and `c64 --json session list` are equivalent.
+- The invaders demo moved from `demos/06-invaders-asm.md` to
+  `demos/invaders/README.md`, matching the `demos/1812/` layout: a demo that
+  produces source gets its own directory.
+
+### Fixed
+- **`c64 key type` decodes a literal `\n` — the two characters backslash and
+  n — as RETURN** (MCP: `c64_key_type`; YAML `key:` steps already decode
+  `\n` at the YAML layer in double-quoted strings). `--help`,
+  `docs/cli.md` and the cookbook all documented `c64 key type "50\n"` as
+  typing 50 and pressing RETURN, but shell double quotes pass backslash-n
+  through untouched, so the screen got `50\N` and an `INPUT` stayed blocked.
+  `\\` is the escape for a literal backslash; every other pairing is left
+  alone (`\q` stays `\q`), and real newlines behave exactly as before.
+
+### Documentation
+- **Turn-by-turn waits anchor the cell.** `c64 wait --mem '@6,0=20'` (in
+  YAML, `assert: {mem: "@6,0", equals_text: "TOO HIGH"}`) is now the
+  documented default for driving a program one turn at a time, with
+  `--since` scoped to the case it actually fits: an appearance separated
+  from its trigger by a real gap, such as a countdown or an animation frame.
+  Live-verified on demo 01 — a program that answers faster than a CLI
+  round-trip has already printed the new text into `--since`'s baseline, so
+  the wait holds out for a second occurrence that never comes. Polling the
+  byte has no count to race, and nothing breaks when an old copy scrolls off.
+- VIC-II color registers are 4-bit and read back with the high nybble set
+  (`$D020` reads `$F0` after `POKE 53280,0`) — documented in the hardware
+  reference, the skill's pitfalls and diagnosis table, and the `c64 test run`
+  mask example.
+- New cookbook recipe: an `INPUT` prompt loop with `RND` seeding and the CLI
+  steps to drive it.
+- The skill now says where the `c64` binary lives, how to drive a program
+  that blocks on input, that `RND` needs seeding before a program is
+  testable, that `c64 key type` does not wait for the keys to be consumed,
+  and that decoded screen text is the cheaper observation for text-mode
+  programs.
+- CLI help matches the CLI: the `--json` and `--session` position rules,
+  `c64 run` file handling, and the `rom disasm`/`test programs` defaults are
+  stated where they are typed, and `c64 test run` points at `docs/cli.md`
+  instead of an unresolvable spec section.
+- Demo 01's success criterion names the row-anchored wait the round actually
+  needs and no longer asks for a border in a capture that cropped it out; it
+  is marked dogfooded.
+
 ## [0.3.1] — 2026-07-25
 
 Test-suite change only — no library, CLI, or MCP behavior changed.

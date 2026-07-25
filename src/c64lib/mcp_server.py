@@ -39,7 +39,12 @@ from .ops import (
 from .packaging import package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE
 from .romdoc import identify, rom_labels
-from .screen import read_screen_codes, read_screen_text, save_screenshot_png
+from .screen import (
+    number_screen_text,
+    read_screen_codes,
+    read_screen_text,
+    save_screenshot_png,
+)
 from .session import Session
 from .symbols import format_addr
 from .testing import load_test, program_test, run_test
@@ -127,18 +132,20 @@ def c64_status(session: str | None = None) -> dict:  # noqa: D401
 
 @srv.tool()
 def c64_screen_text(session: str | None = None, style: str = "unicode",
-                    ansi_reverse: bool = False) -> dict:
+                    ansi_reverse: bool = False, numbered: bool = False) -> dict:
     """Read the C64 screen as plain text. This is the PREFERRED way to see
     program output — faster and more reliable than screenshots for AI use.
     Graphics decode to Unicode glyphs; style="ascii" restores the legacy
-    conservative mapping."""
+    conservative mapping. numbered=True prefixes row indices and a column
+    ruler, for working out @row,col references."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
             text = read_screen_text(mon, s.profile, style, ansi_reverse)
         finally:
             mon.release()
-    return {"text": text, "rows": text.splitlines()}
+    human = number_screen_text(text, s.profile.screen_cols) if numbered else text
+    return {"text": human, "rows": text.splitlines()}
 
 
 @srv.tool()
@@ -155,14 +162,17 @@ def c64_screen_codes(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def c64_screenshot(path: str, session: str | None = None, scale: int = 1) -> dict:
+def c64_screenshot(path: str, session: str | None = None, scale: int = 1,
+                   border: bool = False) -> dict:
     """Save a PNG screenshot. Prefer c64_screen_text for reading output;
     use this only when pixel-level appearance matters. scale gives an
-    integer nearest-neighbour upscale (small C64 screens read better at 2-3x)."""
+    integer nearest-neighbour upscale (small C64 screens read better at
+    2-3x). border=True includes the border area, so a POKE 53280 border
+    color is visible; the default captures the inner screen only."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
-            w, h = save_screenshot_png(mon, path, scale=scale)
+            w, h = save_screenshot_png(mon, path, scale=scale, border=border)
         finally:
             mon.release()
     return {"png": path, "width": w, "height": h}
@@ -395,12 +405,16 @@ def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
 
 
 @srv.tool()
-def c64_wait_text(text: str, timeout: float = 30.0,
+def c64_wait_text(text: str, timeout: float = 30.0, since: bool = False,
                   session: str | None = None) -> dict:
     """Block until TEXT appears on the screen. A timeout returns
     {"fired": null, "screen": ...} (not an error) so you can inspect what
-    the program actually displayed."""
-    return wait_for_text(_attach(session), text, timeout)
+    the program actually displayed.
+    since=True fires only on an occurrence appearing after the call starts —
+    use it when a real gap separates the trigger from the appearance; an
+    instant reply can print before the call samples its baseline, so for
+    turn-by-turn prompts anchor a cell with c64_wait_mem instead."""
+    return wait_for_text(_attach(session), text, timeout, since=since)
 
 
 @srv.tool()
@@ -550,7 +564,8 @@ def c64_basic_type(text: str, run: bool = False,
 
 @srv.tool()
 def c64_key_type(text: str, session: str | None = None) -> dict:
-    """Type text into the running C64's keyboard buffer (\\n = RETURN).
+    """Type text into the running C64's keyboard buffer (\\n = RETURN,
+    literal backslash-n included; \\\\ types one backslash).
     Buffered keys never touch the live current-key state — games reading $CB
     need c64_key_hold."""
     s = _attach(session)
@@ -643,7 +658,8 @@ def c64_rom_disasm(start: str, length: int = 32,
 
 @srv.tool()
 def c64_test_run(yaml_file: str) -> dict:
-    """Run a declarative YAML test (boots its own fresh C64; see spec §8)."""
+    """Run a declarative YAML test (boots its own fresh C64; the file
+    format is documented in docs/cli.md under `c64 test run`)."""
     return run_test(load_test(Path(yaml_file))).to_dict()
 
 

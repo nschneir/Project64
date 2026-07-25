@@ -190,9 +190,10 @@ class MonitorClient:
             chunk = petscii[i : i + 200]
             self.request(Command.KEYBOARD_FEED, bytes([len(chunk)]) + chunk)
 
-    def display(self) -> tuple[int, int, bytes]:
+    def display(self, full: bool = False) -> tuple[int, int, bytes]:
         # body: use_vic flag (ignored for the C64), format 0 = indexed 8bpp
-        return parse_display_get(self.request(Command.DISPLAY_GET, b"\x00\x00").body)
+        return parse_display_get(
+            self.request(Command.DISPLAY_GET, b"\x00\x00").body, full=full)
 
     def palette(self) -> list[tuple[int, int, int]]:
         return parse_palette_get(self.request(Command.PALETTE_GET, b"\x00").body)

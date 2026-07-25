@@ -176,6 +176,12 @@ def test_display_and_palette_marshalling(served):
     c, mon, _ = served
     mon.display.return_value = (320, 200, b"\x00\x01")
     assert c.display() == (320, 200, b"\x00\x01")
+    # full travels as a keyword, like the other trailing flags (reset, step)
+    mon.display.assert_called_once_with(full=False)
+    mon.display.reset_mock()
+    mon.display.return_value = (384, 272, b"\x02\x03")
+    assert c.display(True) == (384, 272, b"\x02\x03")
+    mon.display.assert_called_once_with(full=True)
     mon.palette.return_value = [(0, 0, 0), (255, 255, 255)]
     assert c.palette() == [(0, 0, 0), (255, 255, 255)]
 

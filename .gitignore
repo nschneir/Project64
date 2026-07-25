@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 dist/
 .venv/
+.claude/
 .DS_Store
 *.prg
 *.lbl

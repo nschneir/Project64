@@ -10,13 +10,19 @@ exposes the same operations; see the README.
   tracked in a registry under `~/.c64-tools/sessions/` (override the base with
   `$C64_TOOLS_HOME`). A command with no `--session` targets the single running
   session; if several are running you must name one.
-- **Global options** (before the subcommand):
+- **Global options**:
   - `--json` — emit machine-readable JSON on stdout instead of human text.
-    This is the intended interface for AI agents. Every command supports it.
-  - `--session, -s NAME` — target a specific session by name.
-  - `--version` — print `c64 <version>` and exit.
-  - `--help` — print usage and exit. Works on every command and group
-    (e.g. `c64 session start --help`).
+    This is the intended interface for AI agents. Every command supports it,
+    in either position: `c64 --json session list` and
+    `c64 session list --json` are equivalent.
+  - `--session, -s NAME` — target a specific session by name. Must come
+    before the subcommand.
+  - `--version` — print `c64 <version>` and exit. Must come before the
+    subcommand.
+  - `--help` — print usage and exit. Works on every command and group, but
+    always describes the level it is typed at: `c64 session start --help`
+    documents that command, while `c64 --help session start` prints the
+    top-level help. `c64 help session start` is the subcommand spelling.
 - **Numbers.** Address and value arguments accept `$hex` (e.g. `$0400`),
   `0xhex`, or decimal. Where a label file is registered on the session (via
   `c64 build`/`c64 run` of assembly, or `c64 load --symbols`), a **symbol
@@ -136,6 +142,9 @@ with `--codes` it prints the raw screen-code matrix.
 - `--png PATH` — save a PNG screenshot instead of printing text.
 - `--scale N` — integer nearest-neighbour upscale for `--png` (default 1;
   C64 screens read better at 2–3×).
+- `--border` — include the border area in `--png`. The default capture is
+  the 320×200 inner screen only, so a `POKE 53280` border color does **not**
+  appear without this flag.
 - `--codes` — print the 25×40 matrix of raw screen codes (decimal). With
   `--json`, nested arrays under `"codes"`. Use this to assert exact glyph
   identity.
@@ -145,6 +154,10 @@ with `--codes` it prints the raw screen-code matrix.
   `- | +`).
 - `--ansi-reverse` — wrap reverse-video cells with no Unicode complement
   in terminal inverse-video escapes.
+- `--numbered` — prefix each row with its index and print a column ruler.
+  Use it to read off the `@row,col` references that `c64 wait --mem` and
+  YAML `assert: {mem: "@r,c"}` take. `--json` output is unaffected (`rows`
+  is already indexed).
 
 JSON (text): `{"text", "rows": [...]}`. JSON (`--png`): `{"png", "width",
 "height"}`. JSON (`--codes`): `{"codes": [[...], ...]}`. Machine state
@@ -163,7 +176,9 @@ preserved.
 
 ### `c64 key type`
 
-Type text into the running C64's keyboard buffer (`\n` = RETURN). Use it to
+Type text into the running C64's keyboard buffer (`\n` = RETURN, whether
+written as a real newline or as the two characters backslash-n; `\\` types
+a literal backslash). Use it to
 answer `INPUT` prompts or drive menus; for typing in whole programs prefer
 `c64 basic type`. Buffered keys never touch the live current-key state at
 `$CB` — to steer a game that reads held keys, use `c64 key hold`.
@@ -212,8 +227,10 @@ preserved.
 
 Print LENGTH (default 1) byte values at ADDR in decimal — bare,
 space-separated, pipe-friendly (`[ $(c64 mem get score) -gt 0 ]`). JSON:
-`{"addr": N, "values": [ints]}`. ADDR is `$hex`/`0x`/decimal or a symbol
-from the loaded label file. Does not disturb run/stop state. (MCP note:
+`{"addr": N, "values": [ints]}`. ADDR takes everything the rest of the CLI
+does — `$hex`/`0x`/decimal, a symbol from the loaded label file,
+`symbol+offset`, or a screen cell `@row,col`. Does not disturb run/stop
+state. (MCP note:
 there is deliberately no `c64_mem_get` tool — `c64_mem_read` already
 returns a decimal `bytes` array.)
 
@@ -414,6 +431,20 @@ Block until exactly one condition fires; reports which one. This is the primary
 synchronization primitive for scripted use.
 
 - `--text STR` — wait until STR appears on the screen.
+- `--since` — with `--text`, fire only when the string appears *more times*
+  than it did when the command started. Screen output persists, so a string
+  already printed once (a `READY.` from the last load, a banner from the
+  previous level) otherwise matches the stale copy and returns instantly.
+  Use it when a real gap separates the trigger from the appearance — a
+  countdown or animation frame due a second or two from now, a slow render
+  finishing mid-screen. Two cases where it does not apply: a *fast*
+  responder prints the new text before the wait command has even started,
+  so the baseline already counts it and the wait holds out for a second
+  occurrence that never comes; and on a screen that scrolls the count can
+  stay flat as an old copy scrolls off the top. In both, anchor on the cell
+  the text lands in instead (`c64 wait --mem '@6,0=20'`, and in YAML
+  `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`) — polling the byte
+  has no count to race.
 - `--mem ADDR=VALUE` — wait until the byte at ADDR equals VALUE (e.g.
   `'$1000=42'`).
 - `--break [CK_ID]` — wait until a checkpoint fires; **leaves the machine
@@ -763,6 +794,11 @@ steps:
   - wait:   { text: "READY." }              # screen text appears
   - key:    "run\n"                         # type keys (\n = RETURN)
   - wait:   { text: "HELLO", timeout: 5 }   # per-step timeout override
+  - wait:   { text: "LIFTOFF", since: true } # only a NEW occurrence counts —
+                                            #   for text a real gap away (a
+                                            #   countdown, an animation frame)
+  - wait:   { mem: "@6,0", equals: 20 }     # an instant reply races `since`:
+  - assert: { mem: "@6,0", equals_text: "TOO HIGH" }  # anchor its cell instead
   - wait:   { mem: "$1000", equals: 42 }    # byte reaches a value
   - until:  { ref: mainloop, count: 3 }     # frame-step to a label; the
                                             #   machine STAYS stopped there
@@ -778,6 +814,10 @@ steps:
   - assert: { mem: "@3,7", mask: { and: "$7f", equals: [81] } }
                                             # masked compare — e.g. ignore
                                             #   the reverse-video bit
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }
+                                            # same, for the 4-bit VIC-II
+                                            #   color registers: a read of
+                                            #   $D020 returns $F0, not $00
   - assert: { mem: "$1000", between: { min: 50, max: 54 } }  # byte range
   - assert: { reg: pc, in_range: ["$C000", "$E000"] }
   - assert: { reg: a, equals: "$2A" }
@@ -789,7 +829,9 @@ steps:
 ```
 
 Step kinds: `wait` (poll until true or timeout — fails the test on
-timeout), `key` (feed keyboard input), `assert` (check once, now),
+timeout), `key` (feed keyboard input — fills the buffer and returns
+immediately; it does not wait for the machine to consume the keys, so
+follow it with a `wait` before asserting), `assert` (check once, now),
 `poke` (write bytes; `value:` or `values:`), `until` (run to `ref`
 `count` times via a checkpoint and leave the machine stopped there —
 deterministic frame stepping; fails on timeout with the reached count),

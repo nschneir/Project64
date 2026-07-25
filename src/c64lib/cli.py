@@ -46,6 +46,7 @@ from .packaging import PackageError, package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE
 from .romdoc import identify, rom_labels
 from .screen import (
+    number_screen_text,
     read_screen_codes,
     read_screen_text,
     save_screenshot_png,
@@ -97,11 +98,55 @@ def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
         raise AssertionError("unreachable") from None
 
 
-@click.group()
+def _set_json(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+    """Let --json be given after the subcommand as well as before it."""
+    if value:
+        root = ctx.find_root()
+        if root.obj is None:
+            root.obj = {"json": False, "session": None}
+        root.obj["json"] = True
+    return value
+
+
+def _append_json_option(cmd: click.Command) -> None:
+    """Give `cmd` a trailing --json option, unless it already declares one
+    (true for `main`, which gets --json via its own group decorator)."""
+    existing = {o for p in cmd.params for o in getattr(p, "opts", [])}
+    if "--json" not in existing:
+        cmd.params.append(click.Option(
+            ["--json", "json_out"], is_flag=True, expose_value=False,
+            callback=_set_json, help="Machine-readable JSON output."))
+
+
+class JsonAwareCommand(click.Command):
+    """A command that also accepts the global --json in trailing position."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        _append_json_option(self)
+
+
+class JsonAwareGroup(click.Group):
+    """A group that also accepts --json directly, so groups that act as
+    leaf commands themselves (e.g. `reg`, declared with
+    invoke_without_command=True) support --json in trailing position too."""
+
+    command_class = JsonAwareCommand
+    group_class = type          # nested groups inherit this behaviour
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        _append_json_option(self)
+
+
+@click.group(cls=JsonAwareGroup)
 @click.version_option(__version__, "--version", prog_name="c64",
                       message="%(prog)s %(version)s")
-@click.option("--json", "json_out", is_flag=True, help="Machine-readable JSON output.")
-@click.option("--session", "-s", "session_name", default=None, help="Target session name.")
+@click.option("--json", "json_out", is_flag=True,
+              help="Machine-readable JSON output. Accepted here or after the "
+                   "subcommand (`c64 screen --json`).")
+@click.option("--session", "-s", "session_name", default=None,
+              help="Target session name. Must come before the subcommand.")
 @click.pass_context
 def main(ctx: click.Context, json_out: bool, session_name: str | None) -> None:
     """c64-tools: develop and debug Commodore 64 software on VICE."""
@@ -258,6 +303,9 @@ def _decdump(addr: int, data: bytes) -> str:
               help="Save a PNG screenshot to this path instead of printing text.")
 @click.option("--scale", default=1, show_default=True,
               help="Integer upscale factor for --png (nearest-neighbour).")
+@click.option("--border", is_flag=True,
+              help="Include the border in --png (shows $D020); default is the "
+                   "320x200 inner screen only.")
 @click.option("--codes", "codes_", is_flag=True,
               help="Print the raw screen-code matrix instead of decoded text.")
 @click.option("--style", type=click.Choice(["unicode", "ascii"]),
@@ -265,21 +313,28 @@ def _decdump(addr: int, data: bytes) -> str:
               help="Text decoding: Unicode graphics or the legacy ASCII-safe set.")
 @click.option("--ansi-reverse", is_flag=True,
               help="Wrap reverse-video cells in ANSI inverse escapes.")
+@click.option("--numbered", is_flag=True,
+              help="Prefix each row with its index and print a column ruler "
+                   "(so you can read off @row,col references).")
 @click.pass_context
-def screen_cmd(ctx, png_path, scale, codes_, style, ansi_reverse):
+def screen_cmd(ctx, png_path, scale, border, codes_, style, ansi_reverse,
+                numbered):
     """Show the emulated screen — decoded text by default, a PNG with --png,
     or the raw screen-code matrix with --codes.
 
     Printing the screen is the preferred way to observe program output.
     Graphics decode to Unicode box/block/shape glyphs (mazes and sprites
     read naturally); --style ascii restores the conservative legacy
-    mapping. Does not disturb run/stop state.
+    mapping. --numbered adds row indices and a column ruler, so @row,col
+    references can be read straight off the output. Does not disturb
+    run/stop state.
     """
     s = attach(ctx)
     with s.monitor() as mon:
         try:
             if png_path:
-                w, h = save_screenshot_png(mon, png_path, scale=scale)
+                w, h = save_screenshot_png(mon, png_path, scale=scale,
+                                           border=border)
                 emit(ctx, {"png": png_path, "width": w, "height": h},
                      f"wrote {w}x{h} screenshot to {png_path}")
             elif codes_:
@@ -288,7 +343,9 @@ def screen_cmd(ctx, png_path, scale, codes_, style, ansi_reverse):
                 emit(ctx, {"codes": m}, text)
             else:
                 text = read_screen_text(mon, s.profile, style, ansi_reverse)
-                emit(ctx, {"text": text, "rows": text.splitlines()}, text)
+                human = number_screen_text(text, s.profile.screen_cols) \
+                    if numbered else text
+                emit(ctx, {"text": text, "rows": text.splitlines()}, human)
         finally:
             mon.release()
 
@@ -664,7 +721,12 @@ def load_cmd(ctx, prg, do_run, symbols):
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
 def run_cmd(ctx, source):
-    """Build/tokenize SOURCE as needed, then load and RUN it."""
+    """Build/tokenize SOURCE as needed, then load and RUN it.
+
+    `.bas` is tokenized, `.s` is assembled and its labels registered on the
+    session (so symbols work in later commands), `.prg` is loaded directly.
+    Leaves the machine running.
+    """
     s = attach(ctx)
     src = source.resolve()
     ext = src.suffix.lower()
@@ -993,10 +1055,15 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
               default=None,
               help="Wait for a checkpoint hit; give an ID to wait for that "
                    "checkpoint only (leftover breakpoints can't intercept).")
+@click.option("--since", is_flag=True,
+              help="With --text: fire only on an occurrence appearing AFTER "
+                   "this command starts. For a gapped appearance; an instant "
+                   "reply can print first and be swallowed by the baseline — "
+                   "anchor a cell with --mem '@row,col' for turn-by-turn play.")
 @click.option("--timeout", default=30.0, show_default=True,
               help="Give up after this many seconds.")
 @click.pass_context
-def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
+def wait_cmd(ctx, text_cond, mem_cond, break_cond, since, timeout):
     """Block until exactly one condition fires; report which one.
 
     Give exactly one of --text, --mem, or --break. This is the primary
@@ -1004,6 +1071,9 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
     """
     if sum(bool(x) for x in (text_cond, mem_cond, break_cond)) != 1:
         fail(ctx, "give exactly one of --text, --mem, --break")
+        return
+    if since and not text_cond:
+        fail(ctx, "--since only applies to --text")
         return
     s = attach(ctx)
     labels = session_labels(s)
@@ -1027,7 +1097,7 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, timeout):
         return
 
     if text_cond:
-        out = wait_for_text(s, text_cond, timeout)
+        out = wait_for_text(s, text_cond, timeout, since=since)
         if out["fired"]:
             emit(ctx, {"fired": "text", "elapsed": out["elapsed"]}, "text condition met")
             return
@@ -1172,7 +1242,11 @@ def rom_info(ctx):
 @click.argument("length", default="32")
 @click.pass_context
 def rom_disasm(ctx, start, length):
-    """Disassemble live memory with ROM + session label annotations."""
+    """Disassemble live memory with ROM + session label annotations.
+
+    START is an address or symbol (e.g. CHROUT); LENGTH defaults to 32
+    bytes. Does not disturb run/stop state.
+    """
     s = attach(ctx)
     labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
     addr = resolve_ref(ctx, labels, start, session=s)
@@ -1213,7 +1287,11 @@ def _emit_test_results(ctx, results) -> None:
 @click.argument("yaml_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
 def test_run(ctx, yaml_file):
-    """Run one YAML test file (spec §8 format)."""
+    """Run one YAML test file (format documented in docs/cli.md).
+
+    Boots its own fresh headless+warp session, loads the program, then runs
+    the wait/key/poke/until/call/assert steps fail-fast. Exit 1 if it fails.
+    """
     try:
         spec = load_test(yaml_file)
         result = run_test(spec)
@@ -1228,7 +1306,11 @@ def test_run(ctx, yaml_file):
                 type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.pass_context
 def test_programs(ctx, directory):
-    """Run every example program in DIRECTORY as a generated test."""
+    """Run every example program in DIRECTORY as a generated test.
+
+    DIRECTORY defaults to `tests/programs`; an example program is any
+    subdirectory holding an `expect.txt`. Exit 1 if any program fails.
+    """
     program_dirs = sorted(d for d in directory.iterdir() if (d / "expect.txt").exists())
     if not program_dirs:
         fail(ctx, f"no example programs found in {directory}")
@@ -1252,7 +1334,9 @@ def key() -> None:
 @click.argument("text")
 @click.pass_context
 def key_type(ctx, text):
-    """Type TEXT into the running C64 (\\n = RETURN). For whole programs
+    """Type TEXT into the running C64 (\\n = RETURN, whether it reaches the
+    CLI as a real newline or as the two characters backslash-n; write \\\\
+    for a literal backslash). For whole programs
     prefer `c64 basic type`; this is for interactive input and menus.
     Buffered keys never touch the live current-key state — games reading $CB
     need `c64 key hold`."""

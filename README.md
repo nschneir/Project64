@@ -78,8 +78,9 @@ across commands: when the agent halts the machine at a breakpoint, it stays
 halted while the agent inspects memory, registers, and screen in separate tool
 calls. There are two ways an agent can use it — pick either or both:
 
-- **The CLI** — every `c64` command takes `--json`. Works with *any* agent
-  that can run shell commands; nothing to configure.
+- **The CLI** — every `c64` command takes `--json` (the binary lives at
+  `.venv/bin/c64` in a source checkout). Works with *any* agent that can
+  run shell commands; nothing to configure.
 - **The MCP server** — `c64-tools-mcp` exposes the same operations as MCP
   tools over stdio. CLI and MCP share the same sessions, so they are
   interchangeable.
@@ -161,8 +162,10 @@ tools describe themselves.
 [`demos/`](demos/) is a set of ready-to-paste prompts, graded from a first
 BASIC program through a sprite bouncing ball and a machine-level debug hunt
 up to the flagships: a full arcade Snake in 6502 assembly (title screen,
-levels, SID sound, high score) and an arcade-faithful Invaders with
-sprites, three-voice sound, waves, and a packaged disk image. To use one:
+levels, SID sound, high score), an arcade-faithful Invaders with sprites,
+three-voice sound, waves, and a packaged disk image, and a bitmap-graphics
+demo that paints rotating shapes to a SID arrangement of the 1812 Overture.
+To use one:
 
 1. Set up your agent (one section up — or use any shell agent with no setup).
 2. Open a demo file and copy its prompt.

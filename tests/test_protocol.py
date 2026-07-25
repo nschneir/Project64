@@ -1,3 +1,5 @@
+import struct
+
 import pytest
 
 from c64lib.protocol import (
@@ -9,6 +11,7 @@ from c64lib.protocol import (
     encode_command,
     memory_get_body,
     memory_set_body,
+    parse_display_get,
     parse_memory_get,
 )
 
@@ -26,6 +29,24 @@ def test_encode_with_body():
     assert body == bytes([0x00, 0x00, 0x04, 0x03, 0x04, 0x00, 0x00, 0x00])
     assert frame[:11] == bytes([0x02, 0x02, 8, 0, 0, 0, 1, 0, 0, 0, 0x01])
     assert frame[11:] == body
+
+
+def _display_body(debug_w, debug_h, off_x, off_y, inner_w, inner_h, pixels):
+    fields = struct.pack("<HHHHHHB", debug_w, debug_h, off_x, off_y,
+                         inner_w, inner_h, 8)
+    return (struct.pack("<I", len(fields)) + fields
+            + struct.pack("<I", len(pixels)) + pixels)
+
+
+def test_parse_display_get_full_keeps_border():
+    # 4x4 frame, 2x2 inner area at (1,1); border pixels are 9, inner are 1..4
+    pixels = bytes([9, 9, 9, 9,
+                    9, 1, 2, 9,
+                    9, 3, 4, 9,
+                    9, 9, 9, 9])
+    body = _display_body(4, 4, 1, 1, 2, 2, pixels)
+    assert parse_display_get(body) == (2, 2, bytes([1, 2, 3, 4]))
+    assert parse_display_get(body, full=True) == (4, 4, pixels)
 
 
 def test_memory_set_body():

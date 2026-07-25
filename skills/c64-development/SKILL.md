@@ -9,6 +9,11 @@ This skill drives an emulated Commodore 64 through the `c64` command line (or
 the equivalent `c64-tools` MCP tools). Full command reference: `docs/cli.md`.
 Every command takes `--json` for machine-readable output.
 
+**Finding the binary.** `c64` is installed into this project's virtualenv,
+not onto `PATH` — invoke it as `.venv/bin/c64` from the repository root, or
+`source .venv/bin/activate` once per shell. If `.venv` is missing, stop and
+say so rather than substituting another environment.
+
 **Using MCP instead of the CLI?** The tools map mechanically — `c64 screen`
 → `c64_screen_text`, `c64 break add` → `c64_break_add`, `c64 basic check`
 → `c64_basic_check`, and so on — with the
@@ -30,6 +35,14 @@ Write → run → observe → fix:
    to see output. Use `c64 wait --text "..."` to block until expected output
    appears; loading and running take a few emulated seconds even in warp, so
    never assume a program has finished — wait for a signal.
+   For a text-mode program, decoded text is also the *cheapest* observation —
+   prefer it over `--png` for verification, and read color back from the
+   registers (`c64 mem read '$D020' 2` — bytes come back in address order, so
+   the first is `$D020`, the border, and the second is `$D021`, the
+   background) rather than from an image. Reach for
+   `c64 screen --png` when the appearance itself is the artifact (sprites,
+   bitmap modes, a screenshot for a human); add `--border` when the border
+   color matters, or it is cropped out.
 5. Fix and repeat.
 
 Start a machine with `c64 session start` before anything else, and
@@ -81,6 +94,39 @@ Conventions `c64 basic check` enforces (know them even without running it):
   and fail at RUN.
 - **Program + variables ≤ 38911 bytes.** `c64 basic check --json` reports
   `tokenized_bytes`; watch it as a game grows.
+
+## Driving an interactive program
+
+A program that blocks on `INPUT` or `GET` is driven by feeding the keyboard
+and reading the screen back. The trap: **screen output persists**, so every
+prompt and verdict is still on screen the next time round, and a bare
+`c64 wait --text "YOUR GUESS?"` matches the stale copy and returns
+immediately. Two ways through:
+
+1. Anchor on the cell the text lands in — `c64 wait --mem '@6,0=20'`, or in
+   a YAML test `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`. **The
+   default for turn-by-turn play**: `wait --mem` polls the byte directly, so
+   there is no occurrence count to race and nothing breaks when an old copy
+   scrolls off. `c64 screen --numbered` prints row indices and a column
+   ruler so you can read the reference off the screen instead of computing
+   it.
+2. `c64 wait --text STR --since` — fires only on an occurrence that appears
+   after the command starts. Use it when a real gap separates the trigger
+   from the appearance (an animation, a multi-second countdown, a slow
+   render). It does **not** fit an instant responder: `--since` takes its
+   baseline when the wait starts, so a program that answers faster than a
+   CLI round-trip (or a YAML `key` step) has already printed the new text
+   into that baseline, and the wait hangs out for a second occurrence that
+   never comes.
+
+Under MCP both waits are separate tools — `c64_wait_mem` and `c64_wait_text`
+(which takes the same `since` flag, with the same caveat); see "Using MCP
+instead of the CLI?" above.
+
+`c64 key type` fills the keyboard buffer and returns — it does **not** wait
+for the machine to consume the keys. Always follow it with a `wait` before
+asserting; asserting straight after a `key` is a race that passes on a fast
+host and fails on a slow one.
 
 ## Writing assembly
 
@@ -199,6 +245,10 @@ source of bugs:
 - A sprite demo that "shows nothing" in `c64 screen` — sprites never appear
   in decoded text. Check `$D015` and positions with `c64 mem read '$D000' 17`
   and capture `c64 screen --png` for the visual.
+- **Reading back a VIC-II color register and comparing to the value you
+  poked.** `$D020`/`$D021` are 4-bit; the high nybble reads as 1s, so
+  `POKE 53280,0` reads back as `$F0`. Mask with `AND $0F`
+  (`mask: { and: "$0f", equals: [0] }` in a YAML test).
 
 ## When something goes wrong — diagnosis table
 
@@ -216,6 +266,7 @@ reproduction, use the `6502-debugging` skill.)
 | `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg`. |
 | Machine appears frozen after debugging | It's stopped (step/finish/until/wait --break leave it stopped) — `c64 continue`. |
 | Program vanished after `c64 run` | Autostart resets the machine first — that's normal; reload anything else you need. |
+| A color register assert fails with `f0 != 00` (or `fb != 0b`) | VIC-II color registers are 4-bit — the high nybble reads as 1s. Mask with `and: "$0f"`. |
 | Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). |
 
 ## When the tooling itself misbehaves
@@ -243,6 +294,12 @@ Prove a change works, don't assume it. Either assert on output with
 `c64 test run mytest.yaml` (a `program` plus `wait`/`key`/`assert` steps —
 full format under `c64 test run` in docs/cli.md). Existing example
 programs can all be run as tests with `c64 test programs`.
+
+A program with randomness cannot be pinned by a static test until it is
+seeded. `RND(-X)` reseeds deterministically (`30 x=rnd(-1)`), so the run is
+reproducible; `RND(-TI)` gives a different game each run. Keep the seeding
+call on its own line so a test can substitute it — see the cookbook's
+prompt-loop recipe.
 
 ## References
 
