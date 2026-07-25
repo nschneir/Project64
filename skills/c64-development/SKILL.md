@@ -37,7 +37,9 @@ Write → run → observe → fix:
    never assume a program has finished — wait for a signal.
    For a text-mode program, decoded text is also the *cheapest* observation —
    prefer it over `--png` for verification, and read color back from the
-   registers (`c64 mem read '$D020' 2`) rather than from an image. Reach for
+   registers (`c64 mem read '$D020' 2` — bytes come back in address order, so
+   the first is `$D020`, the border, and the second is `$D021`, the
+   background) rather than from an image. Reach for
    `c64 screen --png` when the appearance itself is the artifact (sprites,
    bitmap modes, a screenshot for a human); add `--border` when the border
    color matters, or it is cropped out.
@@ -109,6 +111,10 @@ immediately. Two ways through:
    can stay flat when an old copy scrolls off. `c64 screen --numbered`
    prints row indices and a column ruler so you can read the reference off
    the screen instead of computing it.
+
+Under MCP both waits are separate tools — `c64_wait_text` (which takes the
+same `since` flag) and `c64_wait_mem`; see "Using MCP instead of the CLI?"
+above.
 
 `c64 key type` fills the keyboard buffer and returns — it does **not** wait
 for the machine to consume the keys. Always follow it with a `wait` before
