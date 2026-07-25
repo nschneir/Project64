@@ -183,8 +183,8 @@ bits read-modify-write so you don't clobber the rest of the register:
 
 Background color registers: `$D021` bg 0, `$D022` bg 1, `$D023` bg 2,
 `$D024` bg 3 (same 4-bit readback issue as `$D020` / `$D021` above —
-mask with `AND $0F` before comparing). A hi-res bitmap at `$2000` overlaps BASIC's variable area —
-lower the top of BASIC or move the bitmap first.
+mask with `AND $0F` before comparing). A hi-res bitmap at `$2000` overlaps
+BASIC's variable area — lower the top of BASIC or move the bitmap first.
 
 ## VIC bank and interrupts
 

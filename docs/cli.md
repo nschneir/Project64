@@ -793,10 +793,13 @@ steps:
   - assert: { mem: "$0400", equals_text: "HELLO" }  # screen RAM as text
   - assert: { mem: "$1000", equals: [1, 2, 3] }     # exact bytes
   - assert: { mem: "@3,7", equals_any: [[81], [98]] }  # any alternative
+  - assert: { mem: "@3,7", mask: { and: "$7f", equals: [81] } }
+                                            # masked compare — e.g. ignore
+                                            #   the reverse-video bit
   - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }
-                                            # masked compare — VIC-II color
-                                            #   registers are 4-bit, so a
-                                            #   read of $D020 returns $F0
+                                            # same, for the 4-bit VIC-II
+                                            #   color registers: a read of
+                                            #   $D020 returns $F0, not $00
   - assert: { mem: "$1000", between: { min: 50, max: 54 } }  # byte range
   - assert: { reg: pc, in_range: ["$C000", "$E000"] }
   - assert: { reg: a, equals: "$2A" }
