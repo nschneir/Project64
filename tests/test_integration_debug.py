@@ -12,7 +12,6 @@ from click.testing import CliRunner
 from c64lib.build import build_asm
 from c64lib.cli import main as cli_main
 from c64lib.ops import run_until, wait_for_break
-from c64lib.session import Session
 from c64lib.symbols import load_labels
 from tests.vice_helpers import wait_for_text
 
@@ -27,15 +26,6 @@ pytestmark = [
         reason="cc65 not installed",
     ),
 ]
-
-
-@pytest.fixture
-def session(tmp_path, monkeypatch):
-    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="c64", name="dbgtest", headless=True, warp=True)
-    wait_for_text(s, "READY.")
-    yield s
-    s.stop()
 
 
 def test_symbolic_debug_loop(session, tmp_path):

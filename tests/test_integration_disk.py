@@ -73,24 +73,19 @@ def test_disk_boot_mid_session(tmp_path, monkeypatch):
         s.stop()
 
 
-def test_rom_identify_and_disasm(tmp_path, monkeypatch):
-    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
-    s = Session.launch(model="c64", name="rom", headless=True, warp=True)
-    try:
-        wait_for_text(s, "READY.")
-        with s.monitor() as mon:
-            try:
-                info = identify(mon)
-                data = mon.memory_read(0xFFD2, 3)
-            finally:
-                mon.resume()
-        assert info["basic"].endswith(".bin") and "901226" in info["basic"]
-        assert len(info["hashes"]["kernal"]) == 12
-        lines = disassemble(data, 0xFFD2, rom_labels("2.0"))
-        assert lines[0] == "CHROUT:"
-        assert "jmp" in lines[1]
-    finally:
-        s.stop()
+def test_rom_identify_and_disasm(session):
+    """Read-only: no disk is attached, so this one shares the session."""
+    with session.monitor() as mon:
+        try:
+            info = identify(mon)
+            data = mon.memory_read(0xFFD2, 3)
+        finally:
+            mon.resume()
+    assert info["basic"].endswith(".bin") and "901226" in info["basic"]
+    assert len(info["hashes"]["kernal"]) == 12
+    lines = disassemble(data, 0xFFD2, rom_labels("2.0"))
+    assert lines[0] == "CHROUT:"
+    assert "jmp" in lines[1]
 
 
 def test_dos_error_codes_via_channel15(tmp_path, monkeypatch):

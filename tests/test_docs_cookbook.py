@@ -210,37 +210,31 @@ def test_cookbook_recipe_runs_live(tmp_path, monkeypatch, name, lang, key, steps
 @pytest.mark.skipif(
     not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
     reason="x64sc not installed")
-def test_cookbook_frame_stepping_workflow_live(tmp_path, monkeypatch):
+def test_cookbook_frame_stepping_workflow_live(tmp_path, session):
     """The frame-stepping recipe delivers what it promises: until --count N
     advances FRAMES by exactly N."""
     if shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"):
         pytest.skip("cc65 not installed")
     from c64lib.ops import run_until
-    from c64lib.session import Session
     from c64lib.symbols import load_labels
     from tests.vice_helpers import wait_for_text
-    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     src = tmp_path / "counter.s"
     src.write_text(_block_by_key("asm", "frame counter"))
     res = build_asm(src)
     labels = load_labels(res.labels)
-    s = Session.launch(model="c64", name="cbstep", headless=True, warp=True)
-    try:
-        wait_for_text(s, "READY.")
-        with s.monitor() as mon:
-            try:
-                mon.autostart(res.prg.resolve(), run=True)
-            finally:
-                mon.resume()
-        wait_for_text(s, "FRAME COUNTER", timeout=45.0)
-        out = run_until(s, labels["mainloop"], timeout=15.0)
-        assert out["registers"] is not None
-        with s.monitor() as mon:
-            f0 = mon.memory_read(labels["FRAMES"], 1)[0]     # stays stopped
-        out = run_until(s, labels["mainloop"], timeout=30.0, count=5)
-        assert out["registers"] is not None and out["reached"] == 5
-        with s.monitor() as mon:
-            f1 = mon.memory_read(labels["FRAMES"], 1)[0]
-        assert (f1 - f0) % 256 == 5
-    finally:
-        s.stop()
+    s = session
+    with s.monitor() as mon:
+        try:
+            mon.autostart(res.prg.resolve(), run=True)
+        finally:
+            mon.resume()
+    wait_for_text(s, "FRAME COUNTER", timeout=45.0)
+    out = run_until(s, labels["mainloop"], timeout=15.0)
+    assert out["registers"] is not None
+    with s.monitor() as mon:
+        f0 = mon.memory_read(labels["FRAMES"], 1)[0]     # stays stopped
+    out = run_until(s, labels["mainloop"], timeout=30.0, count=5)
+    assert out["registers"] is not None and out["reached"] == 5
+    with s.monitor() as mon:
+        f1 = mon.memory_read(labels["FRAMES"], 1)[0]
+    assert (f1 - f0) % 256 == 5
