@@ -3,13 +3,20 @@ import re
 import pytest
 
 from c64lib.cart_build import (
+    EF_JUMPTABLE,
+    EF_RESIDENT,
     VECTORS_SIZE,
     _used_bytes,
     boot_stub_source,
     cart_linker_config,
     cart_title,
+    ef_boot_stub_source,
+    ef_window_config,
+    fill_table,
     has_own_startup,
     launcher_source,
+    load_manifest,
+    merge_bank_labels,
     wrap_prg,
 )
 from c64lib.cartridge import CartError
@@ -163,3 +170,117 @@ def test_wrap_rejects_a_truncated_prg(tmp_path):
     prg.write_bytes(b"\x01")
     with pytest.raises(CartError, match="load address"):
         wrap_prg(prg, cart_type="8k", title="T")
+
+
+def write_manifest(tmp_path, text):
+    p = tmp_path / "game.ef.yaml"
+    p.write_text(text)
+    return p
+
+
+def test_manifest_parses_sparse_banks(tmp_path):
+    (tmp_path / "boot.s").write_text("")
+    (tmp_path / "music.bin").write_bytes(b"")
+    m = write_manifest(tmp_path, """
+name: MYGAME
+banks:
+  0: {hi: boot.s}
+  5: {lo: music.bin}
+""")
+    spec = load_manifest(m)
+    assert spec["name"] == "MYGAME"
+    assert sorted(spec["banks"]) == [0, 5]
+    assert spec["banks"][0]["hi"].name == "boot.s"
+    assert spec["banks"][5]["lo"].name == "music.bin"
+
+
+def test_manifest_requires_a_bank_zero_hi(tmp_path):
+    (tmp_path / "x.s").write_text("")
+    m = write_manifest(tmp_path, "name: G\nbanks:\n  0: {lo: x.s}\n")
+    with pytest.raises(CartError, match="bank 0 hi"):
+        load_manifest(m)
+
+
+def test_manifest_rejects_an_out_of_range_bank(tmp_path):
+    (tmp_path / "b.s").write_text("")
+    m = write_manifest(tmp_path,
+                       "name: G\nbanks:\n  0: {hi: b.s}\n  64: {lo: b.s}\n")
+    with pytest.raises(CartError, match="bank 64"):
+        load_manifest(m)
+
+
+def test_manifest_rejects_an_unknown_window_key(tmp_path):
+    (tmp_path / "b.s").write_text("")
+    m = write_manifest(tmp_path,
+                       "name: G\nbanks:\n  0: {hi: b.s, mid: b.s}\n")
+    with pytest.raises(CartError, match="mid"):
+        load_manifest(m)
+
+
+def test_manifest_names_a_missing_file(tmp_path):
+    (tmp_path / "b.s").write_text("")
+    m = write_manifest(tmp_path,
+                       "name: G\nbanks:\n  0: {hi: b.s, lo: gone.bin}\n")
+    with pytest.raises(CartError, match="gone.bin"):
+        load_manifest(m)
+
+
+def test_lo_window_reserves_the_jump_table():
+    cfg = ef_window_config("lo")
+    assert "start = $8000, size = $1F00" in cfg    # $8000-$9EFF
+    assert f"start = ${EF_JUMPTABLE:04X}, size = $0100" in cfg
+    assert "JUMPTAB:" in cfg
+
+
+def test_boot_window_runs_the_resident_block_from_ram():
+    cfg = ef_window_config("hi", boot=True)
+    assert "start = $E000" in cfg
+    assert "start = $FFFA, size = $0006" in cfg
+    assert f"RESIDENT: start = ${EF_RESIDENT:04X}" in cfg
+    assert "run = RESIDENT" in cfg
+
+
+def test_plain_hi_window_is_a000():
+    cfg = ef_window_config("hi")
+    assert "start = $A000, size = $2000" in cfg
+    assert "$FFFA" not in cfg
+
+
+def test_ef_boot_stub_vectors_at_the_reset_entry():
+    src = ef_boot_stub_source()
+    assert '.segment "VECTORS"' in src
+    assert "ef_boot" in src
+    assert 'cart.inc' in src
+
+
+def test_fill_table_reports_every_window_and_the_total():
+    windows = {(0, "hi"): 4000, (0, "lo"): 8192, (1, "lo"): 100}
+    out = fill_table(windows)
+    assert "bank 00" in out and "bank 01" in out
+    assert "8,192/8,192" in out and "(    0 free)" in out
+    assert "----" in out                      # bank 1 has no hi window
+    assert "12,292" in out                    # total across all windows
+
+
+def test_fill_table_flags_a_full_window():
+    assert "(    0 free)" in fill_table({(0, "lo"): 8192})
+
+
+def test_merge_bank_labels_prefixes_each_symbol(tmp_path):
+    lo = tmp_path / "b1lo.lbl"
+    lo.write_text("al 008000 .update\nal 008010 .draw\n")
+    hi = tmp_path / "b1hi.lbl"
+    hi.write_text("al 00A000 .table\n")
+    out = merge_bank_labels({(1, "lo"): lo, (1, "hi"): hi}, tmp_path / "game.crt.lbl")
+    text = out.read_text()
+    assert ".b01lo_update" in text
+    assert ".b01lo_draw" in text
+    assert ".b01hi_table" in text
+
+
+def test_merge_bank_labels_drops_linker_internals(tmp_path):
+    lbl = tmp_path / "b0lo.lbl"
+    lbl.write_text("al 008000 .main\nal 00E100 .__RAMCODE_LOAD__\n")
+    out = merge_bank_labels({(0, "lo"): lbl}, tmp_path / "m.lbl")
+    assert "__RAMCODE_LOAD__" not in out.read_text()
+    assert ".b00lo_main" in out.read_text()
