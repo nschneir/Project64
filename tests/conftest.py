@@ -257,10 +257,14 @@ class _KeepAlive(Session):
 def shared_launch(session):
     """A ``launch`` for ``run_test``, which otherwise boots — and stops — an
     emulator per spec. Specs the shared machine cannot serve (another model,
-    a disk image) still get one of their own.
+    a disk image, a cartridge) still get one of their own.
+
+    A cartridge is mapped at power-on, so it can never be attached to the
+    already-running shared machine: reusing it would silently run the spec
+    against a cartridge-less C64 and report the wrong reason for pass or fail.
     """
     def launch(model="c64", name=None, headless=False, warp=False, **kwargs):
-        if model != session.model or kwargs.get("disk8"):
+        if model != session.model or kwargs.get("disk8") or kwargs.get("cart"):
             return Session.launch(model=model, name=name, headless=headless,
                                   warp=warp, **kwargs)
         return _KeepAlive(**vars(session))

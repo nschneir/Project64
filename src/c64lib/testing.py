@@ -17,6 +17,7 @@ import yaml
 
 from .basic import tokenize
 from .build import build_asm
+from .cart_build import build_cart, build_easyflash
 from .machines import get_profile
 from .ops import call_routine, live_screen_base, parse_ref, run_until
 from .screen import read_screen_text
@@ -62,6 +63,17 @@ def load_test(path: str | Path) -> dict:
     spec.setdefault("timeout", 30)
     spec.setdefault("autorun", True)
     spec.setdefault("steps", [])
+    spec.setdefault("cart", None)
+    spec.setdefault("cart_type", "8k")
+    if spec["cart"]:
+        if spec.get("program"):
+            raise TestError(
+                f"{path}: a spec sets either `cart` or `program`, not both — "
+                "a cartridge boots itself and nothing is autostarted")
+        cart = (path.parent / spec["cart"]).resolve()
+        if not cart.exists():
+            raise TestError(f"{path}: cart {cart} not found")
+        spec["cart"] = str(cart)
     get_profile(spec["machine"])  # raises KeyError listing known models
     if spec.get("program"):
         prog = (path.parent / spec["program"]).resolve()
@@ -105,17 +117,19 @@ def program_test(program_dir: str | Path) -> dict:
         None,
     )
     expect = program_dir / "expect.txt"
-    if prog is None or not expect.exists():
+    extra = program_dir / "test.yaml"
+    has_cart = extra.exists() and "cart:" in extra.read_text()
+    if (prog is None and not has_cart) or not expect.exists():
         raise TestError(
             f"{program_dir}: not an example-program directory "
-            "(needs program.bas/.s and expect.txt)"
+            "(needs program.bas/.s or a test.yaml with `cart:`, plus expect.txt)"
         )
     steps = [{"wait": {"text": ln}} for ln in expect.read_text().splitlines() if ln.strip()]
-    extra = program_dir / "test.yaml"
     if extra.exists():
         spec = load_test(extra)
         spec["name"] = program_dir.name
-        spec["program"] = str(prog.resolve())
+        if prog is not None and not spec.get("cart"):
+            spec["program"] = str(prog.resolve())
         spec["steps"] = steps + spec["steps"]   # expect lines still gate first
         spec.setdefault("timeout", 45)
         return spec
@@ -164,6 +178,28 @@ def _prepare(program: str, profile) -> tuple[Path, Path | None]:
         out = build_asm(src, basic_start=profile.basic_start)
         return out.prg, out.labels
     raise TestError(f"cannot run {ext!r} programs (use .bas, .s, or .prg)")
+
+
+def prepare_cart(cart: str | Path, cart_type: str = "8k") -> tuple[Path, Path | None]:
+    """Resolve a spec's `cart:` to a .crt plus its label file.
+
+    A .crt is used as-is; a .s is built as a single-region cartridge and an
+    .ef.yaml manifest as an EasyFlash image, so a reference program can live
+    in source and still be regression-covered.
+    """
+    cart = Path(cart)
+    suffix = "".join(cart.suffixes[-2:]).lower()
+    if cart.suffix.lower() == ".crt":
+        lbl = cart.with_suffix(".lbl")
+        return cart, (lbl if lbl.exists() else None)
+    if suffix.endswith(".ef.yaml") or suffix.endswith(".ef.yml"):
+        res = build_easyflash(cart)
+    elif cart.suffix.lower() == ".s":
+        res = build_cart(cart, cart_type=cart_type)
+    else:
+        raise TestError(
+            f"{cart}: a test cart must be a .crt, a .s, or an .ef.yaml manifest")
+    return Path(res["crt"]), Path(res["labels"])
 
 
 def _screen(session) -> str:
@@ -382,26 +418,37 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
     session_name = f"t{uuid.uuid4().hex[:6]}"
     steps: list[StepResult] = []
     screen_text = ""
+    cart_path, cart_labels = (None, None)
+    if spec.get("cart"):
+        crt, cart_labels = prepare_cart(spec["cart"], spec.get("cart_type", "8k"))
+        cart_path = str(crt)
     session = launch(model=spec["machine"], name=session_name,
-                     headless=True, warp=True)
+                     headless=True, warp=True, cart=cart_path)
     try:
-        ok, screen_text = _wait_screen(session, lambda t: "READY." in t, 45.0)
-        if not ok:
-            raise TestError(f"machine never reached READY.; screen:\n{screen_text}")
         labels: dict[str, int] = {}
-        if spec.get("program"):
-            prg, lbl = _prepare(spec["program"], profile)
-            if lbl is not None and Path(lbl).exists():
-                labels = load_labels(lbl)   # until/poke steps take symbols
-            with session.monitor() as mon:
-                try:
-                    mon.autostart(Path(prg).resolve(), run=spec["autorun"])
-                finally:
-                    mon.release()
-            if not spec["autorun"]:
-                ok, screen_text = _wait_screen(session, _loaded, spec["timeout"] + 15)
-                if not ok:
-                    raise TestError(f"program never finished loading; screen:\n{screen_text}")
+        if cart_path:
+            # A cartridge is already running its own code; there is no READY.
+            # prompt to gate on and nothing to autostart.
+            if cart_labels is not None and Path(cart_labels).exists():
+                labels = load_labels(cart_labels)
+        else:
+            ok, screen_text = _wait_screen(session, lambda t: "READY." in t, 45.0)
+            if not ok:
+                raise TestError(f"machine never reached READY.; screen:\n{screen_text}")
+            if spec.get("program"):
+                prg, lbl = _prepare(spec["program"], profile)
+                if lbl is not None and Path(lbl).exists():
+                    labels = load_labels(lbl)   # until/poke steps take symbols
+                with session.monitor() as mon:
+                    try:
+                        mon.autostart(Path(prg).resolve(), run=spec["autorun"])
+                    finally:
+                        mon.release()
+                if not spec["autorun"]:
+                    ok, screen_text = _wait_screen(session, _loaded, spec["timeout"] + 15)
+                    if not ok:
+                        raise TestError(
+                            f"program never finished loading; screen:\n{screen_text}")
         passed = True
         captures: dict[str, int] = {}
         for i, step in enumerate(spec["steps"], start=1):

@@ -38,7 +38,7 @@ def test_happy_path_key_wait_assert(tmp_path):
     assert result.passed is True
     assert [st.ok for st in result.steps] == [True, True, True]
     launch.assert_called_once_with(model="c64", name=result.session_name,
-                                   headless=True, warp=True)
+                                   headless=True, warp=True, cart=None)
     mon.keyboard_feed.assert_called_once_with(b"RUN\r")
     s.stop.assert_called_once()
 
@@ -222,7 +222,7 @@ def test_run_test_isolates_from_user_sessions():
     user's session."""
     names = []
 
-    def launch(model, name, headless, warp):
+    def launch(model, name, headless, warp, cart=None):
         names.append(name)
         s, _ = _fake_session()
         return s
@@ -360,3 +360,37 @@ def test_unknown_sample_name_fails_actionably():
         result = run_test(spec, launch=Mock(return_value=s))
     assert result.passed is False
     assert "no sample named" in result.steps[0].detail
+
+
+def test_cart_spec_skips_the_program_path(tmp_path):
+    """A cart boots straight into its program and never prints READY., so the
+    runner must not wait for it and must not autostart anything."""
+    from c64lib.testing import load_test
+
+    crt = tmp_path / "game.crt"
+    crt.write_bytes(b"C64 CARTRIDGE   " + bytes(48))
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("cart: game.crt\nsteps:\n  - wait: {text: HI}\n")
+    spec = load_test(spec_file)
+    assert spec["cart"] == str(crt.resolve())
+    assert spec.get("program") is None
+
+
+def test_cart_and_program_are_mutually_exclusive(tmp_path):
+    from c64lib.testing import TestError, load_test
+
+    (tmp_path / "game.crt").write_bytes(b"C64 CARTRIDGE   " + bytes(48))
+    (tmp_path / "program.s").write_text("nop\n")
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("cart: game.crt\nprogram: program.s\nsteps: []\n")
+    with pytest.raises(TestError, match="cart.*program"):
+        load_test(spec_file)
+
+
+def test_missing_cart_file_is_named(tmp_path):
+    from c64lib.testing import TestError, load_test
+
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("cart: gone.crt\nsteps: []\n")
+    with pytest.raises(TestError, match="gone.crt"):
+        load_test(spec_file)

@@ -278,3 +278,37 @@ def test_stop_cleans_up_dead_session(home):
     s.stop()                              # must not raise
     assert not s._record_path().exists()
     assert not sock.exists()
+
+
+def test_launch_passes_cartcrt(monkeypatch, tmp_path):
+    """A cartridge is attached at boot, like a disk — never autostart-loaded."""
+    from c64lib import session as session_mod
+
+    crt = tmp_path / "game.crt"
+    crt.write_bytes(b"C64 CARTRIDGE   " + bytes(48))
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, args, **kw):
+            seen["args"] = args
+            self.pid = 4242
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(session_mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(session_mod, "_spawn_daemon", lambda *a, **k: 99)
+    monkeypatch.setattr(session_mod.Session, "_save", lambda self: None)
+
+    class FakeMon:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def connect(self, deadline=0): pass
+        def ping(self): pass
+        def resume(self): pass
+
+    monkeypatch.setattr(session_mod, "MonitorClient", lambda **kw: FakeMon())
+    session_mod.Session.launch(name="cartsess", cart=str(crt))
+    args = seen["args"]
+    assert "-cartcrt" in args
+    assert args[args.index("-cartcrt") + 1] == str(crt.resolve())

@@ -200,6 +200,7 @@ class Session:
         warp: bool = False,
         binary: str | None = None,
         disk8: str | None = None,
+        cart: str | None = None,
     ) -> Session:
         profile = get_profile(model)
         exe = binary or os.environ.get("C64_TOOLS_X64SC") or shutil.which(profile.vice_emulator)
@@ -223,6 +224,11 @@ class Session:
             if dtype != 1541:  # 1541 is x64sc's default; d71/d81 need the switch
                 base_args += ["-drive8type", str(dtype)]
             base_args += ["-8", str(disk_path)]
+        if cart:
+            # A cartridge is mapped at power-on, not loaded: every supported
+            # type attaches through -cartcrt because the .crt header carries
+            # its own hardware type and EXROM/GAME lines.
+            base_args += ["-cartcrt", str(Path(cart).resolve())]
         env = dict(os.environ)
         if headless:
             env["SDL_VIDEODRIVER"] = "dummy"
