@@ -258,6 +258,9 @@ def _decdump(addr: int, data: bytes) -> str:
               help="Save a PNG screenshot to this path instead of printing text.")
 @click.option("--scale", default=1, show_default=True,
               help="Integer upscale factor for --png (nearest-neighbour).")
+@click.option("--border", is_flag=True,
+              help="Include the border in --png (shows $D020); default is the "
+                   "320x200 inner screen only.")
 @click.option("--codes", "codes_", is_flag=True,
               help="Print the raw screen-code matrix instead of decoded text.")
 @click.option("--style", type=click.Choice(["unicode", "ascii"]),
@@ -266,7 +269,7 @@ def _decdump(addr: int, data: bytes) -> str:
 @click.option("--ansi-reverse", is_flag=True,
               help="Wrap reverse-video cells in ANSI inverse escapes.")
 @click.pass_context
-def screen_cmd(ctx, png_path, scale, codes_, style, ansi_reverse):
+def screen_cmd(ctx, png_path, scale, border, codes_, style, ansi_reverse):
     """Show the emulated screen — decoded text by default, a PNG with --png,
     or the raw screen-code matrix with --codes.
 
@@ -279,7 +282,8 @@ def screen_cmd(ctx, png_path, scale, codes_, style, ansi_reverse):
     with s.monitor() as mon:
         try:
             if png_path:
-                w, h = save_screenshot_png(mon, png_path, scale=scale)
+                w, h = save_screenshot_png(mon, png_path, scale=scale,
+                                           border=border)
                 emit(ctx, {"png": png_path, "width": w, "height": h},
                      f"wrote {w}x{h} screenshot to {png_path}")
             elif codes_:

@@ -165,7 +165,10 @@ def registers_set_body(values: dict[int, int], memspace: int = MEMSPACE_MAIN) ->
     return out
 
 
-def parse_display_get(body: bytes) -> tuple[int, int, bytes]:
+def parse_display_get(body: bytes, full: bool = False) -> tuple[int, int, bytes]:
+    """Decode a DISPLAY_GET response. By default returns just the inner
+    screen area (320x200 on a C64); with full=True returns the whole
+    emulated frame, borders included."""
     (fields_len,) = struct.unpack_from("<I", body)
     debug_w, debug_h, off_x, off_y, inner_w, inner_h, _bpp = struct.unpack_from(
         "<HHHHHHB", body, 4
@@ -173,6 +176,8 @@ def parse_display_get(body: bytes) -> tuple[int, int, bytes]:
     buf_off = 4 + fields_len
     (buf_len,) = struct.unpack_from("<I", body, buf_off)
     pixels = body[buf_off + 4 : buf_off + 4 + buf_len]
+    if full:
+        return debug_w, debug_h, pixels[: debug_w * debug_h]
     rows = []
     for y in range(off_y, off_y + inner_h):
         row_start = y * debug_w + off_x

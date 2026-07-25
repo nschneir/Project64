@@ -60,6 +60,21 @@ def test_read_screen_codes_matrix():
     assert m[0][:3] == [0, 1, 2] and m[1][0] == 32
 
 
+def test_save_screenshot_png_border_requests_full_frame(tmp_path):
+    mon = Mock()
+    mon.display.side_effect = lambda full=False: (
+        (4, 4, bytes([1] * 4 + [1, 0, 0, 1] + [1, 0, 0, 1] + [1] * 4)) if full
+        else (2, 2, bytes([0, 0, 0, 0]))
+    )
+    mon.palette.return_value = [(0, 0, 0), (255, 0, 0)]
+    out = tmp_path / "bordered.png"
+    w, h = save_screenshot_png(mon, out, border=True)
+    assert (w, h) == (4, 4)
+    img = Image.open(out).convert("RGB")
+    assert img.getpixel((0, 0)) == (255, 0, 0)   # border pixel present
+    assert img.getpixel((1, 1)) == (0, 0, 0)     # inner pixel still there
+
+
 def test_save_screenshot_png_scale(tmp_path):
     mon = Mock()
     mon.display.return_value = (2, 2, bytes([0, 1, 1, 0]))

@@ -136,6 +136,9 @@ with `--codes` it prints the raw screen-code matrix.
 - `--png PATH` — save a PNG screenshot instead of printing text.
 - `--scale N` — integer nearest-neighbour upscale for `--png` (default 1;
   C64 screens read better at 2–3×).
+- `--border` — include the border area in `--png`. The default capture is
+  the 320×200 inner screen only, so a `POKE 53280` border color does **not**
+  appear without this flag.
 - `--codes` — print the 25×40 matrix of raw screen codes (decimal). With
   `--json`, nested arrays under `"codes"`. Use this to assert exact glyph
   identity.

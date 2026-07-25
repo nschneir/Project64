@@ -155,14 +155,17 @@ def c64_screen_codes(session: str | None = None) -> dict:
 
 
 @srv.tool()
-def c64_screenshot(path: str, session: str | None = None, scale: int = 1) -> dict:
+def c64_screenshot(path: str, session: str | None = None, scale: int = 1,
+                   border: bool = False) -> dict:
     """Save a PNG screenshot. Prefer c64_screen_text for reading output;
     use this only when pixel-level appearance matters. scale gives an
-    integer nearest-neighbour upscale (small C64 screens read better at 2-3x)."""
+    integer nearest-neighbour upscale (small C64 screens read better at
+    2-3x). border=True includes the border area, so a POKE 53280 border
+    color is visible; the default captures the inner screen only."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
-            w, h = save_screenshot_png(mon, path, scale=scale)
+            w, h = save_screenshot_png(mon, path, scale=scale, border=border)
         finally:
             mon.release()
     return {"png": path, "width": w, "height": h}

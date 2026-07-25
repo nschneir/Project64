@@ -37,8 +37,11 @@ def read_screen_codes(mon: MonitorClient, profile: MachineProfile) -> list[list[
 
 
 def save_screenshot_png(mon: MonitorClient, path: str | Path,
-                        scale: int = 1) -> tuple[int, int]:
-    width, height, pixels = mon.display()
+                        scale: int = 1, border: bool = False) -> tuple[int, int]:
+    """Save the emulated display as a PNG. By default captures the 320x200
+    inner screen; border=True captures the whole frame, so `POKE 53280`
+    border colors are visible."""
+    width, height, pixels = mon.display(full=border)
     palette = mon.palette()
     img = Image.new("P", (width, height))
     flat = []
