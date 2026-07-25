@@ -46,6 +46,7 @@ from .packaging import PackageError, package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE
 from .romdoc import identify, rom_labels
 from .screen import (
+    number_screen_text,
     read_screen_codes,
     read_screen_text,
     save_screenshot_png,
@@ -268,8 +269,12 @@ def _decdump(addr: int, data: bytes) -> str:
               help="Text decoding: Unicode graphics or the legacy ASCII-safe set.")
 @click.option("--ansi-reverse", is_flag=True,
               help="Wrap reverse-video cells in ANSI inverse escapes.")
+@click.option("--numbered", is_flag=True,
+              help="Prefix each row with its index and print a column ruler "
+                   "(so you can read off @row,col references).")
 @click.pass_context
-def screen_cmd(ctx, png_path, scale, border, codes_, style, ansi_reverse):
+def screen_cmd(ctx, png_path, scale, border, codes_, style, ansi_reverse,
+                numbered):
     """Show the emulated screen — decoded text by default, a PNG with --png,
     or the raw screen-code matrix with --codes.
 
@@ -292,7 +297,9 @@ def screen_cmd(ctx, png_path, scale, border, codes_, style, ansi_reverse):
                 emit(ctx, {"codes": m}, text)
             else:
                 text = read_screen_text(mon, s.profile, style, ansi_reverse)
-                emit(ctx, {"text": text, "rows": text.splitlines()}, text)
+                human = number_screen_text(text, s.profile.screen_cols) \
+                    if numbered else text
+                emit(ctx, {"text": text, "rows": text.splitlines()}, human)
         finally:
             mon.release()
 

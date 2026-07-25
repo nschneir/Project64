@@ -148,6 +148,10 @@ with `--codes` it prints the raw screen-code matrix.
   `- | +`).
 - `--ansi-reverse` — wrap reverse-video cells with no Unicode complement
   in terminal inverse-video escapes.
+- `--numbered` — prefix each row with its index and print a column ruler.
+  Use it to read off the `@row,col` references that `c64 wait --mem` and
+  YAML `assert: {mem: "@r,c"}` take. `--json` output is unaffected (`rows`
+  is already indexed).
 
 JSON (text): `{"text", "rows": [...]}`. JSON (`--png`): `{"png", "width",
 "height"}`. JSON (`--codes`): `{"codes": [[...], ...]}`. Machine state

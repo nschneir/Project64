@@ -3,7 +3,15 @@ from unittest.mock import Mock
 from PIL import Image
 
 from c64lib.machines import get_profile
-from c64lib.screen import read_screen_text, save_screenshot_png
+from c64lib.screen import number_screen_text, read_screen_text, save_screenshot_png
+
+
+def test_number_screen_text_adds_a_ruler_and_row_indices():
+    out = number_screen_text("READY.\n\nTOO HIGH").splitlines()
+    assert out[0] == "   " + "".join(str(c % 10) for c in range(40))
+    assert out[1] == " 0|READY."
+    assert out[2] == " 1|"
+    assert out[3] == " 2|TOO HIGH"
 
 
 def test_read_screen_text_uses_profile_geometry():

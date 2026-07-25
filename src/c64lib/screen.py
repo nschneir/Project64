@@ -53,3 +53,11 @@ def save_screenshot_png(mon: MonitorClient, path: str | Path,
         img = img.resize((width * scale, height * scale), Image.NEAREST)
     img.save(Path(path), format="PNG")
     return img.width, img.height
+
+
+def number_screen_text(text: str, cols: int = 40) -> str:
+    """Prefix each screen row with its index and print a column ruler, so
+    `@row,col` references can be read straight off the output."""
+    ruler = "   " + "".join(str(c % 10) for c in range(cols))
+    rows = [f"{i:2d}|{line}" for i, line in enumerate(text.splitlines())]
+    return "\n".join([ruler, *rows])

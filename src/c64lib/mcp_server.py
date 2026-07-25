@@ -39,7 +39,12 @@ from .ops import (
 from .packaging import package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE
 from .romdoc import identify, rom_labels
-from .screen import read_screen_codes, read_screen_text, save_screenshot_png
+from .screen import (
+    number_screen_text,
+    read_screen_codes,
+    read_screen_text,
+    save_screenshot_png,
+)
 from .session import Session
 from .symbols import format_addr
 from .testing import load_test, program_test, run_test
@@ -127,18 +132,20 @@ def c64_status(session: str | None = None) -> dict:  # noqa: D401
 
 @srv.tool()
 def c64_screen_text(session: str | None = None, style: str = "unicode",
-                    ansi_reverse: bool = False) -> dict:
+                    ansi_reverse: bool = False, numbered: bool = False) -> dict:
     """Read the C64 screen as plain text. This is the PREFERRED way to see
     program output — faster and more reliable than screenshots for AI use.
     Graphics decode to Unicode glyphs; style="ascii" restores the legacy
-    conservative mapping."""
+    conservative mapping. numbered=True prefixes row indices and a column
+    ruler, for working out @row,col references."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
             text = read_screen_text(mon, s.profile, style, ansi_reverse)
         finally:
             mon.release()
-    return {"text": text, "rows": text.splitlines()}
+    human = number_screen_text(text, s.profile.screen_cols) if numbered else text
+    return {"text": human, "rows": text.splitlines()}
 
 
 @srv.tool()
