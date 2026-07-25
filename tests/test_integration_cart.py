@@ -298,7 +298,9 @@ def test_merged_labels_are_bank_tagged(tmp_path):
     labels = load_labels(res["labels"])
     assert "b00lo_cold" in labels
     assert "b01lo_shout" in labels
-    assert labels["b00lo_cold"] == labels["b01lo_shout"] or True  # both in $8000+
+    # Both banks link their own code to the same window, so the tags are what
+    # keeps the two apart — the addresses themselves need not differ or agree.
+    assert labels["b00lo_cold"] >= 0x8000 and labels["b01lo_shout"] >= 0x8000
 
 
 @needs_build
@@ -362,3 +364,23 @@ def test_cart_inc_boots_and_calls_across_banks(tmp_path):
     finally:
         session.stop()
     assert state == _BANKED_STATE
+
+
+@needs_build
+@pytest.mark.parametrize("index,fits", [(84, True), (85, False)])
+def test_ef_call_rejects_an_entry_index_past_the_jump_table(tmp_path, index, fits):
+    """The jump table is one page of 3-byte JMPs, so it holds 85 entries and
+    the last valid *index* is 84. Index 85's JMP would spill 2 bytes past
+    $9FFF — ld65 does catch that, but only as a raw memory-area overflow on
+    the callee's bank, which names neither ef_call nor the index. The guard
+    exists to fail at the call site instead.
+    """
+    from c64lib.build import BuildError
+    m = write_banked_game(tmp_path)
+    main = tmp_path / "main.s"
+    main.write_text(main.read_text().replace("ef_call 1, 0", f"ef_call 1, {index}"))
+    if fits:
+        build_easyflash(m)      # assembles; the callee simply has no such entry
+        return
+    with pytest.raises(BuildError, match="entry index above EF_MAX_ENTRY"):
+        build_easyflash(m)

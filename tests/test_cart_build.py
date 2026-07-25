@@ -276,12 +276,23 @@ def test_lo_window_reserves_the_jump_table():
     assert "JUMPTAB:" in cfg
 
 
-def test_boot_window_runs_the_resident_block_from_ram():
+def test_boot_window_maps_rom_at_e000_and_the_reset_vectors():
     cfg = ef_window_config("hi", boot=True)
     assert "start = $E000" in cfg
     assert "start = $FFFA, size = $0006" in cfg
-    assert f"RESIDENT: start = ${EF_RESIDENT:04X}" in cfg
-    assert "run = RESIDENT" in cfg
+
+
+def test_boot_window_declares_no_ram_area_for_the_resident_block():
+    """cart.inc assembles the trampoline absolute at $0900 with `.org`, because
+    every bank includes it and only this window could have linked a
+    load = ROM, run = RAM segment. A RESIDENT area here would advertise a bound
+    nothing enforces, and an unused RAMCODE segment makes ld65 warn on every
+    boot-window link — noise that trains readers to skim real linker warnings.
+    """
+    cfg = ef_window_config("hi", boot=True)
+    assert "RESIDENT" not in cfg
+    assert "RAMCODE" not in cfg
+    assert f"${EF_RESIDENT:04X}" not in cfg
 
 
 def test_plain_hi_window_is_a000():

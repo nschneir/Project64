@@ -35,7 +35,8 @@ EF_CONTROL   = $DE02            ; mode/LED register
 EF_MODE_16K  = $87              ; leave Ultimax for 16K cart mode, LED on
 EF_JUMPTABLE = $9F00            ; each code bank's entry table
 EF_RESIDENT  = $0900            ; where the trampoline runs from
-EF_MAX_ENTRY = 85               ; 3 bytes per entry, one page of table
+EF_MAX_ENTRY = 84               ; 3 bytes per entry, one page of table: a page
+                                ; holds 85 of them, so the last index is 84
 
 ; Declare an entry point in this bank's jump table. Order defines the index:
 ; the first ef_entry is index 0, the second index 1, and so on. Cross-bank
@@ -64,7 +65,8 @@ ef_start:
         lda     #EF_MODE_16K
         sta     EF_CONTROL              ; KERNAL and BASIC exist again
         jsr     $FDA3                   ; IOINIT
-        jsr     $FD50                   ; RAMTAS  (does not reach $0900)
+        jsr     $FD50                   ; RAMTAS  — its size probe writes and
+                                        ; restores $0900, so the block survives
         jsr     $FD15                   ; RESTOR
         jsr     $FF5B                   ; CINT
         cli

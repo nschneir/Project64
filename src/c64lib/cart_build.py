@@ -570,13 +570,20 @@ def ef_window_config(window: str, boot: bool = False) -> str:
 
     The LOROM window reserves its top page for the jump table at $9F00: banks
     are linked independently, so a fixed table is the only stable way for one
-    bank to call into another. The boot window additionally runs a RESIDENT
-    segment from RAM — $E000 stops existing the moment the cart leaves Ultimax
-    mode, so the code that switches modes must already be somewhere else.
+    bank to call into another.
 
-    $0900 is that somewhere: in Ultimax mode only $0000-$0FFF is RAM, RAMTAS
-    clears $0002-$0101 and $0200-$03FF, and CINT clears the screen at
-    $0400-$07FF. All three constraints were measured.
+    The boot window has no RAM area, on purpose. $E000 stops existing the moment
+    the cart leaves Ultimax mode, so the code that switches modes must already be
+    running from somewhere else — but cart.inc assembles that resident block
+    absolute at $0900 with `.org` rather than as a load = ROM, run = RAM segment,
+    because every bank includes cart.inc and only this window would have the RAM
+    area to link it against. The linker therefore never sees the resident block,
+    and a memory area here would advertise a bound it does not enforce; the real
+    cap is 256 bytes, enforced in cart.inc by the copy loop's 8-bit counter.
+
+    $0900 is where it runs: in Ultimax mode only $0000-$0FFF is RAM, RAMTAS
+    clears $0002-$0101 and $0200-$03FF (its size probe writes $0900 but restores
+    it), and CINT clears the screen at $0400-$07FF. All measured.
     """
     if window not in EF_WINDOWS:
         raise CartError(f"window must be 'lo' or 'hi', not {window!r}")
@@ -614,7 +621,6 @@ def ef_window_config(window: str, boot: bool = False) -> str:
     return (
         "MEMORY {\n"
         f"{_ZP}\n"
-        f"    RESIDENT: start = ${EF_RESIDENT:04X}, size = $0700;\n"
         f"    ROM:  file = %O, start = ${ULTIMAX_START:04X}, size = $1FFA, "
         "fill = yes, fillval = $FF;\n"
         f"    VEC:  file = %O, start = ${VECTORS_ADDR:04X}, "
@@ -625,7 +631,6 @@ def ef_window_config(window: str, boot: bool = False) -> str:
         "    STARTUP:  load = ROM, type = ro, optional = yes;\n"
         "    CODE:     load = ROM, type = ro;\n"
         "    RODATA:   load = ROM, type = ro, optional = yes;\n"
-        "    RAMCODE:  load = ROM, run = RESIDENT, type = ro, define = yes;\n"
         "    VECTORS:  load = VEC, type = ro;\n"
         "}\n"
     )
