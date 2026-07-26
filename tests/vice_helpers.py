@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from c64lib.screen import read_screen_text
+from c64lib.testing import is_cart_spec
 
 PROGRAMS_DIR = Path(__file__).parent / "programs"
 
@@ -14,13 +15,12 @@ def is_cart_program(demo: Path) -> bool:
     """True for an example program that ships as a cartridge.
 
     A cartridge is attached at power-on and runs instead of BASIC: there is no
-    .prg to autostart, so the load-and-run path does not apply to it. The
-    predicate is the one c64lib.testing.program_test uses to make the same
-    distinction, and it lives here so the two integration files that split the
-    library on it cannot drift apart.
+    .prg to autostart, so the load-and-run path does not apply to it. This
+    delegates to the shipped predicate `c64lib.testing.program_test` itself
+    uses, so the two integration files that split the library on it cannot
+    drift from the runner — or from each other.
     """
-    spec = demo / "test.yaml"
-    return spec.exists() and "cart:" in spec.read_text()
+    return is_cart_spec(demo / "test.yaml")
 
 
 def example_programs(*, cart: bool) -> list[Path]:

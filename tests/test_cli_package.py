@@ -87,6 +87,48 @@ def test_package_cart_error_is_reported(tmp_path):
     assert "$A000" in json.loads(r.output)["error"]
 
 
+def test_package_rejects_cart_type_outside_a_cartridge(tmp_path):
+    """--cart-type used to be silently ignored for non-cartridge output; it is
+    as loud as --wrap now, so a typo'd format cannot pass unnoticed."""
+    with patch("c64lib.cli.package_program") as pp:
+        r = CliRunner().invoke(main, ["--json", "package", SRC, "-o",
+                                      str(tmp_path / "x.d64"),
+                                      "--cart-type", "16k"])
+    assert r.exit_code == 1
+    assert "--cart-type" in json.loads(r.output)["error"]
+    pp.assert_not_called()
+
+
+def test_package_cart_type_defaults_to_8k_for_a_cartridge(tmp_path):
+    """The sentinel changes only the outside-a-cartridge case: inside one the
+    effective default is still 8k."""
+    with patch("c64lib.cli.package_program", return_value=CART_RET) as pp:
+        r = CliRunner().invoke(main, ["package", SRC, "-o",
+                                      str(tmp_path / "g.crt")])
+    assert r.exit_code == 0, r.output
+    assert pp.call_args.kwargs["cart_type"] == "8k"
+
+
+def test_package_format_prg_with_a_crt_output_names_the_conflict(tmp_path):
+    with patch("c64lib.cli.package_program") as pp:
+        r = CliRunner().invoke(main, ["--json", "package", SRC, "--format", "prg",
+                                      "-o", str(tmp_path / "x.crt")])
+    assert r.exit_code == 1
+    err = json.loads(r.output)["error"]
+    assert "--format prg" in err and "cartridge" in err
+    pp.assert_not_called()
+
+
+def test_package_format_crt_with_a_disk_output_is_rejected(tmp_path):
+    """A cartridge written to a .d64 name is a mislabeled file, not a disk."""
+    with patch("c64lib.cli.package_program") as pp:
+        r = CliRunner().invoke(main, ["--json", "package", SRC, "--format", "crt",
+                                      "-o", str(tmp_path / "x.d64")])
+    assert r.exit_code == 1
+    assert ".d64" in json.loads(r.output)["error"]
+    pp.assert_not_called()
+
+
 def test_package_rejects_an_unsupported_format(tmp_path):
     r = CliRunner().invoke(main, ["package", SRC, "--format", "d64"])
     assert r.exit_code != 0

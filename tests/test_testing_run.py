@@ -446,6 +446,28 @@ def test_run_test_loads_cart_labels_when_present(tmp_path):
     assert mon.memory_read.call_args.args[0] == 0xC000   # symbol resolved
 
 
+def test_run_test_rejects_a_spec_with_both_cart_and_program(tmp_path):
+    """load_test rejects the pair, but a hand-built spec skips that layer: the
+    runner must refuse it too rather than silently ignoring `program`."""
+    crt = _crt(tmp_path / "game.crt")
+    launch = Mock()
+    spec = _spec(cart=str(crt), program="hello.prg", dir=str(tmp_path))
+    with pytest.raises(TestError, match="cart.*program"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()          # refused before anything booted
+
+
+def test_shared_launch_bypass_predicate_covers_cart_and_disk():
+    """conftest's shared machine can serve neither a cart nor a disk (both are
+    attached at power-on), nor another model."""
+    from tests.conftest import _needs_own_emulator as own
+
+    assert own("c64", "c64", {}) is False
+    assert own("c64", "c64pal", {}) is True
+    assert own("c64", "c64", {"cart": "g.crt"}) is True
+    assert own("c64", "c64", {"disk8": "g.d64"}) is True
+
+
 def test_prepare_cart_passes_a_crt_through_with_its_sibling_labels(tmp_path):
     from c64lib.testing import prepare_cart
 

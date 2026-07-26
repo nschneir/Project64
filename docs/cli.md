@@ -491,9 +491,12 @@ cartridge. Pure file operation; no session required.
   defaults to the source stem). For a cartridge it is the `.crt` name field
   (up to 32 characters).
 - `--format prg|crt` — pick the format explicitly instead of by extension
-  (disk images are always chosen by extension).
-- `--cart-type 8k|16k|ultimax` (default `8k`) — cartridge geometry, for
-  `--format crt` only.
+  (disk images are always chosen by extension). It has to agree with the
+  output name: `--format prg -o game.crt` and `--format crt -o game.d64` are
+  both errors naming the conflict, rather than one of the two quietly winning.
+- `--cart-type 8k|16k|ultimax` (default `8k`) — cartridge geometry. Cartridge
+  output only: passing it for a `.prg` or a disk image is an error, the same
+  way `--wrap` is, so a mistyped format never passes unnoticed.
 - `--wrap` — force launcher-stub mode: build `SOURCE` to a `.prg` first, then
   wrap it in a launcher cartridge, instead of building cart-native code.
 - `--model MODEL` (default `c64`) — selects the BASIC load address and
@@ -615,8 +618,10 @@ JSON: `{"source", "prg", "symbols"}`. Machine left running.
 **Cartridges.** A `.crt` cannot be loaded into a running machine — it is
 mapped at power-on — so `c64 run game.crt` stops the current session and boots
 a fresh one of the same name and model with the cartridge attached (with no
-session running it boots a `c64`). A `.lbl` beside the `.crt` is registered on
-the new session, so symbols work straight away.
+session running it boots a `c64` — and so does a `--session NAME` that matches
+nothing, which is the one verb where an unknown name is not an error; check
+`c64 session list` if a boot lands somewhere unexpected). A `.lbl` beside the
+`.crt` is registered on the new session, so symbols work straight away.
 
 Only the name and the model survive the relaunch — the **launch flags do
 not**. The CLI always reboots windowed and at normal speed, even if the
@@ -1059,7 +1064,9 @@ when it holds an `expect.txt` (each non-blank line becomes a `wait: {text}`
 step) plus either a `program.bas`/`program.s` or a `test.yaml` with a `cart:`
 key — the cartridge case has no program file of its own. An optional
 `test.yaml` supplies the rest of the spec; its own steps run after the
-`expect.txt` ones.
+`expect.txt` ones. A generated spec takes the same defaults a written one
+does, including the 30-second per-step `timeout:`, which a `test.yaml` can
+raise for a slow program.
 
 - `DIRECTORY` (default `tests/programs`).
 

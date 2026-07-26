@@ -253,6 +253,17 @@ class _KeepAlive(Session):
         pass                                # it outlives this one test
 
 
+def _needs_own_emulator(shared_model: str, model: str, kwargs: dict) -> bool:
+    """Whether a spec's launch has to boot its own emulator.
+
+    Named (and unit-tested in tests/test_testing_run.py) because getting it
+    wrong is silent: a cart or disk spec handed the shared machine would run
+    against a C64 with nothing attached and report the wrong reason for its
+    pass or fail.
+    """
+    return model != shared_model or bool(kwargs.get("disk8") or kwargs.get("cart"))
+
+
 @pytest.fixture
 def shared_launch(session):
     """A ``launch`` for ``run_test``, which otherwise boots — and stops — an
@@ -264,7 +275,7 @@ def shared_launch(session):
     against a cartridge-less C64 and report the wrong reason for pass or fail.
     """
     def launch(model="c64", name=None, headless=False, warp=False, **kwargs):
-        if model != session.model or kwargs.get("disk8") or kwargs.get("cart"):
+        if _needs_own_emulator(session.model, model, kwargs):
             return Session.launch(model=model, name=name, headless=headless,
                                   warp=warp, **kwargs)
         return _KeepAlive(**vars(session))

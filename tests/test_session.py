@@ -280,8 +280,12 @@ def test_stop_cleans_up_dead_session(home):
     assert not sock.exists()
 
 
-def test_launch_passes_cartcrt(monkeypatch, tmp_path):
-    """A cartridge is attached at boot, like a disk — never autostart-loaded."""
+def test_launch_passes_cartcrt(home, monkeypatch, tmp_path):
+    """A cartridge is attached at boot, like a disk — never autostart-loaded.
+
+    `home` is autouse, but named here because launch reads the registry (the
+    duplicate-name check) — this must never see the developer's sessions.
+    """
     from c64lib import session as session_mod
 
     crt = tmp_path / "game.crt"

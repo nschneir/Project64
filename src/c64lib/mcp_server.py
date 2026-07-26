@@ -490,7 +490,13 @@ def c64_run(source: str, session: str | None = None) -> dict:
     running C64. Registers assembly symbols on the session automatically. A
     .crt cannot be loaded into a running machine, so running one stops the
     session and boots a fresh one of the same name and model with the
-    cartridge attached (returns {"cart", "session", "model", "symbols"})."""
+    cartridge attached (returns {"cart", "session", "model", "symbols"}).
+
+    For a .crt, "no session to reboot" and "no session by that name" are the
+    same case: a session name that does not exist boots an unnamed default c64
+    with the cartridge rather than failing. Every other tool errors on an
+    unknown name, so check c64_session_list if a boot lands somewhere
+    unexpected."""
     src = Path(source).resolve()
     ext = src.suffix.lower()
     if ext == ".crt":
@@ -533,8 +539,9 @@ def c64_run(source: str, session: str | None = None) -> dict:
         res = build_asm(src, basic_start=s.profile.basic_start)
         prg, labels_path, deps = res.prg, res.labels, res.deps
     else:
-        raise ValueError(
-            f"cannot run {ext!r} files (use .bas, .s, .prg, or .crt)")
+        raise ValueError(                       # same wording as the CLI's
+            f"don't know how to run {ext!r} files "
+            "(use .bas, .s, .prg, or .crt)")
     with s.monitor() as mon:
         try:
             mon.autostart(Path(prg).resolve(), run=True)

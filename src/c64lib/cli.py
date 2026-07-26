@@ -269,7 +269,13 @@ def session_stop(ctx, name, name_opt):
     except SessionError as e:
         fail(ctx, str(e))
         return
-    s.stop()
+    try:
+        s.stop()
+    except (SessionError, OSError) as e:
+        # kill() + unlink() of the record and socket: report a failure as a
+        # message naming the session, not a traceback.
+        fail(ctx, f"could not stop session {s.name!r}: {e}")
+        return
     emit(ctx, {"stopped": s.name}, f"stopped session {s.name!r}")
 
 
@@ -584,7 +590,8 @@ def build_cmd(ctx, source, output, model):
 @click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
               default=None,
               help="Artifact path; .d64/.d71/.d81 build an autostart-first "
-                   "disk image, .prg (or omitted) just the program file.")
+                   "disk image, .crt a bootable cartridge, .prg (or omitted) "
+                   "just the program file.")
 @click.option("--title", default=None,
               help="CBM file/disk name (uppercased, max 16 chars; defaults "
                    "to the source stem).")
@@ -592,9 +599,9 @@ def build_cmd(ctx, source, output, model):
               help="Artifact format; defaults to the output extension "
                    "(.prg, .d64/.d71/.d81, or .crt).")
 @click.option("--cart-type", type=click.Choice(["8k", "16k", "ultimax"]),
-              default="8k", show_default=True,
-              help="Cartridge geometry for --format crt. --wrap needs 8k "
-                   "for anything BASIC has to start.")
+              default=None,
+              help="Cartridge geometry (default 8k); cartridge output only. "
+                   "--wrap needs 8k for anything BASIC has to start.")
 @click.option("--wrap", is_flag=True,
               help="Force launcher-stub mode: assemble SOURCE to a .prg first, "
                    "then wrap it, instead of building cart-native code.")
@@ -609,9 +616,27 @@ def package_cmd(ctx, source, output, title, fmt, cart_type, wrap, model):
     default (PAL) machine, so both profiles pin their video standard
     (-ntsc / -pal) explicitly.
     """
+    out_ext = output.suffix.lower() if output is not None else ""
+    cart_out = fmt == "crt" or (fmt is None and out_ext == ".crt")
+    # --format and -o each name a format; disagreeing is a mistake, not a
+    # silent win for either. Reported here, where both are still visible.
+    if fmt == "prg" and out_ext == ".crt":
+        fail(ctx, f"--format prg conflicts with the cartridge output {output}: "
+                  "a .crt is a cartridge. Drop --format (or pass --format crt) "
+                  "to build one, or name a .prg/.d64/.d71/.d81 output.")
+        return
+    if fmt == "crt" and out_ext not in ("", ".crt"):
+        fail(ctx, f"--format crt builds a cartridge, but the output {output} "
+                  f"is named {out_ext} — name a .crt output, or drop --format "
+                  "to package for that extension instead.")
+        return
+    if cart_type is not None and not cart_out:
+        fail(ctx, "--cart-type only applies to cartridges; pass --format crt "
+                  "or name a .crt output")
+        return
     try:
         res = package_program(source, out=output, title=title, model=model,
-                              fmt=fmt, cart_type=cart_type, wrap=wrap)
+                              fmt=fmt, cart_type=cart_type or "8k", wrap=wrap)
     except (BuildError, BasicError, DiskError, PackageError, CartError,
             KeyError) as e:
         fail(ctx, str(e))
@@ -751,6 +776,12 @@ def run_cmd(ctx, source):
     session (so symbols work in later commands), `.prg` is loaded directly,
     and a `.crt` reboots the session with the cartridge attached.
     Leaves the machine running.
+
+    For a `.crt`, "no session to reboot" and "no session by that name" are the
+    same case: a `--session` name that does not exist boots an unnamed default
+    `c64` with the cartridge rather than failing. Every other verb errors on an
+    unknown name, so check `c64 session list` if a boot lands somewhere
+    unexpected.
     """
     src = source.resolve()
     ext = src.suffix.lower()
@@ -769,7 +800,10 @@ def run_cmd(ctx, source):
             name, model = old.name, old.model
             try:
                 old.stop()
-            except SessionError as e:
+            except (SessionError, OSError) as e:
+                # OSError: stopping is kill() + unlink() of the registry
+                # record and socket — a permission or filesystem failure there
+                # is the same "the old session is still there" situation.
                 fail(ctx, f"cannot boot {src} on session {name!r}: the old "
                           f"session has to stop first (a cartridge is mapped "
                           f"at power-on) and stopping it failed: {e}")

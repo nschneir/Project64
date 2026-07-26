@@ -83,6 +83,18 @@ def test_cart_dump_writes_the_window(tmp_path, crt):
     assert out.read_bytes()[4:9] == bytes([0xC3, 0xC2, 0xCD, 0x38, 0x30])
 
 
+def test_cart_dump_json_reports_the_written_file(tmp_path, crt):
+    """The payload the MCP tool mirrors: `path` is what was WRITTEN (-o), not
+    the .crt it was read from."""
+    out = tmp_path / "bank0.bin"
+    r = CliRunner().invoke(main, ["--json", "cart", "dump", str(crt),
+                                  "--bank", "0", "--window", "lo",
+                                  "-o", str(out)])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output) == {"path": str(out), "bank": 0,
+                                    "window": "lo", "bytes": 8192}
+
+
 def test_cart_dump_reports_a_missing_bank(tmp_path, crt):
     r = CliRunner().invoke(main, ["cart", "dump", str(crt), "--bank", "9",
                                   "-o", str(tmp_path / "x.bin")])
@@ -149,6 +161,9 @@ def test_cart_bank_decodes_the_easyflash_registers():
     data = json.loads(r.output)
     assert data["bank"] == 3 and data["mode"] == "16k" and data["de02"] == "$87"
     mon.memory_read.assert_called_once_with(0xDE00, 3)
+    # an inspection command: it must never resume a halted machine
+    mon.release.assert_called_once()
+    mon.resume.assert_not_called()
 
 
 @needs_cartconv

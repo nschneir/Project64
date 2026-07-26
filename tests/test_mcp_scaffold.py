@@ -26,14 +26,20 @@ def call_tool(name: str, args: dict) -> tuple[bool, dict]:
     return r.isError, payload
 
 
-def test_server_lists_tools():
+def list_tools():
+    """Sync helper: every tool the server registers, over one in-memory
+    client session. Shared so no other test file re-implements the dance."""
     from c64lib.mcp_server import srv
 
     async def go():
         async with client_session(srv._mcp_server) as client:
             return await client.list_tools()
 
-    tools = anyio.run(go)
+    return anyio.run(go)
+
+
+def test_server_lists_tools():
+    tools = list_tools()
     names = [t.name for t in tools.tools]
     assert "c64_session_list" in names
     listed = next(t for t in tools.tools if t.name == "c64_session_list")

@@ -205,7 +205,8 @@ def test_run_unknown_extension_is_error(tmp_path):
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(tmp_path / "x.txt")})
-    assert err is True and "cannot run" in out["raw"]
+    # same wording as the CLI's: both front ends say it one way
+    assert err is True and "don't know how to run" in out["raw"]
 
 
 def test_load_no_run_with_symbols(tmp_path):

@@ -9,17 +9,13 @@ import inspect
 import json
 from unittest.mock import Mock, patch
 
-import anyio
 import pytest
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 
 from c64lib import mcp_server
 from c64lib.session import SessionError
 from tests.test_cartridge import chip_packet, make_crt
 from tests.test_cli_cart import good_body
-from tests.test_mcp_scaffold import call_tool
+from tests.test_mcp_scaffold import call_tool, list_tools
 
 
 @pytest.fixture(autouse=True)
@@ -34,11 +30,7 @@ def crt(tmp_path):
 
 
 def _registered_tool_names() -> list[str]:
-    async def go():
-        async with client_session(mcp_server.srv._mcp_server) as client:
-            return await client.list_tools()
-
-    return [t.name for t in anyio.run(go).tools]
+    return [t.name for t in list_tools().tools]
 
 
 def _fake_session():

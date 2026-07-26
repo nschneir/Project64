@@ -60,7 +60,39 @@ def _cart_path(spec_dir: str | Path, cart: str | Path) -> Path:
     return (Path(spec_dir) / Path(cart)).resolve()
 
 
+def is_cart_spec(path: str | Path) -> bool:
+    """True when the spec file at `path` declares a cartridge (`cart:`).
+
+    The single definition of that question repo-wide: `program_test` uses it to
+    accept an example directory that ships a cartridge instead of a program
+    file, and the live-VICE helpers use it to split the example programs
+    between the load-and-run runner and the boot-a-cartridge one. It parses the
+    YAML rather than sniffing the text, so a commented-out `# cart:` or the
+    word inside a step string cannot masquerade as a cartridge spec.
+
+    A missing file is not a cartridge spec; unparseable YAML is an error,
+    because `load_test` would fail on it moments later anyway.
+    """
+    path = Path(path)
+    if not path.exists():
+        return False
+    try:
+        spec = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        raise TestError(f"{path}: test file is not valid YAML ({e})") from e
+    return isinstance(spec, dict) and bool(spec.get("cart"))
+
+
 def load_test(path: str | Path) -> dict:
+    """Load and validate one test spec, filling in the documented defaults.
+
+    Paths in the spec (`program:`, `cart:`) are resolved against the spec
+    file's own directory, which is also recorded in the returned spec's `dir`
+    key so a later `prepare_cart` can re-resolve from anywhere. A spec that
+    sets `dir:` literally overrides that computed value — an escape hatch for
+    generated specs, and a foot-gun otherwise, since `cart:` has already been
+    resolved by then and only a hand-built spec's is left relative.
+    """
     path = Path(path)
     spec = yaml.safe_load(path.read_text())
     if not isinstance(spec, dict):
@@ -117,7 +149,12 @@ def load_test(path: str | Path) -> dict:
 
 def program_test(program_dir: str | Path) -> dict:
     """Synthesize a test spec from an example-program directory
-    (program.bas/.s + expect.txt — see tests/programs/)."""
+    (program.bas/.s + expect.txt — see tests/programs/).
+
+    A directory whose test.yaml declares a `cart:` needs no program file: the
+    cartridge is what runs. Every synthesized spec uses the same per-step
+    timeout as a hand-written one (30s, `load_test`'s default).
+    """
     program_dir = Path(program_dir)
     prog = next(
         (program_dir / n for n in ("program.bas", "program.s")
@@ -126,7 +163,7 @@ def program_test(program_dir: str | Path) -> dict:
     )
     expect = program_dir / "expect.txt"
     extra = program_dir / "test.yaml"
-    has_cart = extra.exists() and "cart:" in extra.read_text()
+    has_cart = is_cart_spec(extra)
     if (prog is None and not has_cart) or not expect.exists():
         raise TestError(
             f"{program_dir}: not an example-program directory "
@@ -139,9 +176,8 @@ def program_test(program_dir: str | Path) -> dict:
         if prog is not None and not spec.get("cart"):
             spec["program"] = str(prog.resolve())
         spec["steps"] = steps + spec["steps"]   # expect lines still gate first
-        spec.setdefault("timeout", 45)
-        return spec
-    return {"name": program_dir.name, "machine": "c64", "timeout": 45,
+        return spec                             # timeout: load_test's default
+    return {"name": program_dir.name, "machine": "c64", "timeout": 30,
             "autorun": True, "program": str(prog.resolve()), "steps": steps,
             "dir": str(program_dir.resolve())}
 
@@ -186,7 +222,9 @@ def _prepare(program: str, profile) -> tuple[Path, Path | None]:
     if ext == ".s":
         out = build_asm(src, basic_start=profile.basic_start)
         return out.prg, out.labels
-    raise TestError(f"cannot run {ext!r} programs (use .bas, .s, or .prg)")
+    raise TestError(
+        f"cannot run {ext!r} programs (a spec's `program:` is a .bas, .s, or "
+        ".prg; a cartridge goes in `cart:` instead — .crt, .s, or .ef.yaml)")
 
 
 def prepare_cart(spec_dir: str | Path, cart: str | Path,
@@ -431,6 +469,14 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
     steps: list[StepResult] = []
     screen_text = ""
     cart_path, cart_labels = (None, None)
+    if spec.get("cart") and spec.get("program"):
+        # load_test rejects this too, but a hand-built spec (program_test, a
+        # caller assembling one in code) never passes through that layer, and
+        # the cart branch would silently win — the program would never load.
+        raise TestError(
+            f"{spec.get('name', 'spec')}: a spec sets either `cart` or "
+            "`program`, not both — a cartridge boots itself and nothing is "
+            "autostarted")
     if spec.get("cart"):
         # load_test already resolved `cart:` against the spec's directory;
         # a hand-built spec carries that directory in `dir` (cwd if absent).
