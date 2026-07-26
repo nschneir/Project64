@@ -512,10 +512,16 @@ cartridge maps ROM over `$8000-$BFFF`, which covers the BASIC interpreter at
 `10 SYS` stub the standard `.s` layout emits — must be wrapped as `8k`.
 A program that loads into the mapped window itself — `$8000-$9FFF` for `8k`,
 `$8000-$BFFF` for `16k` — is rejected for the same reason: the launcher's copy
-would land under cart ROM and the jump would read the ROM back. Relocate it,
-or write it as cart-native code. Wrapping into `ultimax` is rejected outright:
-the launcher chains through the KERNAL, and an Ultimax cartridge replaces it. Multi-bank EasyFlash images
-come from `c64 cart build`, not from here.
+would land under cart ROM and the jump would read the ROM back. Relocate it
+(below `$8000`, or at `$C000` or above), or write it as cart-native code.
+Wrapping into `ultimax` is rejected outright: the launcher chains through the
+KERNAL, and an Ultimax cartridge replaces it. Multi-bank EasyFlash images come
+from `c64 cart build`, not from here.
+
+As with `.prg` builds, a failed rebuild leaves the outputs of the previous
+successful build in place (ld65 and cartconv write nothing on error) — after
+a build error, do not trust a `.crt`/`.bin` already sitting at the output
+path without checking its timestamp.
 
 Cartridge output is `x64sc -ntsc -cartcrt game.crt`; check it first with
 `c64 cart verify`, which catches the boot failures that are silent on

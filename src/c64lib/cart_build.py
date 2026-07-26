@@ -582,8 +582,9 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
                 "The launcher's copy would land beneath ROM and the jump would "
                 "read ROM back, so the cartridge would boot into the wrapped "
                 "image's own bytes. Relocate the program below "
-                f"${ROML_START:04X} (or above ${win_end:04X}), or write it as "
-                "cart-native code and build it without --wrap")
+                f"${ROML_START:04X} or to $C000 or above ($A000-$BFFF sits "
+                "under the BASIC ROM, which the launcher never banks out), or "
+                "write it as cart-native code and build it without --wrap")
 
         budget = ct.image_bytes
         if len(body) + LAUNCHER_BYTES > budget:
