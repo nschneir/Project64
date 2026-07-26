@@ -1,10 +1,39 @@
 """Shared helpers for live-VICE integration tests."""
 
 import time
+from pathlib import Path
 
 import pytest
 
 from c64lib.screen import read_screen_text
+
+PROGRAMS_DIR = Path(__file__).parent / "programs"
+
+
+def is_cart_program(demo: Path) -> bool:
+    """True for an example program that ships as a cartridge.
+
+    A cartridge is attached at power-on and runs instead of BASIC: there is no
+    .prg to autostart, so the load-and-run path does not apply to it. The
+    predicate is the one c64lib.testing.program_test uses to make the same
+    distinction, and it lives here so the two integration files that split the
+    library on it cannot drift apart.
+    """
+    spec = demo / "test.yaml"
+    return spec.exists() and "cart:" in spec.read_text()
+
+
+def example_programs(*, cart: bool) -> list[Path]:
+    """Example-program directories, split by how they reach the machine.
+
+    The two halves are complementary and exhaustive by construction, so a new
+    directory is always claimed by exactly one runner — test_integration_build
+    autostarts the loadable ones, test_integration_cart boots the cartridges.
+    A hardcoded list here is how a third cart directory would end up tested by
+    neither.
+    """
+    return sorted(p.parent for p in PROGRAMS_DIR.glob("*/expect.txt")
+                  if is_cart_program(p.parent) is cart)
 
 
 def wait_for_text(session, needle, timeout=30.0):

@@ -4,6 +4,9 @@
 # $D020 is asserted through a mask: VIC-II colour registers are 4 bits wide
 # and the unused high nybble reads back set, so `sta $D020` with #$05 reads as
 # $F5, not 5.
+#
+# $DE00 is write-only on real hardware; it reads back under VICE, which is the
+# only reason the restored bank number can be asserted here at all.
 cart: game.ef.yaml
 timeout: 60
 steps:

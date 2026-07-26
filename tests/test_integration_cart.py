@@ -10,6 +10,7 @@ import pytest
 from c64lib.build import build_asm
 from c64lib.cart_build import build_cart, build_easyflash, cart_include_dir, wrap_prg
 from c64lib.cartridge import cart_info, cart_verify
+from tests.vice_helpers import PROGRAMS_DIR, example_programs
 
 needs_build = pytest.mark.skipif(
     not all(shutil.which(t) for t in ("ca65", "ld65", "cartconv")),
@@ -388,7 +389,11 @@ def test_ef_call_rejects_an_entry_index_past_the_jump_table(tmp_path, index, fit
 
 # --- the end-to-end gate: reference cartridges that boot on a real x64sc ----
 
-PROGRAMS = Path(__file__).parent / "programs"
+# Discovered, never listed: tests/test_integration_build.py autostarts the
+# other half of the same library from the same predicate, so every example
+# program is claimed by exactly one runner and a new cart directory joins this
+# gate by existing. The partition is pinned below.
+CART_PROGRAMS = example_programs(cart=True)
 
 
 def _explain(name: str, result) -> str:
@@ -396,21 +401,36 @@ def _explain(name: str, result) -> str:
     return f"{name} failed:\n{failed}\nscreen:\n{result.screen}"
 
 
+def test_cart_and_loadable_programs_partition_the_example_library():
+    """No example program may fall between the two runners.
+
+    A cart directory that neither file claims is tested only by the CLI, which
+    is exactly the silent gap a hardcoded parametrize list creates. Asserting
+    both halves are non-empty also catches a glob regression that would retire
+    the end-to-end gate without failing anything.
+    """
+    every = {p.parent for p in PROGRAMS_DIR.glob("*/expect.txt")}
+    carts, loadable = set(CART_PROGRAMS), set(example_programs(cart=False))
+    assert carts and loadable
+    assert carts | loadable == every
+    assert not carts & loadable
+
+
 @needs_build
 @needs_vice
 @pytest.mark.vice
-@pytest.mark.parametrize("program", ["cart-hello", "cart-banked"])
+@pytest.mark.parametrize("program", CART_PROGRAMS, ids=[d.name for d in CART_PROGRAMS])
 def test_reference_cartridges_boot_and_pass(program):
     """Build the cart from the sources in its own directory, power on a real
     x64sc with the image attached, and assert the screen and the state bytes.
 
-    These are the same two directories `c64 test programs` discovers, so the
+    These are the same directories `c64 test programs` discovers, so the
     published reference programs and the regression suite cannot drift apart.
     """
     from c64lib.testing import program_test, run_test
 
-    result = run_test(program_test(PROGRAMS / program))
-    assert result.passed, _explain(program, result)
+    result = run_test(program_test(program))
+    assert result.passed, _explain(program.name, result)
 
 
 @needs_build
