@@ -368,3 +368,52 @@ def block_poke(image: str | Path, track: int, sector: int, offset: int,
     _run_checked([str(image), "-bpoke", str(track), str(sector), str(offset),
                   *[str(b) for b in data]],
                  f"poking track {track} sector {sector}")
+
+
+def validate_image(image: str | Path) -> dict:
+    """Run the CBM allocation check (the disk fsck) over IMAGE, in place.
+
+    Measured: beyond c1541's usual attach/detach chatter, `img -validate` says
+    only `validating in unit 8 ...` — the same line, exit 0 and no DOS status
+    line, whether the BAM was already correct or was silently rewritten. It
+    never reports what it repaired. So cleanliness is decided here by comparing
+    the image before and after: a clean image comes back byte-identical, a
+    repaired one does not.
+
+    Like the real command this rewrites the BAM, so it modifies the image.
+
+    `repaired_blocks` is the size of the change in blocks free, which can be 0
+    on an image that was genuinely repaired — the reported free total leaves the
+    directory track out, so a repair confined to it is invisible in the count
+    (measured). `clean` is the flag to trust; `repaired_blocks` sizes it.
+    """
+    image = Path(image)
+    try:
+        before_bytes = image.read_bytes()
+    except OSError as e:
+        raise DiskError(f"no such image to validate: {image} ({e.strerror})") from None
+    before_free = list_files(image)["blocks_free"]
+    _run_checked([str(image), "-validate"], f"validating {image.name}")
+    after_bytes = image.read_bytes()
+    after_free = list_files(image)["blocks_free"]
+    clean = before_bytes == after_bytes
+    messages: list[str] = []
+    if not clean:
+        delta = after_free - before_free
+        if delta > 0:
+            messages.append(
+                f"BAM claimed {delta} block(s) that no file owns; validate "
+                f"reclaimed them ({before_free} -> {after_free} free)")
+        elif delta < 0:
+            messages.append(
+                f"BAM under-reported allocation by {-delta} block(s); validate "
+                f"corrected it ({before_free} -> {after_free} free)")
+        else:
+            messages.append(
+                f"validate rewrote the BAM but the free count did not move "
+                f"(still {after_free}); a repair on the directory track, which "
+                f"the total leaves out, looks like this")
+    return {"image": str(image), "clean": clean,
+            "blocks_free_before": before_free, "blocks_free_after": after_free,
+            "repaired_blocks": abs(after_free - before_free),
+            "messages": messages}

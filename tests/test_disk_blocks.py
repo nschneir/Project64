@@ -21,6 +21,7 @@ from c64lib.disk import (
     put_file,
     rename_file,
     sectors_per_track,
+    validate_image,
 )
 
 needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
@@ -311,3 +312,86 @@ def test_lookup_names_are_case_insensitive_both_ways(image):
     assert [f["name"] for f in list_files(image)["files"]] == ["beta"]
     assert delete_file(image, "BeTa") == 1
     assert list_files(image)["files"] == []
+
+
+# Offsets of a track's four-byte BAM entry in sector 18/0 of a d64, measured on
+# a fresh image: 4 bytes of header, then (free count, 3-byte bitmap) per track.
+def _bam_entry(track: int) -> int:
+    return 4 + (track - 1) * 4
+
+
+@needs_c1541
+def test_validate_reports_a_clean_image(image):
+    res = validate_image(image)
+    assert res["clean"] is True
+    assert res["repaired_blocks"] == 0
+    assert res["blocks_free_before"] == res["blocks_free_after"]
+    assert res["messages"] == []
+
+
+@needs_c1541
+def test_validate_detects_and_repairs_a_corrupted_bam(image):
+    """c1541 validate prints no diagnostic for what it repaired, so cleanliness
+    is judged by comparing the image before and after."""
+    before = list_files(image)["blocks_free"]
+    # Mark track 1 fully allocated in the BAM: 0 free, no bits set.
+    block_poke(image, 18, 0, _bam_entry(1), bytes([0, 0, 0, 0]))
+    assert list_files(image)["blocks_free"] < before
+    res = validate_image(image)
+    assert res["clean"] is False
+    assert res["repaired_blocks"] == 21          # track 1 has 21 sectors
+    assert res["blocks_free_after"] == before
+    assert any("BAM" in m for m in res["messages"])
+
+
+@needs_c1541
+def test_validate_leaves_a_clean_image_byte_identical(image, tmp_path):
+    copy = tmp_path / "copy.d64"
+    shutil.copyfile(image, copy)
+    validate_image(image)
+    assert image.read_bytes() == copy.read_bytes()
+
+
+@needs_c1541
+def test_validate_reclaims_blocks_no_file_owns(image):
+    # The reclaim direction stated in its own words: 21 blocks the BAM called
+    # allocated come back, and the message says so rather than just "not clean".
+    block_poke(image, 18, 0, _bam_entry(1), bytes([0, 0, 0, 0]))
+    res = validate_image(image)
+    assert res["blocks_free_after"] - res["blocks_free_before"] == 21
+    assert any("no file owns" in m for m in res["messages"])
+
+
+@needs_c1541
+def test_validate_reclaims_a_block_the_bam_wrongly_called_free(image):
+    # Measured: 'alpha' lives on track 17 sector 0, so freeing that bit in the
+    # BAM makes the image claim 664 free on a disk that has 663. Validate walks
+    # the files and takes the block back, which moves the count DOWN.
+    block_poke(image, 18, 0, _bam_entry(17), bytes([21, 255, 255, 31]))
+    res = validate_image(image)
+    assert res["blocks_free_before"] - res["blocks_free_after"] == 1
+    assert res["repaired_blocks"] == 1
+    assert any("under-reported" in m for m in res["messages"])
+
+
+@needs_c1541
+def test_validate_flags_a_repair_the_free_count_cannot_show(image):
+    # Measured: the reported "blocks free" total leaves the directory track out,
+    # so zeroing track 18's BAM entry corrupts the image without moving the
+    # number. Byte comparison is what catches it; repaired_blocks is honestly 0.
+    before = list_files(image)["blocks_free"]
+    block_poke(image, 18, 0, _bam_entry(18), bytes([0, 0, 0, 0]))
+    assert list_files(image)["blocks_free"] == before
+    res = validate_image(image)
+    assert res["clean"] is False
+    assert res["repaired_blocks"] == 0
+    assert res["blocks_free_before"] == res["blocks_free_after"] == before
+    assert any("free count did not move" in m for m in res["messages"])
+
+
+@needs_c1541
+def test_validate_reports_a_missing_image_as_a_disk_error(tmp_path):
+    # Reading the image to compare it happens before c1541 runs, so without the
+    # wrap this is a bare FileNotFoundError rather than a fault the CLI reports.
+    with pytest.raises(DiskError, match="no such image"):
+        validate_image(tmp_path / "nope.d64")
