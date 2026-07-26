@@ -24,6 +24,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import yaml
+
+from .basic import tokenize
+from .build import build_asm
+from .machines import MachineProfile, get_profile
+
 
 class DiskError(Exception):
     pass
@@ -196,9 +202,19 @@ def list_files(image: str | Path) -> dict:
 
 
 def put_file(image: str | Path, src: str | Path, name: str | None = None) -> str:
+    """Write SRC onto IMAGE as NAME (default: the source stem, lowercased).
+
+    Goes through _run_checked rather than _run so a write that c1541 answers
+    with a DOS error line at exit 0 cannot pass for success. Measured caveat:
+    every write failure reproduced here — full disk, full directory, duplicate
+    name, missing image, missing source — already exits 1, so on this c1541
+    (VICE 3.10) the check is a guard against the exit-0 class, not a fix for a
+    failure seen slipping through.
+    """
     src = Path(src)
     cbm_name = name or src.stem.lower()
-    _run([str(image), "-write", str(src), cbm_name])
+    _run_checked([str(image), "-write", str(src), cbm_name],
+                 f"writing {src.name} as {cbm_name!r} to {Path(image).name}")
     return cbm_name
 
 
@@ -417,3 +433,160 @@ def validate_image(image: str | Path) -> dict:
             "blocks_free_before": before_free, "blocks_free_after": after_free,
             "repaired_blocks": abs(after_free - before_free),
             "messages": messages}
+
+
+# Directory entries an image holds, measured by writing 1-block files until
+# c1541 refused: the 145th write to a d64 or a d71, and the 297th to a d81,
+# exits 1 with "ERR = 72, DISK FULL" — on a d64 with 520 blocks still free.
+# A block budget alone cannot predict that, so build_disk checks both.
+MAX_DIR_ENTRIES = {".d64": 144, ".d71": 144, ".d81": 296}
+
+# c1541 formats with a single `label,id` argument, so a comma inside the id
+# starts a third field: measured, `-format "g,ab,cd"` exits 0 and writes id
+# `ab`, dropping `cd` without a word. The rest are the CBM DOS metacharacters
+# cbm_lookup_name already refuses in filenames.
+_ID_METACHARACTERS = '":,='
+
+
+def _disk_id(path: Path, raw) -> str:
+    disk_id = str(raw)
+    if len(disk_id) != 2:
+        raise DiskError(
+            f"{path}: disk id {disk_id!r} must be exactly two characters")
+    for ch in disk_id:
+        if ch in _ID_METACHARACTERS or not 0x20 <= ord(ch.upper()) <= 0x5D:
+            raise DiskError(
+                f"{path}: disk id {disk_id!r}: {ch!r} does not survive c1541's "
+                "`-format label,id` (use a-z, 0-9, or simple punctuation)")
+    return disk_id
+
+
+def load_disk_manifest(path: str | Path) -> dict:
+    """Parse a *.disk.yaml manifest, resolving every source against it.
+
+    Returns {"label", "id", "files", "path"}; each file carries its declared
+    `src` and `name` plus the `cbm_name` it will be written as — `*` means "the
+    disk label", a missing name means the source stem. Every one of those is
+    validated here, before anything is built: c1541 stores only the first 16
+    characters of a name at exit 0 (measured), so two long names would collide
+    into one file with nothing said.
+    """
+    # Imported here, not at module scope: packaging imports from disk.
+    from .packaging import PackageError, cbm_title
+
+    path = Path(path)
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        raise DiskError(f"{path}: {e}") from None
+    except OSError as e:
+        raise DiskError(f"no such disk manifest: {path} ({e.strerror})") from None
+    if not isinstance(raw, dict):
+        raise DiskError(f"{path}: manifest must be a YAML mapping")
+    try:
+        label = cbm_title(raw.get("label") or path.stem.replace(".disk", ""))
+    except PackageError as e:
+        raise DiskError(f"{path}: {e}") from None
+    disk_id = _disk_id(path, raw.get("id", "00"))
+    entries = raw.get("files")
+    if not isinstance(entries, list) or not entries:
+        raise DiskError(f"{path}: manifest needs a non-empty `files:` list")
+    files: list[dict] = []
+    seen: set[str] = set()
+    for i, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict) or "src" not in entry:
+            raise DiskError(
+                f"{path}: file {i} must be a mapping with a `src:` key")
+        src = (path.parent / str(entry["src"])).resolve()
+        if not src.exists():
+            raise DiskError(
+                f"{path}: file {i} references {entry['src']}, which does not exist")
+        name = entry.get("name")
+        name = None if name is None else str(name)
+        try:
+            resolved = (label.lower() if name == "*"
+                        else cbm_filename(name if name is not None else src.stem))
+        except DiskError as e:
+            raise DiskError(f"{path}: file {i} ({entry['src']}): {e}") from None
+        if resolved in seen:
+            raise DiskError(f"{path}: CBM name {resolved!r} appears twice")
+        seen.add(resolved)
+        files.append({"src": src, "name": name, "cbm_name": resolved})
+    return {"label": label, "id": disk_id, "files": files, "path": path}
+
+
+def _manifest_artifact(src: Path, workdir: Path, profile: MachineProfile) -> Path:
+    """Build a manifest entry into the file that is actually written to disk.
+
+    Same build-as-needed dispatch as package_program: .s is assembled, .bas is
+    tokenized, everything else (.bin/.prg/.sid/...) is written verbatim.
+    """
+    ext = src.suffix.lower()
+    if ext == ".s":
+        return build_asm(src, out_prg=workdir / f"{src.stem}.prg",
+                         basic_start=profile.basic_start).prg
+    if ext == ".bas":
+        return tokenize(src, workdir / f"{src.stem}.prg", profile.basic_version)
+    return src
+
+
+def build_disk(manifest: str | Path, out: str | Path | None = None,
+               model: str = "c64") -> dict:
+    """Create a disk image and populate it from a manifest, in listed order.
+
+    The first file is written first, so `x64sc image.d64` and `c64 disk boot`
+    autostart it (they issue LOAD"*",8,1).
+
+    Overflow is refused before the image is formatted, both for blocks and for
+    directory entries: measured, c1541 answers a d64 write that does not fit by
+    leaving a truncated 664-block file behind, and answers the 145th file by
+    failing with the first 144 already written. Either way the half-written
+    image survives, so the cost is predicted from the source sizes instead and
+    a build that cannot fit writes nothing at all.
+    """
+    spec = load_disk_manifest(manifest)
+    path = spec["path"]
+    # Resolved up front: an unknown model must not surface only in the run hint,
+    # after an image has already been written.
+    profile = get_profile(model)
+    image = Path(out) if out is not None else path.with_suffix("").with_suffix(".d64")
+    suffix = image.suffix.lower()
+    drive_type_for(image)                   # raises for an unsupported type
+    total = TOTAL_BLOCKS[suffix]
+    max_entries = MAX_DIR_ENTRIES[suffix]
+    if len(spec["files"]) > max_entries:
+        raise DiskError(
+            f"{path}: {len(spec['files'])} files, but a "
+            f"{suffix.lstrip('.')} directory holds {max_entries} — "
+            "nothing was written")
+
+    with tempfile.TemporaryDirectory() as td:
+        workdir = Path(td)
+        planned = []
+        for entry in spec["files"]:
+            artifact = Path(_manifest_artifact(entry["src"], workdir, profile))
+            cost = blocks_for(artifact.stat().st_size)
+            planned.append((entry, artifact, cost))
+
+        used = 0
+        for entry, artifact, cost in planned:
+            if used + cost > total:
+                raise DiskError(
+                    f"{path}: {entry['cbm_name']!r} ({artifact.name}) needs "
+                    f"{cost} blocks but only {total - used} of {total} remain "
+                    f"on a {suffix.lstrip('.')} — nothing was written")
+            used += cost
+
+        image.unlink(missing_ok=True)
+        create_image(image, label=spec["label"].lower(), disk_id=spec["id"])
+        for entry, artifact, _ in planned:
+            put_file(image, artifact, entry["cbm_name"])
+
+    listing = list_files(image)
+    return {"image": str(image), "label": spec["label"],
+            "files": [f["name"] for f in listing["files"]],
+            "blocks_used": total - listing["blocks_free"],
+            "blocks_free": listing["blocks_free"], "blocks_total": total,
+            # Same hint the packaging/cart builders emit: a stock x64sc boots
+            # its default (PAL) machine, so the profile's video flag travels.
+            "run": " ".join([profile.vice_emulator, *profile.vice_args, str(image)])}
