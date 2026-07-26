@@ -472,14 +472,15 @@ def c64_build(source: str, model: str = "c64") -> dict:
 @srv.tool()
 def c64_package(source: str, output: str | None = None, title: str | None = None,
                 model: str = "c64", fmt: str | None = None,
-                cart_type: str = "8k", wrap: bool = False) -> dict:
+                cart_type: str | None = None, wrap: bool = False) -> dict:
     """Package a .s/.bas/.prg into an artifact any VICE user can run: a .prg,
     a disk image whose first file autostarts (output ends in .d64/.d71/.d81),
     or a bootable cartridge (fmt="crt", or output ends in .crt). For a
-    cartridge, cart_type is 8k/16k/ultimax; a .s builds cart-native code
-    unless wrap=True, and .bas/.prg are always wrapped in a launcher stub —
-    a wrapped .bas needs cart_type 8k, since 16k maps ROM over BASIC.
-    Returns the exact run command in "run"."""
+    cartridge, cart_type is 8k/16k/ultimax (default 8k) and is an error
+    outside one; a .s builds cart-native code unless wrap=True, and .bas/.prg
+    are always wrapped in a launcher stub — a wrapped .bas needs cart_type 8k,
+    since 16k maps ROM over BASIC. An fmt that disagrees with the output
+    extension is an error too. Returns the exact run command in "run"."""
     return package_program(Path(source), out=output, title=title, model=model,
                            fmt=fmt, cart_type=cart_type, wrap=wrap)
 

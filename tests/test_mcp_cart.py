@@ -229,12 +229,77 @@ def test_package_tool_accepts_the_cart_options():
 
 
 def test_package_tool_defaults_match_the_cli():
-    """Default drift away from the CLI's --cart-type 8k must fail a test."""
+    """Default drift away from the CLI's --cart-type must fail a test. Both
+    front ends pass the None sentinel through; packaging turns it into 8k
+    inside a cartridge, which is what makes 'given outside one' detectable."""
+    from c64lib.cli import package_cmd
+    from c64lib.packaging import package_program
+
+    cli_default = next(p.default for p in package_cmd.params
+                       if p.name == "cart_type")
+    mcp_default = inspect.signature(mcp_server.c64_package).parameters[
+        "cart_type"].default
+    assert mcp_default == cli_default is None
     with patch("c64lib.mcp_server.package_program", return_value={}) as pp:
         mcp_server.c64_package("game.s")
     kwargs = pp.call_args.kwargs
-    assert kwargs["cart_type"] == "8k" and kwargs["wrap"] is False
+    assert kwargs["cart_type"] is None and kwargs["wrap"] is False
     assert kwargs["fmt"] is None
+    # ...and the sentinel still means 8k where a cartridge is actually built
+    with patch("c64lib.packaging.wrap_prg", return_value={}) as wp:
+        package_program("game.prg", out="game.crt")
+    assert wp.call_args.kwargs["cart_type"] == "8k"
+
+
+# --- shared package option validation (CLI/MCP lockstep) --------------------
+
+def _package_error(args: dict) -> str:
+    err, out = call_tool("c64_package", args)
+    assert err is True, out
+    return out["raw"]
+
+
+def _cli_package_error(argv: list[str]) -> str:
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+    r = CliRunner().invoke(main, ["--json", "package", *argv])
+    assert r.exit_code == 1, r.output
+    return json.loads(r.output)["error"]
+
+
+@pytest.fixture
+def src(tmp_path):
+    s = tmp_path / "game.s"
+    s.write_text("        .byte 0\n")
+    return s
+
+
+def test_package_tool_rejects_cart_type_outside_a_cartridge(src, tmp_path):
+    """Silently ignoring --cart-type was a CLI bug; the fix lives in packaging
+    so the MCP caller hears about it in the same words."""
+    out = tmp_path / "x.d64"
+    msg = _package_error({"source": str(src), "output": str(out),
+                          "cart_type": "16k"})
+    assert "--cart-type" in msg
+    assert msg.endswith(_cli_package_error(
+        [str(src), "-o", str(out), "--cart-type", "16k"]))
+
+
+def test_package_tool_names_the_format_prg_crt_conflict(src, tmp_path):
+    out = tmp_path / "x.crt"
+    msg = _package_error({"source": str(src), "output": str(out), "fmt": "prg"})
+    assert "--format prg" in msg and "cartridge" in msg
+    assert msg.endswith(_cli_package_error(
+        [str(src), "--format", "prg", "-o", str(out)]))
+
+
+def test_package_tool_rejects_a_cartridge_named_as_a_disk(src, tmp_path):
+    out = tmp_path / "x.d64"
+    msg = _package_error({"source": str(src), "output": str(out), "fmt": "crt"})
+    assert ".d64" in msg
+    assert msg.endswith(_cli_package_error(
+        [str(src), "--format", "crt", "-o", str(out)]))
 
 
 def test_session_start_tool_accepts_a_cart():

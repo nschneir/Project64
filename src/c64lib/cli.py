@@ -616,27 +616,12 @@ def package_cmd(ctx, source, output, title, fmt, cart_type, wrap, model):
     default (PAL) machine, so both profiles pin their video standard
     (-ntsc / -pal) explicitly.
     """
-    out_ext = output.suffix.lower() if output is not None else ""
-    cart_out = fmt == "crt" or (fmt is None and out_ext == ".crt")
-    # --format and -o each name a format; disagreeing is a mistake, not a
-    # silent win for either. Reported here, where both are still visible.
-    if fmt == "prg" and out_ext == ".crt":
-        fail(ctx, f"--format prg conflicts with the cartridge output {output}: "
-                  "a .crt is a cartridge. Drop --format (or pass --format crt) "
-                  "to build one, or name a .prg/.d64/.d71/.d81 output.")
-        return
-    if fmt == "crt" and out_ext not in ("", ".crt"):
-        fail(ctx, f"--format crt builds a cartridge, but the output {output} "
-                  f"is named {out_ext} — name a .crt output, or drop --format "
-                  "to package for that extension instead.")
-        return
-    if cart_type is not None and not cart_out:
-        fail(ctx, "--cart-type only applies to cartridges; pass --format crt "
-                  "or name a .crt output")
-        return
+    # Option validation (a --cart-type outside a cartridge, a --format that
+    # disagrees with -o) lives in package_program so the MCP tool rejects the
+    # same combinations in the same words; PackageError arrives below.
     try:
         res = package_program(source, out=output, title=title, model=model,
-                              fmt=fmt, cart_type=cart_type or "8k", wrap=wrap)
+                              fmt=fmt, cart_type=cart_type, wrap=wrap)
     except (BuildError, BasicError, DiskError, PackageError, CartError,
             KeyError) as e:
         fail(ctx, str(e))

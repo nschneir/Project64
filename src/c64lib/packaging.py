@@ -41,7 +41,7 @@ def cbm_title(raw: str) -> str:
 
 def package_program(source, out=None, title: str | None = None,
                     model: str = "c64", fmt: str | None = None,
-                    cart_type: str = "8k", wrap: bool = False) -> dict:
+                    cart_type: str | None = None, wrap: bool = False) -> dict:
     """Build SOURCE (.s/.bas/.prg) and package it as OUT.
 
     The format comes from `fmt` when given, otherwise from OUT's extension:
@@ -49,12 +49,34 @@ def package_program(source, out=None, title: str | None = None,
     (a bootable cartridge). The disk/prg formats return
     {"prg", "image", "title", "run"} — `run` is the exact command a recipient
     uses, `image` is None for .prg-only output; .crt returns the cartridge
-    dict from cart_build. Existing outputs are overwritten."""
+    dict from cart_build. Existing outputs are overwritten.
+
+    `cart_type` is a sentinel: None means "not given" (8k inside a cartridge,
+    an error outside one), so a cartridge-only option cannot be silently
+    ignored. Both front ends pass it through untouched — these checks live
+    here so the CLI and the MCP tool reject the same combinations."""
     source = Path(source)
     out = Path(out) if out is not None else None
-    if fmt is None and out is not None and out.suffix.lower() == ".crt":
-        fmt = "crt"
-    if fmt == "crt":
+    out_ext = out.suffix.lower() if out is not None else ""
+    cart_out = fmt == "crt" or (fmt is None and out_ext == ".crt")
+    # `fmt` and `out` each name a format; disagreeing is a mistake, not a
+    # silent win for either. Reported here, where both are still visible.
+    if fmt == "prg" and out_ext == ".crt":
+        raise PackageError(
+            f"--format prg conflicts with the cartridge output {out}: "
+            "a .crt is a cartridge. Drop --format (or pass --format crt) "
+            "to build one, or name a .prg/.d64/.d71/.d81 output.")
+    if fmt == "crt" and out_ext not in ("", ".crt"):
+        raise PackageError(
+            f"--format crt builds a cartridge, but the output {out} "
+            f"is named {out_ext} — name a .crt output, or drop --format "
+            "to package for that extension instead.")
+    if cart_type is not None and not cart_out:
+        raise PackageError(
+            "--cart-type only applies to cartridges; pass --format crt "
+            "or name a .crt output")
+    cart_type = cart_type or "8k"
+    if cart_out:
         crt_out = out if out is not None else source.with_suffix(".crt")
         # A .s is cartridge-native code unless --wrap says otherwise; anything
         # else is an existing program the launcher stub has to copy down.
