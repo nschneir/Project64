@@ -5,10 +5,14 @@ emulator happens in c64lib.session (at launch) or via autostart (mid-session).
 c1541 prints a harmless OPENCBM dylib warning on stderr — success is judged
 by return code and output files, never by stderr being empty.
 
-c1541 also exits 0 when an operation *fails*: renaming a missing file, writing
-onto a full disk and reading an out-of-range block all return 0. Anything that
-can fail therefore goes through _run_checked, which reads the DOS status line
-("ERR = 62, FILE NOT FOUND, 00, 00") and c1541's own diagnostics instead.
+c1541 also exits 0 when an operation *fails*, but not predictably, so the exit
+code alone is not enough either. The rename/scratch family is where it bites:
+renaming a missing file exits 0 with "ERR = 62, FILE NOT FOUND, 00, 00", and
+scratching one exits 0 with "ERR = 01, FILES SCRATCHED, 00, 00" — a success
+line whose count field is the only sign nothing matched. (Other failures do set
+the code: a full-disk write and an out-of-range block both exit 1.) Anything
+that can fail therefore goes through _run_checked, which reads the DOS status
+line and c1541's own diagnostics rather than trusting the exit code alone.
 """
 
 from __future__ import annotations
@@ -78,8 +82,10 @@ def sectors_per_track(image: str | Path, track: int) -> int:
 def check_block(image: str | Path, track: int, sector: int) -> None:
     """Validate a track/sector pair before handing it to c1541.
 
-    c1541 reports an out-of-range block as `Error - ...` and still exits 0,
-    so the geometry check happens here where the message can name the limit.
+    c1541 does catch an out-of-range block itself — `Error - Track 18, Sector
+    25 out of bounds.`, exit 1 — but only after attaching the image, and its
+    message never says what the limit was. Checking here costs no subprocess
+    and lets the error name the bound.
     """
     sectors = sectors_per_track(image, track)      # raises for a bad track
     if not 0 <= sector < sectors:
@@ -135,7 +141,15 @@ def _run(args: list[str]) -> str:
 
 
 def _run_checked(args: list[str], context: str) -> str:
-    """Run c1541 and raise on any failure it reports without an exit code."""
+    """Run c1541 and raise on the failures it reports without an exit code.
+
+    Not a complete guarantee, deliberately: DOS code 01 is whitelisted, because
+    it is the normal reply both to a real scratch and to one that matched
+    nothing ("ERR = 01, FILES SCRATCHED, 00, 00"). A caller whose operation can
+    answer 01 must re-parse the returned stdout with dos_status() and check the
+    count field itself — see delete_file. The ERR line is deliberately left in
+    the returned stdout for exactly that.
+    """
     stdout, stderr = _run2(args)
     combined = stdout + stderr
     status = dos_status(combined)
