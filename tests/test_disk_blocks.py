@@ -160,7 +160,11 @@ def test_block_read_returns_the_bam(image):
 
 
 @needs_c1541
-def test_block_read_rejects_a_bad_track_before_calling_c1541(image):
+def test_block_read_rejects_a_bad_track_before_calling_c1541(image, monkeypatch):
+    def boom(*a, **kw):
+        raise AssertionError("c1541 was invoked for an out-of-range track")
+
+    monkeypatch.setattr("c64lib.disk._run2", boom)
     with pytest.raises(DiskError, match=r"track 40 out of range"):
         block_read(image, 40, 0)
 
@@ -179,8 +183,9 @@ def test_block_write_file_round_trips(image, tmp_path):
 
 @needs_c1541
 def test_block_write_file_requires_exactly_one_sector(image, tmp_path):
-    # Measured: c1541 silently no-ops on a short file and silently truncates
-    # a long one, so the size check has to happen here.
+    # Measured: a short file makes c1541 exit 1 with the misleading "floppy
+    # read failed"; a long one exits 0 and is silently truncated to 256. The
+    # check happens here so both get the same message naming the real size.
     short = tmp_path / "short.bin"
     short.write_bytes(b"short")
     with pytest.raises(DiskError, match="5 bytes.*exactly 256"):
@@ -192,6 +197,14 @@ def test_block_write_file_requires_exactly_one_sector(image, tmp_path):
 
 
 @needs_c1541
+def test_block_write_file_reports_a_missing_source_as_a_disk_error(image, tmp_path):
+    # Without the wrap this is a bare FileNotFoundError from src.stat(), which
+    # would traceback out of the CLI/MCP layer instead of reading as a fault.
+    with pytest.raises(DiskError, match="no such file"):
+        block_write_file(image, 1, 0, tmp_path / "nope.bin")
+
+
+@needs_c1541
 def test_block_poke_writes_at_the_offset(image):
     block_poke(image, 1, 0, 4, bytes([0xDE, 0xAD]))
     block = block_read(image, 1, 0)
@@ -200,11 +213,24 @@ def test_block_poke_writes_at_the_offset(image):
 
 @needs_c1541
 def test_block_poke_refuses_to_run_past_the_sector(image):
-    # Measured: c1541 accepts this silently.
+    # Measured, both exit 0 with no diagnostic: poking 4 bytes at 254 lands
+    # only 2 of them (a silent PARTIAL write), and an offset past 255 lands
+    # nothing at all.
     with pytest.raises(DiskError, match=r"offset 254 \+ 4 bytes"):
         block_poke(image, 1, 0, 254, bytes(4))
     with pytest.raises(DiskError, match="offset 256 out of range"):
         block_poke(image, 1, 0, 256, b"\x00")
+
+
+@needs_c1541
+def test_block_poke_accepts_the_last_byte_of_the_sector(image):
+    # The accepting side of the same boundary: offset 255 + 1 byte is exactly
+    # 256, so it must go through. Pins `>` against a regression to `>=`.
+    before = block_read(image, 1, 0)
+    block_poke(image, 1, 0, BLOCK_SIZE - 1, b"\xff")
+    after = block_read(image, 1, 0)
+    assert after[255] == 0xFF
+    assert after[:255] == before[:255]
 
 
 @needs_c1541

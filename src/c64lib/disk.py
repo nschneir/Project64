@@ -323,32 +323,48 @@ def block_write_file(image: str | Path, track: int, sector: int,
                      src: str | Path) -> None:
     """Overwrite a whole sector from a host file.
 
-    The file must be exactly 256 bytes: c1541 silently does nothing with a
-    shorter one and silently truncates a longer one.
+    The file must be exactly 256 bytes. Measured: c1541 rejects a shorter one
+    with an unhelpful "floppy read failed" (exit 1, naming neither the file nor
+    its size) and silently truncates a longer one to 256 at exit 0. Checking
+    the size here turns both into one message that names the real size.
     """
     check_block(image, track, sector)
     src = Path(src)
-    size = src.stat().st_size
+    try:
+        size = src.stat().st_size
+    except OSError as e:
+        raise DiskError(f"no such file to write: {src} ({e.strerror})") from None
     if size != BLOCK_SIZE:
         raise DiskError(
             f"{src}: {size} bytes — a sector write needs exactly {BLOCK_SIZE} "
-            "bytes (c1541 truncates or ignores anything else without saying so)")
+            "bytes (c1541 rejects anything shorter and truncates anything longer)")
     _run_checked([str(image), "-bwrite", str(src), str(track), str(sector)],
                  f"writing track {track} sector {sector}")
 
 
 def block_poke(image: str | Path, track: int, sector: int, offset: int,
                data: bytes) -> None:
-    """Write bytes at an offset inside a sector, leaving the rest alone."""
+    """Write bytes at an offset inside a sector, leaving the rest alone.
+
+    An out-of-range track or sector is the safe case: c1541 catches it itself
+    with `Error - Track 18, Sector 25 out of bounds.` and exit 1 (check_block
+    still runs first, only so the message can name the limit). The offset is
+    where it goes quiet — both bad-offset cases exit 0 with no diagnostic at
+    all, so the guards below are the only thing standing between a caller and
+    a write it never learns went wrong.
+    """
     check_block(image, track, sector)
     if not data:
         raise DiskError("no bytes to poke")
     if not 0 <= offset < BLOCK_SIZE:
-        raise DiskError(f"offset {offset} out of range (0-{BLOCK_SIZE - 1})")
+        raise DiskError(
+            f"offset {offset} out of range (0-{BLOCK_SIZE - 1}) "
+            "(c1541 writes nothing at all and still exits 0)")
     if offset + len(data) > BLOCK_SIZE:
         raise DiskError(
             f"offset {offset} + {len(data)} bytes runs past the end of the "
-            f"{BLOCK_SIZE}-byte sector (c1541 accepts this silently)")
+            f"{BLOCK_SIZE}-byte sector (c1541 exits 0 having written only the "
+            "bytes that fit — measured: 2 of 4 at offset 254)")
     _run_checked([str(image), "-bpoke", str(track), str(sector), str(offset),
                   *[str(b) for b in data]],
                  f"poking track {track} sector {sector}")
