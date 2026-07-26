@@ -4,10 +4,13 @@ from pathlib import Path
 import pytest
 
 from c64lib import build as build_mod
+from c64lib.build import BuildError
 from c64lib.cart_build import (
+    _EF_JT_SIZE,
     _EF_LO_BODY,
     CBM80_BYTES,
     EF_JUMPTABLE,
+    EF_MODE_16K,
     EF_RESIDENT,
     LAUNCHER_BYTES,
     VECTORS_SIZE,
@@ -19,6 +22,7 @@ from c64lib.cart_build import (
     _wrap_kind,
     boot_stub_source,
     build_cart,
+    cart_include_dir,
     cart_linker_config,
     cart_title,
     ef_boot_stub_source,
@@ -31,7 +35,12 @@ from c64lib.cart_build import (
     wrap_linker_config,
     wrap_prg,
 )
-from c64lib.cartridge import BANK_WINDOW, CBM80_SIGNATURE, CartError
+from c64lib.cartridge import (
+    BANK_WINDOW,
+    CBM80_SIGNATURE,
+    EF_MAX_BANKS,
+    CartError,
+)
 
 
 def test_8k_config_fills_one_window_at_8000():
@@ -216,6 +225,41 @@ def test_wrap_rejects_a_program_too_big_for_the_window(tmp_path):
         wrap_prg(prg, cart_type="8k", title="BIG")
 
 
+@pytest.mark.parametrize("cart_type", ["8k", "16k"])
+def test_wrap_rejects_a_program_that_loads_under_the_cart_window(tmp_path,
+                                                                 cart_type):
+    """A wrapped program is copied to its load address at boot — but the cart
+    ROM is mapped over $8000 (and $A000 for 16k), so a program that loads
+    there is copied under ROM and the launcher's `jmp` reads ROM back. The
+    cartridge is silently dead and passes cart_verify."""
+    prg = tmp_path / "under.prg"
+    prg.write_bytes(bytes([0x00, 0x80]) + b"\xA9\x01" * 8)
+    with pytest.raises(CartError, match="mapped|under the cartridge"):
+        wrap_prg(prg, cart_type=cart_type, title="UNDER")
+
+
+def test_wrap_rejects_a_program_that_ends_inside_the_cart_window(tmp_path):
+    """The overlap is a range, not a start address: a program loading below
+    $8000 whose tail crosses into the window is copied under ROM too."""
+    prg = tmp_path / "spill.prg"
+    prg.write_bytes(bytes([0x00, 0x7F]) + b"\x00" * 0x200)   # $7F00-$80FF
+    with pytest.raises(CartError, match="mapped|under the cartridge"):
+        wrap_prg(prg, cart_type="8k", title="SPILL")
+
+
+def test_wrap_accepts_a_program_above_the_cart_window(tmp_path, monkeypatch):
+    """$C000 is above an 8k window and above a 16k one: the existing ML wraps
+    must stay accepted. Checked without the toolchain so this is about the
+    validation, not the build."""
+    monkeypatch.setattr(build_mod.shutil, "which", lambda _name: None)
+    monkeypatch.delenv("C64_TOOLS_CA65", raising=False)
+    monkeypatch.delenv("C64_TOOLS_LD65", raising=False)
+    prg = tmp_path / "hi.prg"
+    prg.write_bytes(bytes([0x00, 0xC0]) + b"\xA9\x01" * 8)
+    with pytest.raises(BuildError):          # got past validation, to the tools
+        wrap_prg(prg, cart_type="16k", title="HI")
+
+
 def test_wrap_rejects_a_truncated_prg(tmp_path):
     prg = tmp_path / "t.prg"
     prg.write_bytes(b"\x01")
@@ -243,6 +287,41 @@ banks:
     assert sorted(spec["banks"]) == [0, 5]
     assert spec["banks"][0]["hi"].name == "boot.s"
     assert spec["banks"][5]["lo"].name == "music.bin"
+
+
+def test_manifest_rejects_a_duplicated_bank_key(tmp_path):
+    """`0:` and `"0":` are two YAML keys and one bank: without this the second
+    silently replaces the first and a whole bank's windows vanish from the
+    image with nothing said."""
+    (tmp_path / "b.s").write_text("")
+    (tmp_path / "c.s").write_text("")
+    m = write_manifest(
+        tmp_path, 'name: G\nbanks:\n  0: {hi: b.s}\n  "0": {lo: c.s}\n')
+    with pytest.raises(CartError, match="bank 0 .*twice|appears more than once"):
+        load_manifest(m)
+
+
+def test_cart_inc_constants_match_the_builder(tmp_path):
+    """cart.inc and cart_build.py describe one cartridge, in two languages.
+
+    The .inc is assembled into every bank and the module lays out the image
+    around it; editing one without the other produces a cartridge that builds,
+    verifies, and jumps somewhere that is not the jump table.
+    """
+    inc = (cart_include_dir() / "cart.inc").read_text()
+
+    def value(name):
+        m = re.search(rf"^{name}\s*=\s*(\$[0-9A-Fa-f]+|\d+)", inc, re.MULTILINE)
+        assert m, f"cart.inc declares no {name}"
+        text = m.group(1)
+        return int(text[1:], 16) if text.startswith("$") else int(text)
+
+    assert value("EF_JUMPTABLE") == EF_JUMPTABLE          # $9F00
+    assert value("EF_RESIDENT") == EF_RESIDENT            # $0900
+    assert value("EF_MODE_16K") == EF_MODE_16K            # $87
+    assert value("EF_MAX_BANK") == EF_MAX_BANKS - 1       # 63
+    # One page of 3-byte JMPs: the last index that fits whole.
+    assert value("EF_MAX_ENTRY") == _EF_JT_SIZE // 3 - 1
 
 
 def test_manifest_requires_a_bank_zero_hi(tmp_path):

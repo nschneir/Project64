@@ -81,10 +81,11 @@ def package_program(source, out=None, title: str | None = None,
         # A .s is cartridge-native code unless --wrap says otherwise; anything
         # else is an existing program the launcher stub has to copy down.
         if source.suffix.lower() == ".s" and not wrap:
-            # build_cart takes no model: cart-native code owns its own boot
-            # sequence and never touches the BASIC start address.
+            # `model` changes nothing about cart-native code — it owns its own
+            # boot sequence and never touches the BASIC start address — but it
+            # still names the emulator in the `run` hint, so it has to travel.
             return build_cart(source, out=crt_out, cart_type=cart_type,
-                              title=title)
+                              title=title, model=model)
         return wrap_prg(source, out=crt_out, cart_type=cart_type, title=title,
                         model=model)
     if fmt not in (None, "prg"):

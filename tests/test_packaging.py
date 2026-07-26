@@ -104,7 +104,19 @@ def test_crt_format_comes_from_the_output_extension(tmp_path):
     with patch("c64lib.packaging.build_cart", return_value={"crt": str(out)}) as bc:
         assert package_program(HELLO_ASM, out=out)["crt"] == str(out)
     bc.assert_called_once_with(Path(HELLO_ASM), out=out, cart_type="8k",
-                               title=None)
+                               title=None, model="c64")
+
+
+def test_a_native_cart_build_still_hears_the_model(tmp_path):
+    """`--model` does not change cart-native code — it owns its own boot
+    sequence — but it does change the emulator the `run` hint names. Dropping
+    it here handed a c64pal author an `-ntsc` command for their own cartridge.
+    """
+    out = tmp_path / "hello.crt"
+    with patch("c64lib.packaging.build_cart", return_value={"crt": str(out)}) as bc:
+        package_program(HELLO_ASM, out=out, model="c64pal")
+    bc.assert_called_once_with(Path(HELLO_ASM), out=out, cart_type="8k",
+                               title=None, model="c64pal")
 
 
 def test_wrap_sends_a_native_source_down_the_launcher_path(tmp_path):

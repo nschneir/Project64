@@ -249,7 +249,10 @@ def prepare_cart(spec_dir: str | Path, cart: str | Path,
     else:
         raise TestError(
             f"{cart}: a test cart must be a .crt, a .s, or an .ef.yaml manifest")
-    return Path(res["crt"]), Path(res["labels"])
+    # `labels` is None when the build assembled nothing to make symbols out of
+    # — an all-binary EasyFlash manifest — and Path(None) is a TypeError in the
+    # middle of a test run, not a missing symbol table.
+    return Path(res["crt"]), (Path(res["labels"]) if res["labels"] else None)
 
 
 def _screen(session) -> str:

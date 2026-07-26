@@ -210,6 +210,32 @@ def test_verify_checks_the_ultimax_reset_vector(tmp_path):
     assert any("reset vector $0801" in r for r in cart_verify(path))
 
 
+def test_verify_catches_an_unfilled_ultimax_reset_vector(tmp_path):
+    """$FFFF is not a vector, it is the fill: an image whose VECTORS segment
+    never got written reads back as $FFFF, which is inside the ROMH window and
+    so passed every range check while the CPU jumped into the last byte of ROM.
+    """
+    path = make_crt(tmp_path, exrom=1, game=0,
+                    chips=[chip_packet(0, 0xE000, b"\xFF" * 0x2000)])
+    assert any("the vector region is unfilled ROM" in r
+               for r in cart_verify(path))
+
+
+def test_verify_catches_an_unfilled_easyflash_reset_vector(tmp_path):
+    chips = [chip_packet(0, 0xA000, b"\xFF" * 0x2000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("the vector region is unfilled ROM" in r
+               for r in cart_verify(path))
+
+
+def test_verify_catches_an_unfilled_generic_cold_vector(tmp_path):
+    body = bytearray(good_8k_body())
+    body[0:2] = b"\xFF\xFF"
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, bytes(body))])
+    assert any("the vector region is unfilled ROM" in r
+               for r in cart_verify(path))
+
+
 def test_verify_passes_a_well_formed_easyflash(tmp_path):
     chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2),
              chip_packet(0, 0x8000, b"\xFF" * 0x2000, chip_type=2),

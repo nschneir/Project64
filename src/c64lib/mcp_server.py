@@ -515,7 +515,10 @@ def c64_run(source: str, session: str | None = None) -> dict:
             name, model = old.name, old.model
             try:
                 old.stop()
-            except SessionError as e:
+            except (SessionError, OSError) as e:
+                # OSError: stopping is kill() + unlink() of the registry
+                # record and socket — a permission or filesystem failure there
+                # is the same "the old session is still there" situation.
                 raise SessionError(
                     f"cannot boot {src} on session {name!r}: the old session "
                     f"has to stop first (a cartridge is mapped at power-on) "

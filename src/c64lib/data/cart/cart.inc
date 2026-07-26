@@ -58,6 +58,12 @@ EF_MAX_BANK  = 63               ; 64 banks of 16K = the 1 MB image cartconv take
         .if index > EF_MAX_ENTRY
         .error "ef_call: entry index above EF_MAX_ENTRY"
         .endif
+        .if (index) < 0
+        ; without this ca65 reports `Range error (-3 not in [0..255])` on the
+        ; expanded `ldx`, naming neither ef_call nor the index — the same
+        ; unhelpful report the bank guard below exists to replace.
+        .error "ef_call: entry index is negative"
+        .endif
         .if (bank) > EF_MAX_BANK || (bank) < 0
         .error "ef_call: bank negative or above EF_MAX_BANK"
         .endif

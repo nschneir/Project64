@@ -493,7 +493,12 @@ def test_prepare_cart_resolves_relative_to_the_spec_dir(tmp_path, monkeypatch):
     assert prepare_cart(elsewhere, str(crt))[0] == crt.resolve()
 
 
-def test_prepare_cart_builds_a_source_cart(tmp_path, monkeypatch):
+# A builder reports `labels: None` when it assembled nothing (an all-binary
+# EasyFlash manifest has no symbols, and an empty .lbl is a file that looks
+# like a symbol table and is not one). Every fake here carries that case, so
+# `prepare_cart` cannot go back to calling Path() on it.
+@pytest.mark.parametrize("labels", ["out.lbl", None])
+def test_prepare_cart_builds_a_source_cart(tmp_path, monkeypatch, labels):
     from c64lib import testing as testing_mod
 
     (tmp_path / "game.s").write_text("nop\n")
@@ -501,17 +506,21 @@ def test_prepare_cart_builds_a_source_cart(tmp_path, monkeypatch):
 
     def fake_build_cart(source, cart_type="8k"):
         seen["source"], seen["cart_type"] = Path(source), cart_type
-        return {"crt": str(tmp_path / "out.crt"), "labels": str(tmp_path / "out.lbl")}
+        return {"crt": str(tmp_path / "out.crt"),
+                "labels": str(tmp_path / labels) if labels else None}
 
     monkeypatch.setattr(testing_mod, "build_cart", fake_build_cart)
     crt, lbl = testing_mod.prepare_cart(tmp_path, "game.s", "16k")
     assert seen["source"] == (tmp_path / "game.s").resolve()
     assert seen["cart_type"] == "16k"
-    assert (crt, lbl) == (tmp_path / "out.crt", tmp_path / "out.lbl")
+    assert crt == tmp_path / "out.crt"
+    assert lbl == (tmp_path / labels if labels else None)
 
 
 @pytest.mark.parametrize("name", ["game.ef.yaml", "game.ef.yml"])
-def test_prepare_cart_builds_an_easyflash_manifest(tmp_path, monkeypatch, name):
+@pytest.mark.parametrize("labels", ["ef.lbl", None])
+def test_prepare_cart_builds_an_easyflash_manifest(tmp_path, monkeypatch, name,
+                                                   labels):
     from c64lib import testing as testing_mod
 
     (tmp_path / name).write_text("name: game\n")
@@ -519,12 +528,16 @@ def test_prepare_cart_builds_an_easyflash_manifest(tmp_path, monkeypatch, name):
 
     def fake_build_easyflash(manifest):
         seen["manifest"] = Path(manifest)
-        return {"crt": str(tmp_path / "ef.crt"), "labels": str(tmp_path / "ef.lbl")}
+        return {"crt": str(tmp_path / "ef.crt"),
+                "labels": str(tmp_path / labels) if labels else None}
 
     monkeypatch.setattr(testing_mod, "build_easyflash", fake_build_easyflash)
     crt, lbl = testing_mod.prepare_cart(tmp_path, name)
     assert seen["manifest"] == (tmp_path / name).resolve()
-    assert (crt, lbl) == (tmp_path / "ef.crt", tmp_path / "ef.lbl")
+    assert crt == tmp_path / "ef.crt"
+    # An all-binary manifest merges no labels: the None has to survive the
+    # hand-off, not become Path(None) — a TypeError mid-test-run.
+    assert lbl == (tmp_path / labels if labels else None)
 
 
 def test_prepare_cart_rejects_an_unknown_extension(tmp_path):

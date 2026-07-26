@@ -70,6 +70,18 @@ def test_native_build_produces_a_verifiable_crt(tmp_path, cart_type, size, mode)
 
 
 @needs_build
+def test_a_native_cart_build_pins_the_model_in_its_run_hint(tmp_path):
+    """Cart-native code owns its boot sequence, so `--model` changes nothing
+    about the image — but it does change which emulator the recipient runs,
+    and a c64pal author was being handed `-ntsc`."""
+    src = tmp_path / "hello.s"
+    src.write_text(HELLO)
+    res = build_cart(src, out=tmp_path / "pal.crt", title="HELLO",
+                     model="c64pal")
+    assert res["run"].startswith("x64sc -pal -cartcrt")
+
+
+@needs_build
 def test_ultimax_build_maps_romh_at_e000(tmp_path):
     src = tmp_path / "u.s"
     # No KERNAL under an Ultimax cart, so poke the screen directly.
@@ -500,6 +512,18 @@ def test_ef_call_rejects_an_entry_index_past_the_jump_table(tmp_path, index, fit
         build_easyflash(m)      # assembles; the callee simply has no such entry
         return
     with pytest.raises(BuildError, match="entry index above EF_MAX_ENTRY"):
+        build_easyflash(m)
+
+
+@needs_build
+def test_ef_call_rejects_a_negative_entry_index(tmp_path):
+    """The symmetric half of the bank guard: `ldx #(index * 3)` with a negative
+    index assembles to a range error naming neither ef_call nor the index."""
+    from c64lib.build import BuildError
+    m = write_banked_game(tmp_path)
+    main = tmp_path / "main.s"
+    main.write_text(main.read_text().replace("ef_call 1, 0", "ef_call 1, -1"))
+    with pytest.raises(BuildError, match="entry index is negative"):
         build_easyflash(m)
 
 

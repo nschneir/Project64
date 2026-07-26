@@ -294,7 +294,7 @@ def _cart_out_paths(crt: Path) -> tuple[Path, Path]:
 
 
 def build_cart(source, out=None, cart_type: str = "8k",
-               title: str | None = None) -> dict:
+               title: str | None = None, model: str = "c64") -> dict:
     """Assemble a cart-native .s into a bootable .crt.
 
     A boot stub is injected unless the source (or something it includes)
@@ -304,6 +304,12 @@ def build_cart(source, out=None, cart_type: str = "8k",
     The padded raw ROM image is kept beside the .crt (same stem, `.bin`), the
     way build_asm keeps its label file: it is what a flasher or an emulator's
     raw-ROM mode wants, and regenerating it means re-running the whole build.
+
+    `model` reaches exactly one thing: the `run` hint. Cart-native code owns
+    its own boot sequence and never touches the BASIC start address, so the
+    image is model-independent — but the emulator the recipient starts is not,
+    and handing a c64pal author an `-ntsc` command for their own cartridge is
+    a hint that boots the wrong machine.
     """
     ct = get_cart_type(cart_type)
     if ct.max_banks > 1:
@@ -350,7 +356,8 @@ def build_cart(source, out=None, cart_type: str = "8k",
         used = _used_bytes(raw.read_bytes(), reserved)
         bin_to_crt(raw, crt, cart_type, name)
     return {"crt": str(crt), "bin": str(raw), "labels": str(labels),
-            "title": name, "cart_type": cart_type, "run": _run_hint(crt),
+            "title": name, "cart_type": cart_type,
+            "run": _run_hint(crt, model),
             "bytes": used, "free": ct.image_bytes - used}
 
 
@@ -561,6 +568,23 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
                 "tokenized program, or the `10 SYS` stub the standard .s "
                 "layout emits), so wrap it with --cart-type 8k")
 
+        # The cart ROM is mapped over $8000 (and $A000 as well for 16k) the
+        # whole time the launcher runs. A program that loads anywhere in that
+        # range is copied *under* ROM — the writes go to RAM the CPU cannot
+        # read back — and then `jmp` / the BASIC start reads ROM instead. The
+        # cartridge builds, passes cart_verify, and is dead on the machine.
+        win_end = ROML_START + ct.image_bytes - 1
+        if load_addr <= win_end and prog_end > ROML_START:
+            raise CartError(
+                f"{source}: the program occupies ${load_addr:04X}-"
+                f"${prog_end - 1:04X}, which runs under the cartridge window "
+                f"a {cart_type} cart maps at ${ROML_START:04X}-${win_end:04X}. "
+                "The launcher's copy would land beneath ROM and the jump would "
+                "read ROM back, so the cartridge would boot into the wrapped "
+                "image's own bytes. Relocate the program below "
+                f"${ROML_START:04X} (or above ${win_end:04X}), or write it as "
+                "cart-native code and build it without --wrap")
+
         budget = ct.image_bytes
         if len(body) + LAUNCHER_BYTES > budget:
             raise CartError(
@@ -766,6 +790,15 @@ def load_manifest(path) -> dict:
             bank = int(key)
         except (TypeError, ValueError):
             raise CartError(f"{path}: bank key {key!r} is not a number") from None
+        if bank in banks:
+            # `0:` and `"0":` are two YAML keys and one bank. Left alone the
+            # second wins and a whole bank's windows disappear from the image
+            # with nothing said — the same silent-truncation failure the
+            # overflow check exists to prevent.
+            raise CartError(
+                f"{path}: bank {bank} is given twice (a YAML mapping can hold "
+                f"both `{bank}:` and `\"{bank}\":`, and they name the same "
+                "bank); merge the two entries")
         if not 0 <= bank < EF_MAX_BANKS:
             raise CartError(
                 f"{path}: bank {bank} is outside the EasyFlash range "

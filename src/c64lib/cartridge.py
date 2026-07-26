@@ -304,6 +304,20 @@ def _vector(data: bytes, offset: int) -> int | None:
     return int.from_bytes(data[offset:offset + 2], "little")
 
 
+# An unwritten ROM byte is $FF, so $FFFF is what a vector nobody filled in
+# reads back as. It is also a legal address inside every ROMH window, which is
+# why the range checks below let it through: the CPU jumps to the last byte of
+# ROM and the cartridge is silently dead. Named separately so the reason says
+# what actually happened instead of "points outside the window".
+UNFILLED_VECTOR = 0xFFFF
+
+
+def _unfilled_vector_reason(kind: str, at: int) -> str:
+    return (f"{kind} vector $FFFF at ${at:04X}: the vector region is unfilled "
+            f"ROM ($FF fill), so the CPU would jump to the last byte of the "
+            f"image — nothing in this cartridge ever runs")
+
+
 def _verify_cbm80_boot(chip: Chip, top: int) -> list[str]:
     """The autostart header an 8K/16K cartridge boots through, at $8000."""
     reasons: list[str] = []
@@ -312,7 +326,9 @@ def _verify_cbm80_boot(chip: Chip, top: int) -> list[str]:
             "no CBM80 autostart signature at $8004: the KERNAL will ignore "
             "this cartridge and boot to BASIC")
     cold = _vector(chip.data, 0)
-    if cold is not None and not (chip.load_addr <= cold <= top):
+    if cold == UNFILLED_VECTOR:
+        reasons.append(_unfilled_vector_reason("cold", chip.load_addr))
+    elif cold is not None and not (chip.load_addr <= cold <= top):
         # Named from the packet, not hard-coded: a misplaced image's cold
         # vector is at the front of wherever it actually loads.
         reasons.append(
@@ -373,7 +389,9 @@ def _verify_generic(crt: Crt) -> list[str]:
             return reasons
         vec_addr = chip.load_addr + BANK_WINDOW - 4
         reset = _vector(chip.data, 0x1FFC)
-        if reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
+        if reset == UNFILLED_VECTOR:
+            reasons.append(_unfilled_vector_reason("reset", vec_addr))
+        elif reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
             reasons.append(
                 f"reset vector ${reset:04X} at ${vec_addr:04X} points outside "
                 f"the ROMH window ($E000-$FFFF) — the CPU will start executing "
@@ -427,7 +445,9 @@ def _verify_easyflash(crt: Crt) -> list[str]:
             "packet")
     else:
         reset = _vector(boot.data, 0x1FFC)
-        if reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
+        if reset == UNFILLED_VECTOR:
+            reasons.append(_unfilled_vector_reason("reset", 0xFFFC))
+        elif reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
             reasons.append(
                 f"reset vector ${reset:04X} at $FFFC points outside the ROMH "
                 f"window ($E000-$FFFF)")

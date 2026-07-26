@@ -148,13 +148,20 @@ def test_run_a_crt_with_no_session_boots_a_default_one(crt):
                                      warp=True, cart=str(crt.resolve()))
 
 
-def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(crt):
+@pytest.mark.parametrize("boom", [SessionError("monitor is gone"),
+                                  OSError("monitor is gone")])
+def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(crt, boom):
     """A stop that fails must not be read as 'there was no session': relaunching
     under the no-session defaults would silently swap a c64pal 'snake' for an
-    NTSC 'c64' while the real 'snake' is possibly still alive."""
+    NTSC 'c64' while the real 'snake' is possibly still alive.
+
+    OSError counts as a failed stop the same way the CLI's guard has it:
+    stopping is kill() + unlink() of the registry record and socket, so a
+    permission or filesystem failure leaves the old session exactly as alive.
+    """
     old, _ = _fake_session()
     old.name, old.model = "snake", "c64pal"
-    old.stop.side_effect = SessionError("monitor is gone")
+    old.stop.side_effect = boom
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = old
         with pytest.raises(SessionError) as e:

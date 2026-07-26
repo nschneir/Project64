@@ -149,7 +149,7 @@ and the EasyFlash banking discipline.
 
 ## Status
 
-Stable — current release **v0.4.0**. Full history: [CHANGELOG.md](CHANGELOG.md).
+Stable — current release **v0.5.0**. Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## AI Disclosure
 
