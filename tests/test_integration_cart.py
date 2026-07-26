@@ -384,3 +384,62 @@ def test_ef_call_rejects_an_entry_index_past_the_jump_table(tmp_path, index, fit
         return
     with pytest.raises(BuildError, match="entry index above EF_MAX_ENTRY"):
         build_easyflash(m)
+
+
+# --- the end-to-end gate: reference cartridges that boot on a real x64sc ----
+
+PROGRAMS = Path(__file__).parent / "programs"
+
+
+def _explain(name: str, result) -> str:
+    failed = "\n".join(f"  {s.kind}: {s.detail}" for s in result.steps if not s.ok)
+    return f"{name} failed:\n{failed}\nscreen:\n{result.screen}"
+
+
+@needs_build
+@needs_vice
+@pytest.mark.vice
+@pytest.mark.parametrize("program", ["cart-hello", "cart-banked"])
+def test_reference_cartridges_boot_and_pass(program):
+    """Build the cart from the sources in its own directory, power on a real
+    x64sc with the image attached, and assert the screen and the state bytes.
+
+    These are the same two directories `c64 test programs` discovers, so the
+    published reference programs and the regression suite cannot drift apart.
+    """
+    from c64lib.testing import program_test, run_test
+
+    result = run_test(program_test(PROGRAMS / program))
+    assert result.passed, _explain(program, result)
+
+
+@needs_build
+@needs_vice
+@pytest.mark.vice
+def test_a_wrapped_basic_program_actually_runs_when_the_cart_boots(tmp_path):
+    """A launcher cartridge is only correct if the wrapped program RUNS.
+
+    `cart_verify` accepts any wrap carrying a CBM80 header and in-range
+    vectors — which is exactly what two shipped bugs looked like: entering a
+    tokenized BASIC image with `jmp $0801` executed the line-link bytes as
+    code, and the 16K launcher left the BASIC interpreter banked out from
+    under the program it had just started. Both produce a dead machine that
+    every static check calls fine, so booting the image and reading the
+    printed output is the only gate for this class of failure.
+    """
+    from c64lib.basic import tokenize
+    from c64lib.machines import get_profile
+    from c64lib.testing import run_test
+
+    bas = tmp_path / "wrapped.bas"
+    bas.write_text('10 print "wrap boot ok"\n20 goto 20\n')
+    prg = tokenize(bas, tmp_path / "wrapped.prg", get_profile("c64").basic_version)
+    res = wrap_prg(prg, cart_type="8k", title="WRAPBOOT")
+    assert res["kind"] == "basic"
+    assert cart_verify(res["crt"]) == []
+    result = run_test({
+        "name": "wrap-boot", "machine": "c64", "timeout": 45, "autorun": True,
+        "cart": res["crt"], "dir": str(tmp_path),
+        "steps": [{"wait": {"text": "WRAP BOOT OK"}}],
+    })
+    assert result.passed, _explain("wrap-boot", result)

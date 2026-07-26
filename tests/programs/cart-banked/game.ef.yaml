@@ -1,0 +1,4 @@
+name: BANKED
+banks:
+  0: {lo: main.s, hi: boot.s}
+  1: {lo: far.s}

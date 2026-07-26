@@ -11,7 +11,21 @@ from c64lib.build import build_asm
 from c64lib.text import ascii_to_petscii
 from tests.vice_helpers import wait_for_text
 
-PROGRAMS = sorted(p.parent for p in Path("tests/programs").glob("*/expect.txt"))
+
+def _is_cart(demo: Path) -> bool:
+    """True for an example program that ships as a cartridge.
+
+    A cartridge is attached at power-on and runs instead of BASIC: there is no
+    .prg to autostart into a shared session, so this file's load-and-run path
+    does not apply. tests/test_integration_cart.py boots those. The predicate
+    is the one c64lib.testing.program_test uses to make the same distinction.
+    """
+    spec = demo / "test.yaml"
+    return spec.exists() and "cart:" in spec.read_text()
+
+
+PROGRAMS = sorted(p.parent for p in Path("tests/programs").glob("*/expect.txt")
+                  if not _is_cart(p.parent))
 
 pytestmark = [
     pytest.mark.vice,

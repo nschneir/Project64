@@ -12,6 +12,12 @@ directory contains:
 - `test.yaml` (optional) — extra declarative steps (asserts, until/sample
   motion checks) appended after the expect.txt gate — see sprite-ball
 
+A cartridge program is the one variation: its `test.yaml` sets `cart:`
+(a cart-native `.s`, an `.ef.yaml` manifest, or a prebuilt `.crt`) instead of
+shipping a loadable program. The image is attached at power-on, so nothing is
+autostarted and there is no `READY.` prompt to gate on — see cart-hello
+(single-region 8K) and cart-banked (multi-bank EasyFlash).
+
 Run them all as tests with `c64 test programs` (or via the integration
 suite): each program is built, run on a fresh emulated C64, and its
 expectations asserted. Add a directory here and it is automatically part of

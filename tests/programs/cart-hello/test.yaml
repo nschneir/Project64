@@ -1,0 +1,6 @@
+# A cart spec: no `program:` and nothing autostarted. The image is attached at
+# power-on and the machine runs it instead of booting to BASIC, so there is no
+# READY. prompt to gate on — the expect.txt line is the first thing observed.
+cart: program.s
+cart_type: 8k
+timeout: 45

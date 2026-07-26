@@ -6,6 +6,38 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [0.5.0] — 2026-07-25
+
+Cartridges — build, verify, boot and debug `.crt` images.
+
+### Added
+- **`c64 cart` command group** (with MCP parity): `build` assembles a
+  multi-bank EasyFlash `.crt` from an `.ef.yaml` manifest with a per-bank fill
+  table and hard errors on window overflow; `info` decodes the header and every
+  CHIP packet; `verify` catches the failures that are silent on hardware — a
+  missing CBM80 signature (the machine just boots to BASIC), a vector pointing
+  outside the cartridge, a wrong image size, an EasyFlash image with no bank 0
+  HIROM window; `dump` extracts one bank window; `bank` reports live paging
+  state; `convert` is a `cartconv` passthrough for exotic types.
+- **`c64 package --format crt`** — a cart-native `.s` builds directly into a
+  bootable 8K/16K/Ultimax cartridge with a generated boot stub, and any
+  `.prg`/`.bas` is wrapped in a launcher cartridge instead.
+- **`c64 session start --cart` and `c64 run game.crt`** — cartridges attach at
+  power-on rather than loading, so `run` boots a session with the image mapped.
+- **`cart.inc`** — a resident EasyFlash bank-switch runtime (`ef_boot`,
+  `bankcall`, the `$9F00` jump-table convention) shipped as package data, so a
+  banked program does not re-derive the banking discipline.
+- **`cartridge-programming` skill** — the two boot mechanisms, the memory
+  modes, the EasyFlash banking rules, and the pitfalls that produce no error
+  message.
+- **`cart:` / `cart_type:` in test specs** — a YAML test or an example-program
+  directory can name a `.crt`, a cart-native `.s`, or an `.ef.yaml` manifest;
+  the image is attached at power-on and nothing is autostarted.
+- Reference cartridges under `tests/programs/` (`cart-hello`, `cart-banked`)
+  that boot on a real emulator as part of the regression suite, plus a live
+  wrap-boot regression that proves a wrapped BASIC program actually runs —
+  the two wrap bugs this catches both passed `cart verify`.
+
 ## [0.4.0] — 2026-07-25
 
 Driving interactive programs — the gaps a demo-01 dogfooding run turned up.

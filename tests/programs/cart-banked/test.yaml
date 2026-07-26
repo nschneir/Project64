@@ -1,0 +1,12 @@
+# The manifest is the cart source: `cart:` accepts an .ef.yaml and builds the
+# multi-bank image, so nothing is autostarted and there is no READY. prompt.
+#
+# $D020 is asserted through a mask: VIC-II colour registers are 4 bits wide
+# and the unused high nybble reads back set, so `sta $D020` with #$05 reads as
+# $F5, not 5.
+cart: game.ef.yaml
+timeout: 60
+steps:
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [5] } }  # bank 1 ran
+  - assert: { mem: "$0505", equals: 1 }    # control came back to bank 0
+  - assert: { mem: "$DE00", equals: 0 }    # the trampoline restored bank 0
