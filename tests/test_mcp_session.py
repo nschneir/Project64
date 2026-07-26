@@ -28,7 +28,7 @@ def test_session_start():
         err, out = call_tool("c64_session_start", {"model": "c64"})
     assert err is False and out["name"] == "c64" and out["port"] == 6502
     S.launch.assert_called_once_with(model="c64", name=None, headless=True,
-                                     warp=True, disk8=None)
+                                     warp=True, disk8=None, cart=None)
 
 
 def test_screen_text():

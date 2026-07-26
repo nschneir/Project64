@@ -15,6 +15,8 @@ from mcp.server.fastmcp import FastMCP
 from .basic import tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
+from .cart_build import build_easyflash
+from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
 from .disk import create_image, get_file, list_files, put_file
 from .machines import get_profile
@@ -79,12 +81,13 @@ def c64_session_list() -> dict:
 
 @srv.tool()
 def c64_session_start(model: str = "c64", name: str | None = None,
-                      disk: str | None = None) -> dict:
+                      disk: str | None = None,
+                      cart: str | None = None) -> dict:
     """Boot a fresh emulated C64 (headless, warp). Models: c64 (NTSC,
-    the default) or c64pal. Optionally attach a d64/d71/d81 disk
-    image."""
+    the default) or c64pal. Optionally attach a d64/d71/d81 disk image, or a
+    .crt cartridge that is mapped at power-on and boots itself."""
     s = Session.launch(model=model, name=name, headless=True, warp=True,
-                       disk8=disk)
+                       disk8=disk, cart=cart)
     return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port}
 
 
@@ -468,12 +471,17 @@ def c64_build(source: str, model: str = "c64") -> dict:
 
 @srv.tool()
 def c64_package(source: str, output: str | None = None, title: str | None = None,
-                model: str = "c64") -> dict:
+                model: str = "c64", fmt: str | None = None,
+                cart_type: str = "8k", wrap: bool = False) -> dict:
     """Package a .s/.bas/.prg into an artifact any VICE user can run: a .prg,
-    or (when output ends in .d64/.d71/.d81) a disk image whose first file is
-    the program so `x64sc out.d64` autostarts it. Returns the exact run
-    command in "run"."""
-    return package_program(Path(source), out=output, title=title, model=model)
+    a disk image whose first file autostarts (output ends in .d64/.d71/.d81),
+    or a bootable cartridge (fmt="crt", or output ends in .crt). For a
+    cartridge, cart_type is 8k/16k/ultimax; a .s builds cart-native code
+    unless wrap=True, and .bas/.prg are always wrapped in a launcher stub —
+    a wrapped .bas needs cart_type 8k, since 16k maps ROM over BASIC.
+    Returns the exact run command in "run"."""
+    return package_program(Path(source), out=output, title=title, model=model,
+                           fmt=fmt, cart_type=cart_type, wrap=wrap)
 
 
 @srv.tool()
@@ -626,6 +634,85 @@ def c64_disk_boot(image: str, session: str | None = None) -> dict:
         finally:
             mon.resume()
     return {"booted": str(p)}
+
+
+@srv.tool()
+def c64_cart_build(manifest: str, output: str | None = None) -> dict:
+    """Build a multi-bank EasyFlash .crt from an .ef.yaml manifest (up to 64
+    banks / 1 MB). Every window is exactly 8192 bytes and an overflow is a
+    hard error naming the bank — nothing is ever silently truncated. Returns
+    the per-bank fill table in "fill" and bank-tagged symbols in "labels".
+    Needs no session."""
+    return build_easyflash(Path(manifest), out=output)
+
+
+@srv.tool()
+def c64_cart_info(file: str) -> dict:
+    """Decode a .crt: name, hardware type, EXROM/GAME lines, the resulting
+    memory mode, and every CHIP packet (bank, window, load address, size).
+    Needs no session."""
+    return cart_info(Path(file))
+
+
+@srv.tool()
+def c64_cart_verify(file: str) -> dict:
+    """Check whether a .crt should boot, before spending an emulator run.
+    Catches the silent failures: no CBM80 autostart signature (the machine
+    just boots to BASIC), a cold/reset vector pointing outside the cartridge,
+    a wrong image size, and an EasyFlash image missing the bank 0 HIROM window
+    the reset vector lives in. "ok" is false when "reasons" is non-empty; a
+    file that is not a readable .crt at all reports "error" instead."""
+    try:
+        reasons = cart_verify(Path(file))
+    except CartError as e:
+        # The CLI reports an unparseable image as {"error": ...}; a verdict
+        # tool must hand that back as data, not as a tool error.
+        return {"path": str(file), "ok": False, "error": str(e)}
+    return {"path": str(file), "ok": not reasons, "reasons": reasons}
+
+
+@srv.tool()
+def c64_cart_dump(file: str, output: str, bank: int = 0,
+                  window: str = "lo") -> dict:
+    """Extract one bank window from a .crt to a raw .bin for disassembly.
+    window is "lo" ($8000) or "hi" ($A000, or $E000 in Ultimax mode)."""
+    data = cart_dump(Path(file), bank, window)
+    Path(output).write_bytes(data)
+    return {"path": output, "bank": bank, "window": window, "bytes": len(data)}
+
+
+@srv.tool()
+def c64_cart_bank(session: str | None = None) -> dict:
+    """Report the live EasyFlash paging state of the running machine: the
+    bank register ($DE00), the mode register ($DE02), and the decoded memory
+    mode. Combine with a store watchpoint on $DE00 to trace paging. VICE lets
+    these write-only registers be read back; treat it as a debugging aid."""
+    s = _attach(session)
+    with s.monitor() as mon:
+        try:
+            regs = mon.memory_read(0xDE00, 3)
+        finally:
+            mon.release()          # an inspection command: never resume a halt
+    bank_reg, mode_reg = regs[0], regs[2]
+    return {"bank": bank_reg, "de00": f"${bank_reg:02X}",
+            "de02": f"${mode_reg:02X}",
+            "mode": {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}.get(
+                mode_reg, "unknown"),
+            "led": bool(mode_reg & 0x80)}
+
+
+@srv.tool()
+def c64_cart_convert(source: str, output: str, cart_type: str | None = None,
+                     name: str | None = None) -> dict:
+    """Convert between a raw .bin and a .crt with VICE's cartconv — the escape
+    hatch for cartridge types this tool does not model natively."""
+    args = ["-i", str(source), "-o", str(output)]
+    if cart_type:
+        args += ["-t", cart_type]
+    if name:
+        args += ["-n", name]
+    return {"source": source, "output": output,
+            "cartconv": run_cartconv(args).strip()}
 
 
 @srv.tool()
