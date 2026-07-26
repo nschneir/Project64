@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -233,3 +234,61 @@ def delete_file(image: str | Path, name: str) -> int:
         raise DiskError(
             f"no file named {name!r} on {Path(image).name} — nothing deleted")
     return scratched
+
+
+def block_read(image: str | Path, track: int, sector: int) -> bytes:
+    """Read one 256-byte sector. Track is 1-based, sector 0-based — the CBM
+    convention, and what a directory entry stores.
+
+    On a 1541 image, 18/0 is the BAM and 18/1 the first directory sector.
+    """
+    check_block(image, track, sector)
+    with tempfile.TemporaryDirectory() as td:
+        dest = Path(td) / "block.bin"
+        _run_checked([str(image), "-bread", str(dest), str(track), str(sector)],
+                     f"reading track {track} sector {sector}")
+        if not dest.exists():
+            raise DiskError(
+                f"c1541 reported success but wrote no block for "
+                f"track {track} sector {sector}")
+        data = dest.read_bytes()
+    if len(data) != BLOCK_SIZE:
+        raise DiskError(
+            f"track {track} sector {sector}: c1541 returned {len(data)} bytes, "
+            f"expected {BLOCK_SIZE}")
+    return data
+
+
+def block_write_file(image: str | Path, track: int, sector: int,
+                     src: str | Path) -> None:
+    """Overwrite a whole sector from a host file.
+
+    The file must be exactly 256 bytes: c1541 silently does nothing with a
+    shorter one and silently truncates a longer one.
+    """
+    check_block(image, track, sector)
+    src = Path(src)
+    size = src.stat().st_size
+    if size != BLOCK_SIZE:
+        raise DiskError(
+            f"{src}: {size} bytes — a sector write needs exactly {BLOCK_SIZE} "
+            "bytes (c1541 truncates or ignores anything else without saying so)")
+    _run_checked([str(image), "-bwrite", str(src), str(track), str(sector)],
+                 f"writing track {track} sector {sector}")
+
+
+def block_poke(image: str | Path, track: int, sector: int, offset: int,
+               data: bytes) -> None:
+    """Write bytes at an offset inside a sector, leaving the rest alone."""
+    check_block(image, track, sector)
+    if not data:
+        raise DiskError("no bytes to poke")
+    if not 0 <= offset < BLOCK_SIZE:
+        raise DiskError(f"offset {offset} out of range (0-{BLOCK_SIZE - 1})")
+    if offset + len(data) > BLOCK_SIZE:
+        raise DiskError(
+            f"offset {offset} + {len(data)} bytes runs past the end of the "
+            f"{BLOCK_SIZE}-byte sector (c1541 accepts this silently)")
+    _run_checked([str(image), "-bpoke", str(track), str(sector), str(offset),
+                  *[str(b) for b in data]],
+                 f"poking track {track} sector {sector}")

@@ -7,6 +7,9 @@ from c64lib.disk import (
     BLOCK_SIZE,
     TOTAL_BLOCKS,
     DiskError,
+    block_poke,
+    block_read,
+    block_write_file,
     blocks_for,
     check_block,
     create_image,
@@ -143,3 +146,67 @@ def test_delete_frees_the_blocks(image):
     before = list_files(image)["blocks_free"]
     delete_file(image, "alpha")
     assert list_files(image)["blocks_free"] > before
+
+
+@needs_c1541
+def test_block_read_returns_the_bam(image):
+    block = block_read(image, 18, 0)
+    assert len(block) == 256
+    # Measured on a fresh d64: link to 18/1, DOS version 'A', then four bytes
+    # per track — free count plus a three-byte allocation bitmap.
+    assert block[0:4] == bytes([0x12, 0x01, 0x41, 0x00])
+    assert block[4] == 21               # track 1 has 21 free sectors
+
+
+@needs_c1541
+def test_block_read_rejects_a_bad_track_before_calling_c1541(image):
+    with pytest.raises(DiskError, match=r"track 40 out of range"):
+        block_read(image, 40, 0)
+
+
+@needs_c1541
+def test_block_write_file_round_trips(image, tmp_path):
+    original = block_read(image, 1, 0)
+    src = tmp_path / "sector.bin"
+    src.write_bytes(bytes(range(256)))
+    block_write_file(image, 1, 0, src)
+    assert block_read(image, 1, 0) == bytes(range(256))
+    src.write_bytes(original)
+    block_write_file(image, 1, 0, src)
+    assert block_read(image, 1, 0) == original
+
+
+@needs_c1541
+def test_block_write_file_requires_exactly_one_sector(image, tmp_path):
+    # Measured: c1541 silently no-ops on a short file and silently truncates
+    # a long one, so the size check has to happen here.
+    short = tmp_path / "short.bin"
+    short.write_bytes(b"short")
+    with pytest.raises(DiskError, match="5 bytes.*exactly 256"):
+        block_write_file(image, 1, 0, short)
+    long = tmp_path / "long.bin"
+    long.write_bytes(bytes(400))
+    with pytest.raises(DiskError, match="400 bytes.*exactly 256"):
+        block_write_file(image, 1, 0, long)
+
+
+@needs_c1541
+def test_block_poke_writes_at_the_offset(image):
+    block_poke(image, 1, 0, 4, bytes([0xDE, 0xAD]))
+    block = block_read(image, 1, 0)
+    assert block[4:6] == bytes([0xDE, 0xAD])
+
+
+@needs_c1541
+def test_block_poke_refuses_to_run_past_the_sector(image):
+    # Measured: c1541 accepts this silently.
+    with pytest.raises(DiskError, match=r"offset 254 \+ 4 bytes"):
+        block_poke(image, 1, 0, 254, bytes(4))
+    with pytest.raises(DiskError, match="offset 256 out of range"):
+        block_poke(image, 1, 0, 256, b"\x00")
+
+
+@needs_c1541
+def test_block_poke_rejects_empty_data(image):
+    with pytest.raises(DiskError, match="no bytes"):
+        block_poke(image, 1, 0, 0, b"")
