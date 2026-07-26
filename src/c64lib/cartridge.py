@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -99,8 +100,11 @@ class Chip:
 
     @property
     def window(self) -> str:
-        """"lo" for the $8000 window, "hi" for $A000 (and the $E000 the same
-        window maps to in Ultimax mode)."""
+        """Which window this packet occupies.
+
+        "lo" for the $8000 window, "hi" for $A000 — and for the $E000 that same
+        window maps to in Ultimax mode.
+        """
         return "hi" if self.load_addr >= ROMH_ADDR else "lo"
 
 
@@ -174,7 +178,10 @@ def parse_crt(path: str | Path) -> Crt:
                           size=size, chip_type=_u16(raw, off + 8), offset=off,
                           data=raw[start:start + size]))
         off += total
-    name = raw[0x20:0x20 + CRT_NAME_LEN].split(b"\x00")[0].decode("ascii", "replace")
+    # The name field is a fixed 32 bytes: cartconv NUL-terminates it, but other
+    # writers pad with spaces, so strip both rather than report "GAME        ".
+    name = (raw[0x20:0x20 + CRT_NAME_LEN].split(b"\x00")[0]
+            .decode("ascii", "replace").rstrip())
     return Crt(path=path, name=name, hardware=_u16(raw, 0x16),
                exrom=raw[0x18], game=raw[0x19],
                version=(raw[0x14], raw[0x15]), chips=tuple(chips))
@@ -203,6 +210,14 @@ def cart_info(path: str | Path) -> dict:
 
 
 def cart_dump(path: str | Path, bank: int, window: str = "lo") -> bytes:
+    """The bytes of one CHIP packet — packet-granular, not window-granular.
+
+    A 16K cartridge is normally ONE $4000 packet loaded at $8000 (measured
+    cartconv output), so `window="lo"` returns all 16384 bytes and
+    `window="hi"` raises: there is no second packet to name. The container also
+    permits a two-packet $8000/$A000 16K layout, and for such an image the two
+    windows dump separately, 8192 bytes each.
+    """
     if window not in ("lo", "hi"):
         raise CartError(f"window must be 'lo' or 'hi', not {window!r}")
     crt = parse_crt(path)
@@ -225,8 +240,25 @@ def _cartconv() -> str:
     return exe
 
 
+CARTCONV_TIMEOUT = 120                # a 1 MB EasyFlash convert takes ~1s
+
+
 def run_cartconv(args: list[str]) -> str:
-    r = subprocess.run([_cartconv(), *args], capture_output=True, text=True)
+    exe = _cartconv()
+    try:
+        r = subprocess.run([exe, *args], capture_output=True, text=True,
+                           timeout=CARTCONV_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise CartError(
+            f"cartconv did not finish within {CARTCONV_TIMEOUT}s "
+            f"({' '.join(args)})") from None
+    except UnicodeDecodeError as e:
+        # cartconv's output is ASCII in every measured case, but a corrupt
+        # image can make it echo raw bytes — an environment failure, not a
+        # traceback the caller should have to decode.
+        raise CartError(f"cartconv produced undecodable output: {e}") from None
+    except OSError as e:
+        raise CartError(f"cannot run cartconv ({exe}): {e}") from None
     out = r.stdout + r.stderr
     # cartconv exits 0 even for "this file seems broken" (measured), so treat
     # any Error: line as a failure regardless of the return code.
@@ -240,14 +272,20 @@ def bin_to_crt(raw: str | Path, out: str | Path, cart_type: str,
     """Convert an exactly-sized raw ROM image to a .crt."""
     ct = get_cart_type(cart_type)
     raw, out = Path(raw), Path(out)
-    size = raw.stat().st_size
+    try:
+        size = raw.stat().st_size
+    except OSError as e:
+        raise CartError(f"{raw}: {e}") from None
     if size != ct.image_bytes:
         raise CartError(
             f"{raw}: {size} bytes, but a {ct.name} image must be exactly "
             f"{ct.image_bytes} bytes")
-    if len(name) > CRT_NAME_LEN:
+    # The name field is 32 BYTES, not 32 characters: a non-ASCII title fits
+    # fewer letters than it looks like it should.
+    n_bytes = len(name.encode("utf-8"))
+    if n_bytes > CRT_NAME_LEN:
         raise CartError(
-            f"cartridge name {name!r} is {len(name)} chars; the .crt name "
+            f"cartridge name {name!r} is {n_bytes} bytes; the .crt name "
             f"field holds {CRT_NAME_LEN}")
     run_cartconv(["-t", ct.cartconv_type, "-i", str(raw), "-o", str(out),
                   "-n", name])
@@ -266,19 +304,59 @@ def _vector(data: bytes, offset: int) -> int | None:
     return int.from_bytes(data[offset:offset + 2], "little")
 
 
+def _verify_cbm80_boot(chip: Chip, top: int) -> list[str]:
+    """The autostart header an 8K/16K cartridge boots through, at $8000."""
+    reasons: list[str] = []
+    if chip.data[4:9] != CBM80_SIGNATURE:
+        reasons.append(
+            "no CBM80 autostart signature at $8004: the KERNAL will ignore "
+            "this cartridge and boot to BASIC")
+    cold = _vector(chip.data, 0)
+    if cold is not None and not (chip.load_addr <= cold <= top):
+        # Named from the packet, not hard-coded: a misplaced image's cold
+        # vector is at the front of wherever it actually loads.
+        reasons.append(
+            f"cold vector ${cold:04X} at ${chip.load_addr:04X} points outside "
+            f"the cartridge (${chip.load_addr:04X}-${top:04X})")
+    return reasons
+
+
+def _verify_split_16k(crt: Crt) -> list[str]:
+    """The two-packet 16K layout: $8000 and $A000, 8192 bytes each.
+
+    Our builder emits the single $4000 packet cartconv produces, but the
+    container permits the split form and real-world images use it — reporting
+    one as broken would be a false positive, not a caught bug.
+    """
+    reasons: list[str] = []
+    lo, hi = sorted(crt.chips, key=lambda c: c.load_addr)
+    if (lo.load_addr, hi.load_addr) != (ROML_ADDR, ROMH_ADDR):
+        reasons.append(
+            f"a two-packet 16K cartridge loads at $8000 and $A000; this one "
+            f"loads at ${lo.load_addr:04X} and ${hi.load_addr:04X}")
+        return reasons
+    for chip in (lo, hi):
+        if chip.size != BANK_WINDOW:
+            reasons.append(
+                f"the ${chip.load_addr:04X} packet of a two-packet 16K "
+                f"cartridge is {BANK_WINDOW} bytes; this one is "
+                f"{chip.size} bytes")
+    return reasons + _verify_cbm80_boot(lo, ROMH_ADDR + hi.size - 1)
+
+
 def _verify_generic(crt: Crt) -> list[str]:
     reasons: list[str] = []
+    # parse_crt guarantees chip.size == len(chip.data) for every packet it
+    # returns (it rejects a size field that overruns its packet), so there is
+    # no declares-vs-carries case left to check here.
+    if len(crt.chips) == 2 and crt.mode == "16k":
+        return _verify_split_16k(crt)
     if len(crt.chips) != 1:
         reasons.append(
-            f"a generic cartridge holds one CHIP packet; this image has "
-            f"{len(crt.chips)} CHIP packets")
+            f"a generic cartridge holds one CHIP packet (or, for 16K, two: "
+            f"$8000 and $A000); this image has {len(crt.chips)} CHIP packets")
         return reasons
     chip = crt.chips[0]
-    if chip.size != len(chip.data):
-        reasons.append(
-            f"CHIP packet declares {chip.size} bytes but carries "
-            f"{len(chip.data)}")
-        return reasons
     if crt.mode == "ultimax":
         if chip.load_addr != ULTIMAX_ROMH_ADDR:
             reasons.append(
@@ -288,11 +366,18 @@ def _verify_generic(crt: Crt) -> list[str]:
             reasons.append(
                 f"an Ultimax cartridge is {BANK_WINDOW} bytes; this one is "
                 f"{chip.size} bytes")
+        if reasons:
+            # The reset vector lives in the last words of a correctly placed
+            # $2000 window. With the geometry already wrong there is no such
+            # address, so reading one would report a second, invented fault.
+            return reasons
+        vec_addr = chip.load_addr + BANK_WINDOW - 4
         reset = _vector(chip.data, 0x1FFC)
         if reset is not None and not (ULTIMAX_ROMH_ADDR <= reset <= 0xFFFF):
             reasons.append(
-                f"reset vector ${reset:04X} at $FFFC points outside the ROMH "
-                f"window ($E000-$FFFF) — the CPU will start executing RAM")
+                f"reset vector ${reset:04X} at ${vec_addr:04X} points outside "
+                f"the ROMH window ($E000-$FFFF) — the CPU will start executing "
+                f"RAM")
         return reasons
     if chip.load_addr != ROML_ADDR:
         reasons.append(
@@ -302,27 +387,19 @@ def _verify_generic(crt: Crt) -> list[str]:
         sizes = ", ".join(str(s) for s in _GENERIC_SIZES)
         reasons.append(
             f"a generic cartridge is {sizes} bytes; this one is {chip.size} bytes")
-    if chip.data[4:9] != CBM80_SIGNATURE:
-        reasons.append(
-            "no CBM80 autostart signature at $8004: the KERNAL will ignore "
-            "this cartridge and boot to BASIC")
-    cold = _vector(chip.data, 0)
-    top = chip.load_addr + chip.size - 1
-    if cold is not None and not (chip.load_addr <= cold <= top):
-        reasons.append(
-            f"cold vector ${cold:04X} at $8000 points outside the cartridge "
-            f"(${chip.load_addr:04X}-${top:04X})")
-    return reasons
+    return reasons + _verify_cbm80_boot(chip, chip.load_addr + chip.size - 1)
 
 
 def _verify_easyflash(crt: Crt) -> list[str]:
     reasons: list[str] = []
-    seen: set[tuple[int, str]] = set()
+    counts = Counter((c.bank, c.window) for c in crt.chips)
+    for (bank, window), n in counts.items():
+        # One duplicated window is one fault, however many copies carry it:
+        # reporting per extra packet said "appears twice" twice for a triple.
+        if n > 1:
+            times = "twice" if n == 2 else f"{n} times"
+            reasons.append(f"bank {bank} {window} appears {times}")
     for chip in crt.chips:
-        key = (chip.bank, chip.window)
-        if key in seen:
-            reasons.append(f"bank {chip.bank} {chip.window} appears twice")
-        seen.add(key)
         if not 0 <= chip.bank < EF_MAX_BANKS:
             reasons.append(
                 f"bank {chip.bank} is outside the EasyFlash range "
@@ -335,7 +412,10 @@ def _verify_easyflash(crt: Crt) -> list[str]:
             reasons.append(
                 f"bank {chip.bank} {chip.window} is {chip.size} bytes; every "
                 f"EasyFlash window is {BANK_WINDOW} bytes")
-    if crt.mode != "ultimax":
+    # "off" is one cause with one reason: cart_verify already reported that
+    # neither line is asserted, and saying it again in EasyFlash words makes a
+    # single wrong header byte look like two independent faults.
+    if crt.mode not in ("ultimax", "off"):
         reasons.append(
             f"an EasyFlash cartridge boots in Ultimax mode (EXROM=1, GAME=0); "
             f"this image declares {crt.mode}")

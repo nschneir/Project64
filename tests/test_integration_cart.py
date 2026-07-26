@@ -1,5 +1,6 @@
 """Cartridge builds against the real toolchain, and boots on a real x64sc."""
 
+import importlib.util
 import os
 import shutil
 import time
@@ -20,6 +21,13 @@ needs_build = pytest.mark.skipif(
 needs_vice = pytest.mark.skipif(
     not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
     reason="x64sc not installed",
+)
+
+# Tokenizing a .bas is petcat's job, and petcat is not in `needs_build`'s list:
+# a machine with cc65 and cartconv but no petcat must skip these, not fail.
+needs_petcat = pytest.mark.skipif(
+    not (shutil.which("petcat") or os.environ.get("C64_TOOLS_PETCAT")),
+    reason="petcat (VICE) not installed",
 )
 
 HELLO = """\
@@ -152,6 +160,7 @@ def test_own_startup_suppresses_the_generated_stub(tmp_path):
 
 
 @needs_build
+@needs_petcat
 def test_wrapping_a_basic_program_builds_a_bootable_cart(tmp_path):
     bas = tmp_path / "hello.bas"
     bas.write_text('10 print "wrapped basic ok"\n20 goto 20\n')
@@ -293,6 +302,45 @@ def test_cart_inc_assembles_into_a_banked_easyflash(tmp_path):
 
 
 @needs_build
+def test_the_window_report_is_keyed_like_the_merged_labels(tmp_path):
+    """`windows` and the label prefixes name the same thing the same way: a
+    report saying `0hi` beside a symbol called `b00hi_boot` reads as two
+    different addressing schemes for one cartridge."""
+    res = build_easyflash(write_banked_game(tmp_path))
+    assert sorted(res["windows"]) == ["b00hi", "b00lo", "b01lo"]
+    assert all(0 < n <= 8192 for n in res["windows"].values())
+
+
+@needs_build
+def test_a_short_raw_boot_window_is_refused(tmp_path):
+    """The CPU takes RESET from $FFFC — the last words of bank 0 hi. A raw
+    .bin shorter than the window leaves them $FF, so the machine jumps to
+    $FFFF and nothing runs; cart_verify cannot see it because the reset vector
+    it reads is the fill.
+    """
+    from c64lib.cartridge import CartError
+    m = write_banked_game(tmp_path)
+    (tmp_path / "stub.bin").write_bytes(b"\x00" * 64)
+    m.write_text(m.read_text().replace("hi: boot.s", "hi: stub.bin"))
+    with pytest.raises(CartError, match="boot window must fill all"):
+        build_easyflash(m)
+
+
+@needs_build
+def test_a_binary_only_manifest_writes_no_label_file(tmp_path):
+    """Nothing was assembled, so there are no symbols: an empty .lbl is a file
+    that looks like a symbol table and is not one."""
+    boot = tmp_path / "boot.bin"
+    boot.write_bytes(b"\xFF" * 8186 + b"\x00\xE0" * 3)   # vectors at $FFFA
+    m = tmp_path / "blob.ef.yaml"
+    m.write_text("name: BLOB\nbanks:\n  0: {hi: boot.bin}\n")
+    res = build_easyflash(m)
+    assert res["labels"] is None
+    assert not (tmp_path / "blob.lbl").exists()
+    assert cart_verify(res["crt"]) == []
+
+
+@needs_build
 def test_merged_labels_are_bank_tagged(tmp_path):
     from c64lib.symbols import load_labels
     res = build_easyflash(write_banked_game(tmp_path))
@@ -320,6 +368,74 @@ def test_cart_inc_is_shipped_as_package_data():
     assert inc.exists(), "cart.inc must ship with the package"
     text = inc.read_text()
     assert "bankcall" in text and "ef_boot" in text
+
+
+@pytest.mark.skipif(importlib.util.find_spec("hatchling") is None,
+                    reason="hatchling (the build backend) not installed")
+def test_the_built_distributions_carry_the_data_files(tmp_path):
+    """The data directory is selected by `artifacts`, not by the VCS.
+
+    hatchling picks files through git, so `*.lbl` in .gitignore silently
+    dropped basic2.lbl out of the wheel — an installed package where
+    `romdoc.rom_labels()` and `cart_include_dir()` resolve to nothing, with
+    every test still green because the tests run from the source tree. The
+    sdist is checked too: `artifacts` under `targets.wheel` alone left the
+    sdist short, and a downstream rebuild from it produces exactly the broken
+    wheel this file exists to prevent. Only inspecting real archives sees it.
+    """
+    import tarfile
+    import zipfile
+
+    from hatchling.builders.sdist import SdistBuilder
+    from hatchling.builders.wheel import WheelBuilder
+
+    root = str(Path(__file__).resolve().parents[1])
+    wheel = next(iter(WheelBuilder(root).build(directory=str(tmp_path))))
+    with zipfile.ZipFile(wheel) as z:
+        names = z.namelist()
+    assert "c64lib/data/cart/cart.inc" in names
+    assert "c64lib/data/rom_labels/basic2.lbl" in names
+
+    sdist = next(iter(SdistBuilder(root).build(directory=str(tmp_path))))
+    with tarfile.open(sdist) as t:
+        shipped = {n.split("/", 1)[-1] for n in t.getnames()}
+    assert "src/c64lib/data/cart/cart.inc" in shipped
+    assert "src/c64lib/data/rom_labels/basic2.lbl" in shipped
+
+
+@needs_build
+def test_the_launcher_fits_its_reserved_budget(tmp_path):
+    """LAUNCHER_BYTES is what the fit check reserves before any tool runs.
+
+    If the launcher outgrows it, wrap_prg accepts a program that then fails in
+    ld65 with a raw memory-area overflow instead of the actionable rejection —
+    so the constant has to be checked against the real assembled size.
+    """
+    from c64lib.cart_build import LAUNCHER_BYTES
+    for kind, load_addr, prg in (
+            ("basic", 0x0801, bytes([0x01, 0x08, 0x0B, 0x08, 0x0A, 0x00, 0x9E])
+             + b"2061" + b"\x00\x00\x00"),
+            ("ml", 0xC000, bytes([0x00, 0xC0, 0xA9, 0x01, 0x8D, 0x00, 0x04])),
+    ):
+        src = tmp_path / f"{kind}.prg"
+        src.write_bytes(prg)
+        res = wrap_prg(src, out=tmp_path / f"{kind}.crt", title=kind.upper())
+        assert res["kind"] == kind and res["load_addr"] == load_addr
+        launcher_only = res["bytes"] - (len(prg) - 2)
+        assert 0 < launcher_only <= LAUNCHER_BYTES, (
+            f"the {kind} launcher is {launcher_only} bytes, over the "
+            f"{LAUNCHER_BYTES} the fit check reserves")
+
+
+@needs_build
+def test_a_program_in_the_old_rejection_band_now_wraps(tmp_path):
+    """8000 bytes was rejected by the round 256-byte estimate and fits."""
+    prg = tmp_path / "band.prg"
+    prg.write_bytes(bytes([0x00, 0xC0]) + bytes(range(256)) * 31 + bytes(64))
+    assert prg.stat().st_size == 8002
+    res = wrap_prg(prg, cart_type="8k", title="BAND")
+    assert cart_verify(res["crt"]) == []
+    assert res["bytes"] <= 8192
 
 
 # What the banked game leaves behind once the cross-bank call has round-tripped:
@@ -434,6 +550,7 @@ def test_reference_cartridges_boot_and_pass(program):
 
 
 @needs_build
+@needs_petcat
 @needs_vice
 @pytest.mark.vice
 def test_a_wrapped_basic_program_actually_runs_when_the_cart_boots(tmp_path):

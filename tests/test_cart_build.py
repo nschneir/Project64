@@ -1,17 +1,24 @@
 import re
+from pathlib import Path
 
 import pytest
 
 from c64lib import build as build_mod
 from c64lib.cart_build import (
     _EF_LO_BODY,
+    CBM80_BYTES,
     EF_JUMPTABLE,
     EF_RESIDENT,
+    LAUNCHER_BYTES,
     VECTORS_SIZE,
+    _cart_out_paths,
     _ef_window_used,
+    _run_hint,
+    _too_big_hint,
     _used_bytes,
     _wrap_kind,
     boot_stub_source,
+    build_cart,
     cart_linker_config,
     cart_title,
     ef_boot_stub_source,
@@ -24,7 +31,7 @@ from c64lib.cart_build import (
     wrap_linker_config,
     wrap_prg,
 )
-from c64lib.cartridge import BANK_WINDOW, CartError
+from c64lib.cartridge import BANK_WINDOW, CBM80_SIGNATURE, CartError
 
 
 def test_8k_config_fills_one_window_at_8000():
@@ -419,6 +426,188 @@ def test_an_oversized_machine_code_program_still_gets_the_16k_hint(tmp_path):
     prg.write_bytes(bytes([0x00, 0xC0]) + b"\xA9\x01" + b"\x00" * 9000)
     with pytest.raises(CartError, match="--cart-type 16k"):
         wrap_prg(prg, cart_type="8k", title="M")
+
+
+def test_the_run_hint_comes_from_the_machine_profile(tmp_path):
+    """Stock x64sc boots its default (PAL) machine, so the hint has to carry
+    the same model args `Session.launch` passes — not a hardcoded string that
+    silently becomes wrong for a second profile."""
+    from c64lib.machines import get_profile
+    assert _run_hint(Path("g.crt")) == "x64sc -ntsc -cartcrt g.crt"
+    assert _run_hint(Path("g.crt"), "c64pal") == "x64sc -pal -cartcrt g.crt"
+    profile = get_profile("c64pal")
+    assert _run_hint(Path("g.crt"), "c64pal").startswith(
+        " ".join([profile.vice_emulator, *profile.vice_args]))
+
+
+@pytest.mark.parametrize("bad", ["game.bin", "game.lbl"])
+def test_a_sidecar_named_output_is_refused_not_clobbered(tmp_path, bad):
+    """`-o game.bin` would make the .crt and the raw ROM image the same file:
+    the build writes the image, cartconv reads and overwrites it, and the
+    author is left with a .crt named .bin. Naming the collision beats it."""
+    with pytest.raises(CartError, match="same file"):
+        _cart_out_paths(tmp_path / bad)
+    src = tmp_path / "p.prg"
+    src.write_bytes(bytes([0x00, 0xC0]) + b"\xA9\x01")
+    with pytest.raises(CartError, match="same file"):
+        wrap_prg(src, out=tmp_path / bad, title="P")
+
+
+def test_out_paths_accept_a_crt_and_derive_both_sidecars(tmp_path):
+    raw, labels = _cart_out_paths(tmp_path / "game.crt")
+    assert raw.name == "game.bin" and labels.name == "game.lbl"
+
+
+def test_bank_switched_types_are_refused_by_every_single_window_path(tmp_path):
+    """easyflash has no single-region config, no boot stub and no wrap path:
+    all three say so instead of building something that cannot work."""
+    with pytest.raises(CartError, match="EasyFlash manifest"):
+        cart_linker_config("easyflash")
+    with pytest.raises(CartError, match="no boot stub"):
+        boot_stub_source("easyflash")
+    src = tmp_path / "x.s"
+    src.write_text('.export cart_main\n.segment "CODE"\ncart_main: rts\n')
+    with pytest.raises(CartError, match="bank-switched"):
+        build_cart(src, cart_type="easyflash", title="X")
+
+
+def test_the_wrap_path_only_builds_8k_and_16k(tmp_path):
+    with pytest.raises(CartError, match="not 'ultimax'"):
+        wrap_linker_config("ultimax")
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(bytes([0x00, 0xC0]) + b"\xA9\x01")
+    with pytest.raises(CartError, match="cannot wrap a .prg into a easyflash"):
+        wrap_prg(prg, cart_type="easyflash", title="P")
+
+
+def test_the_16k_hint_is_withheld_when_16k_would_not_fit_either(tmp_path):
+    """Pointing a 20 KB program at 16k just produces the same error again."""
+    assert "--cart-type 16k" in _too_big_hint("8k", "ml", 9000)
+    assert "--cart-type 16k" not in _too_big_hint("8k", "ml", 20000)
+    assert "native or EasyFlash" in _too_big_hint("8k", "ml", 20000)
+    prg = tmp_path / "huge.prg"
+    prg.write_bytes(bytes([0x00, 0xC0]) + b"\x00" * 20000)
+    with pytest.raises(CartError) as excinfo:
+        wrap_prg(prg, cart_type="8k", title="HUGE")
+    assert "--cart-type 16k" not in str(excinfo.value)
+
+
+def test_the_launcher_budget_is_a_measured_number():
+    """The reservation used to be a round 256 — about three times the real
+    launcher, so programs in the band below were rejected for space they would
+    have had. test_the_launcher_fits_its_reserved_budget assembles both
+    variants and fails if 128 stops being enough.
+    """
+    assert LAUNCHER_BYTES == 128           # measured: 102 (basic), 76 (ml)
+    band = 8000                            # rejected at 256, accepted at 128
+    assert band + 256 > 8192 >= band + LAUNCHER_BYTES
+
+
+def test_the_copy_loop_is_byte_exact(tmp_path):
+    """A page-rounded copy writes up to 255 bytes past the program's end.
+
+    For an ML program loaded high that tail crosses $D000, where the writes
+    land in VIC/SID/CIA registers rather than RAM — a wrapped program that
+    behaves differently from the same .prg loaded from disk.
+    """
+    src = launcher_source(0xC000, 0xC100, "ml")
+    assert "_SIZE   = _blob_end - _blob" in src      # a byte count...
+    assert "+ 255" not in src and "_PAGES" not in src  # ...not a page count
+    # Whole pages, then the remainder measured against the low byte.
+    assert re.search(r"ldx\s+#>_SIZE", src)
+    assert re.search(r"cpy\s+#<_SIZE", src)
+
+
+def test_the_cbm80_signature_is_the_one_cart_verify_looks_for(tmp_path):
+    """The stub writing $C3,$C2,$CD,$38,$30 and the verifier checking for it
+    are the same five bytes, or a cartridge passes verify and boots to BASIC.
+    """
+    assert CBM80_BYTES == "$C3,$C2,$CD,$38,$30"
+    assert bytes(int(b[1:], 16) for b in CBM80_BYTES.split(",")) == CBM80_SIGNATURE
+    assert CBM80_BYTES in boot_stub_source("8k")
+    assert CBM80_BYTES in launcher_source(0x0801, 0x0900, "basic")
+
+
+def test_startup_detection_ignores_directive_case(tmp_path):
+    """ca65 directives are case-insensitive, so `.SEGMENT "STARTUP"` is the
+    same opt-out — missing it links a second boot stub into the image."""
+    shouty = tmp_path / "shouty.s"
+    shouty.write_text('.SEGMENT "STARTUP"\n        .word start\n')
+    assert has_own_startup([shouty]) is True
+    # The segment NAME is case-sensitive: "startup" is a different segment, and
+    # no linker config here declares one.
+    lower = tmp_path / "lower.s"
+    lower.write_text('.segment "startup"\n        .word start\n')
+    assert has_own_startup([lower]) is False
+
+
+def test_startup_detection_skips_a_file_it_cannot_read(tmp_path):
+    """ca65's dep list names every include; a binary .incbin among them is not
+    a reason to fail the build."""
+    blob = tmp_path / "sprite.bin"
+    blob.write_bytes(bytes(range(256)))
+    assert has_own_startup([blob, tmp_path / "gone.s"]) is False
+
+
+def test_a_short_boot_window_is_not_charged_for_vectors_it_lacks(tmp_path):
+    """A raw .bin shorter than the window has no $FFFA vectors at its end, so
+    reserving six bytes of it counts bytes that are not there."""
+    short = b"\x2A" * 10
+    assert _ef_window_used(short, "hi", boot=True) == 10
+    full = b"\x2A" * 2 + b"\xFF" * (BANK_WINDOW - 8) + b"\x00\xE0" * 3
+    assert _ef_window_used(full, "hi", boot=True) == 2 + VECTORS_SIZE
+
+
+def test_ef_window_config_rejects_an_unknown_window():
+    with pytest.raises(CartError, match="must be 'lo' or 'hi'"):
+        ef_window_config("mid")
+
+
+def test_fill_table_columns_line_up_with_and_without_a_window():
+    """A bank using one window must not shift the next bank's columns."""
+    out = fill_table({(0, "lo"): 8192, (0, "hi"): 4000, (1, "lo"): 100})
+    assert len({len(line) for line in out.splitlines()[:2]}) == 1
+    assert "----" in out
+
+
+def test_merge_bank_labels_writes_nothing_when_there_is_nothing_to_merge(tmp_path):
+    """An all-binary manifest has no symbols: a one-byte .lbl looks like a
+    symbol table and is not one."""
+    out = tmp_path / "empty.lbl"
+    assert merge_bank_labels({}, out) is None
+    assert not out.exists()
+    missing = tmp_path / "never-written.lbl"
+    assert merge_bank_labels({(0, "lo"): tmp_path / "gone.lbl"}, missing) is None
+    assert not missing.exists()
+
+
+def test_a_non_string_manifest_name_is_coerced_not_a_traceback(tmp_path):
+    (tmp_path / "b.s").write_text("")
+    m = write_manifest(tmp_path, "name: 12345\nbanks:\n  0: {hi: b.s}\n")
+    assert load_manifest(m)["name"] == "12345"
+    bad = write_manifest(tmp_path, "name: [a, b]\nbanks:\n  0: {hi: b.s}\n")
+    # Whatever YAML hands over, the failure mode is a CartError about the
+    # title — never an AttributeError from .upper().
+    assert load_manifest(bad)["name"] == "['A', 'B']"
+
+
+def test_manifest_rejects_a_non_mapping_document(tmp_path):
+    m = write_manifest(tmp_path, "- just\n- a list\n")
+    with pytest.raises(CartError, match="YAML mapping"):
+        load_manifest(m)
+
+
+def test_manifest_rejects_a_non_numeric_bank_key(tmp_path):
+    (tmp_path / "b.s").write_text("")
+    m = write_manifest(tmp_path, "name: G\nbanks:\n  intro: {hi: b.s}\n")
+    with pytest.raises(CartError, match="not a number"):
+        load_manifest(m)
+
+
+def test_manifest_rejects_a_bank_that_is_not_a_window_mapping(tmp_path):
+    m = write_manifest(tmp_path, "name: G\nbanks:\n  0: boot.s\n")
+    with pytest.raises(CartError, match="must be a mapping"):
+        load_manifest(m)
 
 
 def test_wrap_validation_errors_do_not_need_the_toolchain(tmp_path, monkeypatch):

@@ -18,13 +18,17 @@ dev = ["pytest>=8", "coverage>=7.10", "ruff>=0.15"]
 c64 = "c64lib.cli:main"
 c64-tools-mcp = "c64lib.mcp_server:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/c64lib"]
+[tool.hatch.build]
 # cart.inc and the ROM label tables are data, not modules, and hatchling selects
 # files through the VCS: `*.lbl` in .gitignore silently dropped basic2.lbl from
 # the wheel. `artifacts` overrides that, so `cart_include_dir()` and
-# `romdoc.rom_labels()` both resolve in an installed package.
+# `romdoc.rom_labels()` both resolve in an installed package. Declared for ALL
+# targets, not just the wheel: an sdist that drops the data files builds a
+# broken wheel downstream, which is the harder failure to trace.
 artifacts = ["src/c64lib/data/**"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/c64lib"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

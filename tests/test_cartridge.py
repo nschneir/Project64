@@ -1,14 +1,20 @@
+import subprocess
+
 import pytest
 
+from c64lib import cartridge as cart_mod
 from c64lib.cartridge import (
     CBM80_SIGNATURE,
     CartError,
     Chip,
+    bin_to_crt,
     cart_dump,
     cart_info,
     cart_verify,
     describe_mode,
+    get_cart_type,
     parse_crt,
+    run_cartconv,
 )
 
 
@@ -243,3 +249,238 @@ def test_verify_catches_both_lines_inactive(tmp_path):
 def test_verify_reports_an_empty_image(tmp_path):
     path = make_crt(tmp_path, chips=[])
     assert any("no CHIP packets" in r for r in cart_verify(path))
+
+
+def test_verify_names_a_hardware_type_this_tool_does_not_build(tmp_path):
+    """Anything but generic/EasyFlash gets one honest reason, not a wrong one:
+    applying the generic rules to an Ocean cart would invent faults."""
+    path = make_crt(tmp_path, hardware=5,
+                    chips=[chip_packet(0, 0x8000, good_8k_body())])
+    reasons = cart_verify(path)
+    assert len(reasons) == 1
+    assert "hardware type 5" in reasons[0] and "cart info" in reasons[0]
+
+
+def test_verify_accepts_both_16k_layouts(tmp_path):
+    """cartconv emits one $4000 packet, but the container permits the split
+    $8000/$A000 pair and real images use it — calling that broken would be a
+    false positive, not a caught bug."""
+    single = make_crt(tmp_path, game=0, filename="single.crt",
+                      chips=[chip_packet(0, 0x8000, good_8k_body().ljust(0x4000, b"\xFF"))])
+    assert cart_verify(single) == []
+    split = make_crt(tmp_path, game=0, filename="split.crt",
+                     chips=[chip_packet(0, 0x8000, good_8k_body()),
+                            chip_packet(0, 0xA000, b"\xFF" * 0x2000)])
+    assert cart_verify(split) == []
+
+
+def test_verify_checks_the_split_16k_geometry(tmp_path):
+    """A two-packet image that is not the $8000/$A000 pair is still wrong."""
+    path = make_crt(tmp_path, game=0,
+                    chips=[chip_packet(0, 0x8000, good_8k_body()),
+                           chip_packet(1, 0x8000, b"\xFF" * 0x2000)])
+    assert any("loads at $8000 and $8000" in r for r in cart_verify(path))
+
+
+def test_verify_checks_the_split_16k_window_sizes(tmp_path):
+    path = make_crt(tmp_path, game=0,
+                    chips=[chip_packet(0, 0x8000, good_8k_body()),
+                           chip_packet(0, 0xA000, b"\xFF" * 0x1000)])
+    assert any("$A000 packet" in r and "4096 bytes" in r
+               for r in cart_verify(path))
+
+
+def test_verify_a_16k_cold_vector_may_point_into_romh(tmp_path):
+    """The split layout is one 16K cartridge: $8000-$BFFF is all of it."""
+    ok = make_crt(tmp_path, game=0, filename="ok.crt",
+                  chips=[chip_packet(0, 0x8000, good_8k_body(0xB000)),
+                         chip_packet(0, 0xA000, b"\xFF" * 0x2000)])
+    assert cart_verify(ok) == []
+    bad = make_crt(tmp_path, game=0, filename="bad.crt",
+                   chips=[chip_packet(0, 0x8000, good_8k_body(0xC000)),
+                          chip_packet(0, 0xA000, b"\xFF" * 0x2000)])
+    assert any("cold vector $C000" in r for r in cart_verify(bad))
+
+
+def test_verify_reports_three_or_more_packets(tmp_path):
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, good_8k_body())] * 3)
+    assert any("3 CHIP packets" in r for r in cart_verify(path))
+
+
+def test_verify_catches_an_ultimax_cart_at_the_wrong_address(tmp_path):
+    """Wrong geometry is ONE fault: with no $2000 window at $E000 there is no
+    $FFFC to read, so a vector complaint would be invented."""
+    path = make_crt(tmp_path, exrom=1, game=0,
+                    chips=[chip_packet(0, 0x8000, b"\x00" * 0x2000)])
+    reasons = cart_verify(path)
+    assert len(reasons) == 1
+    assert "maps ROMH at $E000" in reasons[0]
+    assert "reset vector" not in reasons[0]
+
+
+def test_verify_catches_a_wrong_sized_ultimax_cart(tmp_path):
+    path = make_crt(tmp_path, exrom=1, game=0,
+                    chips=[chip_packet(0, 0xE000, b"\x00" * 0x1000)])
+    reasons = cart_verify(path)
+    assert len(reasons) == 1 and "4096 bytes" in reasons[0]
+
+
+def test_verify_catches_a_generic_cart_at_the_wrong_address(tmp_path):
+    path = make_crt(tmp_path,
+                    chips=[chip_packet(0, 0xA000, good_8k_body(0xA009))])
+    assert any("maps ROML at $8000" in r for r in cart_verify(path))
+
+
+def test_verify_survives_a_packet_too_short_to_hold_a_vector(tmp_path):
+    """_vector returns None rather than reading past the end — a one-byte
+    packet is reported for its size, not with a garbage vector."""
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, b"\x00")])
+    reasons = cart_verify(path)
+    assert any("this one is 1 bytes" in r for r in reasons)
+    assert not any("cold vector" in r for r in reasons)
+
+
+def test_verify_reports_an_easyflash_off_header_once(tmp_path):
+    """EXROM=1/GAME=1 is one wrong header, so it gets one reason: the generic
+    'nothing will be mapped'. Adding 'this image declares off' on top made a
+    single fault read as two."""
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=1, chips=chips)
+    reasons = cart_verify(path)
+    assert len(reasons) == 1 and "nothing will be mapped" in reasons[0]
+
+
+def test_verify_still_reports_a_wrong_but_active_easyflash_mode(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=0, game=1, chips=chips)
+    assert any("declares 8k" in r for r in cart_verify(path))
+
+
+def test_verify_reports_a_tripled_window_once_with_the_count(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2)]
+    chips += [chip_packet(3, 0x8000, b"\xFF" * 0x2000, chip_type=2)] * 3
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    dup = [r for r in cart_verify(path) if "bank 3 lo appears" in r]
+    assert dup == ["bank 3 lo appears 3 times"]
+
+
+def test_verify_catches_an_easyflash_window_at_a_wrong_address(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2),
+             chip_packet(1, 0xC000, b"\xFF" * 0x2000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("windows are $8000 and $A000" in r for r in cart_verify(path))
+
+
+def test_verify_catches_a_short_easyflash_window(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(), chip_type=2),
+             chip_packet(1, 0x8000, b"\xFF" * 0x1000, chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("bank 1 lo is 4096 bytes" in r for r in cart_verify(path))
+
+
+def test_verify_catches_an_easyflash_reset_vector_outside_romh(tmp_path):
+    chips = [chip_packet(0, 0xA000, ef_hi_body(reset=0x0801), chip_type=2)]
+    path = make_crt(tmp_path, hardware=32, exrom=1, game=0, chips=chips)
+    assert any("reset vector $0801" in r for r in cart_verify(path))
+
+
+def test_the_name_field_survives_space_padding(tmp_path):
+    """cartconv NUL-terminates the 32-byte name; other writers pad with
+    spaces, and reporting `GAME            ` as the title is wrong either way.
+    """
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, b"\xFF" * 0x2000)])
+    raw = bytearray(path.read_bytes())
+    raw[0x20:0x40] = b"SPACED".ljust(32, b" ")
+    path.write_bytes(bytes(raw))
+    assert parse_crt(path).name == "SPACED"
+    assert cart_info(path)["name"] == "SPACED"
+
+
+def test_get_cart_type_lists_what_it_knows(tmp_path):
+    assert get_cart_type("8k").image_bytes == 0x2000
+    with pytest.raises(CartError, match="available: 16k, 8k, easyflash, ultimax"):
+        get_cart_type("nes")
+
+
+def test_cart_dump_rejects_an_unknown_window(tmp_path):
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, b"\xFF" * 0x2000)])
+    with pytest.raises(CartError, match="must be 'lo' or 'hi'"):
+        cart_dump(path, 0, "mid")
+
+
+def test_parse_rejects_an_out_of_range_header_length(tmp_path):
+    path = make_crt(tmp_path, chips=[chip_packet(0, 0x8000, b"\xFF" * 0x2000)])
+    raw = bytearray(path.read_bytes())
+    raw[0x10:0x14] = (0x100000).to_bytes(4, "big")
+    path.write_bytes(bytes(raw))
+    with pytest.raises(CartError, match="header length"):
+        parse_crt(path)
+
+
+def test_parse_names_a_file_it_cannot_read(tmp_path):
+    with pytest.raises(CartError, match="No such file"):
+        parse_crt(tmp_path / "absent.crt")
+
+
+def test_cartconv_is_only_looked_for_when_it_is_needed(monkeypatch):
+    monkeypatch.delenv("C64_TOOLS_CARTCONV", raising=False)
+    monkeypatch.setattr(cart_mod.shutil, "which", lambda _name: None)
+    with pytest.raises(CartError, match="cartconv not found"):
+        run_cartconv(["--types"])
+
+
+def test_cartconv_failure_carries_its_own_output(monkeypatch, tmp_path):
+    fake = tmp_path / "cartconv"
+    fake.write_text("")
+    monkeypatch.setenv("C64_TOOLS_CARTCONV", str(fake))
+
+    def fail(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, "", "Error: unknown type\n")
+
+    monkeypatch.setattr(cart_mod.subprocess, "run", fail)
+    # Measured: cartconv exits 0 even for a broken conversion, so the Error:
+    # line is the only signal there is.
+    with pytest.raises(CartError, match="unknown type"):
+        run_cartconv(["-t", "nope"])
+
+
+@pytest.mark.parametrize("boom,match", [
+    (subprocess.TimeoutExpired("cartconv", 120), "did not finish within"),
+    (UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad"), "undecodable"),
+    (OSError("Permission denied"), "cannot run cartconv"),
+])
+def test_cartconv_environment_failures_are_cart_errors(monkeypatch, tmp_path,
+                                                      boom, match):
+    """A hung, unreadable or unexecutable cartconv is an environment problem
+    the caller can report — not a traceback out of subprocess."""
+    fake = tmp_path / "cartconv"
+    fake.write_text("")
+    monkeypatch.setenv("C64_TOOLS_CARTCONV", str(fake))
+
+    def raise_it(cmd, **kw):
+        raise boom
+
+    monkeypatch.setattr(cart_mod.subprocess, "run", raise_it)
+    with pytest.raises(CartError, match=match):
+        run_cartconv(["-i", "x"])
+
+
+def test_bin_to_crt_reports_a_missing_input(tmp_path):
+    with pytest.raises(CartError, match="No such file"):
+        bin_to_crt(tmp_path / "gone.bin", tmp_path / "o.crt", "8k", "X")
+
+
+def test_bin_to_crt_demands_the_exact_image_size(tmp_path):
+    raw = tmp_path / "short.bin"
+    raw.write_bytes(b"\x00" * 100)
+    with pytest.raises(CartError, match="must be exactly 8192 bytes"):
+        bin_to_crt(raw, tmp_path / "o.crt", "8k", "X")
+
+
+def test_bin_to_crt_measures_the_name_in_bytes(tmp_path):
+    """The .crt name field is 32 BYTES: a name that is 32 characters but 34
+    bytes would be silently truncated by cartconv."""
+    raw = tmp_path / "ok.bin"
+    raw.write_bytes(b"\x00" * 0x2000)
+    with pytest.raises(CartError, match="34 bytes"):
+        bin_to_crt(raw, tmp_path / "o.crt", "8k", "ÄÖ" + "X" * 30)
