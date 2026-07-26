@@ -1,3 +1,4 @@
+import re
 import shutil
 
 import pytest
@@ -210,3 +211,77 @@ def test_block_poke_refuses_to_run_past_the_sector(image):
 def test_block_poke_rejects_empty_data(image):
     with pytest.raises(DiskError, match="no bytes"):
         block_poke(image, 1, 0, 0, b"")
+
+
+@pytest.fixture
+def stocked_image(tmp_path):
+    """Three files, so a wildcard match can be told from a single-file one."""
+    img = create_image(tmp_path / "many.d64", label="mygame", disk_id="01")
+    payload = tmp_path / "f.prg"
+    payload.write_bytes(b"\x01\x08hello world payload")
+    for name in ("alpha", "album", "zed"):
+        put_file(img, payload, name)
+    return img
+
+
+@needs_c1541
+@pytest.mark.parametrize("lookup,char", [
+    ("alpha=beta", "="), ("alpha,beta", ","), ("alpha:beta", ":"),
+    ('alpha"beta', '"')])
+def test_rename_rejects_dos_metacharacters_in_the_old_name(image, lookup, char):
+    # Measured: CBM DOS parses these, so `rename_file(img, "alpha=beta", ...)`
+    # silently renamed 'alpha' and reported success.
+    with pytest.raises(DiskError, match=re.escape(repr(char))):
+        rename_file(image, lookup, "zed")
+    assert [f["name"] for f in list_files(image)["files"]] == ["alpha"]
+
+
+@needs_c1541
+@pytest.mark.parametrize("lookup,char", [
+    ("alpha=beta", "="), ("alpha,album", ","), ("alpha:beta", ":"),
+    ('alpha"beta', '"')])
+def test_delete_rejects_dos_metacharacters_in_the_name(stocked_image, lookup, char):
+    # Measured: "alpha,album" scratched TWO files; "alpha=beta" scratched 'alpha'.
+    with pytest.raises(DiskError, match=re.escape(repr(char))):
+        delete_file(stocked_image, lookup)
+    assert len(list_files(stocked_image)["files"]) == 3
+
+
+@needs_c1541
+def test_delete_permits_wildcards_and_counts_them_honestly(stocked_image):
+    assert delete_file(stocked_image, "al*") == 2
+    assert [f["name"] for f in list_files(stocked_image)["files"]] == ["zed"]
+
+
+@needs_c1541
+def test_delete_star_wipes_the_disk_and_reports_the_true_count(stocked_image):
+    assert delete_file(stocked_image, "*") == 3
+    assert list_files(stocked_image)["files"] == []
+
+
+@needs_c1541
+def test_rename_with_a_wildcard_surfaces_c1541s_syntax_error(stocked_image):
+    # c1541 itself refuses this with DOS 30, which is why `*` may stay legal
+    # in a lookup name: only delete can act on more than one match.
+    with pytest.raises(DiskError, match="syntax error") as exc:
+        rename_file(stocked_image, "al*", "zzz")
+    assert "DOS error 30" in str(exc.value)
+    assert len(list_files(stocked_image)["files"]) == 3
+
+
+@needs_c1541
+def test_over_long_lookup_names_report_their_length(image):
+    # Not "no file named 'xxxxxxxxxxxxxxxxx'" — the name could never exist.
+    with pytest.raises(DiskError, match="17 chars"):
+        delete_file(image, "x" * 17)
+    with pytest.raises(DiskError, match="17 chars"):
+        rename_file(image, "x" * 17, "zed")
+
+
+@needs_c1541
+def test_lookup_names_are_case_insensitive_both_ways(image):
+    # The write path lowercases, so the API must round-trip its own output.
+    assert rename_file(image, "ALPHA", "BETA") == "beta"
+    assert [f["name"] for f in list_files(image)["files"]] == ["beta"]
+    assert delete_file(image, "BeTa") == 1
+    assert list_files(image)["files"] == []

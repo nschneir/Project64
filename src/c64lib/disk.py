@@ -225,8 +225,47 @@ def cbm_filename(raw: str) -> str:
         raise DiskError(msg) from None
 
 
+# Characters CBM DOS parses inside a filename argument: `"` and `:` end the
+# name, `,` starts another one, `=` introduces the type/filter field. Left
+# unchecked they silently retarget the operation at a different file.
+_DOS_METACHARACTERS = '":,='
+
+
+def cbm_lookup_name(raw: str) -> str:
+    """Validate a name used to FIND files on an image, lowercased to match how
+    put_file writes them.
+
+    Deliberately laxer than cbm_filename: the CBM wildcards `*` and `?` are
+    legitimate here (see delete_file), so only the metacharacters that would
+    retarget the operation are rejected.
+    """
+    name = str(raw).strip()
+    if not name:
+        raise DiskError("filename is empty")
+    if len(name) > 16:
+        raise DiskError(
+            f"filename {name!r} is {len(name)} chars; CBM names max out at 16")
+    for ch in name:
+        if ch in _DOS_METACHARACTERS:
+            raise DiskError(
+                f"filename {name!r}: {ch!r} is a CBM DOS metacharacter — it "
+                "would silently retarget this at a different file"
+            )
+        if not 0x20 <= ord(ch.upper()) <= 0x5D:
+            raise DiskError(
+                f"filename {name!r}: {ch!r} won't survive as a CBM filename "
+                "(use a-z, 0-9, space, and simple punctuation)"
+            )
+    return name.lower()
+
+
 def rename_file(image: str | Path, old: str, new: str) -> str:
-    """Rename a file on IMAGE in place. Returns the new CBM name."""
+    """Rename a file on IMAGE in place. Returns the new CBM name.
+
+    A wildcard in OLD is refused by c1541 itself as DOS error 30, so a rename
+    can never act on more than the one file you named.
+    """
+    old = cbm_lookup_name(old)
     name = cbm_filename(new)
     _run_checked([str(image), "-rename", str(old), name],
                  f"renaming {old!r} to {name!r} on {Path(image).name}")
@@ -239,7 +278,14 @@ def delete_file(image: str | Path, name: str) -> int:
     c1541 answers a scratch with "ERR = 01, FILES SCRATCHED, <n>, 00" whether
     or not anything matched, so the count is the only reliable way to tell a
     successful delete from a typo.
+
+    NAME may use the CBM wildcards `*` (any tail) and `?` (any one character),
+    which scratch every match at once — `delete_file(img, "al*")` removes both
+    'alpha' and 'album' and returns 2, and `delete_file(img, "*")` wipes the
+    disk and returns the true count. The returned count stays honest under
+    wildcards (measured), so it is what you check, not the absence of an error.
     """
+    name = cbm_lookup_name(name)
     out = _run_checked([str(image), "-delete", str(name)],
                        f"deleting {name!r} from {Path(image).name}")
     status = dos_status(out)
