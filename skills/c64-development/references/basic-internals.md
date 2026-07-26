@@ -154,7 +154,9 @@ Appendix A of the Programmer's Reference Guide.)
 - **Names**: only the **first two characters are significant** (`SCORE` and
   `SCORING` are the same variable); a name must start with a letter and must
   not contain a reserved keyword. Trailing `%` = integer, `$` = string, none =
-  float.
+  float. `c64 basic check FILE` flags both hazards — a name that fuses a
+  keyword (`total` → `TO TAL`) and two names that collide in their first two
+  characters.
 - **Array memory**: 5 bytes of header + 2 bytes per dimension + per element
   2 (int) / 5 (float) / 3+length (string) bytes. An undimensioned array
   auto-DIMs to 11 elements (0-10) on first reference — a later explicit `DIM`

@@ -837,7 +837,12 @@ and `c64 screen --png`; X > 255 additionally needs the MSB bit in `$D010`
 
 ## Verifying a recipe-based program
 
-Run it and assert on the screen, exactly like the tests here do:
+For BASIC, static-check the source first — `c64 basic check mygame.bas`
+catches keyword fusion (`total=5` tokenizes as `TO TAL=5`), missing
+GOTO/GOSUB targets, out-of-range POKEs and non-V2 keywords without an
+emulator round trip. Fix every `E…` before running.
+
+Then run it and assert on the screen, exactly like the tests here do:
 
 ```
 c64 run mygame.s
