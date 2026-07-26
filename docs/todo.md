@@ -41,6 +41,11 @@ the standing project backlog. Strike items as they land.
       under load** (breakpoint-never-hit; two sightings, both under parallel
       load/coverage tracing; passes standalone and in plain full runs).
       Pre-existing, non-cart. Needs its own investigation.
+- [ ] **`tests/test_integration_disk.py::test_disk_attach_at_launch` flaked
+      once in a full run** (boot-keyboard artifact during the 0.4.0 release
+      run; passed 2/2 in isolation and is untouched by the changes it was
+      seen under). Carried out of the demo-01 ledger; no retry/xfail guard
+      exists today.
 
 ## Standing backlog (pre-cartridge)
 
@@ -50,3 +55,11 @@ the standing project backlog. Strike items as they land.
       seed ships today).
 - [ ] Deferred spec items: sprite-aware screenshot diffing, `c64 sprite` CLI
       helpers, VIC-II screen relocation support.
+- [ ] Charset/bitmap PNG conversion — `c64 sprite from-png` handles sprites
+      only. The other still-open bullet in §6 of
+      `docs/superpowers/specs/graphics-and-sprites.md`.
+- [ ] `c64 sprite encode` exits **2** on a missing `FILE` (Click's
+      `Path(exists=True)`) while `c64 sprite from-png` exits **1** (it opens
+      the path itself and calls `fail()`). Flagged during the sprite-encode
+      work as "pre-existing house pattern, accepted" and never adjudicated;
+      `test_sprite_encode_missing_file` only asserts non-zero.
