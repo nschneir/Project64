@@ -7,7 +7,8 @@ from tests.doc_helpers import mentioned_commands, valid_mention_paths
 
 SKILLS = [Path("skills/c64-development/SKILL.md"),
           Path("skills/6502-assembly/SKILL.md"),
-          Path("skills/6502-debugging/SKILL.md")]
+          Path("skills/6502-debugging/SKILL.md"),
+          Path("skills/cartridge-programming/SKILL.md")]
 
 
 def _frontmatter(path):
@@ -48,3 +49,25 @@ def test_referenced_files_exist():
         text_wo_full = re.sub(r"skills/[\w./-]+/references/[\w.-]+\.md", "", text)
         for ref in re.findall(r"references/[\w.-]+\.md", text_wo_full):
             assert (p.parent / ref).exists(), f"{p}: missing {ref}"
+
+
+def test_cartridge_skill_exists_and_is_wired_up():
+    p = Path("skills/cartridge-programming/SKILL.md")
+    assert p.exists(), "the cartridge skill must ship"
+    fm, text = _frontmatter(p)
+    assert fm["name"] == "cartridge-programming"
+    for topic in ("CBM80", "$DE00", "Ultimax", "bankcall"):
+        assert topic in text, f"skill never mentions {topic}"
+    # Discoverable from the umbrella skill.
+    assert "cartridge-programming" in Path(
+        "skills/c64-development/SKILL.md").read_text()
+
+
+def test_cartridge_reference_commands_exist():
+    """The EasyFlash reference is prose the agent acts on too, so its `c64 ...`
+    mentions get the same reality check the SKILL.md files get."""
+    ref = Path("skills/cartridge-programming/references/easyflash.md")
+    assert ref.exists(), "the EasyFlash reference must ship"
+    valid = valid_mention_paths()
+    unknown = {c for c in mentioned_commands(ref.read_text()) if c not in valid}
+    assert not unknown, f"{ref}: mentions nonexistent commands {sorted(unknown)}"

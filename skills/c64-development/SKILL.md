@@ -137,6 +137,17 @@ working skeleton and the details. `c64 run` on a `.s` file automatically
 registers the assembled label file on the session, so you can immediately set
 symbolic breakpoints like `c64 break add start`.
 
+## Sibling skills
+
+- Writing 6502/6510 assembly? The `6502-assembly` skill has the program
+  skeleton, the ca65 conventions and the gotchas.
+- Hunting a crash, a corrupted byte or a register clobber? The
+  `6502-debugging` skill has the systematic procedures.
+- Building a cartridge (8K/16K/Ultimax or a bank-switched EasyFlash game)?
+  Use the `cartridge-programming` skill — cartridges boot themselves, so the
+  failure modes are different from a `.prg`: there is no load address, no
+  `READY.`, and a broken header just boots to BASIC without a word.
+
 ## Graphics and sprites
 
 Character graphics (screen RAM `$0400` + color RAM `$D800`) are fully
