@@ -25,10 +25,11 @@ Bits 0–5 select the bank, 0–63. `cart.inc` calls it `EF_BANK` and writes it
 with a plain `sta EF_BANK`.
 
 Write-only on real hardware. Under VICE it reads back — measured `$DE00: 02`
-after the cart selected bank 2 — and before any write it reads `$FF` (open
-bus). `c64 cart bank` uses that read-back, which is why the command is a
-debugging aid and not something a cartridge may imitate: track the current bank
-in RAM, the way `cart.inc`'s `ef_cur_bank` does.
+after the cart selected bank 2. With **no** EasyFlash cartridge mapped the
+address is open bus and reads `$FF`, which is why `c64 cart bank` reports mode
+`unknown` on a machine with no such cart. `c64 cart bank` uses that read-back,
+which is why the command is a debugging aid and not something a cartridge may
+imitate: track the current bank in RAM, the way `cart.inc`'s `ef_cur_bank` does.
 
 ## `$DE02` — control register
 
@@ -96,9 +97,9 @@ The block is assembled absolute with `.org EF_RESIDENT` inside the ordinary
 `__RAMCODE_RUN__` / `__RAMCODE_SIZE__` import scheme. Every bank includes
 `cart.inc`, but only the boot window's linker config could host a
 RAM-resident segment, so a segment-based scheme is a hard `ld65` error
-("Missing memory area assignment") in every other window. The size cap is
-therefore **256 bytes**, enforced by the copy loop's 8-bit counter and asserted
-at assembly time, not by a linker memory area.
+("Missing memory area assignment") in every other window. The block must
+therefore stay **under 256 bytes** — the bound comes from the copy loop's
+8-bit counter, asserted at assembly time, not from a linker memory area.
 
 ## `cart.inc` surface
 
@@ -142,7 +143,7 @@ Header (64 bytes), then CHIP packets back to back:
 | `$18` | 1 | EXROM line, 0 = asserted — **1** |
 | `$19` | 1 | GAME line, 0 = asserted — **0** |
 | `$1A` | 6 | reserved |
-| `$20` | 32 | cartridge name, NUL-padded (32, not 16) |
+| `$20` | 32 | cartridge name, NUL/space-padded (32 bytes, not 16) |
 
 CHIP packet:
 

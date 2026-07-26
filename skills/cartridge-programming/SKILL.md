@@ -142,6 +142,19 @@ windows are dropped from the finished `.crt`, so gaps are normal, not
 corruption. `boot.s` can be a single line, `.include "cart.inc"`: the generated
 stub supplies the vectors.
 
+**Boot lands on jump-table entry 0 of bank 0's LOROM window.** The resident
+runtime ends with `JMP $9F00` after selecting bank 0, so `main.s` must declare
+a `JUMPTAB` segment and its *first* `ef_entry` is your cold start:
+
+```asm
+.segment "JUMPTAB"
+        ef_entry cold                   ; entry 0 — where ef_start lands
+```
+
+Leave it out and everything still succeeds — the build is clean and
+`c64 cart verify` is happy — but the machine jumps into a page of `$FF` fill.
+This is the one EasyFlash mistake no static check catches.
+
 Register-level detail — `$DE00`, `$DE02`, the boot sequence, the CHIP packet
 layout — is in references/easyflash.md.
 
@@ -218,8 +231,9 @@ error in every other window. Assembling absolute also makes bank 5's
 
 Two consequences to remember:
 
-- The block is capped at **256 bytes** by the copy loop's 8-bit counter, not by
-  a linker memory area. `cart.inc` asserts it at assembly time.
+- The block must stay **under 256 bytes** — the bound comes from the copy
+  loop's 8-bit counter, not from a linker memory area, and `cart.inc` asserts
+  it at assembly time.
 - Each window carries its own ~70-byte copy of the block in ROM; only the boot
   window's copy is ever executed. That is the price of the scheme, and it is
   paid in ROM you were not using.
@@ -240,9 +254,11 @@ mode only `$0000-$0FFF` exists.
 - **`$C000` does not exist during boot.** In Ultimax mode there is no RAM above
   `$0FFF` at all.
 - **Bank overflow is a hard error, and should stay one.** Every window is
-  exactly 8192 bytes; `c64 cart build` names the bank, the window and the
-  overflow amount and always prints the per-bank fill table. Read the table
-  and move code to another bank — never trim blindly to make it fit.
+  exactly 8192 bytes; the error names the bank, the window and the overflow
+  amount, and nothing is silently truncated. Move code to another bank — never
+  trim blindly to make it fit. The per-bank fill table is printed on every
+  *successful* build, so watch a window filling up there rather than waiting
+  for the overflow to tell you.
 - **Calling into a swapped-out bank returns garbage, not an error.** If a
   routine is not in the currently mapped bank it does not exist. Use `ef_call`.
 - **`$DE00` and `$DE02` are write-only on real hardware.** VICE lets you read
