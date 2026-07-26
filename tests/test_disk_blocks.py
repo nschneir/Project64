@@ -9,8 +9,13 @@ from c64lib.disk import (
     DiskError,
     blocks_for,
     check_block,
+    create_image,
+    delete_file,
     dos_status,
+    list_files,
     max_track,
+    put_file,
+    rename_file,
     sectors_per_track,
 )
 
@@ -82,3 +87,59 @@ def test_dos_status_parses_the_error_line():
         62, "FILE NOT FOUND", 0, 0)
     assert dos_status("ERR = 01, FILES SCRATCHED, 03, 00")[2] == 3
     assert dos_status("nothing to see here") is None
+
+
+@pytest.fixture
+def image(tmp_path):
+    img = create_image(tmp_path / "game.d64", label="mygame", disk_id="01")
+    payload = tmp_path / "f1.prg"
+    payload.write_bytes(b"\x01\x08hello world payload")
+    put_file(img, payload, "alpha")
+    return img
+
+
+@needs_c1541
+def test_rename_changes_the_directory_entry(image):
+    assert rename_file(image, "alpha", "beta") == "beta"
+    names = [f["name"] for f in list_files(image)["files"]]
+    assert names == ["beta"]
+
+
+@needs_c1541
+def test_rename_of_a_missing_file_raises(image):
+    # c1541 prints "ERR = 62, FILE NOT FOUND" and still exits 0, so this is
+    # also the first real end-to-end check that _run_checked surfaces a DOS
+    # failure code rather than trusting the exit status.
+    with pytest.raises(DiskError, match="file not found") as exc:
+        rename_file(image, "nosuch", "other")
+    assert "DOS error 62" in str(exc.value)
+    assert "nosuch" in str(exc.value)
+    assert [f["name"] for f in list_files(image)["files"]] == ["alpha"]
+
+
+@needs_c1541
+def test_rename_validates_the_new_name(image):
+    with pytest.raises(DiskError, match="17 chars"):
+        rename_file(image, "alpha", "x" * 17)
+    with pytest.raises(DiskError, match="CBM filename"):
+        rename_file(image, "alpha", "no:colons")
+
+
+@needs_c1541
+def test_delete_removes_the_file_and_reports_the_count(image):
+    assert delete_file(image, "alpha") == 1
+    assert list_files(image)["files"] == []
+
+
+@needs_c1541
+def test_delete_of_a_missing_file_raises(image):
+    # The scratch count in "ERR = 01, FILES SCRATCHED, 00, 00" is the signal.
+    with pytest.raises(DiskError, match="no file named 'nosuch'"):
+        delete_file(image, "nosuch")
+
+
+@needs_c1541
+def test_delete_frees_the_blocks(image):
+    before = list_files(image)["blocks_free"]
+    delete_file(image, "alpha")
+    assert list_files(image)["blocks_free"] > before

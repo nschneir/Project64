@@ -193,3 +193,43 @@ def get_file(image: str | Path, name: str, dest: str | Path) -> Path:
     if not dest.exists():
         raise DiskError(f"c1541 reported success but {dest} was not written")
     return dest
+
+
+def cbm_filename(raw: str) -> str:
+    """Validate a CBM filename (lowercased on disk, 1-16 chars, no DOS
+    metacharacters). Shares packaging.cbm_title's rules."""
+    # Imported here, not at module scope: packaging imports from disk.
+    from .packaging import PackageError, cbm_title
+
+    try:
+        return cbm_title(raw).lower()
+    except PackageError as e:
+        msg = str(e)
+        if "CBM filename" not in msg:
+            msg = f"{msg} — not a legal CBM filename"
+        raise DiskError(msg) from None
+
+
+def rename_file(image: str | Path, old: str, new: str) -> str:
+    """Rename a file on IMAGE in place. Returns the new CBM name."""
+    name = cbm_filename(new)
+    _run_checked([str(image), "-rename", str(old), name],
+                 f"renaming {old!r} to {name!r} on {Path(image).name}")
+    return name
+
+
+def delete_file(image: str | Path, name: str) -> int:
+    """Scratch a file from IMAGE. Returns how many entries were removed.
+
+    c1541 answers a scratch with "ERR = 01, FILES SCRATCHED, <n>, 00" whether
+    or not anything matched, so the count is the only reliable way to tell a
+    successful delete from a typo.
+    """
+    out = _run_checked([str(image), "-delete", str(name)],
+                       f"deleting {name!r} from {Path(image).name}")
+    status = dos_status(out)
+    scratched = status[2] if status else 0
+    if scratched == 0:
+        raise DiskError(
+            f"no file named {name!r} on {Path(image).name} — nothing deleted")
+    return scratched
