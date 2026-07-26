@@ -688,6 +688,139 @@ Attach an image to the running C64 and LOAD+RUN its first file.
 
 - `IMAGE` — the image file. JSON: `{"booted": PATH}`. Machine left running.
 
+### `c64 disk rename`
+
+Rename a file on a disk image.
+
+- `IMAGE` — the image file.
+- `OLD` — the current CBM name.
+- `NEW` — the new CBM name (validated: 1-16 chars, no `":,=*?`).
+
+Errors when `OLD` is not on the disk — `c1541 -rename` reports that as
+`ERR = 62, FILE NOT FOUND` and still exits 0, so the DOS status is what is
+checked. A wildcard in `OLD` is refused by c1541 itself, so a rename can never
+touch more than the one file you named.
+
+JSON: `{"image", "old", "name"}`.
+
+### `c64 disk rm` (alias: `c64 disk delete`)
+
+Scratch a file from a disk image.
+
+- `IMAGE` — the image file.
+- `NAME` — the CBM filename, optionally with the CBM wildcards `*` (any tail)
+  and `?` (any one character).
+
+Wildcards scratch every match at once and the reported count stays honest:
+`c64 disk rm game.d64 "al*"` removes both `alpha` and `album` and reports 2,
+and `c64 disk rm game.d64 "*"` empties the whole disk. The count is the point —
+c1541 answers a scratch that matched nothing with the same
+`ERR = 01, FILES SCRATCHED` line at exit 0, so `c64 disk rm` errors when the
+count comes back 0 instead of reporting a silent no-op. `"`, `:`, `,` and `=`
+are refused: CBM DOS parses them inside a name and they would silently
+retarget the scratch.
+
+JSON: `{"image", "name", "deleted"}`.
+
+### `c64 disk block read`
+
+Read one 256-byte sector. `TRACK` is 1-based, `SECTOR` 0-based — on a 1541
+image 18/0 is the BAM and 18/1 the first directory sector.
+
+- `IMAGE TRACK SECTOR` — the sector to read.
+- `-o, --output FILE` — write the raw bytes to a host file instead of
+  hex-dumping them.
+
+```
+$ c64 disk block read game.d64 18 0
+0000: 12 01 41 00 15 ff ff 1f 15 ff ff 1f 15 ff ff 1f  ..A.............
+```
+
+Out-of-range tracks and sectors are refused with the limit named
+(`track 40 out of range (1-35 for d64)`).
+
+JSON: `{"image", "track", "sector", "bytes", "data"}` — `data` is the sector
+as a hex string. With `-o`: `{"image", "track", "sector", "output", "bytes"}`.
+
+### `c64 disk block write`
+
+Write a sector, wholesale or in part.
+
+- `IMAGE TRACK SECTOR` — the sector to write.
+- `--from FILE` — replace the whole sector from a file of exactly 256 bytes.
+- `VALUES…` with `--offset N` — poke bytes at an offset, leaving the rest of
+  the sector alone (`$hex`/`0x`/decimal, the same tokens `c64 mem write`
+  takes).
+
+```
+c64 disk block write game.d64 1 0 --from sector.bin
+c64 disk block write game.d64 1 0 $de $ad --offset 4
+```
+
+Exactly one of `--from`/`VALUES` is required. Both forms are size-checked
+first, because c1541's own answers are not usable: it truncates a
+whole-sector write longer than 256 bytes at exit 0, blames a shorter one on
+`floppy read failed` without naming the file or its size, and writes only the
+bytes that fit when a poke runs off the end of a sector — again at exit 0.
+
+JSON: `{"image", "track", "sector", "written", "offset"}`.
+
+### `c64 disk validate`
+
+Check and repair a disk image's block allocation — the CBM fsck. Rewrites the
+BAM in place, like the real command.
+
+- `IMAGE` — the image file.
+
+`c1541 -validate` prints the same line and exits 0 whether it repaired
+anything or not, so cleanliness is decided by comparing the image before and
+after: a clean image comes back byte-identical. `repaired_blocks` is the size
+of the change in blocks free, which can be 0 on an image that really was
+repaired — the free total leaves the directory track out, so a repair confined
+to it does not move it. `clean` is the flag to trust; `repaired_blocks` sizes
+it, and `messages` explains it in words.
+
+JSON: `{"image", "clean", "blocks_free_before", "blocks_free_after",
+"repaired_blocks", "messages"}`.
+
+### `c64 disk build`
+
+Build a populated disk image from a manifest in one reproducible step.
+
+- `MANIFEST` — a `*.disk.yaml` file.
+- `-o, --output IMAGE` — output path; the extension picks the type (`.d64`
+  default, `.d71`, `.d81`). Defaults to the manifest's name with `.d64`.
+- `--model` (default `c64`) — selects the BASIC load address/version for
+  `.s`/`.bas` entries, and the video mode in the printed run hint.
+
+```yaml
+label: MYGAME             # <=16 chars, the disk header name
+id: "01"                  # optional 2-char disk id (default "00")
+files:
+  - {src: loader.s,  name: "*"}      # "*" => use the disk label as the name
+  - {src: level1.bin, name: level1}
+  - {src: music.sid,  name: music}
+```
+
+```
+$ c64 disk build game.disk.yaml
+MYGAME  1 files, 1/664 blocks used (663 free)
+built game.d64
+run it with: x64sc -ntsc game.d64
+```
+
+The run hint carries the chosen model's video mode, so it is the command that
+actually reproduces the build (`--model c64pal` prints the PAL form).
+
+Files are written in listed order, so the first one autostarts. `.s` entries
+are assembled, `.bas` tokenized, everything else copied verbatim. A manifest
+that would overflow the disk — on blocks or on directory entries — is refused
+before the image is formatted, so a build that cannot fit writes nothing at
+all. An unknown `--model` is refused up front too, for the same reason.
+
+JSON: `{"image", "label", "files", "blocks_used", "blocks_free",
+"blocks_total", "run"}`.
+
 ---
 
 ## Cartridges

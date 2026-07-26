@@ -18,7 +18,21 @@ from .build import BuildError, build_asm
 from .cart_build import build_easyflash
 from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
-from .disk import DiskError, create_image, get_file, list_files, put_file
+from .disk import (
+    BLOCK_SIZE,
+    DiskError,
+    block_poke,
+    block_read,
+    block_write_file,
+    build_disk,
+    create_image,
+    delete_file,
+    get_file,
+    list_files,
+    put_file,
+    rename_file,
+    validate_image,
+)
 from .machines import get_profile
 from .ops import (
     call_routine,
@@ -1291,6 +1305,175 @@ def disk_boot(ctx, image):
         finally:
             mon.resume()
     emit(ctx, {"booted": str(image.resolve())}, f"booting {image}")
+
+
+@disk.command("rename")
+@click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("old")
+@click.argument("new")
+@click.pass_context
+def disk_rename(ctx, image, old, new):
+    """Rename file OLD to NEW on IMAGE (offline; no session).
+
+    NEW is validated as a CBM filename. c1541 reports a missing OLD without
+    failing, so this checks the DOS status and errors instead.
+    """
+    try:
+        name = rename_file(image, old, new)
+    except DiskError as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, {"image": str(image), "old": old, "name": name},
+         f"renamed {old!r} to {name!r}")
+
+
+@disk.command("rm")
+@click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("name")
+@click.pass_context
+def disk_rm(ctx, image, name):
+    """Scratch file NAME from IMAGE (offline; no session).
+
+    NAME may use the CBM wildcards `*` and `?`, which scratch every match at
+    once — `c64 disk rm game.d64 "*"` empties the disk. Errors when nothing
+    matched: c1541 answers a no-match scratch exactly like a successful one
+    apart from the count, so the count is what is reported and checked.
+    """
+    try:
+        count = delete_file(image, name)
+    except DiskError as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, {"image": str(image), "name": name, "deleted": count},
+         f"deleted {count} file(s) matching {name!r}")
+
+
+disk.add_command(disk_rm, "delete")     # CBM-familiar alias
+
+
+@disk.group("block")
+def disk_block() -> None:
+    """Read and write raw 256-byte sectors.
+
+    TRACK is 1-based and SECTOR 0-based, the CBM convention. On a 1541 image
+    18/0 is the BAM and 18/1 the first directory sector.
+    """
+
+
+@disk_block.command("read")
+@click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("track", type=int)
+@click.argument("sector", type=int)
+@click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
+              default=None, help="Write the raw 256 bytes to a host file "
+                                 "instead of hex-dumping them.")
+@click.pass_context
+def disk_block_read(ctx, image, track, sector, output):
+    """Read one sector from IMAGE — hex dump, or raw bytes with -o."""
+    try:
+        data = block_read(image, track, sector)
+    except DiskError as e:
+        fail(ctx, str(e))
+        return
+    if output is not None:
+        output.write_bytes(data)
+        emit(ctx, {"image": str(image), "track": track, "sector": sector,
+                   "output": str(output), "bytes": len(data)},
+             f"wrote {len(data)} bytes of {track}/{sector} to {output}")
+        return
+    emit(ctx, {"image": str(image), "track": track, "sector": sector,
+               "bytes": len(data), "data": data.hex()},
+         _hexdump(0, data))
+
+
+@disk_block.command("write")
+@click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("track", type=int)
+@click.argument("sector", type=int)
+@click.argument("values", nargs=-1)
+@click.option("--from", "src", type=click.Path(exists=True, dir_okay=False,
+                                               path_type=Path),
+              default=None, help="Host file holding exactly 256 bytes: "
+                                 "replaces the whole sector.")
+@click.option("--offset", type=int, default=0, show_default=True,
+              help="Offset within the sector for the VALUES poke.")
+@click.pass_context
+def disk_block_write(ctx, image, track, sector, values, src, offset):
+    """Write a sector of IMAGE, wholesale (--from) or in part (VALUES).
+
+    Each VALUE is a byte ($hex/0x/decimal), the same tokens `c64 mem write`
+    takes; they are poked at --offset and the rest of the sector is left
+    alone. c1541 silently truncates a wrong-sized whole-sector write and
+    silently accepts a poke running off the end of the sector, so both are
+    checked here first.
+    """
+    if bool(src) == bool(values):
+        fail(ctx, "give exactly one of --from FILE or VALUES (bytes to poke)")
+        return
+    try:
+        if src is not None:
+            block_write_file(image, track, sector, src)
+            written, where = BLOCK_SIZE, "whole sector"
+        else:
+            data = bytes(parse_number(v) for v in values)
+            block_poke(image, track, sector, offset, data)
+            written, where = len(data), f"offset {offset}"
+    except (DiskError, ValueError) as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, {"image": str(image), "track": track, "sector": sector,
+               "written": written, "offset": 0 if src else offset},
+         f"wrote {written} byte(s) to {track}/{sector} ({where})")
+
+
+@disk.command("validate")
+@click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.pass_context
+def disk_validate(ctx, image):
+    """Check (and repair) IMAGE's block allocation — the CBM fsck.
+
+    Like the real command this rewrites the BAM in place. c1541 reports
+    nothing either way, so cleanliness is judged by comparing the image
+    before and after; the blocks-free figures are the evidence.
+    """
+    try:
+        res = validate_image(image)
+    except DiskError as e:
+        fail(ctx, str(e))
+        return
+    human = ("clean" if res["clean"]
+             else "\n".join(res["messages"] + ["image repaired in place"]))
+    emit(ctx, res, human)
+
+
+@disk.command("build")
+@click.argument("manifest", type=click.Path(exists=True, dir_okay=False,
+                                            path_type=Path))
+@click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
+              default=None, help="Image path; the extension picks the type "
+                                 "(.d64 default, .d71, .d81).")
+@click.option("--model", default="c64", show_default=True,
+              help="Target model — selects the BASIC load address and version "
+                   "for .s/.bas entries, and the run hint's video mode.")
+@click.pass_context
+def disk_build(ctx, manifest, output, model):
+    """Build a populated disk image from a .disk.yaml MANIFEST.
+
+    Files are written in listed order, so the first one autostarts. .s entries
+    are assembled and .bas tokenized; everything else is copied verbatim. A
+    manifest that would overflow the disk is refused before anything is
+    written. Offline; no session.
+    """
+    try:
+        res = build_disk(manifest, out=output, model=model)
+    except (DiskError, BuildError, BasicError, KeyError) as e:
+        fail(ctx, str(e))
+        return
+    emit(ctx, res,
+         f"{res['label']}  {len(res['files'])} files, "
+         f"{res['blocks_used']}/{res['blocks_total']} blocks used "
+         f"({res['blocks_free']} free)\n"
+         f"built {res['image']}\nrun it with: {res['run']}")
 
 
 @main.group()
