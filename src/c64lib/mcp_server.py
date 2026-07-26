@@ -47,7 +47,7 @@ from .screen import (
     read_screen_text,
     save_screenshot_png,
 )
-from .session import Session
+from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import load_test, program_test, run_test
 from .text import ascii_to_petscii
@@ -487,10 +487,42 @@ def c64_package(source: str, output: str | None = None, title: str | None = None
 @srv.tool()
 def c64_run(source: str, session: str | None = None) -> dict:
     """Build/tokenize a .bas/.s/.prg as needed, then load and RUN it on the
-    running C64. Registers assembly symbols on the session automatically."""
-    s = _attach(session)
+    running C64. Registers assembly symbols on the session automatically. A
+    .crt cannot be loaded into a running machine, so running one stops the
+    session and boots a fresh one of the same name and model with the
+    cartridge attached (returns {"cart", "session", "model", "symbols"})."""
     src = Path(source).resolve()
     ext = src.suffix.lower()
+    if ext == ".crt":
+        # A cartridge is mapped at power-on, so "running" one means booting a
+        # fresh session with it attached rather than loading into this one.
+        try:
+            old = Session.attach(session)
+        except SessionError:
+            old, name, model = None, None, "c64"
+        if old is not None:
+            # Keep the identity out of the stop's error scope: a stop that
+            # fails is NOT "there was no session", and relaunching under the
+            # no-session defaults would quietly swap a c64pal named 'snake'
+            # for an NTSC 'c64' while 'snake' may still be alive.
+            name, model = old.name, old.model
+            try:
+                old.stop()
+            except SessionError as e:
+                raise SessionError(
+                    f"cannot boot {src} on session {name!r}: the old session "
+                    f"has to stop first (a cartridge is mapped at power-on) "
+                    f"and stopping it failed: {e}") from e
+        # headless/warp as everywhere in this server (see c64_session_start):
+        # an MCP client is an automation, not someone watching a window.
+        new = Session.launch(model=model, name=name, headless=True, warp=True,
+                             cart=str(src))
+        lbl = src.with_suffix(".lbl")
+        if lbl.exists():
+            new.set_labels_path(str(lbl))
+        return {"cart": str(src), "session": new.name, "model": new.model,
+                "symbols": str(lbl) if lbl.exists() else None}
+    s = _attach(session)
     labels_path = None
     deps: tuple = ()
     if ext == ".prg":
@@ -501,7 +533,8 @@ def c64_run(source: str, session: str | None = None) -> dict:
         res = build_asm(src, basic_start=s.profile.basic_start)
         prg, labels_path, deps = res.prg, res.labels, res.deps
     else:
-        raise ValueError(f"cannot run {ext!r} files (use .bas, .s, or .prg)")
+        raise ValueError(
+            f"cannot run {ext!r} files (use .bas, .s, .prg, or .crt)")
     with s.monitor() as mon:
         try:
             mon.autostart(Path(prg).resolve(), run=True)

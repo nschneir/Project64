@@ -6,6 +6,7 @@ CLI's (commit 413d21b) and sweep the whole `cart` group for missing tools.
 """
 
 import inspect
+import json
 from unittest.mock import Mock, patch
 
 import anyio
@@ -15,6 +16,7 @@ from mcp.shared.memory import (
 )
 
 from c64lib import mcp_server
+from c64lib.session import SessionError
 from tests.test_cartridge import chip_packet, make_crt
 from tests.test_cli_cart import good_body
 from tests.test_mcp_scaffold import call_tool
@@ -126,6 +128,90 @@ def test_cart_bank_reads_the_registers_and_releases():
     mon.resume.assert_not_called()
 
 
+# --- run a .crt -------------------------------------------------------------
+
+def test_run_a_crt_reboots_the_session_with_it_attached(crt):
+    """A cartridge is mapped at power-on, so running one boots a fresh session
+    with it attached instead of loading into the current one."""
+    old, _ = _fake_session()
+    new, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = old
+        S.launch.return_value = new
+        out = mcp_server.c64_run(str(crt))
+    old.stop.assert_called_once()
+    S.launch.assert_called_once_with(model="c64", name="c64", headless=True,
+                                     warp=True, cart=str(crt.resolve()))
+    assert out == {"cart": str(crt.resolve()), "session": "c64",
+                   "model": "c64", "symbols": None}
+
+
+def test_run_a_crt_with_no_session_boots_a_default_one(crt):
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.side_effect = SessionError("no session is running")
+        S.launch.return_value = _fake_session()[0]
+        err, out = call_tool("c64_run", {"source": str(crt)})
+    assert err is False and out["cart"] == str(crt.resolve())
+    S.launch.assert_called_once_with(model="c64", name=None, headless=True,
+                                     warp=True, cart=str(crt.resolve()))
+
+
+def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(crt):
+    """A stop that fails must not be read as 'there was no session': relaunching
+    under the no-session defaults would silently swap a c64pal 'snake' for an
+    NTSC 'c64' while the real 'snake' is possibly still alive."""
+    old, _ = _fake_session()
+    old.name, old.model = "snake", "c64pal"
+    old.stop.side_effect = SessionError("monitor is gone")
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = old
+        with pytest.raises(SessionError) as e:
+            mcp_server.c64_run(str(crt))
+    assert "snake" in str(e.value) and "monitor is gone" in str(e.value)
+    S.launch.assert_not_called()
+
+
+def test_run_a_crt_registers_its_label_file(crt):
+    lbl = crt.with_suffix(".lbl")
+    lbl.write_text("al C:8009 .cart_main\n")
+    new, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = _fake_session()[0]
+        S.launch.return_value = new
+        out = mcp_server.c64_run(str(crt))
+    new.set_labels_path.assert_called_once_with(str(lbl))
+    assert out["symbols"] == str(lbl)
+
+
+def test_run_a_crt_payload_matches_the_cli_emit(crt):
+    """Lockstep: the same scenario through the CLI and through MCP reports the
+    same keys with the same values."""
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = _fake_session()[0]
+        S.launch.return_value = _fake_session()[0]
+        r = CliRunner().invoke(main, ["--json", "run", str(crt)])
+    assert r.exit_code == 0, r.output
+    cli_payload = json.loads(r.output)
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = _fake_session()[0]
+        S.launch.return_value = _fake_session()[0]
+        mcp_payload = mcp_server.c64_run(str(crt))
+    assert mcp_payload == cli_payload
+
+
+def test_run_names_crt_among_the_runnable_extensions(tmp_path):
+    junk = tmp_path / "thing.txt"
+    junk.write_text("nope")
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = _fake_session()[0]
+        with pytest.raises(ValueError) as e:
+            mcp_server.c64_run(str(junk))
+    assert ".crt" in str(e.value)
+
+
 # --- lockstep ---------------------------------------------------------------
 
 def test_every_cart_cli_command_has_an_mcp_tool():
@@ -148,6 +234,15 @@ def test_package_tool_accepts_the_cart_options():
     kwargs = pp.call_args.kwargs
     assert kwargs["fmt"] == "crt" and kwargs["cart_type"] == "ultimax"
     assert kwargs["wrap"] is True
+
+
+def test_package_tool_defaults_match_the_cli():
+    """Default drift away from the CLI's --cart-type 8k must fail a test."""
+    with patch("c64lib.mcp_server.package_program", return_value={}) as pp:
+        mcp_server.c64_package("game.s")
+    kwargs = pp.call_args.kwargs
+    assert kwargs["cart_type"] == "8k" and kwargs["wrap"] is False
+    assert kwargs["fmt"] is None
 
 
 def test_session_start_tool_accepts_a_cart():
