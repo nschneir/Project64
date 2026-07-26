@@ -90,6 +90,15 @@ def test_cart_dump_reports_a_missing_bank(tmp_path, crt):
     assert "bank 9" in r.output
 
 
+def test_cart_dump_reports_an_unwritable_output(tmp_path, crt):
+    out = tmp_path / "no-such-dir" / "bank0.bin"
+    r = CliRunner().invoke(main, ["--json", "cart", "dump", str(crt),
+                                  "-o", str(out)])
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)      # a message, not a traceback
+    assert str(out) in json.loads(r.output)["error"]
+
+
 def test_cart_info_on_a_non_cart_fails_cleanly(tmp_path):
     p = tmp_path / "notacart.crt"
     p.write_bytes(b"hello")
@@ -194,6 +203,21 @@ def test_run_a_crt_reboots_the_session_with_it_attached(tmp_path, crt):
                                      warp=False, cart=str(crt.resolve()))
     data = json.loads(r.output)
     assert data["cart"] == str(crt.resolve()) and data["session"] == "c64"
+
+
+def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(tmp_path, crt):
+    """A stop that fails must not be read as 'there was no session': relaunching
+    under the no-session defaults would silently swap a c64pal 'snake' for an
+    NTSC 'c64' while the real 'snake' is possibly still alive."""
+    old = _fake_session(name="snake", model="c64pal")
+    old.stop.side_effect = SessionError("monitor is gone")
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = old
+        r = CliRunner().invoke(main, ["--json", "run", str(crt)])
+    assert r.exit_code == 1
+    err = json.loads(r.output)["error"]
+    assert "snake" in err and "monitor is gone" in err
+    S.launch.assert_not_called()
 
 
 def test_run_a_crt_with_no_session_boots_a_default_one(tmp_path, crt):

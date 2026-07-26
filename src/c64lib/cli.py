@@ -759,10 +759,21 @@ def run_cmd(ctx, source):
         # fresh session with it attached rather than loading into this one.
         try:
             old = Session.attach(ctx.obj["session"])
-            name, model = old.name, old.model
-            old.stop()
         except SessionError:
-            name, model = None, "c64"
+            old, name, model = None, None, "c64"
+        if old is not None:
+            # Keep the identity out of the stop's error scope: a stop that
+            # fails is NOT "there was no session", and relaunching under the
+            # no-session defaults would quietly swap a c64pal named 'snake'
+            # for an NTSC 'c64' while 'snake' may still be alive.
+            name, model = old.name, old.model
+            try:
+                old.stop()
+            except SessionError as e:
+                fail(ctx, f"cannot boot {src} on session {name!r}: the old "
+                          f"session has to stop first (a cartridge is mapped "
+                          f"at power-on) and stopping it failed: {e}")
+                return
         try:
             new = Session.launch(model=model, name=name, headless=False,
                                  warp=False, cart=str(src))
@@ -1348,7 +1359,11 @@ def cart_dump_cmd(ctx, file, bank, window, output):
     except CartError as e:
         fail(ctx, str(e))
         return
-    output.write_bytes(data)
+    try:
+        output.write_bytes(data)
+    except OSError as e:
+        fail(ctx, f"{output}: {e.strerror or e}")
+        return
     emit(ctx, {"path": str(output), "bank": bank, "window": window,
                "bytes": len(data)},
          f"wrote {len(data):,} bytes of bank {bank} {window} to {output}")
