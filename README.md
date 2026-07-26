@@ -46,6 +46,9 @@ Debian / Ubuntu:
     c64 disk create work.d64 && c64 disk put work.d64 game.prg game
     c64 session start --disk work.d64      # boot with the disk attached
     c64 disk boot work.d64                 # or attach+run mid-session
+    c64 package game.s -o game.crt         # build a bootable cartridge
+    c64 cart verify game.crt               # catch the silent no-boot cases
+    c64 run game.crt                       # reboot the session with it mapped
     c64 rom info                           # identify the loaded ROM set
     c64 rom disasm CHROUT 16               # annotated live disassembly
     c64 session stop
@@ -119,9 +122,34 @@ File → Smart attach. Disk images travel better: they carry a real CBM
 directory, so `LOAD"SNAKE",8` then `RUN` works the old-fashioned way.
 Neither artifact contains ROMs or anything from this toolset.
 
+## Cartridges
+
+A cartridge is ROM the machine maps at power-on: it boots itself, so there is
+no load address, no `READY.` prompt, and no error message when it is wrong —
+a broken image just boots to BASIC without a word.
+
+    c64 package game.s -o game.crt --cart-type 8k   # 8k / 16k / ultimax
+    c64 package game.bas -o game.crt                # wrap an existing program
+    c64 cart build game.ef.yaml                     # multi-bank EasyFlash
+    c64 cart verify game.crt                        # before every boot
+    c64 run game.crt                                # boot a session with it mapped
+
+`c64 cart verify` is the one to reach for first: it catches the failures that
+are silent on hardware (a missing CBM80 signature, a vector pointing outside
+the cartridge, an EasyFlash image with no boot window) without an emulator
+round trip. The rest of the `c64 cart` group decodes a container (`info`),
+extracts a bank window for offline disassembly (`dump`), reports live EasyFlash
+banking on the running machine (`bank`), and shells out to VICE's `cartconv`
+for types this tool does not model natively (`convert`). Recipients need only
+stock VICE: `x64sc -ntsc -cartcrt game.crt`.
+
+Full command reference: [docs/cli.md](docs/cli.md#cartridges). The
+`cartridge-programming` skill covers the boot mechanisms, the memory modes,
+and the EasyFlash banking discipline.
+
 ## Status
 
-Stable — current release **v0.3.1**. Full history: [CHANGELOG.md](CHANGELOG.md).
+Stable — current release **v0.4.0**. Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## AI Disclosure
 

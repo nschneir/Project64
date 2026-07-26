@@ -44,7 +44,8 @@ them, and prefer several simple calls over one chained command.
 Tests marked `@pytest.mark.vice` launch a real VICE emulator (`x64sc`);
 everything else runs against `tests/fake_vice.py`, an in-process fake of the
 VICE binary monitor. `c64 build` needs cc65 (`ca65`/`ld65`); `c64 basic`
-needs `petcat`; `c64 disk` needs `c1541` — all external subprocesses.
+needs `petcat`; `c64 disk` needs `c1541`; `c64 cart build`/`convert` (and any
+`.crt` output from `c64 package`) needs `cartconv` — all external subprocesses.
 
 Most live tests share **one** warp+headless emulator, via the session-scoped
 fixtures in `tests/conftest.py` — a full run launches ~14 emulators rather than
@@ -72,7 +73,7 @@ Layered, bottom-up in `src/c64lib/`:
 5. **`ops.py`** — shared high-level operations (wait/until primitives, symbol resolution). Exists so the CLI and MCP server cannot drift; put new front-end-facing logic here, not in `cli.py` or `mcp_server.py`.
 6. **Front ends** — `cli.py` (click; every command supports `--json`, the intended AI interface) and `mcp_server.py` (FastMCP; returns the same structured data as `--json`).
 
-Supporting modules: `machines.py` (machine model profiles — RAM size, screen geometry, BASIC start), `build.py` (ca65/ld65), `basic.py` (petcat tokenize/detokenize), `disk.py` (c1541 d64 images), `screen.py`/`text.py` (screen RAM ↔ text), `symbols.py` (.lbl label files), `disasm.py`, `romdoc.py` (ROM identification/annotation — ships only original label annotations, never Commodore ROM bytes), `packaging.py` (`c64 package` → shareable .d64/.prg), `testing.py` (declarative YAML test runner).
+Supporting modules: `machines.py` (machine model profiles — RAM size, screen geometry, BASIC start), `build.py` (ca65/ld65), `basic.py` (petcat tokenize/detokenize), `disk.py` (c1541 d64 images), `screen.py`/`text.py` (screen RAM ↔ text), `symbols.py` (.lbl label files), `disasm.py`, `romdoc.py` (ROM identification/annotation — ships only original label annotations, never Commodore ROM bytes), `packaging.py` (`c64 package` → shareable .d64/.prg/.crt), `cartridge.py` (.crt container parse/verify/dump plus the `cartconv` wrapper), `cart_build.py` (cart-native and wrapped single-region builds, EasyFlash manifest builds, bank-tagged label merging), `testing.py` (declarative YAML test runner).
 
 ## Code quality
 

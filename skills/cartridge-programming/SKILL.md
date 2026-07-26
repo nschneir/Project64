@@ -267,7 +267,10 @@ mode only `$0000-$0FFF` exists.
   `cart.inc` does.
 - **A `.crt` cannot be loaded into a running machine.** `c64 run game.crt`
   stops the session and boots a fresh one with the cartridge attached; there is
-  no `READY.` to wait for, because the cart is already running.
+  no `READY.` to wait for, because the cart is already running. The name and
+  model carry over but the launch flags do not — the CLI reboots windowed at
+  normal speed, so use `c64 session start --cart game.crt --headless --warp`
+  when you want those back. (The `c64_run` MCP tool reboots headless + warp.)
 - **Merged bank symbols are unique by name but not by address.** See below.
 
 ## Debugging a running cartridge

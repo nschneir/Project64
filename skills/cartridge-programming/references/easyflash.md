@@ -26,10 +26,12 @@ with a plain `sta EF_BANK`.
 
 Write-only on real hardware. Under VICE it reads back — measured `$DE00: 02`
 after the cart selected bank 2. With **no** EasyFlash cartridge mapped the
-address is open bus and reads `$FF`, which is why `c64 cart bank` reports mode
-`unknown` on a machine with no such cart. `c64 cart bank` uses that read-back,
-which is why the command is a debugging aid and not something a cartridge may
-imitate: track the current bank in RAM, the way `cart.inc`'s `ef_cur_bank` does.
+address is open bus and reads `$FF`; so does `$DE02`, and since the reported
+mode is decoded from `$DE02` alone, that is what makes `c64 cart bank` say
+mode `unknown` on a machine with no such cart. Because the command leans on a
+read-back real hardware does not offer, treat it as a debugging aid and never
+have the cartridge imitate it: track the current bank in RAM, the way
+`cart.inc`'s `ef_cur_bank` does.
 
 ## `$DE02` — control register
 

@@ -618,7 +618,15 @@ a fresh one of the same name and model with the cartridge attached (with no
 session running it boots a `c64`). A `.lbl` beside the `.crt` is registered on
 the new session, so symbols work straight away.
 
-JSON for a `.crt`: `{"cart", "session", "model", "symbols"}`.
+Only the name and the model survive the relaunch — the **launch flags do
+not**. The CLI always reboots windowed and at normal speed, even if the
+session it replaced was started `--headless --warp`; pass those back
+explicitly with `c64 session start --cart` when you want them. (MCP note:
+`c64_run` reboots headless + warp instead, following that server's convention
+that a client is an automation rather than someone watching a window.)
+
+JSON for a `.crt`: `{"cart", "session", "model", "symbols"}` — `symbols` is
+`null` when there is no sibling `.lbl`.
 
 ---
 
@@ -687,7 +695,11 @@ c64 cart build game.ef.yaml
 
 - `MANIFEST` — the `.ef.yaml` file: a cartridge `name` and a `banks` map of
   bank number to `lo`/`hi` window sources (`.s` files are assembled against
-  that window's own linker config; anything else is included verbatim).
+  that window's own linker config; anything else is included verbatim). `name`
+  defaults to the manifest stem with `.ef` dropped. Bank numbers must be
+  `0-63`, `lo`/`hi` are the only window keys, and **bank 0 must have a `hi:`
+  window** — that is the boot window holding the reset vector, and a manifest
+  without one is rejected before anything is assembled.
 - `-o, --output PATH` — output `.crt` (defaults next to the manifest).
 
 Every window is exactly 8192 bytes and an overflow is a hard error naming the
@@ -735,9 +747,16 @@ Catches the failures that are silent on hardware: a missing CBM80 signature
 pointing outside the cartridge, a wrong image size, and an EasyFlash image
 with no bank 0 HIROM window — which is where the reset vector lives. Prints
 `ok` and exits 0 when clean, otherwise one line per problem and exit 1. A file
-that is not a `.crt` at all is an error, not a reason.
+that is not a parseable `.crt` at all is an error, not a reason.
 
-JSON: `{"path", "ok", "reasons": [...]}`.
+JSON, for an image that parses: `{"path", "ok", "reasons": [...]}` — `ok` is
+`false` exactly when `reasons` is non-empty. An unparseable file takes the
+usual CLI error path instead: `{"error": MESSAGE}` and exit 1, with no `ok`
+key. (MCP note: `c64_cart_verify` is a verdict tool, so it hands that second
+case back as data rather than raising — `{"path", "ok": false, "error":
+MESSAGE}`, with no `reasons` key. Its parseable-image shape is the same
+`{"path", "ok", "reasons"}` as here, so a caller must branch on which of
+`reasons`/`error` is present.)
 
 ### `c64 cart dump`
 
@@ -757,12 +776,14 @@ c64 cart dump game.crt --bank 3 --window hi -o bank3hi.bin
 Asking for a window the image does not have is an error listing the windows
 it does have.
 
-JSON: `{"path", "bank", "window", "bytes"}`.
+JSON: `{"path", "bank", "window", "bytes"}` — `path` is the file that was
+**written** (`-o`), not the `.crt` it was read from.
 
 ### `c64 cart bank`
 
 Report the live EasyFlash state of the running machine: the bank register at
-`$DE00`, the mode register at `$DE02`, and the memory mode they select.
+`$DE00`, the mode register at `$DE02`, and the memory mode `$DE02` selects
+(`$87` → `16k`, `$86` → `8k`, `$84` → `ultimax`, anything else `unknown`).
 
 ```
 c64 cart bank
@@ -770,11 +791,13 @@ c64 cart bank
 
 VICE lets these registers be read back; on real EasyFlash hardware they are
 write-only, so treat this as a debugging aid, not a program interface. With
-no EasyFlash cartridge mapped, `$DE00`/`$DE02` read back as open bus (`$FF`,
-reported as mode `unknown`) — the command is only meaningful on an EasyFlash
-image. Inspection only — the machine's run/stop state is preserved.
+no EasyFlash cartridge mapped both addresses are open bus and read back `$FF`,
+so `$DE02` decodes to mode `unknown` — the command is only meaningful on an
+EasyFlash image. Inspection only — the machine's run/stop state is preserved.
 
-JSON: `{"bank", "de00", "de02", "mode", "led"}`.
+JSON: `{"bank", "de00", "de02", "mode", "led"}` — `bank` is the raw `$DE00`
+byte as an integer, `de00`/`de02` are the same two bytes as `$XX` strings, and
+`led` is bit 7 of `$DE02`.
 
 ### `c64 cart convert`
 
@@ -951,6 +974,10 @@ name: hello-world          # optional; defaults to the file name
 machine: c64           # optional; any c64 model
 program: hello.bas         # .bas/.s/.prg, path relative to this file;
                            #   built/tokenized as needed
+cart: game.crt             # instead of program: — a .crt, a .s, or an
+                           #   .ef.yaml manifest, path relative to this file;
+                           #   built as needed and mapped at power-on
+cart_type: 8k              # default 8k; only consulted when cart: is a .s
 autorun: true              # default true: load and RUN. false = load only
                            #   (then drive it yourself with key steps)
 timeout: 30                # default per-step timeout, seconds
@@ -1008,12 +1035,31 @@ hold` as steps). Step addresses accept everything the CLI does —
 `$hex`/`0xhex`/decimal, symbols from the built program's label file,
 `symbol+offset`, and `@row,col`.
 
+**Cartridge tests.** A spec sets `cart:` **or** `program:`, never both —
+setting both is an error, because a cartridge boots itself and there is
+nothing to autostart. `cart:` is resolved relative to the spec file (exactly
+like `program:`) and takes one of three things: a `.crt`, used as-is; a `.s`,
+built as a single-region cartridge whose geometry comes from `cart_type:`
+(default `8k`, one of `8k`/`16k`/`ultimax`); or an `.ef.yaml`/`.ef.yml`
+manifest, built as an EasyFlash image. Anything else is an error.
+
+With `cart:` set the runner boots its session with the image attached and goes
+**straight to the steps**: there is no `READY.` gate to wait for and `autorun:`
+does not apply, because the cartridge is already running its own code. Symbols
+come from the build's label file for a `.s` or a manifest; for a ready-made
+`.crt` a sibling `.lbl` of the same stem is picked up if it is there, and
+silently skipped if it is not.
+
 JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails.
 
 ### `c64 test programs`
 
-Run every example-program directory (one with an `expect.txt`) as a generated
-test.
+Run every example-program directory as a generated test. A directory qualifies
+when it holds an `expect.txt` (each non-blank line becomes a `wait: {text}`
+step) plus either a `program.bas`/`program.s` or a `test.yaml` with a `cart:`
+key — the cartridge case has no program file of its own. An optional
+`test.yaml` supplies the rest of the spec; its own steps run after the
+`expect.txt` ones.
 
 - `DIRECTORY` (default `tests/programs`).
 
