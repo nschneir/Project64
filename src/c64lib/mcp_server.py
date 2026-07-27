@@ -24,6 +24,7 @@ from .disk import (
     block_read,
     block_write_file,
     build_disk,
+    cbm_lookup_name,
     create_image,
     delete_file,
     get_file,
@@ -681,7 +682,8 @@ def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
 @srv.tool()
 def c64_disk_get(image: str, name: str, dest: str) -> dict:
     """Copy a file off a disk image to the host."""
-    return {"dest": str(get_file(Path(image), name, Path(dest)))}
+    return {"image": str(Path(image)), "name": name,
+            "dest": str(get_file(Path(image), name, Path(dest)))}
 
 
 @srv.tool()
@@ -704,7 +706,10 @@ def c64_disk_rename(image: str, old: str, new: str) -> dict:
     reports a missing file without failing. A wildcard in `old` is refused, so
     a rename can never act on more than the one file you named. Needs no
     session."""
-    return {"image": str(Path(image)), "old": old,
+    # cbm_lookup_name for the echo, not the raw `old`: rename_file looks the
+    # file up through it, so echoing the caller's spelling put {"old": "ALPHA",
+    # "name": "beta"} — two spellings of one convention — in a single payload.
+    return {"image": str(Path(image)), "old": cbm_lookup_name(old),
             "name": rename_file(Path(image), old, new)}
 
 
@@ -715,7 +720,9 @@ def c64_disk_rm(image: str, name: str) -> dict:
     disk — so "deleted" is the count that matters. Errors when nothing matched:
     c1541 answers a no-match scratch exactly like a successful one apart from
     that count. Needs no session."""
-    return {"image": str(Path(image)), "name": name,
+    # The normalized name, for the same reason as rename: a caller told its
+    # `AL*` matched 1 file when what actually ran was `al*`.
+    return {"image": str(Path(image)), "name": cbm_lookup_name(name),
             "deleted": delete_file(Path(image), name)}
 
 

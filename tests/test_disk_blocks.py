@@ -543,6 +543,34 @@ def test_validate_flags_a_repair_the_free_count_cannot_show(image):
 
 
 @needs_c1541
+def test_validate_reports_structural_damage_instead_of_failing(image):
+    """Validate is the one verb where a DOS status line is a *finding about
+    the image*, not a failed operation — so it lands in `messages`.
+
+    Measured on VICE 3.10: sector 18/1 holds the first directory entry (two
+    bytes of dir link, then type, data track, data sector), so poking its data
+    track to 40 — off the end of a 35-track d64 — makes `-validate` print
+    `ERR = 65, NO BLOCK` twice and still exit 0. Before this, `_run_checked`
+    saw code 65 and raised, so `c64 disk validate` answered its primary use
+    case, a structurally damaged image, with exit 1 and no payload at all.
+    """
+    block_poke(image, 18, 1, 3, bytes([40]))
+    res = validate_image(image)
+    assert res["clean"] is False
+    assert set(res) == {"image", "clean", "blocks_free_before",
+                        "blocks_free_after", "repaired_blocks", "messages"}
+    assert any("no block" in m and "DOS error 65" in m
+               for m in res["messages"]), res["messages"]
+    # Both status lines are reported, not just the first dos_status() finds.
+    assert sum("DOS error 65" in m for m in res["messages"]) == 2, res["messages"]
+    # Measured: this damage is one c1541 does NOT repair — the image comes back
+    # byte-identical and the free count never moves. `clean` is False because
+    # of the finding, not because anything changed.
+    assert res["repaired_blocks"] == 0
+    assert res["blocks_free_before"] == res["blocks_free_after"]
+
+
+@needs_c1541
 def test_validate_reports_a_missing_image_as_a_disk_error(tmp_path):
     # Reading the image to compare it happens before c1541 runs, so without the
     # wrap this is a bare FileNotFoundError rather than a fault the CLI reports.

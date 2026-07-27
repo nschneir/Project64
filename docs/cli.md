@@ -787,6 +787,16 @@ repaired — the free total leaves the directory track out, so a repair confined
 to it does not move it. `clean` is the flag to trust; `repaired_blocks` sizes
 it, and `messages` explains it in words.
 
+Structural damage is the case c1541 *does* speak up about, and it is not
+treated as a failed command. A directory entry whose data block points off the
+end of the disk makes `-validate` print `ERR = 65, NO BLOCK` — still at exit
+0 — so each such status line is reported as a `messages` entry
+(`validate reported no block (DOS error 65) at track 0 sector 40`) and `clean`
+goes `false`. The command still exits 0: a finding about the image is what you
+ran `validate` to get. That damage is also damage c1541 leaves alone —
+measured, the image comes back byte-identical and `repaired_blocks` is
+honestly 0.
+
 JSON: `{"image", "clean", "blocks_free_before", "blocks_free_after",
 "repaired_blocks", "messages"}`.
 
@@ -823,10 +833,22 @@ Files are written in listed order, so the first one autostarts. `.s` entries
 are assembled, `.bas` tokenized, everything else copied verbatim. A manifest
 that would overflow the disk — on blocks or on directory entries — is refused
 before the image is formatted, so a build that cannot fit writes nothing at
-all. An unknown `--model` is refused up front too, for the same reason.
+all (c1541's own overflow handling would leave a truncated file and a corrupt
+BAM). An unknown `--model` is refused up front too, for the same reason.
 
-JSON: `{"image", "label", "files", "blocks_used", "blocks_free",
-"blocks_total", "run"}`.
+**Label files.** Every `.s` entry is assembled, and its VICE label file is
+kept beside the *output image* as `<image-stem>.<cbm-name>.lbl` — a
+`loader.s` written as `boot` onto `game.d64` leaves `game.boot.lbl` next to
+it. Those are the paths `labels` maps each CBM name to; hand one to
+`c64 load --symbols` to debug that file symbolically after booting the disk.
+They are only ever written, never swept: rebuild from a manifest that dropped
+or renamed an entry and the
+previous run's `.lbl` stays where it is, so delete it yourself if a stale
+symbol table would mislead you.
+
+JSON: `{"image", "label", "labels", "files", "blocks_used", "blocks_free",
+"blocks_total", "run"}` — `labels` is `{cbm-name: .lbl path}`, empty when no
+`.s` entry produced one.
 
 ---
 

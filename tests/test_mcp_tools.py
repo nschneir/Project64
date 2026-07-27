@@ -256,7 +256,10 @@ def test_disk_create_put_get(tmp_path):
         err, out = call_tool("c64_disk_get",
                              {"image": str(img), "name": "game",
                               "dest": str(tmp_path / "out.prg")})
-    assert err is False and out == {"dest": str(tmp_path / "out.prg")}
+    # `image` and `name` too, matching what `c64 disk get --json` emits —
+    # `{"dest"}` alone was the last stale divergence in the disk group.
+    assert err is False and out == {"image": str(img), "name": "game",
+                                    "dest": str(tmp_path / "out.prg")}
 
 
 def test_disk_boot(tmp_path):

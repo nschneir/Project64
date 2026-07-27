@@ -84,7 +84,39 @@ def _manifest(tmp_path):
     return m
 
 
+# --- get --------------------------------------------------------------------
+
+@needs_c1541
+def test_get_tool_payload_matches_the_cli(image, tmp_path):
+    """`c64_disk_get` returned `{"dest"}` alone where the CLI emits
+    `{"image", "name", "dest"}` — the one stale divergence left in a release
+    headlined "MCP parity for the disk verbs"."""
+    dest = tmp_path / "out.prg"
+    mcp_payload = mcp_server.c64_disk_get(str(image), "alpha", str(dest))
+    cli_payload = _cli(["disk", "get", str(image), "alpha", str(dest)])
+    assert mcp_payload == {"image": str(image), "name": "alpha",
+                           "dest": str(dest)}
+    assert mcp_payload == cli_payload
+
+
 # --- rename / rm ------------------------------------------------------------
+
+@needs_c1541
+def test_rename_and_rm_tools_echo_the_normalized_name(tmp_path):
+    """Lockstep with the CLI on the same fix: both front ends echoed the
+    caller's raw argument next to the normalized one the operation used."""
+    img = make_image(tmp_path, "alpha", "album")
+    backup = img.with_suffix(".backup")
+    shutil.copyfile(img, backup)
+    mcp_rename = mcp_server.c64_disk_rename(str(img), "ALPHA", "BETA")
+    mcp_rm = mcp_server.c64_disk_rm(str(img), "AL*")
+    shutil.copyfile(backup, img)
+    cli_rename = _cli(["disk", "rename", str(img), "ALPHA", "BETA"])
+    cli_rm = _cli(["disk", "rm", str(img), "AL*"])
+    assert mcp_rename == {"image": str(img), "old": "alpha", "name": "beta"}
+    assert mcp_rm == {"image": str(img), "name": "al*", "deleted": 1}
+    assert (mcp_rename, mcp_rm) == (cli_rename, cli_rm)
+
 
 @needs_c1541
 def test_rename_tool_payload_matches_the_cli(image):

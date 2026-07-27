@@ -60,8 +60,11 @@ def test_real_c1541_d81(tmp_path):
 @needs_c1541
 def test_get_file_validates_the_name(tmp_path):
     """Measured: `c1541 img -read 'zed,alpha' out` exits 0 and hands back
-    *zed* — the comma ends the name and what follows is parsed as another
-    field, so an unvalidated name reads a file nobody asked for."""
+    *zed* — the comma ends the name and what follows is CBM DOS's type/mode
+    field, judged by its first character (`a` is append; `,p`/`,r`/`,w` work
+    too, `,s`/`,z`/`,` exit 1, and `alpha,zed` exits 1 even though both files
+    exist). It is not a second filename: the read silently returns what
+    *precedes* the comma, which is still a file nobody asked for."""
     img = create_image(tmp_path / "t.d64", label="t", disk_id="01")
     for nm, body in (("alpha", b"ALPHA"), ("zed", b"ZED")):
         p = tmp_path / f"{nm}.prg"

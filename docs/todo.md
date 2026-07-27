@@ -127,8 +127,13 @@ CI item is still open.
       here:** `-read` is mostly stricter than the write paths — measured,
       `zed:alpha`, `alpha:zed`, `0:alpha`, `alpha=p` and `alpha"zed` all exit 1.
       Only the comma case reproduced: `c1541 img -read 'zed,alpha' out` exits 0
-      and returns **zed**'s contents. The docstring and test state only that
-      measured case; wildcards remain legal and are pinned (`-read '*'` is how a
+      and returns **zed**'s contents. **Re-measured (final review):** what
+      follows the comma is CBM DOS's type/mode field, judged by its first
+      character alone — `,alpha` works because `a` is append, as do `,p`, `,r`
+      and `,w`, while `,s`, `,z` and a bare `,` exit 1, and `alpha,zed` exits 1
+      even though both files exist. So the comma never retargets the read at
+      what follows it; it silently reads what *precedes* it. The docstring says
+      that now. Wildcards remain legal and are pinned (`-read '*'` is how a
       disk's autostart program is pulled back off an image).
 - [x] Case asymmetry in the file API closed at both ends — `put_file`'s explicit
       `name=` now goes through `cbm_filename` (round-trip test added) and

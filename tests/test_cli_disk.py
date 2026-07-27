@@ -103,6 +103,27 @@ def test_cli_rename_json_shape(tmp_path):
 
 
 @needs_c1541
+def test_cli_rename_and_rm_echo_the_normalized_name(tmp_path):
+    """The payload must say what the operation actually did.
+
+    Every lookup goes through cbm_lookup_name, which lower-cases — so echoing
+    the caller's raw argument put `{"old": "ALPHA", "name": "beta"}` in one
+    payload, two spellings of the same convention side by side, and told a
+    scripted caller its `rm` had matched `AL*` when what ran was `al*`.
+    """
+    img = make_image(tmp_path, "alpha", "album")
+    r = CliRunner().invoke(main, ["--json", "disk", "rename", str(img),
+                                  "ALPHA", "BETA"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output) == {"image": str(img), "old": "alpha",
+                                    "name": "beta"}
+    r = CliRunner().invoke(main, ["--json", "disk", "rm", str(img), "AL*"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output) == {"image": str(img), "name": "al*",
+                                    "deleted": 1}
+
+
+@needs_c1541
 def test_cli_rename_reports_a_missing_source_file(tmp_path):
     img = make_image(tmp_path)
     r = CliRunner().invoke(main, ["disk", "rename", str(img), "nope", "beta"])

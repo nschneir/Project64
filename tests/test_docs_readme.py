@@ -45,6 +45,18 @@ def test_mcp_json_snipc64_parses():
         "agent setup doc needs a fenced json mcpServers snippet using c64-tools-mcp"
 
 
+def test_readme_names_the_domain_skills_beside_their_sections():
+    """The Cartridges section names `cartridge-programming`; the Disk images
+    section shipped without ever naming `disk-io-programming`, so the skill
+    was undiscoverable from the one page that introduces disk work."""
+    text = README.read_text()
+    for heading, skill in (("## Disk images", "disk-io-programming"),
+                           ("## Cartridges", "cartridge-programming")):
+        idx = text.index(heading)
+        section = text[idx:text.index("\n## ", idx + 1)]
+        assert skill in section, f"{heading} never names the `{skill}` skill"
+
+
 def test_readme_c64_commands_exist():
     valid = valid_mention_paths()  # leaf commands plus bare group names
     for doc in (README, AGENT_SETUP):

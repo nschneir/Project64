@@ -26,6 +26,7 @@ from .disk import (
     block_read,
     block_write_file,
     build_disk,
+    cbm_lookup_name,
     create_image,
     delete_file,
     get_file,
@@ -1320,6 +1321,11 @@ def disk_rename(ctx, image, old, new):
     failing, so this checks the DOS status and errors instead.
     """
     try:
+        # cbm_lookup_name for the echo, not the raw OLD: rename_file looks the
+        # file up through it, so echoing the caller's spelling put
+        # {"old": "ALPHA", "name": "beta"} — two spellings of one convention —
+        # in a single payload.
+        old = cbm_lookup_name(old)
         name = rename_file(image, old, new)
     except DiskError as e:
         fail(ctx, str(e))
@@ -1341,6 +1347,9 @@ def disk_rm(ctx, image, name):
     apart from the count, so the count is what is reported and checked.
     """
     try:
+        # The normalized name, for the same reason as rename: a caller was
+        # told its `AL*` matched 1 file when what actually ran was `al*`.
+        name = cbm_lookup_name(name)
         count = delete_file(image, name)
     except DiskError as e:
         fail(ctx, str(e))
@@ -1442,17 +1451,21 @@ def disk_block_write(ctx, image, track, sector, values, src, offset):
 def disk_validate(ctx, image):
     """Check (and repair) IMAGE's block allocation — the CBM fsck.
 
-    Like the real command this rewrites the BAM in place. c1541 reports
-    nothing either way, so cleanliness is judged by comparing the image
-    before and after; the blocks-free figures are the evidence.
+    Like the real command this rewrites the BAM in place. c1541 says nothing
+    about a BAM it repaired, so a repair is judged by comparing the image
+    before and after; the blocks-free figures are the evidence. Structural
+    damage it does report, as a DOS error — that is a finding about the image,
+    not a failed command, so it comes back in `messages` at exit 0.
     """
     try:
         res = validate_image(image)
     except DiskError as e:
         fail(ctx, str(e))
         return
-    human = ("clean" if res["clean"]
-             else "\n".join(res["messages"] + ["image repaired in place"]))
+    # No blanket "image repaired in place" tail: the damage validate *reports*
+    # (DOS error 65 on a directory entry pointing off the disk) is damage it
+    # leaves alone, so the messages say what happened and nothing more.
+    human = "clean" if res["clean"] else "\n".join(res["messages"])
     emit(ctx, res, human)
 
 

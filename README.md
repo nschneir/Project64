@@ -147,8 +147,13 @@ that cannot fit writes nothing at all.
 c1541 exits 0 on a surprising number of failures (a rename of a file that
 isn't there, a scratch that matched nothing, a sector poke running off the end
 of a sector), so these commands judge success from the DOS status line and the
-resulting image rather than from the exit code alone. Full command reference:
-[docs/cli.md](docs/cli.md#disk-images).
+resulting image rather than from the exit code alone. `c64 disk validate` is
+the exception that proves it: a DOS error there describes the *image*, so it
+is reported in the result rather than raised.
+
+Full command reference: [docs/cli.md](docs/cli.md#disk-images). The
+`disk-io-programming` skill covers the runtime half — the KERNAL `LOAD`/`SAVE`
+and channel calls, and the secondary address that decides where a file lands.
 
 ## Cartridges
 

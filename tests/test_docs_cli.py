@@ -28,6 +28,30 @@ def test_session_commands_share_name_option():
             f"session {cmd_name} lacks -s/--name (has {sorted(names)})"
 
 
+def _section(text: str, heading: str) -> str:
+    idx = text.index(heading)
+    return text[idx:text.index("\n---", idx)]
+
+
+def test_disk_build_documents_its_labels_key_and_lbl_side_effect():
+    """`build_disk` always returns `labels`, and for every `.s` entry it writes
+    a `<image-stem>.<cbm-name>.lbl` into the *output* directory. A file
+    appearing beside a user's image has to be named where a user would look."""
+    section = _section(DOC.read_text(), "### `c64 disk build`")
+    assert '"labels"' in section, "the build payload's `labels` key is undocumented"
+    assert ".lbl" in section, "the `.lbl` files build writes are undocumented"
+
+
+def test_disk_validate_documents_its_damage_findings():
+    """`validate` is the one verb where a DOS status line is a finding about
+    the image rather than a failed operation, so it reports rather than
+    erroring — the docs' `messages` promise has to say so."""
+    section = _section(DOC.read_text(), "### `c64 disk validate`")
+    assert "messages" in section
+    assert "65" in section, \
+        "the docs never mention the DOS error validate reports as a finding"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

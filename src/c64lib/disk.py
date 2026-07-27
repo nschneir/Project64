@@ -273,8 +273,13 @@ def get_file(image: str | Path, name: str, dest: str | Path) -> Path:
 
     NAME goes through cbm_lookup_name for the same reason the write paths do.
     Measured: `c1541 img -read 'zed,alpha' out` exits 0 and returns *zed* — the
-    comma ends the name and c1541 parses what follows as a separate field, so
-    an unvalidated name silently reads a file other than the one asked for.
+    comma ends the name, and what follows is CBM DOS's type/mode field, judged
+    by its first character alone. `,alpha` is accepted because `a` is append;
+    so are `,p`, `,r` and `,w`, while `,s`, `,z` and a bare `,` exit 1. It is
+    not a second filename: `alpha,zed` exits 1 even though both files are on
+    the disk. So a comma in NAME does not retarget the read at what follows it
+    — it silently reads whatever *precedes* the comma, which is still a file
+    other than the one asked for.
     The CBM wildcards `*` and `?` stay legal, as they do for delete_file:
     `-read '*'` fetches the first directory entry (measured), which is how a
     disk's autostart program is pulled back off an image.
@@ -493,15 +498,45 @@ def block_poke(image: str | Path, track: int, sector: int, offset: int,
                  f"poking track {track} sector {sector}")
 
 
+def _validate_findings(out: str) -> list[str]:
+    """Every DOS status line `-validate` printed, in report form.
+
+    Not dos_status(): validate can print several ("ERR = 65, NO BLOCK" arrives
+    twice for one bad directory entry — measured), and dos_status returns only
+    the first. Callers of this get all of them.
+    """
+    findings = []
+    for m in _ERR_RE.finditer(out):
+        code = int(m.group(1))
+        if code in _OK_CODES:
+            continue
+        track, sector = int(m.group(3) or 0), int(m.group(4) or 0)
+        where = f" at track {track} sector {sector}" if track or sector else ""
+        findings.append(
+            f"{m.group(2).strip().lower()} (DOS error {code}){where}")
+    return findings
+
+
 def validate_image(image: str | Path) -> dict:
     """Run the CBM allocation check (the disk fsck) over IMAGE, in place.
 
-    Measured: beyond c1541's usual attach/detach chatter, `img -validate` says
-    only `validating in unit 8 ...` — the same line, exit 0 and no DOS status
-    line, whether the BAM was already correct or was silently rewritten. It
-    never reports what it repaired. So cleanliness is decided here by comparing
-    the image before and after: a clean image comes back byte-identical, a
-    repaired one does not.
+    Measured: on a BAM inconsistency, `img -validate` says only `validating in
+    unit 8 ...` beyond c1541's usual attach/detach chatter — the same line,
+    exit 0 and no DOS status line, whether the BAM was already correct or was
+    silently rewritten. It never reports what it repaired. So *repair* is
+    decided here by comparing the image before and after: a byte-identical
+    image was not touched.
+
+    Structural damage is the other half, and it is why this one verb does NOT
+    go through _run_checked. Measured: pointing a directory entry's data block
+    at track 40 of a 35-track d64 makes `-validate` print
+    `ERR = 65, NO BLOCK, 00, 40` (twice) at exit 0 — and _run_checked, which
+    exists so a DOS status line at exit 0 cannot pass for success, saw code 65
+    and raised. That turned `c64 disk validate`'s primary use case, a damaged
+    image, into exit 1 with no payload. Here a status line is a *finding about
+    the image*, not a failed operation, so each one is folded into `messages`
+    and `clean` goes False. (This particular damage c1541 does not repair: the
+    image comes back byte-identical and the free count does not move.)
 
     Like the real command this rewrites the BAM, so it modifies the image.
 
@@ -525,12 +560,19 @@ def validate_image(image: str | Path) -> dict:
         # Cause-neutral: a chmod-000 image is not a missing one.
         raise DiskError(f"cannot read image {image} ({e.strerror})") from None
     before_free = list_files(image)["blocks_free"]
-    _run_checked([str(image), "-validate"], f"validating {image.name}")
+    stdout, stderr = _run2([str(image), "-validate"])
+    combined = stdout + stderr
+    # Not for its return value: dos_status raises on an `ERR =` line whose
+    # format it no longer recognises, and losing that guard here would turn a
+    # c1541 format change into a silently clean report.
+    dos_status(combined)
+    findings = _validate_findings(combined)
     after_bytes = image.read_bytes()
     after_free = list_files(image)["blocks_free"]
-    clean = before_bytes == after_bytes
-    messages: list[str] = []
-    if not clean:
+    repaired = before_bytes != after_bytes
+    clean = not repaired and not findings
+    messages: list[str] = [f"validate reported {f}" for f in findings]
+    if repaired:
         delta = after_free - before_free
         if delta > 0:
             messages.append(
@@ -562,13 +604,16 @@ MAX_DIR_ENTRIES = {".d64": 144, ".d71": 144, ".d81": 296}
 # (GEOMETRY in _geometry_for, TOTAL_BLOCKS and MAX_DIR_ENTRIES in build_disk)
 # indexes bare on the strength of that check. Adding a fifth image format to
 # one dict and not the others would turn that into a naked KeyError, so the
-# coupling is asserted here, at import, instead of being discovered by it.
-assert (IMAGE_DRIVE_TYPES.keys() == GEOMETRY.keys() == TOTAL_BLOCKS.keys()
-        == MAX_DIR_ENTRIES.keys()), (
-    "disk image format tables disagree: "
-    f"IMAGE_DRIVE_TYPES={sorted(IMAGE_DRIVE_TYPES)} "
-    f"GEOMETRY={sorted(GEOMETRY)} TOTAL_BLOCKS={sorted(TOTAL_BLOCKS)} "
-    f"MAX_DIR_ENTRIES={sorted(MAX_DIR_ENTRIES)}")
+# coupling is checked here, at import, instead of being discovered by it.
+# A real `raise`, not an `assert`: `python -O` strips assert statements, and a
+# guard that disappears under the flag a packager reaches for is no guard.
+if not (IMAGE_DRIVE_TYPES.keys() == GEOMETRY.keys() == TOTAL_BLOCKS.keys()
+        == MAX_DIR_ENTRIES.keys()):
+    raise RuntimeError(
+        "disk image format tables disagree: "
+        f"IMAGE_DRIVE_TYPES={sorted(IMAGE_DRIVE_TYPES)} "
+        f"GEOMETRY={sorted(GEOMETRY)} TOTAL_BLOCKS={sorted(TOTAL_BLOCKS)} "
+        f"MAX_DIR_ENTRIES={sorted(MAX_DIR_ENTRIES)}")
 
 # c1541 formats with a single `label,id` argument, so a comma inside the id
 # starts a third field: measured, `-format "g,ab,cd"` exits 0 and writes id
@@ -600,8 +645,24 @@ def _disk_id(path: Path, raw) -> str:
                 hint += f'; quote it: id: "{disk_id.zfill(2)}"'
         raise DiskError(
             f"{path}: disk id {disk_id!r} must be exactly two characters{hint}")
-    for ch in disk_id:
-        if ch in _ID_METACHARACTERS or not 0x20 <= ord(ch.upper()) <= 0x5D:
+    # Case the whole string once and validate THAT, the way cbm_lookup_name
+    # does: 'ß'.upper() is 'SS', so the old per-character ord(ch.upper()) raised
+    # TypeError — a traceback where AGENTS.md promises exit 1, since disk build
+    # catches only DiskError/BuildError/BasicError/KeyError — and 'ı'.upper() is
+    # 'I', inside the range, so a dotless i passed the check and reached c1541's
+    # `-format label,id` as its own non-ASCII self.
+    cased = disk_id.upper()
+    if len(cased) != 2:
+        raise DiskError(
+            f"{path}: disk id {disk_id!r} upper-cases to {cased!r}, "
+            f"{len(cased)} characters; a disk id is exactly two")
+    # `isascii()` and not just the range check on the cased form: unlike
+    # cbm_lookup_name this returns the id the manifest wrote, not the cased
+    # one, so 'ı' passing because 'I' is in range would put the dotless i
+    # itself on the c1541 command line.
+    for ch, up in zip(disk_id, cased, strict=True):
+        if ch in _ID_METACHARACTERS or not ch.isascii() \
+                or not 0x20 <= ord(up) <= 0x5D:
             raise DiskError(
                 f"{path}: disk id {disk_id!r}: {ch!r} does not survive c1541's "
                 "`-format label,id` (use a-z, 0-9, or simple punctuation)")
@@ -777,12 +838,26 @@ def build_disk(manifest: str | Path, out: str | Path | None = None,
         create_image(staged, label=spec["label"].lower(), disk_id=spec["id"])
         for entry, artifact, _ in planned:
             put_file(staged, artifact, entry["cbm_name"])
-        # Nothing above this line can touch OUT; nothing below it can fail.
+        # Nothing above this line can touch OUT: the whole image is built in a
+        # staging directory and swapped in with one atomic rename, so a build
+        # that fails anywhere above leaves an existing OUT exactly as it was.
+        # Below the line is a different guarantee — the label copies CAN fail
+        # (a full disk, a read-only output directory), and if one does it
+        # raises with OUT already replaced. That is the deliberate ordering:
+        # the image is the artifact, the .lbl files are a convenience beside
+        # it, so a half-written set of labels beats a build that lost the image.
         os.replace(staged, image)
 
         # After the swap, while workdir still exists: build_asm writes its
         # label file next to the .prg it produced, which is inside workdir and
         # about to be deleted with it.
+        #
+        # These are only ever written, never swept: a rebuild whose manifest
+        # dropped or renamed an entry leaves the previous run's
+        # `<stem>.<oldname>.lbl` sitting beside the image. Deliberate — the
+        # sweep would have to glob `<stem>.*.lbl`, which is also what a
+        # hand-written label file beside the image looks like. Documented in
+        # docs/cli.md under `c64 disk build`.
         labels: dict[str, str] = {}
         for entry, artifact, _ in planned:
             lbl = artifact.with_suffix(".lbl")

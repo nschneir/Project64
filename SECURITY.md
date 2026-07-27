@@ -41,8 +41,10 @@ it does with your machine helps you assess risk:
   label/PNG/disk-image/cartridge outputs, and copying files in and out of disk
   images. Some of it edits a named image *in place* — renaming and scratching
   files, writing raw sectors, and repairing the BAM — and `c64 disk build`
-  replaces its output image wholesale. They do not restrict paths, so treat
-  their file arguments with the same care as any shell command's.
+  replaces its output image wholesale, plus writes a `<image-stem>.<name>.lbl`
+  beside it for every assembled entry in the manifest. They do not restrict
+  paths, so treat their file arguments with the same care as any shell
+  command's.
 - **Designed to be driven by AI agents.** When an AI agent operates these
   tools, it acts with your filesystem and shell permissions. Review what an
   agent is asked to do, and prefer running agents in a workspace scoped to

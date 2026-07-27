@@ -36,7 +36,11 @@ disks, and the runtime half of disk I/O.
   `c1541 -validate` prints the same line and exits 0 whether it repaired the
   BAM or not, so this compares the image before and after and reports what
   changed: `clean` is the flag to trust, `repaired_blocks` sizes it, and
-  `messages` explains it in words.
+  `messages` explains it in words. Structural damage c1541 *does* report —
+  a directory entry pointing off the end of the disk prints
+  `ERR = 65, NO BLOCK`, still at exit 0 — and that is a finding about the
+  image rather than a failed command, so it joins `messages` with
+  `clean: false` instead of erroring.
 - **`c64 disk build game.disk.yaml`** (with MCP parity) — build a populated
   game disk in one reproducible step. Files land in listed order so the first
   one autostarts, `.s` entries are assembled and `.bas` tokenized, and the
@@ -67,11 +71,10 @@ disks, and the runtime half of disk I/O.
 - **`c1541` failures are no longer silent.** It exits 0 when renaming a
   missing file, scratching nothing, or poking past the end of a sector, so
   every verb that touches the DOS command channel — `put` (and `build` through
-  it), `rename`, `rm`, `block read`, `block write`, `validate` — now reads the
-  DOS status line and c1541's own diagnostics instead of trusting the exit
-  code, and a `c64 disk put` onto a full image reports the failure rather than
-  leaving a truncated file behind. `create`, `ls` and `get` are unchanged:
-  they still judge success by the exit code and the file they produce.
+  it), `rename`, `rm`, `block read`, `block write` — now reads the DOS status
+  line and c1541's own diagnostics instead of trusting the exit code.
+  `create`, `ls` and `get` are unchanged: they still judge success by the exit
+  code and the file they produce.
 
 ## [0.5.0] — 2026-07-25
 

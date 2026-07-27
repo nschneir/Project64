@@ -102,6 +102,23 @@ def test_manifest_rejects_a_disk_id_c1541_would_reparse(tmp_path):
         load_disk_manifest(p)
 
 
+@pytest.mark.parametrize("raw,why", [
+    # 'ß'.upper() is 'SS' — two characters, so the old per-character
+    # ord(ch.upper()) raised TypeError, a traceback where AGENTS.md promises
+    # exit 1 (disk build catches only DiskError/BuildError/BasicError/KeyError).
+    ("ß1", "upper-cases"),
+    # 'ı'.upper() is 'I', which is inside 0x20-0x5D — so the range check passed
+    # and the dotless i reached c1541's `-format label,id` as its own non-ASCII
+    # self. cbm_lookup_name was fixed the same way in wave A.
+    ("ı1", "disk id"),
+])
+def test_manifest_rejects_a_non_ascii_disk_id(tmp_path, raw, why):
+    p = write_manifest(tmp_path, f'label: G\nid: "{raw}"\n'
+                                 "files:\n  - {src: loader.prg}\n")
+    with pytest.raises(DiskError, match=why):
+        load_disk_manifest(p)
+
+
 def test_manifest_explains_an_unquoted_disk_id(tmp_path):
     # Measured: PyYAML reads `id: 01` as the int 1, so the bare length error
     # would name a value the manifest never wrote. The message has to say why.
