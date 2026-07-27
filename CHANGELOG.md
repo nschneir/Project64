@@ -27,9 +27,11 @@ disks, and the runtime half of disk I/O.
   byte poking at an `--offset`. Track/sector are checked against the image's
   real geometry first, so the error names the bound, and both the wrong-sized
   whole-sector write and the poke that runs off the end of a sector — which
-  `c1541` accepts silently — are refused. A read reports the sector as the
-  same `bytes`/`hex` pair `c64 mem read` produces; the payload key is `hex`,
-  in the CLI and MCP alike, and no release ever carried another name.
+  `c1541` accepts silently — are refused. A read reports `bytes` and `hex` —
+  the same two key names `c64 mem read` uses, but not the same meanings: here
+  `bytes` is the count and `hex` carries the sector, where `c64 mem read`'s
+  `bytes` is a decimal int array. The hex payload key is `hex` in the CLI and
+  MCP alike, and no release ever carried another name.
 - **`c64 disk validate`** (with MCP parity) — the CBM allocation check.
   `c1541 -validate` prints the same line and exits 0 whether it repaired the
   BAM or not, so this compares the image before and after and reports what
@@ -63,10 +65,13 @@ disks, and the runtime half of disk I/O.
 
 ### Fixed
 - **`c1541` failures are no longer silent.** It exits 0 when renaming a
-  missing file, scratching nothing, or poking past the end of a sector; every
-  disk operation now reads the DOS status line and c1541's own diagnostics
-  instead of trusting the exit code, so a `c64 disk put` onto a full image
-  reports the failure rather than leaving a truncated file behind.
+  missing file, scratching nothing, or poking past the end of a sector, so
+  every verb that can change or corrupt an image — `put` (and `build` through
+  it), `rename`, `rm`, `block read`, `block write`, `validate` — now reads the
+  DOS status line and c1541's own diagnostics instead of trusting the exit
+  code, and a `c64 disk put` onto a full image reports the failure rather than
+  leaving a truncated file behind. `create`, `ls` and `get` are unchanged:
+  they still judge success by the exit code and the file they produce.
 
 ## [0.5.0] — 2026-07-25
 

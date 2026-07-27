@@ -699,3 +699,33 @@ def test_prepare_disk_rejects_an_unknown_extension(tmp_path):
     (tmp_path / "game.prg").write_bytes(b"\x01\x08")
     with pytest.raises(TestError, match=r"must be a \.d64"):
         prepare_disk(tmp_path, "game.prg")
+
+
+def test_disk_autorun_false_waits_for_the_load_to_finish(tmp_path):
+    """`autorun: false` means "load, don't RUN" for a disk exactly as it does
+    for a program — and the load gate has to apply too, or the first `key`
+    step types into a machine still pulling bytes off the serial bus."""
+    from c64lib.testing import _loaded
+
+    img = _d64(tmp_path / "game.d64")
+    s, mon = _fake_session()
+    spec = _spec(disk=str(img), dir=str(tmp_path), autorun=False)
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen",
+               return_value=(True, "READY.")) as waited:
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    mon.autostart.assert_called_once_with(img.resolve(), run=False)
+    # Two gates: the READY. prompt, then the load itself.
+    assert len(waited.call_args_list) == 2
+    assert waited.call_args_list[1].args[1] is _loaded
+
+
+def test_disk_autorun_false_load_never_finishes(tmp_path):
+    img = _d64(tmp_path / "game.d64")
+    s, _ = _fake_session()
+    spec = _spec(disk=str(img), dir=str(tmp_path), autorun=False, timeout=0.2)
+    with patch("c64lib.testing._wait_screen",
+               side_effect=[(True, "READY."), (False, "LOADING")]), \
+         pytest.raises(TestError, match="never finished loading"):
+        run_test(spec, launch=Mock(return_value=s))

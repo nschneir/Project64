@@ -33,11 +33,6 @@ def program_kind(demo: Path) -> str:
     return "loadable"
 
 
-def is_cart_program(demo: Path) -> bool:
-    """True for an example program that ships as a cartridge."""
-    return program_kind(demo) == "cart"
-
-
 def example_programs(kind: str) -> list[Path]:
     """Example-program directories of one kind.
 

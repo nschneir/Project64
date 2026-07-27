@@ -578,26 +578,28 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
             ok, screen_text = _wait_screen(session, lambda t: "READY." in t, 45.0)
             if not ok:
                 raise TestError(f"machine never reached READY.; screen:\n{screen_text}")
+            started = None
             if disk_path:
                 # Attaching the image at launch only makes drive 8 hold it; the
                 # machine still boots to BASIC. Autostarting the image is what
                 # issues LOAD"*",8,1 — the disk's first file, which is why
                 # `disk build` writes a manifest in listed order.
-                with session.monitor() as mon:
-                    try:
-                        mon.autostart(Path(disk_path).resolve(), run=spec["autorun"])
-                    finally:
-                        mon.release()
+                started = Path(disk_path).resolve()
             elif spec.get("program"):
                 prg, lbl = _prepare(spec["program"], profile)
                 if lbl is not None and Path(lbl).exists():
                     labels = load_labels(lbl)   # until/poke steps take symbols
+                started = Path(prg).resolve()
+            if started is not None:
                 with session.monitor() as mon:
                     try:
-                        mon.autostart(Path(prg).resolve(), run=spec["autorun"])
+                        mon.autostart(started, run=spec["autorun"])
                     finally:
                         mon.release()
                 if not spec["autorun"]:
+                    # Nothing gates a load-only start but this: without it the
+                    # first step runs while bytes are still coming off the
+                    # serial bus, which for a disk is seconds even in warp.
                     ok, screen_text = _wait_screen(session, _loaded, spec["timeout"] + 15)
                     if not ok:
                         raise TestError(

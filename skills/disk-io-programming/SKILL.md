@@ -65,10 +65,14 @@ padded with `$A0`. That is exactly what ca65 emits for `.byte "DATA"`, so
 **write the name in uppercase in assembly** and it matches. (In BASIC sources
 the petcat rule is the opposite — lowercase there.)
 
-**A runtime LOAD is silent.** `SEARCHING FOR` / `LOADING` appear only for the
-autostart, in direct mode; the LOAD the program itself issues prints nothing
-(measured — the reference program's screen shows the messages once, for the
-boot, and never for the file it pulls in).
+**A runtime LOAD is silent — but only because BASIC made it so.** The KERNAL
+prints `SEARCHING FOR` / `LOADING` when bit 7 of **MSGFLG (`$9D`)** is set,
+and `RUN` clears it, so a loader reached through `RUN` says nothing while the
+same loader `SYS`ed from the `READY.` prompt announces itself. Measured all
+three ways on the reference program: `$9D` reads `$80` at the prompt; `SYS
+2061` there prints `SEARCHING FOR DATA` / `LOADING`; and `POKE 157,0 : SYS
+2061` prints nothing but the program's own output. Do not use the absence of
+those messages as evidence a load happened — check the carry.
 
 ## Saving a file
 
@@ -122,6 +126,10 @@ loop:   jsr $FFCF           ; CHRIN — one byte in A
         jsr $FFC3           ; CLOSE
 ```
 
+The name handed to SETNAM here carries the file's type and mode, not just its
+name — `SCORES,S,R` to read the sequential file back, `SCORES,S,W` to create
+it. See "PRG vs SEQ" below; leaving the type off does not do what you expect.
+
 Check `READST` (`$FFB7`) after **every** read: bit 6 (64) is end of file and bit
 7 (128) is device not present. The full bit table is in
 `skills/c64-development/references/kernal-routines.md`.
@@ -169,12 +177,22 @@ identically from either end.
 ## Conventions worth internalising
 
 - **Device 8** is the first drive. `c64 disk boot` and a plain `x64sc image.d64`
-  autostart with `LOAD"*",8,1` — `*` means "the first directory entry", which is
-  why `c64 disk build` writes a manifest's files in listed order and why the
-  loader has to be first.
+  autostart with `LOAD"*",8,1`, and on a drive that has not touched a file yet
+  — which is the state at power-on, and the only state autostart cares about —
+  `*` is the first directory entry. That is why `c64 disk build` writes a
+  manifest's files in listed order and why the loader has to be first. **`*` is
+  not a synonym for "first file" after that:** the drive remembers the last
+  name it accessed and `*` matches that instead. Measured — `LOAD"DATA",8,1`
+  followed by `LOAD"*",8,1` loads DATA a second time, leaving the first entry
+  untouched. Name the file you mean.
 - **PRG vs SEQ**: `c64 disk put` and `c64 disk build` write PRG files. A PRG
   carries a load address; a SEQ is a plain byte stream you read through a
-  channel. Give a data file a deliberate PRG header and life is simpler.
+  channel. The type lives in the *name* you hand to OPEN, after the filename:
+  `open 2,8,2,"scores,s,w"` creates a sequential file for writing and
+  `"scores,s,r"` reopens it for reading. Measured: leaving the type field out
+  (`"scores,w"`) does not fall back to PRG — the drive created a SEQ either
+  way, so spell the type out. Give a data file a deliberate PRG header and
+  LOAD it instead, and life is simpler.
 - **Names are PETSCII, max 16 characters**, and `"` `:` `,` `=` are DOS
   metacharacters that silently retarget an operation — `c64 disk` rejects them
   for you. `*` and `?` are wildcards, legal in a lookup (`c64 disk rm game.d64

@@ -1217,9 +1217,12 @@ the image ever being started.
 Unlike a cartridge, a disk **does** wait for `READY.`: attaching an image only
 fills drive 8, so the runner then autostarts the image, which issues
 `LOAD"*",8,1` — the disk's *first* file, which is why `c64 disk build` writes a
-manifest in listed order. `autorun:` applies as usual. No symbols are
-available: `c64 disk build` keeps only the image, so a `.s` built onto a disk
-has no label file for `until`/`poke` steps to resolve against.
+manifest in listed order. `autorun:` applies as usual, including its gate:
+`autorun: false` loads without running and the runner then waits for the load
+to finish before the first step, which matters more here than for a `.prg`
+(serial loading is seconds, not milliseconds). No symbols are available:
+`c64 disk build` keeps only the image, so a `.s` built onto a disk has no
+label file for `until`/`poke` steps to resolve against.
 
 JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails.
 
