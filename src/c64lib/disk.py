@@ -105,10 +105,27 @@ def blocks_for(size: int) -> int:
     return max(1, -(-size // BLOCK_PAYLOAD))
 
 
+# The DOS status line. The track/sector pair is optional and the message may
+# itself contain commas ("ERR = 67, ILLEGAL SYSTEM T OR S, 36, 01" — measured),
+# so the message is non-greedy and the numeric pair is anchored to the end of
+# the line rather than assumed. A line that opens `ERR =` and still does not
+# parse is a format change, and dos_status raises rather than reporting "no
+# status" — silent degradation is what makes a scratch look like it matched
+# nothing.
 _ERR_RE = re.compile(
-    r"^ERR = (\d+),\s*([^,]+?),\s*(\d+),\s*(\d+)", re.MULTILINE)
+    r"^ERR = (\d+),\s*(.+?)(?:,\s*(\d+),\s*(\d+))?\s*$", re.MULTILINE)
+_ERR_LINE_RE = re.compile(r"^ERR =", re.MULTILINE)
 
-# c1541's own diagnostics, none of which change the exit code.
+# c1541's out-of-bounds complaint. Not anchored to column 0: the surrounding
+# attach/detach chatter has moved before, and an indented copy is still the
+# same diagnostic.
+_ERROR_LINE_RE = re.compile(r"^\s*Error -\s*(.*?)\s*$", re.MULTILINE)
+
+# c1541's own diagnostics. Measured against VICE 3.10, all three arrive WITH a
+# non-zero exit: a short -bwrite prints "floppy read failed" (rc 1), a
+# duplicate-name -write "floppy write failed" (rc 1), and an overflowing -write
+# "no space on image?" (rc 1). _run2 therefore raises before _run_checked ever
+# scans for them — see the note on that scan.
 _FAILURE_TEXT = ("no space on image?", "floppy write failed",
                  "floppy read failed")
 
@@ -118,11 +135,24 @@ _OK_CODES = (0, 1)
 
 
 def dos_status(out: str) -> tuple[int, str, int, int] | None:
-    """Parse c1541's DOS status line into (code, message, track, sector)."""
+    """Parse c1541's DOS status line into (code, message, track, sector).
+
+    Returns None when there is no status line at all. A status line that does
+    not parse raises instead: every caller treats "no status" as "nothing to
+    check", so a silent None on a changed format would turn a failed scratch
+    into a reported success. Track and sector default to 0 when c1541 omits
+    them.
+    """
     m = _ERR_RE.search(out)
     if not m:
+        if _ERR_LINE_RE.search(out):
+            line = next(ln for ln in out.splitlines() if ln.startswith("ERR ="))
+            raise DiskError(
+                f"cannot parse c1541's DOS status line {line.strip()!r} — its "
+                "format has changed and disk operations can no longer be checked")
         return None
-    return int(m.group(1)), m.group(2).strip(), int(m.group(3)), int(m.group(4))
+    return (int(m.group(1)), m.group(2).strip(),
+            int(m.group(3) or 0), int(m.group(4) or 0))
 
 
 def _c1541() -> str:
@@ -152,9 +182,14 @@ def _run_checked(args: list[str], context: str) -> str:
     Not a complete guarantee, deliberately: DOS code 01 is whitelisted, because
     it is the normal reply both to a real scratch and to one that matched
     nothing ("ERR = 01, FILES SCRATCHED, 00, 00"). A caller whose operation can
-    answer 01 must re-parse the returned stdout with dos_status() and check the
+    answer 01 must re-parse the returned text with dos_status() and check the
     count field itself — see delete_file. The ERR line is deliberately left in
-    the returned stdout for exactly that.
+    the returned text for exactly that.
+
+    Returns stdout AND stderr, joined. dos_status is parsed here from the same
+    combined text, so handing a caller stdout alone would let the two disagree
+    the day c1541 moves the ERR line to stderr — delete_file would read a
+    scratch count of 0 and call a successful delete a missing file.
     """
     stdout, stderr = _run2(args)
     combined = stdout + stderr
@@ -163,13 +198,19 @@ def _run_checked(args: list[str], context: str) -> str:
         code, message, track, sector = status
         detail = f" at track {track} sector {sector}" if track or sector else ""
         raise DiskError(f"{context}: {message.lower()} (DOS error {code}){detail}")
-    for line in combined.splitlines():
-        if line.startswith("Error -"):
-            raise DiskError(f"{context}: {line[len('Error -'):].strip()}")
+    # Both scans below are unreachable on VICE 3.10 and kept deliberately:
+    # every case that prints "Error -" or one of _FAILURE_TEXT also exits
+    # non-zero (measured — see _FAILURE_TEXT), so _run2 has already raised.
+    # They are the guard against a c1541 that reports one of these at exit 0,
+    # which is the exact class of bug this whole function exists for. Do not
+    # delete them because coverage calls them dead.
+    m = _ERROR_LINE_RE.search(combined)
+    if m:
+        raise DiskError(f"{context}: {m.group(1)}")
     for needle in _FAILURE_TEXT:
         if needle in combined:
             raise DiskError(f"{context}: c1541 reported {needle!r}")
-    return stdout
+    return combined
 
 
 def create_image(path: str | Path, label: str = "disk", disk_id: str = "00") -> Path:
@@ -210,15 +251,35 @@ def put_file(image: str | Path, src: str | Path, name: str | None = None) -> str
     name, missing image, missing source — already exits 1, so on this c1541
     (VICE 3.10) the check is a guard against the exit-0 class, not a fix for a
     failure seen slipping through.
+
+    An explicit NAME is validated and lowercased through cbm_filename, so a
+    name written here can be found again by delete_file/rename_file/get_file,
+    which all lowercase their lookup argument. Without it,
+    put_file(img, src, "ALPHA") wrote a file delete_file(img, "ALPHA") could
+    not match. The NAME=None default keeps the bare source stem: the build
+    path already validates its own names in load_disk_manifest, and tightening
+    the default would newly reject stems the `disk put` command accepts today
+    (an underscore is not PETSCII-printable).
     """
     src = Path(src)
-    cbm_name = name or src.stem.lower()
+    cbm_name = cbm_filename(name) if name is not None else src.stem.lower()
     _run_checked([str(image), "-write", str(src), cbm_name],
                  f"writing {src.name} as {cbm_name!r} to {Path(image).name}")
     return cbm_name
 
 
 def get_file(image: str | Path, name: str, dest: str | Path) -> Path:
+    """Read NAME off IMAGE into DEST. Returns DEST.
+
+    NAME goes through cbm_lookup_name for the same reason the write paths do.
+    Measured: `c1541 img -read 'zed,alpha' out` exits 0 and returns *zed* — the
+    comma ends the name and c1541 parses what follows as a separate field, so
+    an unvalidated name silently reads a file other than the one asked for.
+    The CBM wildcards `*` and `?` stay legal, as they do for delete_file:
+    `-read '*'` fetches the first directory entry (measured), which is how a
+    disk's autostart program is pulled back off an image.
+    """
+    name = cbm_lookup_name(name)
     dest = Path(dest)
     _run([str(image), "-read", name, str(dest)])
     if not dest.exists():
@@ -235,7 +296,13 @@ def cbm_filename(raw: str) -> str:
     try:
         return cbm_title(raw).lower()
     except PackageError as e:
+        # cbm_title is shared with the packaging layer, so all of its messages
+        # open with the noun "title". This path is always about a file on a
+        # disk, so swap the noun rather than telling someone naming a file that
+        # their title is wrong.
         msg = str(e)
+        if msg.startswith("title "):
+            msg = f"filename {msg[len('title '):]}"
         if "CBM filename" not in msg:
             msg = f"{msg} — not a legal CBM filename"
         raise DiskError(msg) from None
@@ -255,21 +322,29 @@ def cbm_lookup_name(raw: str) -> str:
     legitimate here (see delete_file), so only the metacharacters that would
     retarget the operation are rejected.
     """
-    name = str(raw).strip()
-    if not name:
+    given = str(raw).strip()
+    if not given:
         raise DiskError("filename is empty")
+    # Case the whole string once and validate THAT, the way cbm_title does,
+    # rather than calling ch.upper() per character: 'ß'.upper() is 'SS', so
+    # ord(ch.upper()) raises TypeError instead of DiskError, and 'ı'/'ſ'
+    # upper-case to 'I'/'S' — in range, so they slipped through into a c1541
+    # argument as their original non-ASCII selves. Validating the cased form
+    # also means the length check counts the characters c1541 will actually
+    # store ('ß' costs two).
+    name = given.upper()
     if len(name) > 16:
         raise DiskError(
-            f"filename {name!r} is {len(name)} chars; CBM names max out at 16")
+            f"filename {given!r} is {len(name)} chars; CBM names max out at 16")
     for ch in name:
         if ch in _DOS_METACHARACTERS:
             raise DiskError(
-                f"filename {name!r}: {ch!r} is a CBM DOS metacharacter — it "
+                f"filename {given!r}: {ch!r} is a CBM DOS metacharacter — it "
                 "would silently retarget this at a different file"
             )
-        if not 0x20 <= ord(ch.upper()) <= 0x5D:
+        if not 0x20 <= ord(ch) <= 0x5D:
             raise DiskError(
-                f"filename {name!r}: {ch!r} won't survive as a CBM filename "
+                f"filename {given!r}: {ch!r} won't survive as a CBM filename "
                 "(use a-z, 0-9, space, and simple punctuation)"
             )
     return name.lower()
@@ -302,6 +377,8 @@ def delete_file(image: str | Path, name: str) -> int:
     wildcards (measured), so it is what you check, not the absence of an error.
     """
     name = cbm_lookup_name(name)
+    # _run_checked returns stdout+stderr, the same text it parsed its own
+    # status from, so this second parse cannot disagree with the first.
     out = _run_checked([str(image), "-delete", str(name)],
                        f"deleting {name!r} from {Path(image).name}")
     status = dos_status(out)
@@ -349,7 +426,9 @@ def block_write_file(image: str | Path, track: int, sector: int,
     try:
         size = src.stat().st_size
     except OSError as e:
-        raise DiskError(f"no such file to write: {src} ({e.strerror})") from None
+        # Cause-neutral lead-in: this catch is every OSError, not just ENOENT,
+        # and "no such file" was a lie for the EACCES case.
+        raise DiskError(f"cannot read {src} ({e.strerror})") from None
     if size != BLOCK_SIZE:
         raise DiskError(
             f"{src}: {size} bytes — a sector write needs exactly {BLOCK_SIZE} "
@@ -358,8 +437,31 @@ def block_write_file(image: str | Path, track: int, sector: int,
                  f"writing track {track} sector {sector}")
 
 
+def block_bytes(values) -> bytes:
+    """Coerce a sequence of byte values to bytes, naming the one that is wrong.
+
+    Python's own bytes() answers a bad element with "bytes must be in range(0,
+    256)" — true, but it never says WHICH value, and both front ends
+    (`c64 disk block write` and the c64_disk_block_write tool) hand it a whole
+    list at once. Living here rather than in either front end is what stops the
+    two from wording the same fault differently.
+    """
+    out = bytearray()
+    for i, v in enumerate(values):
+        try:
+            b = v.__index__()
+        except AttributeError:
+            raise DiskError(
+                f"byte {i} is {v!r}, which is not a whole number") from None
+        if not 0 <= b <= 255:
+            raise DiskError(
+                f"byte {i} is {b}, out of range for a byte (0-255)")
+        out.append(b)
+    return bytes(out)
+
+
 def block_poke(image: str | Path, track: int, sector: int, offset: int,
-               data: bytes) -> None:
+               data) -> None:
     """Write bytes at an offset inside a sector, leaving the rest alone.
 
     An out-of-range track or sector is the safe case: c1541 catches it itself
@@ -368,8 +470,13 @@ def block_poke(image: str | Path, track: int, sector: int, offset: int,
     where it goes quiet — both bad-offset cases exit 0 with no diagnostic at
     all, so the guards below are the only thing standing between a caller and
     a write it never learns went wrong.
+
+    DATA may be bytes or any sequence of ints; it is coerced through
+    block_bytes so an out-of-range value is named rather than surfacing
+    Python's bare "bytes must be in range(0, 256)".
     """
     check_block(image, track, sector)
+    data = block_bytes(data)
     if not data:
         raise DiskError("no bytes to poke")
     if not 0 <= offset < BLOCK_SIZE:
@@ -398,6 +505,14 @@ def validate_image(image: str | Path) -> dict:
 
     Like the real command this rewrites the BAM, so it modifies the image.
 
+    Cost, accepted rather than optimised: 2 whole-image read_bytes() and 3
+    c1541 spawns per call (two `-list`, one `-validate`). That is the price of
+    deciding cleanliness format-agnostically — c1541 reports nothing either
+    way, so the only evidence is the image itself, and comparing bytes works
+    identically on a d64, d71 and d81 (verified on all three). A
+    format-specific BAM walk would be cheaper and would have to be written
+    three times.
+
     `repaired_blocks` is the size of the change in blocks free, which can be 0
     on an image that was genuinely repaired — the reported free total leaves the
     directory track out, so a repair confined to it is invisible in the count
@@ -407,7 +522,8 @@ def validate_image(image: str | Path) -> dict:
     try:
         before_bytes = image.read_bytes()
     except OSError as e:
-        raise DiskError(f"no such image to validate: {image} ({e.strerror})") from None
+        # Cause-neutral: a chmod-000 image is not a missing one.
+        raise DiskError(f"cannot read image {image} ({e.strerror})") from None
     before_free = list_files(image)["blocks_free"]
     _run_checked([str(image), "-validate"], f"validating {image.name}")
     after_bytes = image.read_bytes()
@@ -441,6 +557,19 @@ def validate_image(image: str | Path) -> dict:
 # A block budget alone cannot predict that, so build_disk checks both.
 MAX_DIR_ENTRIES = {".d64": 144, ".d71": 144, ".d81": 296}
 
+# Four dicts, one key set. drive_type_for is the only guarded lookup — it is
+# what raises the message naming the supported types — and everything after it
+# (GEOMETRY in _geometry_for, TOTAL_BLOCKS and MAX_DIR_ENTRIES in build_disk)
+# indexes bare on the strength of that check. Adding a fifth image format to
+# one dict and not the others would turn that into a naked KeyError, so the
+# coupling is asserted here, at import, instead of being discovered by it.
+assert (IMAGE_DRIVE_TYPES.keys() == GEOMETRY.keys() == TOTAL_BLOCKS.keys()
+        == MAX_DIR_ENTRIES.keys()), (
+    "disk image format tables disagree: "
+    f"IMAGE_DRIVE_TYPES={sorted(IMAGE_DRIVE_TYPES)} "
+    f"GEOMETRY={sorted(GEOMETRY)} TOTAL_BLOCKS={sorted(TOTAL_BLOCKS)} "
+    f"MAX_DIR_ENTRIES={sorted(MAX_DIR_ENTRIES)}")
+
 # c1541 formats with a single `label,id` argument, so a comma inside the id
 # starts a third field: measured, `-format "g,ab,cd"` exits 0 and writes id
 # `ab`, dropping `cd` without a word. The rest are the CBM DOS metacharacters
@@ -459,10 +588,16 @@ def _disk_id(path: Path, raw) -> str:
         # Measured: PyYAML reads an unquoted `id: 01` as the integer 1, so the
         # id that arrives here is a character shorter than the one the manifest
         # wrote. Say so, the way the bank-key guard explains YAML's coercions.
-        hint = "" if isinstance(raw, str) else (
-            f" — an unquoted id is parsed by YAML as a "
-            f"{type(raw).__name__} ({raw!r} here, so `01` arrives as `1`); "
-            f'quote it: id: "{disk_id.zfill(2)}"')
+        hint = ""
+        if not isinstance(raw, str):
+            hint = (f" — an unquoted id is parsed by YAML as a "
+                    f"{type(raw).__name__} ({raw!r} here, so `01` arrives "
+                    f"as `1`)")
+            # Only offer the quote-it fix when it produces a legal id. For
+            # `id: 12345` zfill(2) is a no-op and the suggestion would be a
+            # value the very next length check rejects.
+            if len(disk_id.zfill(2)) == 2:
+                hint += f'; quote it: id: "{disk_id.zfill(2)}"'
         raise DiskError(
             f"{path}: disk id {disk_id!r} must be exactly two characters{hint}")
     for ch in disk_id:
@@ -574,6 +709,22 @@ def build_disk(manifest: str | Path, out: str | Path | None = None,
     does not fit by leaving a truncated 664-block file behind, and answers the
     145th file by failing with the first 144 already written. Predicting the
     cost from the source sizes turns both into an error that names the file.
+
+    Every `.s` entry's `.lbl` is copied beside OUT as
+    `<out-stem>.<cbm-name>.lbl` and returned under `labels`, keyed by CBM name,
+    so a program loaded off the built disk can still be debugged symbolically.
+    One file per entry rather than one merged table: two assembled programs on
+    one disk are separate namespaces, and merging them would silently collide
+    on every `start`/`loop` they share.
+
+    Known limit, documented rather than fixed: the staging directory lives
+    beside OUT (it has to, for os.replace to stay atomic), so a SIGKILL — not
+    an ordinary failure, which the context manager cleans up — can orphan a
+    `.<stem>-build-*` directory there. Sweeping stale siblings at the start of
+    the next build was the alternative and was rejected: it cannot tell a dead
+    directory from the live staging area of a build running concurrently
+    against the same output, and deleting that one would break a working build
+    to tidy up after a dead one. Removing the stray by hand is safe.
     """
     spec = load_disk_manifest(manifest)
     path = spec["path"]
@@ -629,8 +780,20 @@ def build_disk(manifest: str | Path, out: str | Path | None = None,
         # Nothing above this line can touch OUT; nothing below it can fail.
         os.replace(staged, image)
 
+        # After the swap, while workdir still exists: build_asm writes its
+        # label file next to the .prg it produced, which is inside workdir and
+        # about to be deleted with it.
+        labels: dict[str, str] = {}
+        for entry, artifact, _ in planned:
+            lbl = artifact.with_suffix(".lbl")
+            if entry["src"].suffix.lower() != ".s" or not lbl.exists():
+                continue
+            kept = image.parent / f"{image.stem}.{entry['cbm_name']}.lbl"
+            shutil.copyfile(lbl, kept)
+            labels[entry["cbm_name"]] = str(kept)
+
     listing = list_files(image)
-    return {"image": str(image), "label": spec["label"],
+    return {"image": str(image), "label": spec["label"], "labels": labels,
             "files": [f["name"] for f in listing["files"]],
             "blocks_used": total - listing["blocks_free"],
             "blocks_free": listing["blocks_free"], "blocks_total": total,

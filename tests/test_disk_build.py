@@ -1,5 +1,6 @@
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from c64lib.disk import (
     load_disk_manifest,
     put_file,
 )
+from c64lib.symbols import parse_labels
 
 needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
                                  reason="needs VICE's c1541")
@@ -105,8 +107,21 @@ def test_manifest_explains_an_unquoted_disk_id(tmp_path):
     # would name a value the manifest never wrote. The message has to say why.
     p = write_manifest(tmp_path, "label: G\nid: 01\n"
                                  "files:\n  - {src: loader.prg}\n")
-    with pytest.raises(DiskError, match="quote"):
+    with pytest.raises(DiskError, match="quote") as exc:
         load_disk_manifest(p)
+    assert 'id: "01"' in str(exc.value)
+
+
+def test_an_uncoercible_disk_id_is_not_told_to_quote_an_illegal_value(tmp_path):
+    # `id: 12345` is an int too, so the YAML explanation still applies — but
+    # zfill(2) is a no-op here, so suggesting `id: "12345"` would recommend a
+    # value the very next length check rejects.
+    p = write_manifest(tmp_path, "label: G\nid: 12345\n"
+                                 "files:\n  - {src: loader.prg}\n")
+    with pytest.raises(DiskError) as exc:
+        load_disk_manifest(p)
+    assert "parsed by YAML" in str(exc.value)
+    assert "quote it" not in str(exc.value)
 
 
 def test_manifest_rejects_an_unknown_key_in_a_file_entry(tmp_path):
@@ -307,3 +322,18 @@ files:
     res = build_disk(p)
     assert [f["name"] for f in list_files(res["image"])["files"]] == [
         "mixed", "code", "level1"]
+
+    # The .lbl build_asm produced lives in a temp workdir that dies with the
+    # build, so it is copied beside the image: without it a program loaded off
+    # the disk has no symbol table for `until`/`poke` steps.
+    assert set(res["labels"]) == {"code"}, "only the .s entry has symbols"
+    lbl = Path(res["labels"]["code"])
+    assert lbl.exists() and lbl.parent == Path(res["image"]).parent
+    assert lbl.name == "m.code.lbl"
+    assert "start" in parse_labels(lbl.read_text())
+
+
+@needs_c1541
+def test_build_reports_no_labels_when_nothing_was_assembled(tmp_path):
+    res = build_disk(write_manifest(tmp_path, BASIC_MANIFEST))
+    assert res["labels"] == {}

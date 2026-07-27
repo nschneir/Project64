@@ -57,6 +57,50 @@ def test_real_c1541_d81(tmp_path):
     assert img.stat().st_size > 500_000  # 80-track double-sided image is big
 
 
+@needs_c1541
+def test_get_file_validates_the_name(tmp_path):
+    """Measured: `c1541 img -read 'zed,alpha' out` exits 0 and hands back
+    *zed* — the comma ends the name and what follows is parsed as another
+    field, so an unvalidated name reads a file nobody asked for."""
+    img = create_image(tmp_path / "t.d64", label="t", disk_id="01")
+    for nm, body in (("alpha", b"ALPHA"), ("zed", b"ZED")):
+        p = tmp_path / f"{nm}.prg"
+        p.write_bytes(b"\x01\x08" + body)
+        put_file(img, p, nm)
+
+    dest = tmp_path / "out.prg"
+    for lookup in ("zed,alpha", "alpha:zed", "alpha=p", 'alpha"zed'):
+        with pytest.raises(DiskError, match="metacharacter"):
+            get_file(img, lookup, dest)
+    assert not dest.exists(), "a rejected lookup must not have run c1541"
+
+    # Wildcards stay legal: `-read '*'` fetches the first directory entry,
+    # which is how a disk's autostart program is pulled back off an image.
+    assert get_file(img, "*", dest).read_bytes()[2:] == b"ALPHA"
+
+
+@needs_c1541
+def test_names_round_trip_between_put_and_get(tmp_path):
+    # put_file lowercases an explicit name, and every lookup lowercases too,
+    # so a name written through the API can always be found through it.
+    img = create_image(tmp_path / "r.d64", label="r", disk_id="01")
+    src = tmp_path / "p.prg"
+    src.write_bytes(b"\x01\x08body")
+    assert put_file(img, src, "ALPHA") == "alpha"
+    assert get_file(img, "ALPHA", tmp_path / "back.prg").read_bytes() == \
+        src.read_bytes()
+
+
+@needs_c1541
+def test_put_file_validates_an_explicit_name(tmp_path):
+    img = create_image(tmp_path / "v.d64", label="v", disk_id="01")
+    src = tmp_path / "p.prg"
+    src.write_bytes(b"\x01\x08body")
+    with pytest.raises(DiskError, match="CBM filename"):
+        put_file(img, src, "no:colons")
+    assert list_files(img)["files"] == []
+
+
 def test_c1541_failure_raises_disk_error(tmp_path, monkeypatch):
     import subprocess
 

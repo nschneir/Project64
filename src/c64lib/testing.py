@@ -313,10 +313,12 @@ def prepare_disk(spec_dir: str | Path, disk: str | Path,
     A .d64/.d71/.d81 is used as-is; a .disk.yaml manifest is built first, so a
     reference program can live in source and still be regression-covered.
 
-    No label file comes back, unlike `prepare_cart`: `build_disk` writes each
-    entry's artifact from a temporary directory and keeps only the image, so a
-    disk-built .s has no symbol table to hand to `until`/`poke` steps. A disk
-    spec that needs symbols has to build the program itself.
+    No label file comes back, unlike `prepare_cart`, because a disk can hold
+    several assembled programs and there is no one symbol table to return.
+    `build_disk` does now keep them: each `.s` entry's `.lbl` is copied beside
+    the image as `<image-stem>.<cbm-name>.lbl` (its `labels` key maps CBM name
+    to path), so a disk spec that needs symbols for `until`/`poke` steps can
+    load the one it wants instead of rebuilding the program itself.
     """
     disk = _spec_path(spec_dir, disk)
     name = disk.name.lower()
@@ -602,8 +604,14 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
                     # serial bus, which for a disk is seconds even in warp.
                     ok, screen_text = _wait_screen(session, _loaded, spec["timeout"] + 15)
                     if not ok:
+                        # A disk spec autostarts the image's FIRST file, not a
+                        # program named in the spec, so "program" alone named
+                        # the wrong thing half the time.
+                        what = ("the disk's first file" if disk_path
+                                else "program")
                         raise TestError(
-                            f"program never finished loading; screen:\n{screen_text}")
+                            f"{what} never finished loading; "
+                            f"screen:\n{screen_text}")
         passed = True
         captures: dict[str, int] = {}
         for i, step in enumerate(spec["steps"], start=1):
