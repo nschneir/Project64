@@ -9,7 +9,7 @@ Paste this prompt into your agent:
 > the C64 has a 16-color palette and this game should look vivid, not
 > monochrome: write color RAM ($D800) alongside every character you draw,
 > and give the title, border, snake, food, and HUD their own distinct
-> colors. I want the whole arcade experience, not just a moving snake:
+> colors. Use a custom character set to give the snake, food, and other elements a more realistic look. I want the whole arcade experience, not just a moving snake:
 >
 > - **Title screen** — the game's name drawn large with PETSCII graphics
 >   characters in bright colors, plus "PRESS ANY KEY TO PLAY".
