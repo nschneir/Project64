@@ -447,12 +447,24 @@ MAX_DIR_ENTRIES = {".d64": 144, ".d71": 144, ".d81": 296}
 # cbm_lookup_name already refuses in filenames.
 _ID_METACHARACTERS = '":,='
 
+# Keys a `files:` entry may carry. A typo'd key is refused rather than ignored,
+# the way cart_build refuses an unknown bank window: silently dropping `nmae:`
+# would write the file under a name the author never asked for.
+_FILE_KEYS = {"src", "name"}
+
 
 def _disk_id(path: Path, raw) -> str:
     disk_id = str(raw)
     if len(disk_id) != 2:
+        # Measured: PyYAML reads an unquoted `id: 01` as the integer 1, so the
+        # id that arrives here is a character shorter than the one the manifest
+        # wrote. Say so, the way the bank-key guard explains YAML's coercions.
+        hint = "" if isinstance(raw, str) else (
+            f" — an unquoted id is parsed by YAML as a "
+            f"{type(raw).__name__} ({raw!r} here, so `01` arrives as `1`); "
+            f'quote it: id: "{disk_id.zfill(2)}"')
         raise DiskError(
-            f"{path}: disk id {disk_id!r} must be exactly two characters")
+            f"{path}: disk id {disk_id!r} must be exactly two characters{hint}")
     for ch in disk_id:
         if ch in _ID_METACHARACTERS or not 0x20 <= ord(ch.upper()) <= 0x5D:
             raise DiskError(
@@ -497,10 +509,22 @@ def load_disk_manifest(path: str | Path) -> dict:
         if not isinstance(entry, dict) or "src" not in entry:
             raise DiskError(
                 f"{path}: file {i} must be a mapping with a `src:` key")
+        unknown = sorted(set(entry) - _FILE_KEYS)
+        if unknown:
+            raise DiskError(
+                f"{path}: file {i} has unknown key(s) {unknown} "
+                f"(use {' and '.join(sorted(_FILE_KEYS))})")
         src = (path.parent / str(entry["src"])).resolve()
         if not src.exists():
             raise DiskError(
                 f"{path}: file {i} references {entry['src']}, which does not exist")
+        if not src.is_file():
+            # Measured: c1541 -write happily takes a directory path, exits 0 and
+            # leaves a 1-block junk file on the disk — a build that reports
+            # success and ships a broken image.
+            raise DiskError(
+                f"{path}: file {i} references {entry['src']}, which is a "
+                "directory — a disk file must be a file")
         name = entry.get("name")
         name = None if name is None else str(name)
         try:
@@ -537,12 +561,19 @@ def build_disk(manifest: str | Path, out: str | Path | None = None,
     The first file is written first, so `x64sc image.d64` and `c64 disk boot`
     autostart it (they issue LOAD"*",8,1).
 
-    Overflow is refused before the image is formatted, both for blocks and for
-    directory entries: measured, c1541 answers a d64 write that does not fit by
-    leaving a truncated 664-block file behind, and answers the 145th file by
-    failing with the first 144 already written. Either way the half-written
-    image survives, so the cost is predicted from the source sizes instead and
-    a build that cannot fit writes nothing at all.
+    The build is all-or-nothing. Every image is formatted and populated under a
+    temporary name in the output's own directory and renamed over OUT only
+    after the last file has landed, so a build that fails partway leaves an
+    existing image at OUT byte-identical and no half-written one anywhere. That
+    is what makes it safe against the failures c1541 reports mid-write —
+    measured: `-write` of an unreadable source exits 1 with "cannot read file
+    ... Permission denied" after earlier files are already on the disk.
+
+    Overflow is refused earlier still, before anything is formatted, both for
+    blocks and for directory entries: measured, c1541 answers a d64 write that
+    does not fit by leaving a truncated 664-block file behind, and answers the
+    145th file by failing with the first 144 already written. Predicting the
+    cost from the source sizes turns both into an error that names the file.
     """
     spec = load_disk_manifest(manifest)
     path = spec["path"]
@@ -560,7 +591,21 @@ def build_disk(manifest: str | Path, out: str | Path | None = None,
             f"{suffix.lstrip('.')} directory holds {max_entries} — "
             "nothing was written")
 
-    with tempfile.TemporaryDirectory() as td:
+    if not image.parent.is_dir():
+        raise DiskError(f"{path}: no such output directory: {image.parent}")
+    if image.exists() and not image.is_file():
+        # os.replace onto a directory raises IsADirectoryError; say it here,
+        # before a whole image has been built for a destination it cannot use.
+        raise DiskError(f"{path}: output {image} is not a file")
+
+    # Two temporary areas, on purpose. Built artifacts can live anywhere, but
+    # the staged image is renamed over OUT at the end and os.replace is atomic
+    # only within one filesystem — measured, the default temp dir here is a
+    # different device from the working tree, so staging it there would demote
+    # the swap to a copy that can fail halfway.
+    with tempfile.TemporaryDirectory() as td, \
+            tempfile.TemporaryDirectory(
+                dir=image.parent, prefix=f".{image.stem}-build-") as staging:
         workdir = Path(td)
         planned = []
         for entry in spec["files"]:
@@ -577,10 +622,12 @@ def build_disk(manifest: str | Path, out: str | Path | None = None,
                     f"on a {suffix.lstrip('.')} — nothing was written")
             used += cost
 
-        image.unlink(missing_ok=True)
-        create_image(image, label=spec["label"].lower(), disk_id=spec["id"])
+        staged = Path(staging) / image.name
+        create_image(staged, label=spec["label"].lower(), disk_id=spec["id"])
         for entry, artifact, _ in planned:
-            put_file(image, artifact, entry["cbm_name"])
+            put_file(staged, artifact, entry["cbm_name"])
+        # Nothing above this line can touch OUT; nothing below it can fail.
+        os.replace(staged, image)
 
     listing = list_files(image)
     return {"image": str(image), "label": spec["label"],

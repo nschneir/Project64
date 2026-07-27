@@ -1,9 +1,11 @@
+import os
 import shutil
 
 import pytest
 
 from c64lib.disk import (
     DiskError,
+    blocks_for,
     build_disk,
     create_image,
     list_files,
@@ -98,6 +100,34 @@ def test_manifest_rejects_a_disk_id_c1541_would_reparse(tmp_path):
         load_disk_manifest(p)
 
 
+def test_manifest_explains_an_unquoted_disk_id(tmp_path):
+    # Measured: PyYAML reads `id: 01` as the int 1, so the bare length error
+    # would name a value the manifest never wrote. The message has to say why.
+    p = write_manifest(tmp_path, "label: G\nid: 01\n"
+                                 "files:\n  - {src: loader.prg}\n")
+    with pytest.raises(DiskError, match="quote"):
+        load_disk_manifest(p)
+
+
+def test_manifest_rejects_an_unknown_key_in_a_file_entry(tmp_path):
+    p = write_manifest(tmp_path, "label: G\n"
+                                 "files:\n  - {src: loader.prg, nmae: boot}\n")
+    with pytest.raises(DiskError, match="nmae"):
+        load_disk_manifest(p)
+
+
+def test_manifest_rejects_a_directory_source(tmp_path):
+    # Measured: c1541 writes a directory path as a 1-block file at exit 0 —
+    # a junk entry on the disk that reports as a successful build.
+    (tmp_path / "assets").mkdir()
+    p = write_manifest(tmp_path, "label: G\n"
+                                 "files:\n  - {src: assets, name: assets}\n")
+    out = tmp_path / "junk.d64"
+    with pytest.raises(DiskError, match="assets"):
+        build_disk(p, out=out)
+    assert not out.exists()
+
+
 def test_manifest_rejects_duplicate_names(tmp_path):
     p = write_manifest(tmp_path, """\
 label: G
@@ -127,6 +157,9 @@ def test_build_writes_files_in_order_with_the_first_autostartable(tmp_path):
     assert d["label"].strip() == "mygame"
     assert res["blocks_used"] + res["blocks_free"] == res["blocks_total"] == 664
     assert res["run"].endswith(res["image"])
+    # The overflow guard budgets with blocks_for; pin that its prediction is
+    # what the finished image actually spends (15 bytes -> 1, 300 -> 2).
+    assert res["blocks_used"] == blocks_for(15) + blocks_for(300) == 3
 
 
 @needs_c1541
@@ -135,6 +168,17 @@ def test_build_picks_the_image_type_from_the_output_extension(tmp_path):
     res = build_disk(write_manifest(tmp_path, BASIC_MANIFEST), out=out)
     assert res["blocks_total"] == 3160
     assert res["image"] == str(out)
+    assert res["blocks_used"] == blocks_for(15) + blocks_for(300)
+
+
+@needs_c1541
+def test_build_fills_a_d71(tmp_path):
+    out = tmp_path / "two_sided.d71"
+    res = build_disk(write_manifest(tmp_path, BASIC_MANIFEST), out=out)
+    assert res["blocks_total"] == 1328
+    assert res["blocks_used"] == blocks_for(15) + blocks_for(300)
+    assert res["blocks_used"] + res["blocks_free"] == 1328
+    assert [f["name"] for f in list_files(out)["files"]] == ["mygame", "level1"]
 
 
 def test_build_refuses_to_overflow_before_writing_anything(tmp_path):
@@ -167,6 +211,69 @@ def test_build_refuses_more_files_than_the_directory_holds(tmp_path):
     with pytest.raises(DiskError, match=r"145 files.*144"):
         build_disk(p, out=out)
     assert not out.exists()
+
+
+MIDWRITE_MANIFEST = """\
+label: KEEPER
+files:
+  - {src: loader.prg, name: "*"}
+  - {src: locked.bin, name: locked}
+"""
+
+
+def _make_unreadable(path):
+    """chmod a file unreadable, skipping where that has no effect (root)."""
+    os.chmod(path, 0o000)
+    try:
+        path.read_bytes()
+    except OSError:
+        return
+    pytest.skip("cannot make a file unreadable here (running as root?)")
+
+
+@needs_c1541
+def test_build_keeps_the_previous_image_when_a_write_fails(tmp_path):
+    # Measured: c1541 -write of a chmod-000 source exits 1 with "cannot read
+    # file ... Permission denied". That lands mid-loop, after the first file
+    # has been written — the case that must not cost the previous image.
+    locked = tmp_path / "locked.bin"
+    locked.write_bytes(b"\x00" * 300)
+    p = write_manifest(tmp_path, MIDWRITE_MANIFEST)
+    out = tmp_path / "keeper.d64"
+    build_disk(p, out=out)
+    before = out.read_bytes()
+
+    _make_unreadable(locked)
+    try:
+        with pytest.raises(DiskError):
+            build_disk(p, out=out)
+    finally:
+        os.chmod(locked, 0o644)
+
+    assert out.read_bytes() == before, "a failed build must not touch the old image"
+    assert [f["name"] for f in list_files(out)["files"]] == ["keeper", "locked"]
+    strays = [q.name for q in tmp_path.rglob("*")
+              if q.suffix == ".d64" and q != out]
+    assert not strays, f"a failed build left {strays} behind"
+    assert not [q.name for q in tmp_path.iterdir() if q.name.startswith(".")], \
+        "the staging directory must be cleaned up"
+
+
+@needs_c1541
+def test_build_leaves_no_image_when_the_first_write_fails(tmp_path):
+    locked = tmp_path / "locked.bin"
+    locked.write_bytes(b"\x00" * 300)
+    p = write_manifest(tmp_path, MIDWRITE_MANIFEST)
+    out = tmp_path / "fresh.d64"
+    _make_unreadable(locked)
+    try:
+        with pytest.raises(DiskError):
+            build_disk(p, out=out)
+    finally:
+        os.chmod(locked, 0o644)
+    assert not out.exists()
+    assert not list(tmp_path.rglob("*.d64"))
+    assert not [q.name for q in tmp_path.iterdir() if q.name.startswith(".")]
 
 
 @needs_c1541
