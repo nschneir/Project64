@@ -670,7 +670,11 @@ def c64_disk_ls(image: str) -> dict:
 @srv.tool()
 def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
     """Copy a host file onto a disk image."""
-    return {"image": image, "name": put_file(Path(image), Path(file), name)}
+    # str(Path(...)) everywhere `image` is echoed: the CLI emits str(image) off
+    # a click Path, so "./game.d64" comes back "game.d64" — the payloads have
+    # to agree character for character, not just key for key.
+    return {"image": str(Path(image)),
+            "name": put_file(Path(image), Path(file), name)}
 
 
 @srv.tool()
@@ -699,7 +703,7 @@ def c64_disk_rename(image: str, old: str, new: str) -> dict:
     reports a missing file without failing. A wildcard in `old` is refused, so
     a rename can never act on more than the one file you named. Needs no
     session."""
-    return {"image": image, "old": old,
+    return {"image": str(Path(image)), "old": old,
             "name": rename_file(Path(image), old, new)}
 
 
@@ -710,7 +714,7 @@ def c64_disk_rm(image: str, name: str) -> dict:
     disk — so "deleted" is the count that matters. Errors when nothing matched:
     c1541 answers a no-match scratch exactly like a successful one apart from
     that count. Needs no session."""
-    return {"image": image, "name": name,
+    return {"image": str(Path(image)), "name": name,
             "deleted": delete_file(Path(image), name)}
 
 
@@ -724,14 +728,17 @@ def c64_disk_block_read(image: str, track: int, sector: int,
     the CLI's do. Needs no session."""
     data = block_read(Path(image), track, sector)
     if output is not None:
+        dest = Path(output)
         try:
-            Path(output).write_bytes(data)
+            dest.write_bytes(data)
         except OSError as e:
             # Same contract as the CLI's -o: a refused dump names the path.
-            raise OSError(f"{output}: {e.strerror or e}") from None
-        return {"image": image, "track": track, "sector": sector,
-                "output": output, "bytes": len(data)}
-    return {"image": image, "track": track, "sector": sector,
+            # Re-raise the same subclass, so a caller can still tell a
+            # PermissionError from a FileNotFoundError.
+            raise type(e)(f"{dest}: {e.strerror or e}") from None
+        return {"image": str(Path(image)), "track": track, "sector": sector,
+                "output": str(dest), "bytes": len(data)}
+    return {"image": str(Path(image)), "track": track, "sector": sector,
             "bytes": len(data), "hex": data.hex()}
 
 
@@ -747,7 +754,10 @@ def c64_disk_block_write(image: str, track: int, sector: int,
     Wrong-sized whole-sector writes and pokes running off the end of a sector
     are rejected — c1541 accepts both silently. `offset` defaults to 0.
     Needs no session."""
-    if (src is None) == (values is None):
+    # `not values` (not `values is None`) mirrors the CLI's bool(values) on a
+    # click nargs=-1 tuple: an empty VALUES list is no source at all, so
+    # values=[] alone is refused and src + values=[] is a plain --from write.
+    if (src is None) == (not values):
         raise ValueError("give exactly one of --from FILE or VALUES (bytes to poke)")
     if src is not None and offset is not None:
         # None (not 0) is what tells an explicit --offset 0 from an unset one,
@@ -761,7 +771,7 @@ def c64_disk_block_write(image: str, track: int, sector: int,
         at = offset or 0
         block_poke(Path(image), track, sector, at, bytes(values))
         written = len(values)
-    return {"image": image, "track": track, "sector": sector,
+    return {"image": str(Path(image)), "track": track, "sector": sector,
             "written": written, "offset": at}
 
 

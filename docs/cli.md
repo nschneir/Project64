@@ -741,8 +741,9 @@ $ c64 disk block read game.d64 18 0
 Out-of-range tracks and sectors are refused with the limit named
 (`track 40 out of range (1-35 for d64)`).
 
-JSON: `{"image", "track", "sector", "bytes", "hex"}` — `bytes` is the count and
-`hex` the sector as a hex string, the same pair of names `c64 mem read` uses.
+JSON: `{"image", "track", "sector", "bytes", "hex"}` — `hex` is the sector as a
+hex string and `bytes` the count. `c64 mem read` uses the same two key names,
+but its `bytes` is a decimal int array, not a count.
 With `-o`: `{"image", "track", "sector", "output", "bytes"}`, and a dump the
 host refuses to write is reported as an error, not a traceback.
 

@@ -6,7 +6,9 @@ from unittest.mock import Mock, patch
 import pytest
 from click.testing import CliRunner
 
+from c64lib.build import BuildError
 from c64lib.cli import main
+from c64lib.disk import DiskError
 
 needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
                                  reason="needs VICE's c1541")
@@ -234,6 +236,57 @@ def test_cli_block_write_rejects_a_poke_past_the_end(tmp_path):
     assert r.exit_code != 0 and "runs past the end" in r.output
 
 
+def test_cli_block_write_reports_a_bad_byte_token(tmp_path):
+    """The ValueError arm: a token that is not a number fails before any
+    c1541 call, as a message naming the token — not a traceback."""
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
+                                  "1", "0", "$de", "zz"])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)      # a message, not a traceback
+    assert "zz" in json.loads(r.output)["error"]
+
+
+def test_cli_block_write_reports_an_out_of_range_byte(tmp_path):
+    """Same arm, other half: 300 is not a byte. Asserted tolerantly because
+    the wording is the library's to improve — either it names the offending
+    value or it says "range", and both are a message rather than a crash."""
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
+                                  "1", "0", "300"])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)
+    err = json.loads(r.output)["error"]
+    assert "300" in err or "range" in err, err
+
+
+def test_cli_validate_reports_a_disk_error(tmp_path):
+    """`disk validate`'s DiskError arm — untested until now."""
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    with patch("c64lib.cli.validate_image",
+               side_effect=DiskError("no such image to validate: t.d64")):
+        r = CliRunner().invoke(main, ["--json", "disk", "validate", str(img)])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)
+    assert "no such image to validate" in json.loads(r.output)["error"]
+
+
+@pytest.mark.parametrize("exc", [DiskError("disk full: 3 block(s) over"),
+                                 BuildError("ca65 failed on loader.s")])
+def test_cli_build_reports_disk_and_build_errors(tmp_path, exc):
+    """`disk build` catches four exception types; only the KeyError arm had a
+    test. These pin the DiskError and BuildError arms."""
+    with patch("c64lib.cli.build_disk", side_effect=exc):
+        r = CliRunner().invoke(main, ["--json", "disk", "build",
+                                      str(_manifest(tmp_path))])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)
+    assert json.loads(r.output)["error"] == str(exc)
+
+
 @needs_c1541
 def test_cli_validate(tmp_path):
     img = make_image(tmp_path)
@@ -245,6 +298,14 @@ def test_cli_validate(tmp_path):
                          "repaired_blocks", "messages"}
     r = CliRunner().invoke(main, ["disk", "validate", str(img)])
     assert r.exit_code == 0 and "clean" in r.output
+
+
+# `disk build`'s payload. `labels` is additive — it appears only when a .s
+# entry produced a .lbl — so it is allowed but not required; every other key is
+# mandatory and no key beyond these two sets may appear.
+BUILD_KEYS = {"image", "label", "files", "blocks_used", "blocks_free",
+              "blocks_total", "run"}
+BUILD_OPTIONAL_KEYS = {"labels"}
 
 
 def _manifest(tmp_path):
@@ -263,8 +324,7 @@ def test_cli_build_reports_blocks(tmp_path):
     r = CliRunner().invoke(main, ["--json", "disk", "build", str(_manifest(tmp_path)),
                                   "-o", str(tmp_path / "out.d64")])
     data = json.loads(r.output)
-    assert set(data) == {"image", "label", "files", "blocks_used", "blocks_free",
-                         "blocks_total", "run"}
+    assert BUILD_KEYS <= set(data) <= BUILD_KEYS | BUILD_OPTIONAL_KEYS
     assert data["files"] == ["mygame"] and data["blocks_total"] == 664
 
 

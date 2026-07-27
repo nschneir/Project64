@@ -8,6 +8,7 @@ tools.
 
 import inspect
 import json
+import re
 import shutil
 
 import pytest
@@ -61,6 +62,21 @@ def _cli(argv: list[str]) -> dict:
     return json.loads(r.output)
 
 
+def _lockstep(image, tool, argv):
+    """Run the same mutation through both front ends on the same image path,
+    rewinding the image in between, and return the two payloads.
+
+    Same path both times, so the echoed `image` is part of the comparison
+    rather than excused from it.
+    """
+    backup = image.with_suffix(".backup")
+    shutil.copyfile(image, backup)
+    mcp_payload = tool()
+    shutil.copyfile(backup, image)
+    cli_payload = _cli(argv)
+    return mcp_payload, cli_payload
+
+
 def _manifest(tmp_path):
     (tmp_path / "loader.prg").write_bytes(b"\x01\x08payload")
     m = tmp_path / "game.disk.yaml"
@@ -72,8 +88,14 @@ def _manifest(tmp_path):
 
 @needs_c1541
 def test_rename_tool_payload_matches_the_cli(image):
-    assert mcp_server.c64_disk_rename(str(image), "alpha", "beta") == {
-        "image": str(image), "old": "alpha", "name": "beta"}
+    """Lockstep, the way the block tools are checked: not just the shape the
+    tool was written to, but the CLI's own payload for the same rename."""
+    mcp_payload, cli_payload = _lockstep(
+        image,
+        lambda: mcp_server.c64_disk_rename(str(image), "alpha", "beta"),
+        ["disk", "rename", str(image), "alpha", "beta"])
+    assert mcp_payload == {"image": str(image), "old": "alpha", "name": "beta"}
+    assert mcp_payload == cli_payload
     assert [f["name"] for f in mcp_server.c64_disk_ls(str(image))["files"]] == ["beta"]
 
 
@@ -91,8 +113,12 @@ def test_rename_tool_validates_the_new_name(image):
 
 @needs_c1541
 def test_rm_tool_payload_matches_the_cli(image):
-    assert mcp_server.c64_disk_rm(str(image), "alpha") == {
-        "image": str(image), "name": "alpha", "deleted": 1}
+    mcp_payload, cli_payload = _lockstep(
+        image,
+        lambda: mcp_server.c64_disk_rm(str(image), "alpha"),
+        ["disk", "rm", str(image), "alpha"])
+    assert mcp_payload == {"image": str(image), "name": "alpha", "deleted": 1}
+    assert mcp_payload == cli_payload
     with pytest.raises(DiskError, match="no file named"):
         mcp_server.c64_disk_rm(str(image), "alpha")
 
@@ -158,8 +184,33 @@ def test_block_read_tool_rejects_a_bad_track(image):
 def test_block_read_tool_reports_an_unwritable_output(image, tmp_path):
     """A dump the host refuses is a message naming the path, as in the CLI."""
     out = tmp_path / "no-such-dir" / "bam.bin"
-    with pytest.raises(OSError, match=str(out)):
+    # match= is a regex, and a filesystem path is full of regex metacharacters.
+    with pytest.raises(OSError, match=re.escape(str(out))):
         mcp_server.c64_disk_block_read(str(image), 18, 0, output=str(out))
+
+
+@needs_c1541
+def test_block_read_tool_keeps_the_oserror_subclass(image, tmp_path):
+    """A refused dump is re-raised with the path prepended, but as the same
+    OSError subclass — a caller can still tell "no such directory" from
+    "permission denied"."""
+    out = tmp_path / "no-such-dir" / "bam.bin"
+    with pytest.raises(FileNotFoundError):
+        mcp_server.c64_disk_block_read(str(image), 18, 0, output=str(out))
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        try:
+            (locked / "probe").write_bytes(b"")
+        except OSError:
+            pass
+        else:
+            pytest.skip("cannot make a directory unwritable here (running as root?)")
+        with pytest.raises(PermissionError, match=re.escape("bam.bin")):
+            mcp_server.c64_disk_block_read(str(image), 18, 0,
+                                           output=str(locked / "bam.bin"))
+    finally:
+        locked.chmod(0o700)
 
 
 # --- block write ------------------------------------------------------------
@@ -210,6 +261,50 @@ def test_block_write_tool_needs_exactly_one_source(image, tmp_path):
     for kwargs in ({}, {"src": str(src), "values": [1]}):
         with pytest.raises(ValueError, match="exactly one"):
             mcp_server.c64_disk_block_write(str(image), 1, 0, **kwargs)
+
+
+@needs_c1541
+def test_block_write_tool_reads_an_empty_values_list_as_no_source(image, tmp_path):
+    """The CLI's VALUES is a click nargs=-1 tuple, so it tests bool(values):
+    an empty list is no source at all. The tool has to agree in BOTH
+    directions — refuse values=[] alone, and let src + values=[] through as a
+    plain whole-sector write."""
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+    src = tmp_path / "sector.bin"
+    src.write_bytes(bytes(range(256)))
+
+    with pytest.raises(ValueError, match="exactly one"):
+        mcp_server.c64_disk_block_write(str(image), 1, 0, values=[])
+    r = CliRunner().invoke(main, ["--json", "disk", "block", "write",
+                                  str(image), "1", "0"])
+    assert r.exit_code != 0 and "exactly one" in json.loads(r.output)["error"]
+
+    res = mcp_server.c64_disk_block_write(str(image), 1, 0, src=str(src), values=[])
+    assert res == {"image": str(image), "track": 1, "sector": 0,
+                   "written": 256, "offset": 0}
+    assert res == _cli(["disk", "block", "write", str(image), "1", "0",
+                        "--from", str(src)])
+
+
+@needs_c1541
+def test_disk_tools_echo_the_image_the_way_the_cli_does(tmp_path, monkeypatch):
+    """`image` is echoed as str(Path(...)), so an un-normalized argument comes
+    back normalized — exactly what the CLI's click Path already yields. Pinned
+    across every disk tool that echoes it."""
+    monkeypatch.chdir(tmp_path)
+    img = make_image(tmp_path, "alpha")
+    payload = tmp_path / "f1.prg"
+    messy = "./many.d64"                      # what str(Path(...)) collapses
+    assert mcp_server.c64_disk_put(messy, str(payload), "gamma")["image"] == "many.d64"
+    assert mcp_server.c64_disk_rename(messy, "gamma", "delta")["image"] == "many.d64"
+    assert mcp_server.c64_disk_rm(messy, "delta")["image"] == "many.d64"
+    assert mcp_server.c64_disk_block_read(messy, 18, 0)["image"] == "many.d64"
+    assert mcp_server.c64_disk_block_write(messy, 1, 0, values=[1])["image"] == \
+        "many.d64"
+    assert _cli(["disk", "block", "read", messy, "18", "0"])["image"] == "many.d64"
+    assert img.exists()
 
 
 @needs_c1541
@@ -264,8 +359,11 @@ def test_validate_tool_matches_the_cli(image):
 def test_build_tool_matches_the_cli(tmp_path):
     res = mcp_server.c64_disk_build(str(_manifest(tmp_path)))
     assert res["files"] == ["mygame"] and res["blocks_total"] == 664
-    assert set(res) == {"image", "label", "files", "blocks_used", "blocks_free",
-                        "blocks_total", "run"}
+    # `labels` is additive (only a .s entry produces a .lbl); every other key
+    # is mandatory and nothing else may appear.
+    core = {"image", "label", "files", "blocks_used", "blocks_free",
+            "blocks_total", "run"}
+    assert core <= set(res) <= core | {"labels"}
     assert res == _cli(["disk", "build", str(_manifest(tmp_path))])
 
 

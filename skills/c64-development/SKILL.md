@@ -21,8 +21,10 @@ same sessions, semantics, and stopped-state rule. Known differences: `c64 wait`
 is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break`; wait
 timeouts return `{"fired": null, ...}` as data instead of an error; and a few
 commands have no MCP twin yet — `c64 basic tokenize`, `c64 basic detokenize`,
-`c64 sprite encode`, `c64 break disable`/`enable`, and `c64 watch remove`.
-Shell out for those. Every `c64 disk` verb has a twin.
+`c64 sprite encode`, and `c64 break disable`/`enable`. Shell out for those.
+Every `c64 disk` and `c64 cart` verb has a twin; `c64 watch remove` is the
+same command as `c64 break remove`, so `c64_break_remove` removes watchpoints
+too, and `c64 mem get` is only a print-formatting variant of `c64_mem_read`.
 
 ## The loop
 

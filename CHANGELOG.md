@@ -66,7 +66,7 @@ disks, and the runtime half of disk I/O.
 ### Fixed
 - **`c1541` failures are no longer silent.** It exits 0 when renaming a
   missing file, scratching nothing, or poking past the end of a sector, so
-  every verb that can change or corrupt an image — `put` (and `build` through
+  every verb that touches the DOS command channel — `put` (and `build` through
   it), `rename`, `rm`, `block read`, `block write`, `validate` — now reads the
   DOS status line and c1541's own diagnostics instead of trusting the exit
   code, and a `c64 disk put` onto a full image reports the failure rather than

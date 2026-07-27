@@ -12,10 +12,10 @@ calls. There are two ways an agent can use it — pick either or both:
   debug operations as MCP tools over stdio, returning the same structured
   data the CLI's `--json` does. CLI and MCP share the same sessions, so they
   mix freely. A few offline commands are CLI-only, though — `c64 basic
-  tokenize`/`detokenize`, `c64 sprite encode`, `c64 break disable`/`enable`,
-  `c64 watch remove`, and every `c64 disk` verb beyond
-  `create`/`ls`/`put`/`get`/`boot` — so an MCP-wired agent still needs a
-  shell for those.
+  tokenize`/`detokenize`, `c64 sprite encode`, and `c64 break
+  disable`/`enable` — so an MCP-wired agent still needs a shell for those.
+  Every `c64 disk` and `c64 cart` verb has an MCP twin; `c64 watch remove` is
+  the same command as `c64 break remove`, so `c64_break_remove` covers it.
 
 Either way, the agent should read
 [`skills/c64-development/SKILL.md`](../skills/c64-development/SKILL.md) (the
