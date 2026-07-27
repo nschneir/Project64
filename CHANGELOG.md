@@ -6,6 +6,68 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [0.6.0] — 2026-07-27
+
+Disks — complete file CRUD, raw block access, validation, one-command game
+disks, and the runtime half of disk I/O.
+
+### Added
+- **`c64 disk rename` / `c64 disk rm`** (alias `delete`), with MCP parity,
+  complete file CRUD on an image. Both error when nothing matched, which
+  `c1541` does not: renaming a missing file reports
+  `ERR = 62, FILE NOT FOUND` and still exits 0, and a scratch that matched
+  nothing answers with the same `ERR = 01, FILES SCRATCHED` line a real one
+  does — only its count field tells them apart, so `c64 disk rm` reports the
+  count. `rm` takes the CBM wildcards `*` and `?` and the count stays honest
+  under them (`"al*"` removes `alpha` and `album` and reports 2); `"`, `:`,
+  `,` and `=` are refused in both verbs, because CBM DOS parses them inside a
+  name and they would silently retarget the operation at another file.
+- **`c64 disk block read` / `c64 disk block write`** (with MCP parity) — raw
+  256-byte sector access: whole-sector host file I/O in both directions and
+  byte poking at an `--offset`. Track/sector are checked against the image's
+  real geometry first, so the error names the bound, and both the wrong-sized
+  whole-sector write and the poke that runs off the end of a sector — which
+  `c1541` accepts silently — are refused. A read reports the sector as the
+  same `bytes`/`hex` pair `c64 mem read` produces; the payload key is `hex`,
+  in the CLI and MCP alike, and no release ever carried another name.
+- **`c64 disk validate`** (with MCP parity) — the CBM allocation check.
+  `c1541 -validate` prints the same line and exits 0 whether it repaired the
+  BAM or not, so this compares the image before and after and reports what
+  changed: `clean` is the flag to trust, `repaired_blocks` sizes it, and
+  `messages` explains it in words.
+- **`c64 disk build game.disk.yaml`** (with MCP parity) — build a populated
+  game disk in one reproducible step. Files land in listed order so the first
+  one autostarts, `.s` entries are assembled and `.bas` tokenized, and the
+  build is atomic: everything is staged beside the output and renamed over it
+  only after the last file lands, so a build that fails partway leaves an
+  existing image byte-identical. A manifest that would overflow the disk — on
+  blocks *or* on the 144 directory entries a `.d64` holds — is refused before
+  anything is formatted, because a full disk otherwise leaves a truncated file
+  and a corrupt BAM behind.
+- **`disk-io-programming` skill** — the runtime half: the KERNAL `LOAD`/`SAVE`
+  and channel calls, the secondary-address rule that decides where a file
+  lands (measured both ways), reading the drive's own answer off the command
+  channel, and the build-boot-inspect loop. Plus a
+  `references/kernal-disk-io.md` entry-point table checked against the
+  umbrella skill's so the two cannot disagree about an address.
+- **`disk:` in test specs** (`c64 test run`, `c64 test programs`) — a spec or
+  an example-program directory can name a `.d64`/`.d71`/`.d81` or a
+  `.disk.yaml` manifest; the image is built as needed, attached to drive 8 at
+  power-on and autostarted after `READY.`. It is exclusive with `program:`
+  and `cart:`, both of which would otherwise be silently ignored.
+- **`tests/programs/disk-loader/`** — a reference program that boots from a
+  disk and pulls a second file off the same disk *while running*, regression
+  covered end to end on a real emulated 1541. Its data file is a two-byte PRG
+  header and a payload, which is the whole point: under secondary address 1
+  that header is the only thing that decides where the file lands.
+
+### Fixed
+- **`c1541` failures are no longer silent.** It exits 0 when renaming a
+  missing file, scratching nothing, or poking past the end of a sector; every
+  disk operation now reads the DOS status line and c1541's own diagnostics
+  instead of trusting the exit code, so a `c64 disk put` onto a full image
+  reports the failure rather than leaving a truncated file behind.
+
 ## [0.5.0] — 2026-07-25
 
 Cartridges — build, verify, boot and debug `.crt` images.

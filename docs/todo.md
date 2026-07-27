@@ -11,9 +11,9 @@ the function/test names are the durable anchors.
 
 ## Decisions (maintainer)
 
-- [ ] **Release timing for 0.5.0.** `pyproject.toml:7` (`version = "0.5.0"`),
-      `CHANGELOG.md`'s `## [0.5.0]` heading and `README.md:180` ("Stable —
-      current release **v0.5.0**") are coherent today.
+- [ ] **Release timing for 0.6.0.** `pyproject.toml:7` (`version = "0.6.0"`),
+      `CHANGELOG.md`'s `## [0.6.0]` heading and `README.md:180` ("Stable —
+      current release **v0.6.0**") are coherent today.
       `.github/workflows/release.yml` triggers on `push: branches: [main]`, so
       pushing `main` arms the release workflow — there is no tag gate. To ship
       later, revert the bump as a unit (all three files together;
@@ -54,7 +54,7 @@ the function/test names are the durable anchors.
 - [ ] **Version-coherence test.**
       `tests/test_package.py::test_changelog_has_current_version` already pins
       `CHANGELOG.md` to `pyproject.toml`, but nothing pins the README: a
-      version revert can leave `README.md:180` ("current release **v0.5.0**")
+      version revert can leave `README.md:180` ("current release **v0.6.0**")
       stale and green. Add the assertion to `tests/test_docs_readme.py`,
       reusing `tests/test_package.py::_pyproject_version()` and a regex over
       the README release line — parse, never hard-code.
