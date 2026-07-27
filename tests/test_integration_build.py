@@ -11,9 +11,10 @@ from c64lib.build import build_asm
 from c64lib.text import ascii_to_petscii
 from tests.vice_helpers import example_programs, wait_for_text
 
-# The loadable half of the example library; tests/test_integration_cart.py
-# takes the cartridge half from the same predicate.
-PROGRAMS = example_programs(cart=False)
+# The loadable share of the example library; test_integration_cart.py takes
+# the cartridges and test_integration_runner.py the disks, from the same
+# predicate.
+PROGRAMS = example_programs("loadable")
 
 pytestmark = [
     pytest.mark.vice,

@@ -38,7 +38,8 @@ def test_happy_path_key_wait_assert(tmp_path):
     assert result.passed is True
     assert [st.ok for st in result.steps] == [True, True, True]
     launch.assert_called_once_with(model="c64", name=result.session_name,
-                                   headless=True, warp=True, cart=None)
+                                   headless=True, warp=True, cart=None,
+                                   disk8=None)
     mon.keyboard_feed.assert_called_once_with(b"RUN\r")
     s.stop.assert_called_once()
 
@@ -222,7 +223,7 @@ def test_run_test_isolates_from_user_sessions():
     user's session."""
     names = []
 
-    def launch(model, name, headless, warp, cart=None):
+    def launch(model, name, headless, warp, cart=None, disk8=None):
         names.append(name)
         s, _ = _fake_session()
         return s
@@ -546,3 +547,155 @@ def test_prepare_cart_rejects_an_unknown_extension(tmp_path):
     (tmp_path / "game.prg").write_bytes(b"\x01\x08")
     with pytest.raises(TestError, match=r"must be a \.crt"):
         prepare_cart(tmp_path, "game.prg")
+
+
+# --- the disk execution path -------------------------------------------------
+
+def _d64(path: Path) -> Path:
+    """A stand-in image. Nothing on this path reads the bytes: prepare_disk
+    dispatches on the suffix and the runner only forwards the path."""
+    path.write_bytes(bytes(174848))
+    return path
+
+
+def test_disk_spec_resolves_and_leaves_program_unset(tmp_path):
+    """`disk:` resolves against the spec's own directory, like `cart:`."""
+    from c64lib.testing import load_test
+
+    img = _d64(tmp_path / "game.d64")
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("disk: game.d64\nsteps:\n  - wait: {text: HI}\n")
+    spec = load_test(spec_file)
+    assert spec["disk"] == str(img.resolve())
+    assert spec.get("program") is None
+
+
+def test_disk_and_program_are_mutually_exclusive(tmp_path):
+    """Both want the one autostart slot; a spec that sets both would have the
+    disk win silently and the program never load."""
+    from c64lib.testing import load_test
+
+    _d64(tmp_path / "game.d64")
+    (tmp_path / "program.s").write_text("nop\n")
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("disk: game.d64\nprogram: program.s\nsteps: []\n")
+    with pytest.raises(TestError, match="disk.*program"):
+        load_test(spec_file)
+
+
+def test_disk_and_cart_are_mutually_exclusive(tmp_path):
+    """A cartridge boots itself and nothing is autostarted, so a disk named
+    alongside one would be attached and never started."""
+    from c64lib.testing import load_test
+
+    _d64(tmp_path / "game.d64")
+    _crt(tmp_path / "game.crt")
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("disk: game.d64\ncart: game.crt\nsteps: []\n")
+    with pytest.raises(TestError, match="disk.*cart"):
+        load_test(spec_file)
+
+
+def test_missing_disk_file_is_named(tmp_path):
+    from c64lib.testing import load_test
+
+    spec_file = tmp_path / "test.yaml"
+    spec_file.write_text("disk: gone.d64\nsteps: []\n")
+    with pytest.raises(TestError, match="gone.d64"):
+        load_test(spec_file)
+
+
+def test_is_disk_spec_parses_yaml_rather_than_sniffing_text(tmp_path):
+    from c64lib.testing import is_disk_spec
+
+    yes = tmp_path / "yes.yaml"
+    yes.write_text("disk: game.d64\n")
+    no = tmp_path / "no.yaml"
+    no.write_text("# disk: game.d64\nsteps:\n  - key: \"disk:\"\n")
+    assert is_disk_spec(yes) is True
+    assert is_disk_spec(no) is False
+    assert is_disk_spec(tmp_path / "nope.yaml") is False
+
+
+def test_run_test_attaches_the_disk_and_autostarts_the_image(tmp_path):
+    """A disk-booted program is autostarted like any other: the runner gates on
+    READY., then autostarts the image itself (which issues LOAD"*",8,1)."""
+    img = _d64(tmp_path / "game.d64")
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(disk=str(img), dir=str(tmp_path))
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert launch.call_args.kwargs["disk8"] == str(img.resolve())
+    assert mon.autostart.call_args.args[0] == img.resolve()
+
+
+def test_run_test_rejects_a_spec_with_both_disk_and_program(tmp_path):
+    """load_test rejects the pair, but a hand-built spec skips that layer."""
+    img = _d64(tmp_path / "game.d64")
+    launch = Mock()
+    spec = _spec(disk=str(img), program="hello.prg", dir=str(tmp_path))
+    with pytest.raises(TestError, match="disk.*program"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()          # refused before anything booted
+
+
+def test_run_test_rejects_a_spec_with_both_disk_and_cart(tmp_path):
+    img = _d64(tmp_path / "game.d64")
+    crt = _crt(tmp_path / "game.crt")
+    launch = Mock()
+    spec = _spec(disk=str(img), cart=str(crt), dir=str(tmp_path))
+    with pytest.raises(TestError, match="disk.*cart"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+
+
+def test_prepare_disk_passes_an_image_through(tmp_path):
+    from c64lib.testing import prepare_disk
+
+    for name in ("game.d64", "game.d71", "game.d81"):
+        img = _d64(tmp_path / name)
+        assert prepare_disk(tmp_path, name) == img.resolve()
+
+
+def test_prepare_disk_resolves_relative_to_the_spec_dir(tmp_path, monkeypatch):
+    """A spec is portable: `disk:` follows the spec's directory, not the cwd."""
+    from c64lib.testing import prepare_disk
+
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    img = _d64(specs / "game.d64")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert prepare_disk(specs, "game.d64") == img.resolve()
+    # an already-absolute image is not re-resolved against the spec dir
+    assert prepare_disk(elsewhere, str(img)) == img.resolve()
+
+
+@pytest.mark.parametrize("name", ["game.disk.yaml", "game.disk.yml"])
+def test_prepare_disk_builds_a_manifest(tmp_path, monkeypatch, name):
+    from c64lib import testing as testing_mod
+
+    (tmp_path / name).write_text("label: game\n")
+    seen = {}
+
+    def fake_build_disk(manifest, model="c64"):
+        seen["manifest"], seen["model"] = Path(manifest), model
+        return {"image": str(tmp_path / "game.d64")}
+
+    monkeypatch.setattr(testing_mod, "build_disk", fake_build_disk)
+    img = testing_mod.prepare_disk(tmp_path, name, model="c64pal")
+    assert seen["manifest"] == (tmp_path / name).resolve()
+    assert seen["model"] == "c64pal"
+    assert img == tmp_path / "game.d64"
+
+
+def test_prepare_disk_rejects_an_unknown_extension(tmp_path):
+    from c64lib.testing import prepare_disk
+
+    (tmp_path / "game.prg").write_bytes(b"\x01\x08")
+    with pytest.raises(TestError, match=r"must be a \.d64"):
+        prepare_disk(tmp_path, "game.prg")

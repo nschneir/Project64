@@ -8,7 +8,8 @@ from tests.doc_helpers import mentioned_commands, valid_mention_paths
 SKILLS = [Path("skills/c64-development/SKILL.md"),
           Path("skills/6502-assembly/SKILL.md"),
           Path("skills/6502-debugging/SKILL.md"),
-          Path("skills/cartridge-programming/SKILL.md")]
+          Path("skills/cartridge-programming/SKILL.md"),
+          Path("skills/disk-io-programming/SKILL.md")]
 
 
 def _frontmatter(path):
@@ -61,6 +62,46 @@ def test_cartridge_skill_exists_and_is_wired_up():
     # Discoverable from the umbrella skill.
     assert "cartridge-programming" in Path(
         "skills/c64-development/SKILL.md").read_text()
+
+
+def test_disk_io_skill_exists_and_is_wired_up():
+    p = Path("skills/disk-io-programming/SKILL.md")
+    assert p.exists(), "the disk-I/O skill must ship"
+    fm, text = _frontmatter(p)
+    assert fm["name"] == "disk-io-programming"
+    for topic in ("SETLFS", "SETNAM", "$FFD5", "device 8", "secondary address"):
+        assert topic in text, f"skill never mentions {topic}"
+    # Discoverable from the umbrella skill.
+    assert "disk-io-programming" in Path(
+        "skills/c64-development/SKILL.md").read_text()
+
+
+def test_disk_io_reference_commands_exist():
+    """The KERNAL reference is prose the agent acts on too, so its `c64 ...`
+    mentions get the same reality check the SKILL.md files get."""
+    ref = Path("skills/disk-io-programming/references/kernal-disk-io.md")
+    assert ref.exists(), "the KERNAL disk-I/O reference must ship"
+    valid = valid_mention_paths()
+    unknown = {c for c in mentioned_commands(ref.read_text()) if c not in valid}
+    assert not unknown, f"{ref}: mentions nonexistent commands {sorted(unknown)}"
+
+
+def test_disk_io_entry_points_agree_with_the_kernal_reference():
+    """The two references must not disagree about an address.
+
+    Both tables list the KERNAL disk routines; a copy that drifts is worse
+    than no copy, so every `| FFxx | NAME |` row in the new reference is
+    checked against the umbrella skill's jump table.
+    """
+    umbrella = Path("skills/c64-development/references/kernal-routines.md").read_text()
+    known = dict(re.findall(r"^\|\s*(FF[0-9A-F]{2})\s*\|\s*(\w+)", umbrella, re.M))
+    ref = Path("skills/disk-io-programming/references/kernal-disk-io.md").read_text()
+    rows = re.findall(r"^\|\s*`?\$?(FF[0-9A-F]{2})`?\s*\|\s*`?(\w+)`?", ref, re.M)
+    assert rows, "the reference lists no KERNAL entry points"
+    for addr, name in rows:
+        assert known.get(addr) == name, (
+            f"kernal-disk-io.md says ${addr} is {name}; "
+            f"kernal-routines.md says {known.get(addr)}")
 
 
 def test_cartridge_reference_commands_exist():

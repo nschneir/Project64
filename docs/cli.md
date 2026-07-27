@@ -1131,6 +1131,10 @@ cart: game.crt             # instead of program: — a .crt, a .s, or an
                            #   .ef.yaml manifest, path relative to this file;
                            #   built as needed and mapped at power-on
 cart_type: 8k              # default 8k; only consulted when cart: is a .s
+disk: game.disk.yaml       # instead of program:/cart: — a .d64/.d71/.d81 or
+                           #   a .disk.yaml manifest, path relative to this
+                           #   file; built as needed, attached to drive 8 and
+                           #   autostarted (LOAD"*",8,1)
 autorun: true              # default true: load and RUN. false = load only
                            #   (then drive it yourself with key steps)
 timeout: 30                # default per-step timeout, seconds
@@ -1203,6 +1207,20 @@ come from the build's label file for a `.s` or a manifest; for a ready-made
 `.crt` a sibling `.lbl` of the same stem is picked up if it is there, and
 silently skipped if it is not.
 
+**Disk tests.** `disk:` names either a ready-made `.d64`/`.d71`/`.d81` or a
+`.disk.yaml`/`.disk.yml` manifest that `c64 disk build` turns into one; the
+path is resolved relative to the spec file, and anything else is an error. It
+is exclusive with both `program:` and `cart:` — a disk owns the boot, so a
+program named beside it would never load and a cartridge would run instead of
+the image ever being started.
+
+Unlike a cartridge, a disk **does** wait for `READY.`: attaching an image only
+fills drive 8, so the runner then autostarts the image, which issues
+`LOAD"*",8,1` — the disk's *first* file, which is why `c64 disk build` writes a
+manifest in listed order. `autorun:` applies as usual. No symbols are
+available: `c64 disk build` keeps only the image, so a `.s` built onto a disk
+has no label file for `until`/`poke` steps to resolve against.
+
 JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails.
 
 ### `c64 test programs`
@@ -1210,7 +1228,9 @@ JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails.
 Run every example-program directory as a generated test. A directory qualifies
 when it holds an `expect.txt` (each non-blank line becomes a `wait: {text}`
 step) plus either a `program.bas`/`program.s` or a `test.yaml` with a `cart:`
-key — the cartridge case has no program file of its own. An optional
+or `disk:` key — a cartridge and a disk image have no program file of their
+own, and a source file sitting beside one is that image's *input*, never a
+second thing to autostart. An optional
 `test.yaml` supplies the rest of the spec; its own steps run after the
 `expect.txt` ones. A generated spec takes the same defaults a written one
 does, including the 30-second per-step `timeout:`, which a `test.yaml` can

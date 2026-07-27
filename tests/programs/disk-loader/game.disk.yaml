@@ -1,0 +1,8 @@
+# The disk this program boots from. Files land in listed order, so loader is
+# the first directory entry — which is what LOAD"*",8,1 (the autostart the
+# runner and `c64 disk boot` both issue) starts.
+label: LOADTEST
+id: "01"
+files:
+  - {src: loader.s, name: "*"}     # "*" => the disk label, lowercased
+  - {src: data.s,   name: data}    # pulled in at runtime by the loader

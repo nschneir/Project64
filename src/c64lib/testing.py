@@ -18,6 +18,7 @@ import yaml
 from .basic import tokenize
 from .build import build_asm
 from .cart_build import build_cart, build_easyflash
+from .disk import IMAGE_DRIVE_TYPES, build_disk
 from .machines import get_profile
 from .ops import call_routine, live_screen_base, parse_ref, run_until
 from .screen import read_screen_text
@@ -41,6 +42,10 @@ _STEP_KEYS = {
     "sample": ({"mem", "as"}, {"mem", "as"}),
 }
 
+#: Manifest suffixes a spec's `disk:` may name instead of a ready-made image.
+#: Both spellings, because a manifest is hand-written and YAML answers to two.
+_DISK_MANIFEST_SUFFIXES = (".disk.yaml", ".disk.yml")
+
 
 def _num(v) -> int:
     if isinstance(v, int):
@@ -53,11 +58,11 @@ def _num(v) -> int:
     return int(s)
 
 
-def _cart_path(spec_dir: str | Path, cart: str | Path) -> Path:
-    """A spec's `cart:` is relative to the spec's own directory, never the cwd,
-    so a test runs the same from anywhere. An absolute cart is left alone —
-    joining it is a no-op, which keeps re-resolution harmless."""
-    return (Path(spec_dir) / Path(cart)).resolve()
+def _spec_path(spec_dir: str | Path, value: str | Path) -> Path:
+    """A spec's `cart:`/`disk:` is relative to the spec's own directory, never
+    the cwd, so a test runs the same from anywhere. An absolute path is left
+    alone — joining it is a no-op, which keeps re-resolution harmless."""
+    return (Path(spec_dir) / Path(value)).resolve()
 
 
 def is_cart_spec(path: str | Path) -> bool:
@@ -73,25 +78,41 @@ def is_cart_spec(path: str | Path) -> bool:
     A missing file is not a cartridge spec; unparseable YAML is an error,
     because `load_test` would fail on it moments later anyway.
     """
+    return bool(_spec_key(path, "cart"))
+
+
+def is_disk_spec(path: str | Path) -> bool:
+    """True when the spec file at `path` declares a disk image (`disk:`).
+
+    The disk twin of `is_cart_spec`, and used the same two ways: `program_test`
+    accepts an example directory whose only artifact is an image, and the
+    live-VICE helpers split the example library three ways so every directory
+    is claimed by exactly one runner.
+    """
+    return bool(_spec_key(path, "disk"))
+
+
+def _spec_key(path: str | Path, key: str):
     path = Path(path)
     if not path.exists():
-        return False
+        return None
     try:
         spec = yaml.safe_load(path.read_text())
     except yaml.YAMLError as e:
         raise TestError(f"{path}: test file is not valid YAML ({e})") from e
-    return isinstance(spec, dict) and bool(spec.get("cart"))
+    return spec.get(key) if isinstance(spec, dict) else None
 
 
 def load_test(path: str | Path) -> dict:
     """Load and validate one test spec, filling in the documented defaults.
 
-    Paths in the spec (`program:`, `cart:`) are resolved against the spec
-    file's own directory, which is also recorded in the returned spec's `dir`
-    key so a later `prepare_cart` can re-resolve from anywhere. A spec that
-    sets `dir:` literally overrides that computed value — an escape hatch for
-    generated specs, and a foot-gun otherwise, since `cart:` has already been
-    resolved by then and only a hand-built spec's is left relative.
+    Paths in the spec (`program:`, `cart:`, `disk:`) are resolved against the
+    spec file's own directory, which is also recorded in the returned spec's
+    `dir` key so a later `prepare_cart`/`prepare_disk` can re-resolve from
+    anywhere. A spec that sets `dir:` literally overrides that computed value —
+    an escape hatch for generated specs, and a foot-gun otherwise, since
+    `cart:` has already been resolved by then and only a hand-built spec's is
+    left relative.
     """
     path = Path(path)
     spec = yaml.safe_load(path.read_text())
@@ -104,16 +125,23 @@ def load_test(path: str | Path) -> dict:
     spec.setdefault("steps", [])
     spec.setdefault("cart", None)
     spec.setdefault("cart_type", "8k")
+    spec.setdefault("disk", None)
     spec.setdefault("dir", str(path.parent.resolve()))  # what `cart:` is relative to
     if spec["cart"]:
         if spec.get("program"):
             raise TestError(
                 f"{path}: a spec sets either `cart` or `program`, not both — "
                 "a cartridge boots itself and nothing is autostarted")
-        cart = _cart_path(path.parent, spec["cart"])
+        cart = _spec_path(path.parent, spec["cart"])
         if not cart.exists():
             raise TestError(f"{path}: cart {cart} not found")
         spec["cart"] = str(cart)
+    if spec["disk"]:
+        _reject_disk_conflicts(f"{path}", spec)
+        disk = _spec_path(path.parent, spec["disk"])
+        if not disk.exists():
+            raise TestError(f"{path}: disk {disk} not found")
+        spec["disk"] = str(disk)
     get_profile(spec["machine"])  # raises KeyError listing known models
     if spec.get("program"):
         prog = (path.parent / spec["program"]).resolve()
@@ -147,13 +175,32 @@ def load_test(path: str | Path) -> dict:
     return spec
 
 
+def _reject_disk_conflicts(where: str, spec: dict) -> None:
+    """A `disk:` spec owns the boot: it is attached at power-on and then
+    autostarted. Neither companion can share that, and both failures would be
+    silent — the disk branch wins in `run_test`, so a `program:` would never
+    load and a `cart:` would boot instead of the image ever being started.
+    """
+    if spec.get("program"):
+        raise TestError(
+            f"{where}: a spec sets either `disk` or `program`, not both — "
+            "a disk boots the image's first file and nothing else is "
+            "autostarted")
+    if spec.get("cart"):
+        raise TestError(
+            f"{where}: a spec sets either `disk` or `cart`, not both — a "
+            "cartridge boots itself, so an attached disk would never be "
+            "started")
+
+
 def program_test(program_dir: str | Path) -> dict:
     """Synthesize a test spec from an example-program directory
     (program.bas/.s + expect.txt — see tests/programs/).
 
-    A directory whose test.yaml declares a `cart:` needs no program file: the
-    cartridge is what runs. Every synthesized spec uses the same per-step
-    timeout as a hand-written one (30s, `load_test`'s default).
+    A directory whose test.yaml declares a `cart:` or a `disk:` needs no
+    program file: the cartridge, or the image's first file, is what runs. Every
+    synthesized spec uses the same per-step timeout as a hand-written one (30s,
+    `load_test`'s default).
     """
     program_dir = Path(program_dir)
     prog = next(
@@ -163,17 +210,21 @@ def program_test(program_dir: str | Path) -> dict:
     )
     expect = program_dir / "expect.txt"
     extra = program_dir / "test.yaml"
-    has_cart = is_cart_spec(extra)
-    if (prog is None and not has_cart) or not expect.exists():
+    has_image = is_cart_spec(extra) or is_disk_spec(extra)
+    if (prog is None and not has_image) or not expect.exists():
         raise TestError(
             f"{program_dir}: not an example-program directory "
-            "(needs program.bas/.s or a test.yaml with `cart:`, plus expect.txt)"
+            "(needs program.bas/.s or a test.yaml with `cart:`/`disk:`, "
+            "plus expect.txt)"
         )
     steps = [{"wait": {"text": ln}} for ln in expect.read_text().splitlines() if ln.strip()]
     if extra.exists():
         spec = load_test(extra)
         spec["name"] = program_dir.name
-        if prog is not None and not spec.get("cart"):
+        # A program file beside a cart or a disk spec is that image's *source*,
+        # not a second thing to autostart: promoting it would boot the wrong
+        # artifact and pass or fail for the wrong reason.
+        if prog is not None and not (spec.get("cart") or spec.get("disk")):
             spec["program"] = str(prog.resolve())
         spec["steps"] = steps + spec["steps"]   # expect lines still gate first
         return spec                             # timeout: load_test's default
@@ -237,7 +288,7 @@ def prepare_cart(spec_dir: str | Path, cart: str | Path,
     single-region cartridge and an .ef.yaml manifest as an EasyFlash image, so
     a reference program can live in source and still be regression-covered.
     """
-    cart = _cart_path(spec_dir, cart)
+    cart = _spec_path(spec_dir, cart)
     suffix = "".join(cart.suffixes[-2:]).lower()
     if cart.suffix.lower() == ".crt":
         lbl = cart.with_suffix(".lbl")
@@ -253,6 +304,28 @@ def prepare_cart(spec_dir: str | Path, cart: str | Path,
     # — an all-binary EasyFlash manifest — and Path(None) is a TypeError in the
     # middle of a test run, not a missing symbol table.
     return Path(res["crt"]), (Path(res["labels"]) if res["labels"] else None)
+
+
+def prepare_disk(spec_dir: str | Path, disk: str | Path,
+                 model: str = "c64") -> Path:
+    """Resolve a spec's `disk:` to an image, taken relative to `spec_dir`.
+
+    A .d64/.d71/.d81 is used as-is; a .disk.yaml manifest is built first, so a
+    reference program can live in source and still be regression-covered.
+
+    No label file comes back, unlike `prepare_cart`: `build_disk` writes each
+    entry's artifact from a temporary directory and keeps only the image, so a
+    disk-built .s has no symbol table to hand to `until`/`poke` steps. A disk
+    spec that needs symbols has to build the program itself.
+    """
+    disk = _spec_path(spec_dir, disk)
+    name = disk.name.lower()
+    if disk.suffix.lower() in IMAGE_DRIVE_TYPES:
+        return disk
+    if name.endswith(_DISK_MANIFEST_SUFFIXES):
+        return Path(build_disk(disk, model=model)["image"])
+    raise TestError(
+        f"{disk}: a test disk must be a .d64/.d71/.d81 or a .disk.yaml manifest")
 
 
 def _screen(session) -> str:
@@ -471,7 +544,7 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
     session_name = f"t{uuid.uuid4().hex[:6]}"
     steps: list[StepResult] = []
     screen_text = ""
-    cart_path, cart_labels = (None, None)
+    cart_path, cart_labels, disk_path = (None, None, None)
     if spec.get("cart") and spec.get("program"):
         # load_test rejects this too, but a hand-built spec (program_test, a
         # caller assembling one in code) never passes through that layer, and
@@ -480,6 +553,12 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
             f"{spec.get('name', 'spec')}: a spec sets either `cart` or "
             "`program`, not both — a cartridge boots itself and nothing is "
             "autostarted")
+    if spec.get("disk"):
+        _reject_disk_conflicts(spec.get("name", "spec"), spec)
+        # Built before the machine boots: a manifest that cannot fit must fail
+        # as a build error, not as a program that never appears on screen.
+        disk_path = str(prepare_disk(spec.get("dir", "."), spec["disk"],
+                                     spec["machine"]))
     if spec.get("cart"):
         # load_test already resolved `cart:` against the spec's directory;
         # a hand-built spec carries that directory in `dir` (cwd if absent).
@@ -487,7 +566,7 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
                                         spec.get("cart_type", "8k"))
         cart_path = str(crt)
     session = launch(model=spec["machine"], name=session_name,
-                     headless=True, warp=True, cart=cart_path)
+                     headless=True, warp=True, cart=cart_path, disk8=disk_path)
     try:
         labels: dict[str, int] = {}
         if cart_path:
@@ -499,7 +578,17 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
             ok, screen_text = _wait_screen(session, lambda t: "READY." in t, 45.0)
             if not ok:
                 raise TestError(f"machine never reached READY.; screen:\n{screen_text}")
-            if spec.get("program"):
+            if disk_path:
+                # Attaching the image at launch only makes drive 8 hold it; the
+                # machine still boots to BASIC. Autostarting the image is what
+                # issues LOAD"*",8,1 — the disk's first file, which is why
+                # `disk build` writes a manifest in listed order.
+                with session.monitor() as mon:
+                    try:
+                        mon.autostart(Path(disk_path).resolve(), run=spec["autorun"])
+                    finally:
+                        mon.release()
+            elif spec.get("program"):
                 prg, lbl = _prepare(spec["program"], profile)
                 if lbl is not None and Path(lbl).exists():
                     labels = load_labels(lbl)   # until/poke steps take symbols

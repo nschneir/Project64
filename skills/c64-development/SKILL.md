@@ -21,9 +21,8 @@ same sessions, semantics, and stopped-state rule. Known differences: `c64 wait`
 is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break`; wait
 timeouts return `{"fired": null, ...}` as data instead of an error; and a few
 commands have no MCP twin yet — `c64 basic tokenize`, `c64 basic detokenize`,
-`c64 sprite encode`, `c64 break disable`/`enable`, `c64 watch remove`, and
-every `c64 disk` verb beyond `create`/`ls`/`put`/`get`/`boot`. Shell out for
-those.
+`c64 sprite encode`, `c64 break disable`/`enable`, and `c64 watch remove`.
+Shell out for those. Every `c64 disk` verb has a twin.
 
 ## The loop
 
@@ -151,6 +150,9 @@ symbolic breakpoints like `c64 break add start`.
   Use the `cartridge-programming` skill — cartridges boot themselves, so the
   failure modes are different from a `.prg`: there is no load address, no
   `READY.`, and a broken header just boots to BASIC without a word.
+- Loading levels, music or save data off a disk *at runtime*? Use the
+  `disk-io-programming` skill — the secondary address decides where a file
+  lands, and getting it wrong is the classic disk bug.
 
 ## Graphics and sprites
 

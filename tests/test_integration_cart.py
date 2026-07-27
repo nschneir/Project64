@@ -11,7 +11,7 @@ import pytest
 from c64lib.build import build_asm
 from c64lib.cart_build import build_cart, build_easyflash, cart_include_dir, wrap_prg
 from c64lib.cartridge import cart_info, cart_verify
-from tests.vice_helpers import PROGRAMS_DIR, example_programs
+from tests.vice_helpers import PROGRAM_KINDS, PROGRAMS_DIR, example_programs
 
 needs_build = pytest.mark.skipif(
     not all(shutil.which(t) for t in ("ca65", "ld65", "cartconv")),
@@ -530,10 +530,11 @@ def test_ef_call_rejects_a_negative_entry_index(tmp_path):
 # --- the end-to-end gate: reference cartridges that boot on a real x64sc ----
 
 # Discovered, never listed: tests/test_integration_build.py autostarts the
-# other half of the same library from the same predicate, so every example
-# program is claimed by exactly one runner and a new cart directory joins this
-# gate by existing. The partition is pinned below.
-CART_PROGRAMS = example_programs(cart=True)
+# loadable share of the same library and tests/test_integration_runner.py boots
+# the disks, all from the same predicate, so every example program is claimed
+# by exactly one runner and a new cart directory joins this gate by existing.
+# The partition is pinned below.
+CART_PROGRAMS = example_programs("cart")
 
 
 def _explain(name: str, result) -> str:
@@ -541,19 +542,19 @@ def _explain(name: str, result) -> str:
     return f"{name} failed:\n{failed}\nscreen:\n{result.screen}"
 
 
-def test_cart_and_loadable_programs_partition_the_example_library():
-    """No example program may fall between the two runners.
+def test_program_kinds_partition_the_example_library():
+    """No example program may fall between the three runners.
 
-    A cart directory that neither file claims is tested only by the CLI, which
-    is exactly the silent gap a hardcoded parametrize list creates. Asserting
-    both halves are non-empty also catches a glob regression that would retire
-    the end-to-end gate without failing anything.
+    A cart directory that no file claims is tested only by the CLI, which is
+    exactly the silent gap a hardcoded parametrize list creates. Asserting each
+    share is non-empty also catches a glob regression that would retire an
+    end-to-end gate without failing anything.
     """
     every = {p.parent for p in PROGRAMS_DIR.glob("*/expect.txt")}
-    carts, loadable = set(CART_PROGRAMS), set(example_programs(cart=False))
-    assert carts and loadable
-    assert carts | loadable == every
-    assert not carts & loadable
+    shares = {k: set(example_programs(k)) for k in PROGRAM_KINDS}
+    assert all(shares.values()), f"an empty share: { {k: len(v) for k, v in shares.items()} }"
+    assert set().union(*shares.values()) == every
+    assert sum(len(v) for v in shares.values()) == len(every)   # no overlap
 
 
 @needs_build

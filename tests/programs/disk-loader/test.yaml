@@ -1,0 +1,5 @@
+# A disk spec: no `program:` and nothing built by the runner. The image is
+# attached to drive 8 at power-on, and after the READY. prompt the runner
+# autostarts it — LOAD"*",8,1, i.e. the manifest's first file.
+disk: game.disk.yaml
+timeout: 60

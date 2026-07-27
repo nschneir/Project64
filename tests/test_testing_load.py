@@ -153,3 +153,29 @@ def test_program_test_prefers_test_yaml(tmp_path):
     assert kinds[0] == "wait" and "assert" in kinds     # expect lines prepended
     assert spec["program"].endswith("program.bas")
     assert spec["name"] == "prog"
+
+
+def test_program_test_accepts_a_disk_only_directory(tmp_path):
+    """A disk program ships no program.bas/.s: the image is what runs."""
+    d = tmp_path / "prog"
+    d.mkdir()
+    (d / "game.d64").write_bytes(bytes(174848))
+    (d / "expect.txt").write_text("DISK LOAD OK\n")
+    (d / "test.yaml").write_text("disk: game.d64\n")
+    spec = program_test(d)
+    assert spec["disk"] == str((d / "game.d64").resolve())
+    assert spec.get("program") is None
+    assert spec["steps"] == [{"wait": {"text": "DISK LOAD OK"}}]
+
+
+def test_program_test_does_not_autostart_a_disk_directorys_source(tmp_path):
+    """A `program.s` beside a disk spec is the disk's source, not a second
+    thing to autostart — promoting it would boot the wrong artifact."""
+    d = tmp_path / "prog"
+    d.mkdir()
+    (d / "program.s").write_text("nop\n")
+    (d / "game.d64").write_bytes(bytes(174848))
+    (d / "expect.txt").write_text("HI\n")
+    (d / "test.yaml").write_text("disk: game.d64\n")
+    spec = program_test(d)
+    assert spec.get("program") is None
