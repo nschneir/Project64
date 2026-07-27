@@ -87,6 +87,20 @@ the function/test names are the durable anchors.
       "READY.")` and `_load_and_run(s)` during the 0.4.0 release run). Passed
       2/2 in isolation and is untouched by the changes it was seen under.
       Carried out of the demo-01 ledger; no retry/xfail guard exists today.
+- [ ] **`tests/test_docs_cookbook.py::test_cookbook_recipe_runs_live[basic-game-loop]`
+      failed once in the 0.6.0 pre-merge gate** (full suite under `coverage run`,
+      2026-07-27; `1 failed, 1219 passed`). Immediately re-ran green standalone
+      (6.7 s) and green with its whole file (24 passed); the commits since the
+      previous green full run touch only disk validate/payloads/docs, which that
+      BASIC recipe never exercises. No retry/xfail guard exists.
+- [ ] **Three live tests have now flaked under full-suite load** (the two above
+      plus the cookbook one) while each passes standalone — treat this as one
+      harness-level fragility rather than three unrelated tests. Worth
+      investigating together: all three run against the shared warp+headless
+      emulator (`session`/`shared_launch` in `tests/conftest.py`), and all three
+      failures are "expected screen state never arrived" under contention.
+      A first step that needs no diagnosis: make live waits' timeouts scale
+      when the suite runs under `coverage`/parallel load.
 
 ## Disk plan deferred items (the deferred wave landed; one item still open)
 
