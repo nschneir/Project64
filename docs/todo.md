@@ -47,6 +47,58 @@ the standing project backlog. Strike items as they land.
       seen under). Carried out of the demo-01 ledger; no retry/xfail guard
       exists today.
 
+## Disk plan deferred items (in-flight — the plan's deferred wave owns these; strike when it lands)
+
+Mirrored from `.superpowers/sdd/2026-07-24-disk-file-block-ops/progress.md`, the
+authoritative ledger for the disk file/block-ops plan. Every line below is already
+scheduled for that plan's own deferred-fix wave before it finishes — this is a
+visibility copy, not standing backlog and not a maintainer decision queue.
+
+- [ ] **Sweep every remaining `# Measured:` claim in `disk.py` and its tests.**
+      Named a DEFERRED WAVE ITEM by the Task 3 fixer: three drift findings across
+      two tasks makes this a class, not incidents. One known contradiction to
+      resolve in the sweep — the `_FAILURE_TEXT` comment "none of which change the
+      exit code" versus the measured floppy-read-failed `rc 1`.
+- [ ] **Decide/implement `.lbl` labels persistence for asm-built disks.** Task 5
+      reviewer ruling: deferrable because the `labels` key is additive and a user
+      can `c64 build` separately. Task 8 carries the caveat; the wave owns the
+      decision — build labels separately in the spec flow, or extend `build_disk`
+      with an additive `labels` key.
+- [ ] **Neutral lead-in for non-ENOENT `OSError`s** (one sweep covers both
+      sightings): Task 3's broadened catch reports "no such file" even for
+      `EACCES`, and Task 4's "no such image to validate" overclaims the cause the
+      same way.
+- [ ] **`cbm_lookup_name` upper-cases per character.** `'ß'` raises `TypeError`
+      instead of `DiskError`; `'ı'`/`'ſ'` uppercase into range and pass through.
+      Fix = case the whole string, then `ord(ch)`, matching `cbm_title`'s idiom.
+- [ ] **`get_file`'s `name` is still raw** — the same metachar exposure as the
+      write paths, read-only risk. Pre-existing function that predates the plan;
+      apply `cbm_lookup_name` in the wave, with a test.
+- [ ] **Case asymmetry in the file API** — the API lowercases on write but demands
+      lowercase on lookup. Normalize lookup args.
+- [ ] **`delete_file` re-parses `dos_status` from stdout only**, where
+      `_run_checked` parses stdout+stderr (safe failure mode today). Fix = expose
+      the parsed status, or the combined text.
+- [ ] **An over-long lookup name reports "no file named …"** instead of a length
+      message.
+- [ ] **The `'title'` noun leaks into filename error messages** (pinned by tests,
+      cosmetic).
+- [ ] **`_run_checked`'s `"Error -"` scan and `_FAILURE_TEXT` branches are dead**
+      under measured behavior — rc-1 cases raise in `_run2` first. Harmless
+      future-proofing; reconcile or comment.
+- [ ] **`GEOMETRY`/`IMAGE_DRIVE_TYPES` key-set coupling is unenforced** — a
+      mismatch takes a bare `KeyError` path.
+- [ ] **`_ERR_RE` requires all four fields** (silent degradation if c1541's format
+      shifts) and truncates at the comma; the `"Error -"` match also requires
+      column 0.
+- [ ] **The `needs_c1541` marker is dead in the test file** — the suite is pure
+      Python, so c1541 drift is invisible to CI.
+- [ ] **The d71 test misses side-two zone boundaries 52/59/60/66.**
+- [ ] **Record (don't change) the accepted `validate`/repair costs from Task 4:**
+      2 reads + 3 subprocess spawns per call — the correct trade for
+      format-agnosticism; `repaired_blocks` really means the free-count delta
+      (plan-mandated, documented); tests 333/356 overlap and should be absorbed.
+
 ## Standing backlog (pre-cartridge)
 
 - [ ] Dogfood the six C64 demo prompts (statuses in `demos/README.md` are
