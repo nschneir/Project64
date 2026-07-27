@@ -137,13 +137,28 @@ def test_cli_block_read_hexdumps_and_writes_a_file(tmp_path):
     assert "0000: 12 01 41 00" in r.output      # the BAM header
     r = CliRunner().invoke(main, ["--json", "disk", "block", "read", str(img), "18", "0"])
     data = json.loads(r.output)
-    assert data["bytes"] == 256 and data["data"].startswith("12014100")
+    # "hex" is the key `c64 mem read` uses for a hex string; block read matches it.
+    assert data["bytes"] == 256 and data["hex"].startswith("12014100")
+    assert "data" not in data
     assert data["track"] == 18 and data["sector"] == 0
     out = tmp_path / "bam.bin"
     r = CliRunner().invoke(main, ["disk", "block", "read", str(img), "18", "0",
                                   "-o", str(out)])
     assert r.exit_code == 0, r.output
     assert out.stat().st_size == 256
+
+
+@needs_c1541
+def test_cli_block_read_reports_an_unwritable_output(tmp_path):
+    """A dump the host refuses must be a message, not a traceback — the same
+    contract `c64 cart dump` keeps."""
+    img = make_image(tmp_path)
+    out = tmp_path / "no-such-dir" / "bam.bin"
+    r = CliRunner().invoke(main, ["--json", "disk", "block", "read", str(img),
+                                  "18", "0", "-o", str(out)])
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)      # a message, not a traceback
+    assert str(out) in json.loads(r.output)["error"]
 
 
 @needs_c1541
@@ -183,6 +198,21 @@ def test_cli_block_write_needs_exactly_one_source(tmp_path):
     r = CliRunner().invoke(main, ["disk", "block", "write", str(img), "1", "0",
                                   "--from", str(src), "1"])
     assert r.exit_code != 0 and "--from" in r.output
+
+
+@needs_c1541
+def test_cli_block_write_rejects_offset_with_from(tmp_path):
+    """--from replaces the whole sector, so an offset for it is contradictory:
+    say so rather than accepting it and writing at 0."""
+    img = make_image(tmp_path)
+    src = tmp_path / "sector.bin"
+    src.write_bytes(bytes(range(256)))
+    for offset in ("4", "0"):
+        r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
+                                      "1", "0", "--from", str(src),
+                                      "--offset", offset])
+        assert r.exit_code != 0, r.output
+        assert "--offset" in json.loads(r.output)["error"]
 
 
 @needs_c1541

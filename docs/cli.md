@@ -480,7 +480,9 @@ JSON: `{"prg", "labels"}`. No session required.
 
 Package a program into an artifact any VICE user can run — a bare `.prg`, a
 disk image with the program as its first (autostart) file, or a bootable
-cartridge. Pure file operation; no session required.
+cartridge. Pure file operation; no session required. One program per artifact:
+a disk carrying several files comes from `c64 disk build` and its manifest,
+not from here.
 
 - `SOURCE` — a `.s`, `.bas`, or `.prg` file (assembled/tokenized as needed).
 - `-o, --output PATH` — the artifact; the extension picks the format:
@@ -739,8 +741,10 @@ $ c64 disk block read game.d64 18 0
 Out-of-range tracks and sectors are refused with the limit named
 (`track 40 out of range (1-35 for d64)`).
 
-JSON: `{"image", "track", "sector", "bytes", "data"}` — `data` is the sector
-as a hex string. With `-o`: `{"image", "track", "sector", "output", "bytes"}`.
+JSON: `{"image", "track", "sector", "bytes", "hex"}` — `bytes` is the count and
+`hex` the sector as a hex string, the same pair of names `c64 mem read` uses.
+With `-o`: `{"image", "track", "sector", "output", "bytes"}`, and a dump the
+host refuses to write is reported as an error, not a traceback.
 
 ### `c64 disk block write`
 
@@ -750,7 +754,9 @@ Write a sector, wholesale or in part.
 - `--from FILE` — replace the whole sector from a file of exactly 256 bytes.
 - `VALUES…` with `--offset N` — poke bytes at an offset, leaving the rest of
   the sector alone (`$hex`/`0x`/decimal, the same tokens `c64 mem write`
-  takes).
+  takes). `--offset` belongs to this form only; giving it with `--from` is
+  refused rather than ignored, since a whole-sector write has nothing to
+  offset.
 
 ```
 c64 disk block write game.d64 1 0 --from sector.bin

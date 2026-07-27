@@ -1376,13 +1376,17 @@ def disk_block_read(ctx, image, track, sector, output):
         fail(ctx, str(e))
         return
     if output is not None:
-        output.write_bytes(data)
+        try:
+            output.write_bytes(data)
+        except OSError as e:
+            fail(ctx, f"{output}: {e.strerror or e}")
+            return
         emit(ctx, {"image": str(image), "track": track, "sector": sector,
                    "output": str(output), "bytes": len(data)},
              f"wrote {len(data)} bytes of {track}/{sector} to {output}")
         return
     emit(ctx, {"image": str(image), "track": track, "sector": sector,
-               "bytes": len(data), "data": data.hex()},
+               "bytes": len(data), "hex": data.hex()},
          _hexdump(0, data))
 
 
@@ -1409,6 +1413,11 @@ def disk_block_write(ctx, image, track, sector, values, src, offset):
     """
     if bool(src) == bool(values):
         fail(ctx, "give exactly one of --from FILE or VALUES (bytes to poke)")
+        return
+    if src is not None and ctx.get_parameter_source(
+            "offset") is not click.core.ParameterSource.DEFAULT:
+        fail(ctx, "--offset applies to a VALUES poke; --from replaces the "
+                  "whole sector, so there is nothing for it to offset")
         return
     try:
         if src is not None:
