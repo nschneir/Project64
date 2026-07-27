@@ -19,6 +19,7 @@ from .cart_build import build_easyflash
 from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
 from .disk import (
+    block_bytes,
     block_poke,
     block_read,
     block_write_file,
@@ -769,7 +770,7 @@ def c64_disk_block_write(image: str, track: int, sector: int,
         written, at = 256, 0
     else:
         at = offset or 0
-        block_poke(Path(image), track, sector, at, bytes(values))
+        block_poke(Path(image), track, sector, at, block_bytes(values))
         written = len(values)
     return {"image": str(Path(image)), "track": track, "sector": sector,
             "written": written, "offset": at}

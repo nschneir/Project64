@@ -336,6 +336,18 @@ def test_block_write_tool_rejects_a_poke_past_the_end(image):
                                         offset=255)
 
 
+def test_block_write_tool_names_an_out_of_range_byte(tmp_path):
+    """values goes through block_bytes, the same coercion the CLI uses, so a
+    bad element is named with its position instead of surfacing Python's
+    positionless "bytes must be in range(0, 256)". No c1541: the coercion
+    fails before any spawn."""
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    with pytest.raises(DiskError) as e:
+        mcp_server.c64_disk_block_write(str(img), 1, 0, values=[0xDE, 300])
+    assert str(e.value) == "byte 1 is 300, out of range for a byte (0-255)"
+
+
 @needs_c1541
 def test_block_write_tool_reports_a_short_source_file(image, tmp_path):
     src = tmp_path / "short.bin"

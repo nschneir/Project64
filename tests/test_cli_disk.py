@@ -249,17 +249,18 @@ def test_cli_block_write_reports_a_bad_byte_token(tmp_path):
 
 
 def test_cli_block_write_reports_an_out_of_range_byte(tmp_path):
-    """Same arm, other half: 300 is not a byte. Asserted tolerantly because
-    the wording is the library's to improve — either it names the offending
-    value or it says "range", and both are a message rather than a crash."""
+    """Same arm, other half: 300 is not a byte. The CLI routes VALUES through
+    block_bytes, so the message names the offending value and its position
+    rather than repeating Python's positionless "bytes must be in range(0,
+    256)"."""
     img = tmp_path / "t.d64"
     img.write_bytes(b"x")
     r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
-                                  "1", "0", "300"])
+                                  "1", "0", "$de", "300"])
     assert r.exit_code != 0
     assert isinstance(r.exception, SystemExit)
     err = json.loads(r.output)["error"]
-    assert "300" in err or "range" in err, err
+    assert err == "byte 1 is 300, out of range for a byte (0-255)", err
 
 
 def test_cli_validate_reports_a_disk_error(tmp_path):
@@ -267,11 +268,13 @@ def test_cli_validate_reports_a_disk_error(tmp_path):
     img = tmp_path / "t.d64"
     img.write_bytes(b"x")
     with patch("c64lib.cli.validate_image",
-               side_effect=DiskError("no such image to validate: t.d64")):
+               side_effect=DiskError(
+                   "cannot read image t.d64 (Permission denied)")):
         r = CliRunner().invoke(main, ["--json", "disk", "validate", str(img)])
     assert r.exit_code != 0
     assert isinstance(r.exception, SystemExit)
-    assert "no such image to validate" in json.loads(r.output)["error"]
+    assert json.loads(r.output)["error"] == \
+        "cannot read image t.d64 (Permission denied)"
 
 
 @pytest.mark.parametrize("exc", [DiskError("disk full: 3 block(s) over"),

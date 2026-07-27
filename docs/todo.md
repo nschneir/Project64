@@ -67,9 +67,10 @@ the function/test names are the durable anchors.
       previous one in place … do not trust a `.crt`/`.bin` already sitting at
       the output path").
 - [x] `index.html` tool count and missing cartridge card — fixed (55 tools,
-      CARTRIDGES card now at `index.html:193`). Note: the 55 has since gone
-      stale again (measured 61 `@srv.tool()` today) — see the counts item in
-      the disk section below.
+      CARTRIDGES card now at `index.html:193`). The 55 later went stale again
+      and was re-measured to 61 in `76f76b2`; the counts line is now enforced
+      by `tests/test_mcp_scaffold.py::test_index_html_counts_match_the_real_inventory`
+      rather than remembered.
 
 ## Test health
 
@@ -87,107 +88,77 @@ the function/test names are the durable anchors.
       2/2 in isolation and is untouched by the changes it was seen under.
       Carried out of the demo-01 ledger; no retry/xfail guard exists today.
 
-## Disk plan deferred items (in-flight — the plan's deferred wave owns these; strike when it lands)
+## Disk plan deferred items (the deferred wave landed; one item still open)
 
 Originally mirrored from `.superpowers/sdd/2026-07-24-disk-file-block-ops/progress.md`
 (the disk file/block-ops plan's ledger, which is deleted when that plan
-finishes). Every line below is scheduled for that plan's own deferred-fix wave
-before it completes — this is a visibility copy, not standing backlog and not a
-maintainer decision queue. Each item is self-contained; if the plan is
-abandoned, they become standing backlog as written.
+finishes). The deferred wave has since landed in two commits — `a7f6ba5` (core:
+`disk.py`, `testing.py`, their tests) and `76f76b2` (surfaces: MCP/CLI minors,
+counts, CHANGELOG) — plus a seam commit that finished the two front-end tokens
+wave A could not reach. Struck lines below record what was actually done,
+including the two places measurement contradicted the item as written. Only the
+CI item is still open.
 
-- [ ] **Sweep every remaining `# Measured:` claim in `src/c64lib/disk.py` and
-      its tests.** Named a deferred-wave item by the Task 3 fixer: three drift
-      findings across two tasks makes this a class, not incidents (e.g. "a
-      short bwrite is a silent no-op" did not reproduce — c1541 exits 1 with
-      "floppy read failed"; "an out-of-range bpoke exits 0" holds for the
-      offset only, not for track/sector, which exit 1). Re-measure each claim
-      against real c1541 and correct or delete it. Known contradiction to
-      resolve in the sweep: the `_FAILURE_TEXT` comment at `disk.py:111`
-      ("none of which change the exit code") versus the measured
-      floppy-read-failed `rc 1`. House rule for the wave: measure before
-      writing any measured-behavior claim.
-- [ ] **Decide/implement `.lbl` label persistence for asm-built disks.**
-      `build_disk` (`disk.py:557`) assembles `.s` manifest entries through
-      `_manifest_artifact` (`disk.py:542`) into a `tempfile.TemporaryDirectory`
-      workdir, so `build_asm`'s `.lbl` dies with the temp dir and a
-      disk-loaded program cannot be symbolically debugged. Task 5 reviewer
-      ruling: deferrable, because the result dict is additive and a user can
-      run `c64 build` separately. Two options — document the build-separately
-      flow in the spec/skill, or extend `build_disk` with an additive `labels`
-      key that copies the `.lbl` beside OUT. Verify: `tests/test_disk_build.py`.
-- [ ] **Neutral lead-in for non-ENOENT `OSError`s** (one sweep covers both
-      sightings): `block_write_file`'s broadened catch (`disk.py:351-352`)
-      reports "no such file to write" for every `OSError`, including `EACCES`,
-      and `validate_image`'s (`disk.py:409-410`) "no such image to validate"
-      overclaims the cause the same way. Fix = a cause-neutral lead-in that
-      still prints `e.strerror` (e.g. "cannot read <path> (<strerror>)").
-      Verify: `tests/test_disk_blocks.py` with a chmod-000 case.
-- [ ] **`cbm_lookup_name` upper-cases per character.** `disk.py:270` tests
-      `0x20 <= ord(ch.upper()) <= 0x5D`; `'ß'.upper()` is `'SS'`, so `ord()`
-      raises `TypeError` instead of `DiskError`, and `'ı'`/`'ſ'` uppercase into
-      range and pass through into a c1541 argument. Fix = case the whole string
-      once and then `ord(ch)` per character, matching `cbm_title`'s idiom
-      (`packaging.py:26-37`, `t = str(raw).upper().strip()`). Verify:
-      `tests/test_disk_blocks.py`.
-- [ ] **`get_file`'s `name` is still raw.** `disk.py:221-226` passes `name`
-      straight into `_run([image, "-read", name, dest])` with no
-      `cbm_lookup_name` — the same `":,=` metacharacter exposure the write
-      paths were hardened against in commit 10fe436, here as a read-only risk
-      (a crafted name retargets the read at a different file). Pre-existing
-      function that predates the plan. Fix = validate through
-      `cbm_lookup_name` in the wave, with a test in `tests/test_disk.py`.
-- [ ] **Case asymmetry in the file API.** `cbm_lookup_name` now lowercases
-      (`disk.py:275`), so `rename_file`/`delete_file` are normalized; the
-      residue is `put_file` (`disk.py:215`: `cbm_name = name or
-      src.stem.lower()` — an explicit `name=` is neither lowercased nor
-      validated) and `get_file` (raw, above). Net effect: a name written via
-      `put_file(img, src, "ALPHA")` cannot be found by `delete_file(img,
-      "ALPHA")`. Normalize both ends. Verify: `tests/test_disk.py`.
-- [ ] **`delete_file` re-parses `dos_status` from stdout only.** `disk.py:307`
-      parses `_run_checked`'s return value, which is `stdout` alone
-      (`disk.py:172`), while `_run_checked` itself parses `stdout + stderr`
-      (`disk.py:160`). If c1541 ever emitted the `ERR =` line on stderr, the
-      scratch count would read 0 and a successful delete would raise "no file
-      named …" — a safe failure mode today, but a silent coupling. Fix = have
-      `_run_checked` expose the parsed status, or return the combined text.
-- [ ] **An over-long lookup name reports "no file named …"** instead of a
-      length message. **Appears already fixed** by commit 10fe436:
-      `cbm_lookup_name` raises "filename … is N chars; CBM names max out at 16"
-      at `disk.py:261-263` before any c1541 call, and `tests/test_disk_blocks.py`
-      pins `match="17 chars"`. Confirm and strike; if some path still reaches
-      c1541 with a >16-char name, that path is the actual bug.
-- [ ] **The `'title'` noun leaks into filename error messages** (cosmetic,
-      pinned by tests). `cbm_filename` (`disk.py:229-241`) delegates to
-      `packaging.cbm_title`, whose messages all begin "title …"
-      (`packaging.py:30/32/36`); `cbm_filename` only appends "— not a legal CBM
-      filename" when the substring "CBM filename" is absent. Fix = give
-      `cbm_title` a noun parameter (default `"title"`), pass `"filename"` from
-      `cbm_filename`, and update the assertions that pin the current wording.
-- [ ] **`_run_checked`'s `"Error -"` scan and `_FAILURE_TEXT` branches are dead**
-      under measured behavior. `disk.py:166-171` runs only after `_run2`
-      (`disk.py:140-141`) has already raised on any non-zero exit, and every
-      case that emits those strings exits 1. Harmless future-proofing against
-      an exit-0 regression — either say exactly that in a comment or delete the
-      branches. Overlaps the `# Measured:` sweep above (the `_FAILURE_TEXT`
-      comment is one of the wrong claims).
-- [ ] **`GEOMETRY`/`IMAGE_DRIVE_TYPES` key-set coupling is unenforced.**
-      `_geometry_for` (`disk.py:68-71`) validates the suffix through
-      `drive_type_for` (which reads `IMAGE_DRIVE_TYPES`, `disk.py:38`) and then
-      indexes `GEOMETRY` (`disk.py:60`) bare; `build_disk` likewise indexes
-      `TOTAL_BLOCKS` (`disk.py:56`) and `MAX_DIR_ENTRIES` (`disk.py:442`)
-      unguarded. Adding a fifth image format to one dict and not the other
-      three yields a bare `KeyError` instead of a `DiskError` naming the
-      supported types. Fix = a test in `tests/test_disk_blocks.py` asserting
-      all four key sets are identical.
-- [ ] **`_ERR_RE` requires all four fields.** `disk.py:108-109`
-      (`^ERR = (\d+),\s*([^,]+?),\s*(\d+),\s*(\d+)`): if c1541's status format
-      ever drops or reorders the track/sector fields, `dos_status` returns
-      `None` and every check that depends on it degrades silently to "no
-      status"; `[^,]+?` also truncates the DOS message at its first comma. The
-      `"Error -"` scan (`disk.py:167`) additionally requires column 0
-      (`line.startswith`). Fix direction open: loosen the trailing fields,
-      and/or raise when a line begins `ERR =` but does not parse.
+- [x] Swept every remaining `# Measured:` claim in `src/c64lib/disk.py` and its
+      tests against real c1541 (VICE 3.10) — all reproduced but one: the
+      `_FAILURE_TEXT` comment's "none of which change the exit code" was false
+      (all three diagnostics arrive with `rc 1`) and now records the exit codes
+      (`a7f6ba5`).
+- [x] `.lbl` label persistence implemented rather than documented: `build_disk`
+      copies each `.s` entry's `.lbl` beside OUT and returns an additive
+      `labels` key (one file per entry, not a merged table — a disk can hold
+      several independently assembled programs whose symbols would collide)
+      (`a7f6ba5`).
+- [x] Neutral lead-in for non-ENOENT `OSError`s — both sightings now read
+      `cannot read <path> (<strerror>)`. **This item's verification recipe was
+      wrong and is corrected here:** a chmod-000 *file* never reaches
+      `block_write_file`'s catch, because `stat()` needs no read permission —
+      the size check passes and c1541 fails later with its own "floppy read
+      failed"; the parent *directory* must be unsearchable for `stat()` itself
+      to raise `EACCES`, and the new test does that. `validate_image`'s catch
+      wraps `read_bytes()`, which does need read permission, so there a
+      chmod-000 file is the genuine case (`a7f6ba5`).
+- [x] `cbm_lookup_name` no longer upper-cases per character — the whole string
+      is cased once and the cased form is both validated and returned
+      (`cbm_title`'s idiom), so nothing non-ASCII reaches a c1541 argument and
+      the length check counts what c1541 stores (`'ß'` costs two) (`a7f6ba5`).
+- [x] `get_file`'s `name` is now validated through `cbm_lookup_name`
+      (`a7f6ba5`). **This item's threat claim was overstated and is corrected
+      here:** `-read` is mostly stricter than the write paths — measured,
+      `zed:alpha`, `alpha:zed`, `0:alpha`, `alpha=p` and `alpha"zed` all exit 1.
+      Only the comma case reproduced: `c1541 img -read 'zed,alpha' out` exits 0
+      and returns **zed**'s contents. The docstring and test state only that
+      measured case; wildcards remain legal and are pinned (`-read '*'` is how a
+      disk's autostart program is pulled back off an image).
+- [x] Case asymmetry in the file API closed at both ends — `put_file`'s explicit
+      `name=` now goes through `cbm_filename` (round-trip test added) and
+      `get_file` through `cbm_lookup_name`. The `name=None` default
+      (`src.stem.lower()`) is deliberately left alone, with the reason in the
+      docstring: tightening it would newly reject stems `c64 disk put` accepts
+      today (`a7f6ba5`).
+- [x] `delete_file`'s `dos_status` re-parse can no longer disagree with
+      `_run_checked`'s own — `_run_checked` returns the combined `stdout +
+      stderr` it parsed its status from (`a7f6ba5`).
+- [x] The over-long lookup name message was confirmed already fixed by `10fe436`
+      — `cbm_lookup_name` raises the length message before any c1541 call and no
+      path reaches c1541 with a >16-char name (re-verified in `a7f6ba5`).
+- [x] The `'title'` noun no longer leaks into filename errors — fixed inside
+      `disk.py` (`cbm_filename` rewrites a leading `"title "` to `"filename "`)
+      rather than by adding a noun parameter to `packaging.cbm_title`, which is
+      outside the disk plan's scope and would have rippled into
+      `tests/test_packaging.py` (`a7f6ba5`).
+- [x] `_run_checked`'s `"Error -"` scan and `_FAILURE_TEXT` branches were
+      measured unreachable on VICE 3.10 and **kept** as the deliberate guard
+      against the exit-0 regression class, with a comment saying exactly that
+      ("do not delete them because coverage calls them dead"). The `"Error -"`
+      scan no longer requires column 0 (`a7f6ba5`).
+- [x] `GEOMETRY`/`IMAGE_DRIVE_TYPES`/`TOTAL_BLOCKS`/`MAX_DIR_ENTRIES` key-set
+      coupling is now enforced twice, since the repo has no CI: a module-level
+      `assert` that fails at import plus the requested test (`a7f6ba5`).
+- [x] `_ERR_RE` no longer requires all four fields — the track/sector pair is
+      optional (defaults 0/0), the message may contain commas, and a line that
+      opens `ERR =` but does not parse now raises instead of degrading silently
+      to "no status" (`a7f6ba5`).
 - [ ] **c1541-dependent tests are invisible to CI.** The `needs_c1541` marker
       (`tests/test_disk_blocks.py:27`, `tests/test_disk.py:29`,
       `tests/test_disk_build.py:16`, `tests/test_mcp_disk.py:19`) skips when
@@ -198,82 +169,42 @@ abandoned, they become standing backlog as written.
       open: install VICE in a CI job, or state the local-only contract
       explicitly. (Task 1's original wording — "the marker is dead in the test
       file" — is stale; later tasks applied it widely.)
-- [ ] **The d71 test misses side-two zone boundaries 52/59/60/66.**
-      `tests/test_disk_blocks.py::test_d71_second_side_mirrors_the_first`
-      (line 50) parametrizes only `(36, 21), (53, 19), (65, 18), (70, 17)`,
-      while `GEOMETRY[".d71"]` (`disk.py:63`) declares zones
-      `(36,52,21), (53,59,19), (60,65,18), (66,70,17)`. Add the last track of
-      each zone and the first of the next: 52→21, 59→19, 60→18, 66→17.
-- [ ] **Record (don't change) the accepted `validate`/repair costs from Task 4:**
-      `validate_image` (`disk.py:389-435`) performs 2 whole-image
-      `read_bytes()` plus 3 c1541 spawns per call (two `list_files`, one
-      `-validate`) — the correct trade for deciding cleanliness
-      format-agnostically, since c1541 reports nothing either way.
-      `repaired_blocks` really means the free-count delta (plan-mandated name,
-      already documented in the docstring). And
-      `test_validate_detects_and_repairs_a_corrupted_bam` /
-      `test_validate_reclaims_blocks_no_file_owns`
-      (`tests/test_disk_blocks.py`, ~lines 334 and 355) assert the same
-      poke-BAM-then-validate path and should be absorbed into one. Action is
-      documentation + test tidy-up; no behavior change.
-- [ ] **The disk-id coercion hint echoes the coerced value verbatim.**
-      `_disk_id` (`disk.py:456-467`) ends its YAML-coercion hint with
-      `quote it: id: "{disk_id.zfill(2)}"`. Right for `id: 01` (YAML → int 1 →
-      suggests `"01"`), wrong for `id: 12345`, where it suggests quoting a
-      value the very next length check rejects. Cosmetic, on an
-      already-failing path. Fix = only offer the quote-it hint when
-      `zfill(2)` yields a legal two-character id. Verify:
-      `tests/test_disk_build.py`.
-- [ ] **A SIGKILL mid-`build_disk` can orphan a `.<stem>-build-*` staging
-      directory beside the output.** `build_disk` (`disk.py:606-608`) stages
-      into `tempfile.TemporaryDirectory(dir=image.parent,
-      prefix=f".{image.stem}-build-")` — deliberately on the output's own
-      filesystem so the final `os.replace` (`disk.py:630`) stays atomic.
-      Ordinary failures clean up via the context manager; only an uncatchable
-      kill leaves the directory behind. Fix direction: document it, or sweep
-      matching siblings at the start of the next build. Verify:
-      `tests/test_disk_build.py`.
-- [ ] **`docs/cli.md:744-745` overstates the `disk block read` JSON parity with
-      `mem read`:** "`bytes` is the count and `hex` the sector as a hex string,
-      the same pair of names `c64 mem read` uses" — but `c64 mem read`'s
-      `bytes` is "always present as a decimal int array" (`docs/cli.md:222-224`),
-      not a count. Trim to say the two commands share the key names and differ
-      in what `bytes` means. Doc-only. Verify: `tests/test_docs_cli.py`.
-- [ ] **Re-measure and update the tool/skill counts now that the disk work has
-      landed.** `index.html:196` still claims "A 67-command CLI, 55 MCP tools,
-      four skills". Measured today: **61** `@srv.tool()` in
-      `src/c64lib/mcp_server.py`; **5** skills under `skills/` (6502-assembly,
-      6502-debugging, c64-development, cartridge-programming,
-      disk-io-programming); the CLI is still **67** (63 `@<group>.command(`
-      decorators plus 4 `add_command` aliases at `cli.py:1030-1032` and
-      `cli.py:1351`). Re-check `docs/agent-setup.md` and
-      `skills/c64-development/SKILL.md` too — neither carried a numeric count
-      at last check, but both name the skill set.
-- [ ] **MCP disk-tool minors (`src/c64lib/mcp_server.py`, `tests/test_mcp_disk.py`).**
-      All small, deferred as a group: (a) nothing asserts the documented tool
-      roster against `list_tools()` (helper exists at
-      `tests/test_mcp_scaffold.py:29`); (b) `bytes(values)`
-      (`mcp_server.py:762`) surfaces Python's bare "bytes must be in range(0,
-      256)" where the CLI's `parse_number` names the offending token — fix once
-      at library level; (c) the `c64_disk_rename`/`c64_disk_rm` payloads (lines
-      702, 713) are never cross-checked against the CLI runner the way the
-      block tools are (a one-liner each); (d) the guard
-      `(src is None) == (values is None)` (line 750) diverges from the CLI's
-      `bool(src) == bool(values)` (`cli.py:1415`) for `values=[]` —
-      `(src is None) == (not values)` matches exactly; (e) `image` is echoed
-      unnormalized (lines 702/713/732/764) where the CLI emits `str(Path)`;
-      (f) the `-o` failure re-raise (`mcp_server.py:729-731`) flattens
-      `PermissionError` and friends into a bare `OSError`; (g)
-      `tests/test_mcp_disk.py:161` passes a filesystem path to `match=` as a
-      regex — needs `re.escape`.
-- [ ] **Uneven error-path coverage in the disk CLI tests**
-      (`tests/test_cli_disk.py`): the `ValueError` arm of `disk block write`'s
-      byte parsing (`cli.py:1428`, `bytes(parse_number(v) for v in values)`) is
-      untested, so a bad token's raw-Python wording has never been read;
-      `disk validate` (`cli.py:1437`) has no error-path test at all; and
-      `disk build` exercises only the unknown-model `KeyError` arm
-      (`test_cli_build_rejects_an_unknown_model`, line 283) — not the
-      `DiskError` arms. Add one test per gap.
+- [x] The d71 side-two zone-boundary tests went from 4 cases to 8, adding
+      52→21, 59→19, 60→18 and 66→17; all four were probed sector by sector
+      against a real d71 first (`a7f6ba5`).
+- [x] The accepted `validate` costs are recorded in `validate_image`'s
+      docstring (2 whole-image `read_bytes()` + 3 c1541 spawns per call, with
+      the format-agnostic trade stated), and the two overlapping BAM-repair
+      tests were absorbed into one with no assertion lost (`a7f6ba5`).
+- [x] The disk-id coercion hint now offers its `quote it:` clause only when
+      `zfill(2)` yields a legal two-character id, so `id: 12345` no longer
+      suggests quoting a value the next length check rejects (`a7f6ba5`).
+- [x] The SIGKILL staging-dir orphan is **documented** in `build_disk`'s
+      docstring rather than swept: a sweep cannot tell an orphaned
+      `.<stem>-build-*` from the live staging directory of a concurrent build
+      against the same output, so it would break a working build to tidy up
+      after a dead one (`a7f6ba5`).
+- [x] `docs/cli.md`'s "same pair of names" overstatement reworded to say the two
+      commands share the key names and differ in what `bytes` means (`76f76b2`).
+- [x] Tool/skill counts re-measured and refreshed: `index.html` now reads "A
+      67-command CLI, 61 MCP tools, five skills", and the stale CLI-only
+      enumerations in `docs/agent-setup.md` and `skills/c64-development/SKILL.md`
+      were corrected (every `c64 disk` and `c64 cart` verb has a tool; only five
+      commands are genuinely twin-less). Guarded by new
+      `tests/test_mcp_scaffold.py` tests rather than remembered (`76f76b2`).
+- [x] MCP disk-tool minors: (a) roster/count/CLI-only guards added, (c)
+      `c64_disk_rename`/`c64_disk_rm` payloads now cross-checked against the CLI,
+      (d) the `values=[]` guard matches the CLI's `bool()` check exactly, (e)
+      `image` echoed as `str(Path(...))` like the CLI, (f) the `-o` re-raise
+      keeps the `OSError` subclass, (g) `re.escape` on the path passed to
+      `match=` — all `76f76b2`. (b) the bare "bytes must be in range(0, 256)"
+      was fixed in two halves: `disk.block_bytes` in `a7f6ba5`, then the seam
+      commit routed both `cli.py` and `mcp_server.py` through it, so a bad
+      element is now named with its position at either front end.
+- [x] Uneven error-path coverage in `tests/test_cli_disk.py` closed with four
+      tests (both arms of `disk block write`'s byte parsing, `disk validate`'s
+      `DiskError`, and `disk build`'s `DiskError`/`BuildError` arms); none need
+      c1541 (`76f76b2`).
 
 ## Standing backlog (pre-cartridge)
 
