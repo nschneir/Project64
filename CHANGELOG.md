@@ -49,7 +49,12 @@ disks, and the runtime half of disk I/O.
   existing image byte-identical. A manifest that would overflow the disk — on
   blocks *or* on the 144 directory entries a `.d64` holds — is refused before
   anything is formatted, because a full disk otherwise leaves a truncated file
-  and a corrupt BAM behind.
+  and a corrupt BAM behind. Every `.s` entry also leaves its VICE label file
+  beside the output image as `<image-stem>.<cbm-name>.lbl`, reported under the
+  payload's `labels` key, so a program loaded off the built disk can still be
+  debugged symbolically. One file per entry rather than one merged table: two
+  assembled programs on one disk are separate namespaces, and merging them
+  would silently collide on every `start`/`loop` they share.
 - **`disk-io-programming` skill** — the runtime half: the KERNAL `LOAD`/`SAVE`
   and channel calls, the secondary-address rule that decides where a file
   lands (measured both ways), reading the drive's own answer off the command
