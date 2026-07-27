@@ -18,7 +18,19 @@ from .build import build_asm
 from .cart_build import build_easyflash
 from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
-from .disk import create_image, get_file, list_files, put_file
+from .disk import (
+    block_poke,
+    block_read,
+    block_write_file,
+    build_disk,
+    create_image,
+    delete_file,
+    get_file,
+    list_files,
+    put_file,
+    rename_file,
+    validate_image,
+)
 from .machines import get_profile
 from .ops import (
     call_routine,
@@ -678,6 +690,101 @@ def c64_disk_boot(image: str, session: str | None = None) -> dict:
         finally:
             mon.resume()
     return {"booted": str(p)}
+
+
+@srv.tool()
+def c64_disk_rename(image: str, old: str, new: str) -> dict:
+    """Rename a file on a disk image. `new` is validated as a CBM filename
+    (1-16 chars, no ":,=*?). Errors when `old` is not on the disk — c1541
+    reports a missing file without failing. A wildcard in `old` is refused, so
+    a rename can never act on more than the one file you named. Needs no
+    session."""
+    return {"image": image, "old": old,
+            "name": rename_file(Path(image), old, new)}
+
+
+@srv.tool()
+def c64_disk_rm(image: str, name: str) -> dict:
+    """Scratch a file from a disk image. `name` may use the CBM wildcards `*`
+    and `?`, which scratch every match at once — a name of "*" empties the
+    disk — so "deleted" is the count that matters. Errors when nothing matched:
+    c1541 answers a no-match scratch exactly like a successful one apart from
+    that count. Needs no session."""
+    return {"image": image, "name": name,
+            "deleted": delete_file(Path(image), name)}
+
+
+@srv.tool()
+def c64_disk_block_read(image: str, track: int, sector: int,
+                        output: str | None = None) -> dict:
+    """Read one 256-byte sector from a disk image. Track is 1-based and sector
+    0-based (the CBM convention); on a 1541 image 18/0 is the BAM and 18/1 the
+    first directory sector. Returns the sector in "hex", or writes it to
+    `output` and reports the path instead — the two payloads differ exactly as
+    the CLI's do. Needs no session."""
+    data = block_read(Path(image), track, sector)
+    if output is not None:
+        try:
+            Path(output).write_bytes(data)
+        except OSError as e:
+            # Same contract as the CLI's -o: a refused dump names the path.
+            raise OSError(f"{output}: {e.strerror or e}") from None
+        return {"image": image, "track": track, "sector": sector,
+                "output": output, "bytes": len(data)}
+    return {"image": image, "track": track, "sector": sector,
+            "bytes": len(data), "hex": data.hex()}
+
+
+@srv.tool()
+def c64_disk_block_write(image: str, track: int, sector: int,
+                         src: str | None = None,
+                         values: list[int] | None = None,
+                         offset: int | None = None) -> dict:
+    """Write a sector of a disk image: pass `src` (a host file of exactly 256
+    bytes, the CLI's --from) to replace the whole sector, or `values` (the
+    CLI's VALUES) with `offset` to poke bytes inside it, leaving the rest
+    alone. Exactly one of the two, and `offset` belongs only to a poke.
+    Wrong-sized whole-sector writes and pokes running off the end of a sector
+    are rejected — c1541 accepts both silently. `offset` defaults to 0.
+    Needs no session."""
+    if (src is None) == (values is None):
+        raise ValueError("give exactly one of --from FILE or VALUES (bytes to poke)")
+    if src is not None and offset is not None:
+        # None (not 0) is what tells an explicit --offset 0 from an unset one,
+        # the way the CLI's parameter source does.
+        raise ValueError("--offset applies to a VALUES poke; --from replaces the "
+                         "whole sector, so there is nothing for it to offset")
+    if src is not None:
+        block_write_file(Path(image), track, sector, Path(src))
+        written, at = 256, 0
+    else:
+        at = offset or 0
+        block_poke(Path(image), track, sector, at, bytes(values))
+        written = len(values)
+    return {"image": image, "track": track, "sector": sector,
+            "written": written, "offset": at}
+
+
+@srv.tool()
+def c64_disk_validate(image: str) -> dict:
+    """Check and repair a disk image's block allocation — the CBM fsck.
+    Rewrites the BAM in place. c1541 reports nothing either way, so
+    cleanliness is decided by comparing the image before and after;
+    blocks_free_before/after are the evidence and "clean" is the flag to
+    trust. Needs no session."""
+    return validate_image(Path(image))
+
+
+@srv.tool()
+def c64_disk_build(manifest: str, output: str | None = None,
+                   model: str = "c64") -> dict:
+    """Build a populated disk image from a .disk.yaml manifest in one step.
+    Files are written in listed order, so the first one autostarts; .s entries
+    are assembled, .bas tokenized, everything else copied verbatim. A manifest
+    that would overflow the disk is refused before anything is written, since
+    a full disk otherwise leaves a truncated file and a corrupt BAM behind.
+    Reports blocks used/free and a run hint. Needs no session."""
+    return build_disk(Path(manifest), out=output, model=model)
 
 
 @srv.tool()
