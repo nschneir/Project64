@@ -605,6 +605,46 @@ def test_missing_disk_file_is_named(tmp_path):
         load_test(spec_file)
 
 
+def test_a_contradictory_spec_is_reported_as_contradictory_not_as_a_missing_file(
+        tmp_path):
+    """Ordering rule: every mutual-exclusion check runs before any per-key
+    existence check. A spec that names two of `program`/`cart`/`disk` is
+    contradictory whether or not both paths exist, and reporting the missing one
+    first sends the reader off to create a file the spec should not have named."""
+    from c64lib.testing import load_test
+
+    _d64(tmp_path / "game.d64")
+    _crt(tmp_path / "game.crt")
+    (tmp_path / "program.s").write_text("nop\n")
+    spec_file = tmp_path / "test.yaml"
+    for text, expected in [
+        ("disk: game.d64\ncart: gone.crt\nsteps: []\n", "disk.*cart"),
+        ("disk: gone.d64\ncart: game.crt\nsteps: []\n", "disk.*cart"),
+        ("disk: game.d64\nprogram: gone.s\nsteps: []\n", "disk.*program"),
+        ("disk: gone.d64\nprogram: program.s\nsteps: []\n", "disk.*program"),
+        ("cart: game.crt\nprogram: gone.s\nsteps: []\n", "cart.*program"),
+        ("cart: gone.crt\nprogram: program.s\nsteps: []\n", "cart.*program"),
+    ]:
+        spec_file.write_text(text)
+        with pytest.raises(TestError, match=expected) as exc:
+            load_test(spec_file)
+        assert "not found" not in str(exc.value), text
+
+
+def test_a_single_key_spec_still_names_the_missing_file(tmp_path):
+    """The counterpart to the ordering above: with nothing to contradict, a
+    missing path is still the answer — the reorder trades no message away."""
+    from c64lib.testing import load_test
+
+    spec_file = tmp_path / "test.yaml"
+    for text, expected in [("cart: gone.crt\nsteps: []\n", "gone.crt"),
+                           ("disk: gone.d64\nsteps: []\n", "gone.d64"),
+                           ("program: gone.s\nsteps: []\n", "gone.s")]:
+        spec_file.write_text(text)
+        with pytest.raises(TestError, match=f"{expected} not found"):
+            load_test(spec_file)
+
+
 def test_is_disk_spec_parses_yaml_rather_than_sniffing_text(tmp_path):
     from c64lib.testing import is_disk_spec
 

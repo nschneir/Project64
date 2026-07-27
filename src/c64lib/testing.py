@@ -127,17 +127,17 @@ def load_test(path: str | Path) -> dict:
     spec.setdefault("cart_type", "8k")
     spec.setdefault("disk", None)
     spec.setdefault("dir", str(path.parent.resolve()))  # what `cart:` is relative to
+    # Every conflict first, then every existence check: a spec that names two
+    # boot sources is contradictory whether or not both paths exist, and
+    # "cart … not found" would send the reader off to create a file the spec
+    # should not have named at all.
+    _reject_spec_conflicts(f"{path}", spec)
     if spec["cart"]:
-        if spec.get("program"):
-            raise TestError(
-                f"{path}: a spec sets either `cart` or `program`, not both — "
-                "a cartridge boots itself and nothing is autostarted")
         cart = _spec_path(path.parent, spec["cart"])
         if not cart.exists():
             raise TestError(f"{path}: cart {cart} not found")
         spec["cart"] = str(cart)
     if spec["disk"]:
-        _reject_disk_conflicts(f"{path}", spec)
         disk = _spec_path(path.parent, spec["disk"])
         if not disk.exists():
             raise TestError(f"{path}: disk {disk} not found")
@@ -173,6 +173,20 @@ def load_test(path: str | Path) -> dict:
                 raise TestError(
                     f"{path}: step {i} (poke) needs value or values")
     return spec
+
+
+def _reject_spec_conflicts(where: str, spec: dict) -> None:
+    """Every mutual-exclusion rule between `program:`, `cart:` and `disk:`, in
+    one place so a caller can run them all before any per-key existence check.
+    A contradictory spec should be told what contradicts, not which of its
+    contradictory paths happens to be missing.
+    """
+    if spec.get("cart") and spec.get("program"):
+        raise TestError(
+            f"{where}: a spec sets either `cart` or `program`, not both — "
+            "a cartridge boots itself and nothing is autostarted")
+    if spec.get("disk"):
+        _reject_disk_conflicts(where, spec)
 
 
 def _reject_disk_conflicts(where: str, spec: dict) -> None:
@@ -547,16 +561,11 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
     steps: list[StepResult] = []
     screen_text = ""
     cart_path, cart_labels, disk_path = (None, None, None)
-    if spec.get("cart") and spec.get("program"):
-        # load_test rejects this too, but a hand-built spec (program_test, a
-        # caller assembling one in code) never passes through that layer, and
-        # the cart branch would silently win — the program would never load.
-        raise TestError(
-            f"{spec.get('name', 'spec')}: a spec sets either `cart` or "
-            "`program`, not both — a cartridge boots itself and nothing is "
-            "autostarted")
+    # load_test rejects these too, but a hand-built spec (program_test, a caller
+    # assembling one in code) never passes through that layer, and one branch
+    # would silently win — the losing artifact would never load.
+    _reject_spec_conflicts(spec.get("name", "spec"), spec)
     if spec.get("disk"):
-        _reject_disk_conflicts(spec.get("name", "spec"), spec)
         # Built before the machine boots: a manifest that cannot fit must fail
         # as a build error, not as a program that never appears on screen.
         disk_path = str(prepare_disk(spec.get("dir", "."), spec["disk"],
