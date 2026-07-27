@@ -17,9 +17,13 @@ say so rather than substituting another environment.
 **Using MCP instead of the CLI?** The tools map mechanically — `c64 screen`
 → `c64_screen_text`, `c64 break add` → `c64_break_add`, `c64 basic check`
 → `c64_basic_check`, and so on — with the
-same sessions, semantics, and stopped-state rule. Two differences: `c64 wait`
-is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break`, and wait
-timeouts return `{"fired": null, ...}` as data instead of an error.
+same sessions, semantics, and stopped-state rule. Known differences: `c64 wait`
+is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break`; wait
+timeouts return `{"fired": null, ...}` as data instead of an error; and a few
+commands have no MCP twin yet — `c64 basic tokenize`, `c64 basic detokenize`,
+`c64 sprite encode`, `c64 break disable`/`enable`, `c64 watch remove`, and
+every `c64 disk` verb beyond `create`/`ls`/`put`/`get`/`boot`. Shell out for
+those.
 
 ## The loop
 
@@ -278,7 +282,8 @@ reproduction, use the `6502-debugging` skill.)
 | Machine appears frozen after debugging | It's stopped (step/finish/until/wait --break leave it stopped) — `c64 continue`. |
 | Program vanished after `c64 run` | Autostart resets the machine first — that's normal; reload anything else you need. |
 | A color register assert fails with `f0 != 00` (or `fb != 0b`) | VIC-II color registers are 4-bit — the high nybble reads as 1s. Mask with `and: "$0f"`. |
-| Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). |
+| Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). Then inspect the image itself from the host — `c64 disk ls`, `c64 disk validate`, `c64 disk block read IMAGE 18 0` for the BAM. |
+| A file the program LOADs isn't on the disk | `c64 disk ls IMAGE` — CBM names are written lowercase (they display uppercase on the C64) and max out at 16 chars, so they rarely match the host filename. Put it there with `c64 disk put`, or list it in a `*.disk.yaml` and rebuild with `c64 disk build`. |
 
 ## When the tooling itself misbehaves
 

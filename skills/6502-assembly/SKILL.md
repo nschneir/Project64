@@ -14,7 +14,9 @@ skill's reference files (memory map, ROM routines, zero page, PETSCII).
 ## The program skeleton
 
 A C64 program loads at `$0801` and needs a tiny BASIC stub so that `RUN`
-transfers control to your machine code. This skeleton assembles as-is (it is
+transfers control to your machine code. (A cartridge is the exception: it is
+ROM the machine maps at power-on, so it has no load address and no stub —
+see the `cartridge-programming` skill.) This skeleton assembles as-is (it is
 the project’s `tests/programs/hello-asm` example):
 
 ```asm
@@ -51,7 +53,7 @@ The load address `$0801` is emitted by the `LOADADDR` segment (not loaded into
 RAM as data — it is the PRG header). Starting at `$0801` the `EXEHDR` segment
 lays down a single BASIC line — next-line pointer, line number 10, the `SYS`
 token `$9E`, the digits `"2061"`, and a `$00` terminator — followed by the
-`$0000` end-of-program marker. That stub occupies 12 bytes (`$0801`–`$040C`),
+`$0000` end-of-program marker. That stub occupies 12 bytes (`$0801`–`$080C`),
 so your `CODE` segment begins at `$080D`, which is decimal **2061**. Hence
 `SYS 2061` jumps to `start`. Change the message and the code, not the stub.
 

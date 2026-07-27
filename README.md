@@ -122,6 +122,34 @@ File → Smart attach. Disk images travel better: they carry a real CBM
 directory, so `LOAD"SNAKE",8` then `RUN` works the old-fashioned way.
 Neither artifact contains ROMs or anything from this toolset.
 
+## Disk images
+
+`c64 disk` manipulates `.d64`/`.d71`/`.d81` images through VICE's `c1541` —
+all of it offline, with no session and no emulator running (only
+`c64 disk boot` touches a live machine):
+
+    c64 disk build game.disk.yaml          # a whole disk from a manifest
+    c64 disk ls game.d64                   # directory listing + blocks free
+    c64 disk put game.d64 level1.bin       # copy a host file in
+    c64 disk rename game.d64 old new       # rename a file in place
+    c64 disk rm game.d64 "lvl*"            # scratch, CBM wildcards and all
+    c64 disk validate game.d64             # the CBM fsck; rewrites the BAM
+    c64 disk block read game.d64 18 0      # a raw sector (18/0 is the BAM)
+    c64 disk boot game.d64                 # attach + LOAD/RUN the first file
+
+A `*.disk.yaml` manifest is the reproducible way to ship a multi-file game:
+list the sources in load order and `c64 disk build` assembles `.s` entries,
+tokenizes `.bas`, and copies everything else verbatim onto a fresh image whose
+first file autostarts. A manifest that would overflow the disk — on blocks or
+on directory entries — is refused before the image is formatted, so a build
+that cannot fit writes nothing at all.
+
+c1541 exits 0 on a surprising number of failures (a rename of a file that
+isn't there, a scratch that matched nothing, a sector poke running off the end
+of a sector), so these commands judge success from the DOS status line and the
+resulting image rather than from the exit code alone. Full command reference:
+[docs/cli.md](docs/cli.md#disk-images).
+
 ## Cartridges
 
 A cartridge is ROM the machine maps at power-on: it boots itself, so there is

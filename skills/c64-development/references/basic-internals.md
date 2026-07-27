@@ -127,6 +127,12 @@ The 62 row is asserted live against a real drive image by
 `tests/test_integration_disk.py`; the rest follow the standard CBM DOS 2
 table (cross-checked against two period references).
 
+Host-side equivalents, for when the fix belongs to the image rather than to
+the program: `c64 disk validate IMAGE` runs the same VALIDATE the 60 row
+prescribes, `c64 disk ls` settles a 62 (FILE NOT FOUND), and
+`c64 disk block read IMAGE 18 0` dumps the BAM the drive is reading. They work
+on the image file offline, with no session running.
+
 ## Keyword abbreviations (direct entry)
 
 A keyword can be typed as its first letter(s) plus the **next letter held with

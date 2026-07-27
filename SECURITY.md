@@ -31,16 +31,18 @@ it does with your machine helps you assess risk:
   set breakpoints, feed input). This is loopback-only and no worse than local
   code execution you already have, but it is an intentional local interface.
 - **External toolchain execution.** The tools invoke `x64sc`, `petcat`,
-  `c1541` (VICE), and `ca65`/`ld65` (cc65), located via `PATH` or the
-  `C64_TOOLS_*` environment variables. As with any build tool, a poisoned
+  `c1541`, `cartconv` (VICE), and `ca65`/`ld65` (cc65), located via `PATH` or
+  the `C64_TOOLS_*` environment variables. As with any build tool, a poisoned
   `PATH` or a malicious `C64_TOOLS_CA65`/`C64_TOOLS_X64SC` value would run
   attacker-controlled binaries. Only run in an environment whose `PATH` and
   those variables you trust.
 - **Filesystem access (CLI and MCP).** Commands and MCP tools read and write
   files you point them at — assembling/tokenizing source, writing `.prg`/
-  label/PNG/disk-image outputs, and copying files in and out of disk images.
-  They do not restrict paths, so treat their file arguments with the same care
-  as any shell command's.
+  label/PNG/disk-image/cartridge outputs, and copying files in and out of disk
+  images. Some of it edits a named image *in place* — renaming and scratching
+  files, writing raw sectors, and repairing the BAM — and `c64 disk build`
+  replaces its output image wholesale. They do not restrict paths, so treat
+  their file arguments with the same care as any shell command's.
 - **Designed to be driven by AI agents.** When an AI agent operates these
   tools, it acts with your filesystem and shell permissions. Review what an
   agent is asked to do, and prefer running agents in a workspace scoped to

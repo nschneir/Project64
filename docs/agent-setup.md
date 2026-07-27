@@ -8,9 +8,14 @@ calls. There are two ways an agent can use it — pick either or both:
 - **The CLI** — every `c64` command takes `--json` (the binary lives at
   `.venv/bin/c64` in a source checkout). Works with *any* agent that can
   run shell commands; nothing to configure.
-- **The MCP server** — `c64-tools-mcp` exposes the same operations as MCP
-  tools over stdio. CLI and MCP share the same sessions, so they are
-  interchangeable.
+- **The MCP server** — `c64-tools-mcp` exposes the same session, build, and
+  debug operations as MCP tools over stdio, returning the same structured
+  data the CLI's `--json` does. CLI and MCP share the same sessions, so they
+  mix freely. A few offline commands are CLI-only, though — `c64 basic
+  tokenize`/`detokenize`, `c64 sprite encode`, `c64 break disable`/`enable`,
+  `c64 watch remove`, and every `c64 disk` verb beyond
+  `create`/`ls`/`put`/`get`/`boot` — so an MCP-wired agent still needs a
+  shell for those.
 
 Either way, the agent should read
 [`skills/c64-development/SKILL.md`](../skills/c64-development/SKILL.md) (the
