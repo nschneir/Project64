@@ -13,9 +13,9 @@ They're graded — start at 01 if you're new:
 | 02 | Bouncing beach ball | BASIC | Multicolor sprites from BASIC | ✅ dogfooded |
 | 03 | Sieve benchmark | BASIC + asm | Timing, iteration, the asm speedup | ✅ dogfooded |
 | 04 | Snake | 6502 assembly | Assembler + debugger workflow, $CB input, SID sound | ✅ dogfooded |
-| 05 | Debug hunt | BASIC + debugger | Breakpoints, stepping, memory inspection | 🔲 awaiting C64 dogfood |
-| 06 | [Invaders](invaders/) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | 🔲 awaiting C64 dogfood |
-| 07 | [1812](1812/) | 6502 assembly | Spec→plan→build, bitmap mode, rotating polygon rasterizer, 3-voice SID | 🔲 awaiting C64 dogfood |
+| 05 | Debug hunt | BASIC + debugger | Breakpoints, stepping, memory inspection | ✅ dogfooded |
+| 06 | [Invaders](invaders/PROMPT.md) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | 🔲 awaiting C64 dogfood |
+| 07 | [1812](1812/PROMPT.md) | 6502 assembly | Spec→plan→build, bitmap mode, rotating polygon rasterizer, 3-voice SID | 🔲 awaiting C64 dogfood |
 
 Demos 01–06 were ported from the PET edition of this project, where each
 passed a real dogfooding run (an agent given only the toolset built and
@@ -27,8 +27,10 @@ Graphics and sprite expectations follow docs/superpowers/specs/graphics-and-spri
 **Where the work goes.** A single-file prompt (`NN-name.md`) doesn't ship a
 solution: the agent writes the program wherever it likes, proves it on a live
 session, and nothing is committed — the run itself is the deliverable. Demos
-that *are* directories (`invaders/`, `1812/`) keep their sources, spec and
-`evidence/` screenshots in place.
+that *are* directories keep their prompt in `PROMPT.md` and their sources, spec
+and `evidence/` screenshots beside it (`invaders/`, `1812/`) — the prompt is
+named `PROMPT.md`, not `README.md`, so that what you paste into the agent is
+never confused with documentation *about* the demo.
 
 Reference example programs with expected output (runnable as regression tests
 via `c64 test programs`) live in `tests/programs/` — solutions that come out

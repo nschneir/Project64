@@ -6,15 +6,17 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
-## [Unreleased]
+## [0.8.0] — 2026-07-28
 
-What dogfooding runs of demos 03 and 04 walked into. Demo 03 (sieve
+What dogfooding runs of demos 03, 04 and 05 walked into. Demo 03 (sieve
 benchmark) passed first try — BASIC 933 jiffies, assembly 9.2, both
 reporting `168 PRIMES, LARGEST 997` — and turned up documentation friction
 only. Demo 04 (Snake in 6502 assembly) also came out working — a custom
 charset, a title/play/game-over state machine, `$CB` steering, SID
 blip/crash and a high score surviving across games, all proven on a live
-machine — but found two real defects on the way.
+machine — but found two real defects on the way. Demo 05 (debug hunt)
+passed as well and found no defects; what it walked into was observability
+friction, filed in `docs/todo.md`.
 
 ### Fixed
 - **A freshly built `.s` no longer reports itself STALE.** `c64 status`
@@ -108,6 +110,18 @@ machine — but found two real defects on the way.
   (`c64-development` SKILL.md). Each `c64` invocation is a fresh Python
   process, measured at ~130 ms of startup; at 3-4 calls per move that is
   minutes of process startup while a warp-mode emulator sits idle.
+- **A directory-sized demo keeps its prompt in `PROMPT.md`**, not
+  `README.md` — `demos/invaders/` and `demos/1812/` renamed, and
+  `demos/README.md` now links the file rather than the directory. The
+  paste-into-your-agent prompt and documentation *about* a demo are
+  different things, and `README.md` reads as the latter.
+- **Demo 05 (debug hunt) is dogfooded** — `demos/README.md` and
+  `index.html` updated. The run found all three planted bugs from the
+  machine (the `?BAD SUBSCRIPT`, the `nop`-for-`inx` wedge proven by PC
+  sampling plus a disassembly of the cassette buffer, and the
+  PETSCII-vs-screen-code title) and fixed them, and found no product
+  defects. The six observability gaps it walked into are recorded in
+  `docs/todo.md`, not here, because none has a ruled fix yet.
 
 ## [0.7.0] — 2026-07-27
 

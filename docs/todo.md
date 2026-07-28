@@ -1,7 +1,9 @@
 # TODO
 
 Open items carried out of the `.crt` cartridge support work (2026-07-26) plus
-the standing project backlog. Strike items as they land.
+the standing project backlog. Items are deleted as they land — what was
+actually done is recorded in `CHANGELOG.md` and in git history, so this file
+stays a list of work still open.
 
 Every item is written to stand on its own — anchor, what's wrong now, the fix
 direction if one was ruled, and how to verify. The process ledgers that
@@ -11,9 +13,9 @@ the function/test names are the durable anchors.
 
 ## Decisions (maintainer)
 
-- [ ] **Release timing for 0.7.0.** `pyproject.toml:7` (`version = "0.7.0"`),
-      `CHANGELOG.md`'s `## [0.7.0]` heading and `README.md:185` ("Stable —
-      current release **v0.7.0**") are coherent today.
+- [ ] **Release timing for 0.8.0.** `pyproject.toml:7` (`version = "0.8.0"`),
+      `CHANGELOG.md`'s `## [0.8.0]` heading and `README.md:185` ("Stable —
+      current release **v0.8.0**") are coherent today.
       `.github/workflows/release.yml` triggers on `push: branches: [main]`, so
       pushing `main` arms the release workflow — there is no tag gate. To ship
       later, revert the bump as a unit (all three files together;
@@ -54,23 +56,11 @@ the function/test names are the durable anchors.
 - [ ] **Version-coherence test.**
       `tests/test_package.py::test_changelog_has_current_version` already pins
       `CHANGELOG.md` to `pyproject.toml`, but nothing pins the README: a
-      version revert can leave `README.md:185` ("current release **v0.7.0**")
-      stale and green. The 0.7.0 bump had to update it by hand. Add the assertion to `tests/test_docs_readme.py`,
+      version revert can leave `README.md:185` ("current release **v0.8.0**")
+      stale and green. Both the 0.7.0 and 0.8.0 bumps had to update it by
+      hand. Add the assertion to `tests/test_docs_readme.py`,
       reusing `tests/test_package.py::_pyproject_version()` and a regex over
       the README release line — parse, never hard-code.
-
-## Accepted behavior (documented, revisit only if it bites)
-
-- [x] Stale `.crt`/`.bin` beside the output path after a failed rebuild —
-      consistent with `build_asm`'s `.prg`/`.lbl` behavior; documented in
-      `docs/cli.md:523-525` ("a failed rebuild leaves the outputs of the
-      previous one in place … do not trust a `.crt`/`.bin` already sitting at
-      the output path").
-- [x] `index.html` tool count and missing cartridge card — fixed (55 tools,
-      CARTRIDGES card now at `index.html:193`). The 55 later went stale again
-      and was re-measured to 61 in `76f76b2`; the counts line is now enforced
-      by `tests/test_mcp_scaffold.py::test_index_html_counts_match_the_real_inventory`
-      rather than remembered.
 
 ## Test health
 
@@ -102,82 +92,17 @@ the function/test names are the durable anchors.
       A first step that needs no diagnosis: make live waits' timeouts scale
       when the suite runs under `coverage`/parallel load.
 
-## Disk plan deferred items (the deferred wave landed; one item still open)
+## Disk plan deferred items (one item still open)
 
 Originally mirrored from `.superpowers/sdd/2026-07-24-disk-file-block-ops/progress.md`
 (the disk file/block-ops plan's ledger, which is deleted when that plan
-finishes). The deferred wave has since landed in two commits — `a7f6ba5` (core:
+finishes). The deferred wave landed in two commits — `a7f6ba5` (core:
 `disk.py`, `testing.py`, their tests) and `76f76b2` (surfaces: MCP/CLI minors,
 counts, CHANGELOG) — plus a seam commit that finished the two front-end tokens
-wave A could not reach. Struck lines below record what was actually done,
-including the two places measurement contradicted the item as written. Only the
-CI item is still open.
+wave A could not reach; read those commits for what each item turned into,
+including the two places measurement contradicted the item as written. One
+item is still open.
 
-- [x] Swept every remaining `# Measured:` claim in `src/c64lib/disk.py` and its
-      tests against real c1541 (VICE 3.10) — all reproduced but one: the
-      `_FAILURE_TEXT` comment's "none of which change the exit code" was false
-      (all three diagnostics arrive with `rc 1`) and now records the exit codes
-      (`a7f6ba5`).
-- [x] `.lbl` label persistence implemented rather than documented: `build_disk`
-      copies each `.s` entry's `.lbl` beside OUT and returns an additive
-      `labels` key (one file per entry, not a merged table — a disk can hold
-      several independently assembled programs whose symbols would collide)
-      (`a7f6ba5`).
-- [x] Neutral lead-in for non-ENOENT `OSError`s — both sightings now read
-      `cannot read <path> (<strerror>)`. **This item's verification recipe was
-      wrong and is corrected here:** a chmod-000 *file* never reaches
-      `block_write_file`'s catch, because `stat()` needs no read permission —
-      the size check passes and c1541 fails later with its own "floppy read
-      failed"; the parent *directory* must be unsearchable for `stat()` itself
-      to raise `EACCES`, and the new test does that. `validate_image`'s catch
-      wraps `read_bytes()`, which does need read permission, so there a
-      chmod-000 file is the genuine case (`a7f6ba5`).
-- [x] `cbm_lookup_name` no longer upper-cases per character — the whole string
-      is cased once and the cased form is both validated and returned
-      (`cbm_title`'s idiom), so nothing non-ASCII reaches a c1541 argument and
-      the length check counts what c1541 stores (`'ß'` costs two) (`a7f6ba5`).
-- [x] `get_file`'s `name` is now validated through `cbm_lookup_name`
-      (`a7f6ba5`). **This item's threat claim was overstated and is corrected
-      here:** `-read` is mostly stricter than the write paths — measured,
-      `zed:alpha`, `alpha:zed`, `0:alpha`, `alpha=p` and `alpha"zed` all exit 1.
-      Only the comma case reproduced: `c1541 img -read 'zed,alpha' out` exits 0
-      and returns **zed**'s contents. **Re-measured (final review):** what
-      follows the comma is CBM DOS's type/mode field, judged by its first
-      character alone — `,alpha` works because `a` is append, as do `,p`, `,r`
-      and `,w`, while `,s`, `,z` and a bare `,` exit 1, and `alpha,zed` exits 1
-      even though both files exist. So the comma never retargets the read at
-      what follows it; it silently reads what *precedes* it. The docstring says
-      that now. Wildcards remain legal and are pinned (`-read '*'` is how a
-      disk's autostart program is pulled back off an image).
-- [x] Case asymmetry in the file API closed at both ends — `put_file`'s explicit
-      `name=` now goes through `cbm_filename` (round-trip test added) and
-      `get_file` through `cbm_lookup_name`. The `name=None` default
-      (`src.stem.lower()`) is deliberately left alone, with the reason in the
-      docstring: tightening it would newly reject stems `c64 disk put` accepts
-      today (`a7f6ba5`).
-- [x] `delete_file`'s `dos_status` re-parse can no longer disagree with
-      `_run_checked`'s own — `_run_checked` returns the combined `stdout +
-      stderr` it parsed its status from (`a7f6ba5`).
-- [x] The over-long lookup name message was confirmed already fixed by `10fe436`
-      — `cbm_lookup_name` raises the length message before any c1541 call and no
-      path reaches c1541 with a >16-char name (re-verified in `a7f6ba5`).
-- [x] The `'title'` noun no longer leaks into filename errors — fixed inside
-      `disk.py` (`cbm_filename` rewrites a leading `"title "` to `"filename "`)
-      rather than by adding a noun parameter to `packaging.cbm_title`, which is
-      outside the disk plan's scope and would have rippled into
-      `tests/test_packaging.py` (`a7f6ba5`).
-- [x] `_run_checked`'s `"Error -"` scan and `_FAILURE_TEXT` branches were
-      measured unreachable on VICE 3.10 and **kept** as the deliberate guard
-      against the exit-0 regression class, with a comment saying exactly that
-      ("do not delete them because coverage calls them dead"). The `"Error -"`
-      scan no longer requires column 0 (`a7f6ba5`).
-- [x] `GEOMETRY`/`IMAGE_DRIVE_TYPES`/`TOTAL_BLOCKS`/`MAX_DIR_ENTRIES` key-set
-      coupling is now enforced twice, since the repo has no CI: a module-level
-      `assert` that fails at import plus the requested test (`a7f6ba5`).
-- [x] `_ERR_RE` no longer requires all four fields — the track/sector pair is
-      optional (defaults 0/0), the message may contain commas, and a line that
-      opens `ERR =` but does not parse now raises instead of degrading silently
-      to "no status" (`a7f6ba5`).
 - [ ] **c1541-dependent tests are invisible to CI.** The `needs_c1541` marker
       (`tests/test_disk_blocks.py:27`, `tests/test_disk.py:29`,
       `tests/test_disk_build.py:16`, `tests/test_mcp_disk.py:19`) skips when
@@ -188,47 +113,99 @@ CI item is still open.
       open: install VICE in a CI job, or state the local-only contract
       explicitly. (Task 1's original wording — "the marker is dead in the test
       file" — is stale; later tasks applied it widely.)
-- [x] The d71 side-two zone-boundary tests went from 4 cases to 8, adding
-      52→21, 59→19, 60→18 and 66→17; all four were probed sector by sector
-      against a real d71 first (`a7f6ba5`).
-- [x] The accepted `validate` costs are recorded in `validate_image`'s
-      docstring (2 whole-image `read_bytes()` + 3 c1541 spawns per call, with
-      the format-agnostic trade stated), and the two overlapping BAM-repair
-      tests were absorbed into one with no assertion lost (`a7f6ba5`).
-- [x] The disk-id coercion hint now offers its `quote it:` clause only when
-      `zfill(2)` yields a legal two-character id, so `id: 12345` no longer
-      suggests quoting a value the next length check rejects (`a7f6ba5`).
-- [x] The SIGKILL staging-dir orphan is **documented** in `build_disk`'s
-      docstring rather than swept: a sweep cannot tell an orphaned
-      `.<stem>-build-*` from the live staging directory of a concurrent build
-      against the same output, so it would break a working build to tidy up
-      after a dead one (`a7f6ba5`).
-- [x] `docs/cli.md`'s "same pair of names" overstatement reworded to say the two
-      commands share the key names and differ in what `bytes` means (`76f76b2`).
-- [x] Tool/skill counts re-measured and refreshed: `index.html` now reads "A
-      67-command CLI, 61 MCP tools, five skills", and the stale CLI-only
-      enumerations in `docs/agent-setup.md` and `skills/c64-development/SKILL.md`
-      were corrected (every `c64 disk` and `c64 cart` verb has a tool; only five
-      commands are genuinely twin-less). Guarded by new
-      `tests/test_mcp_scaffold.py` tests rather than remembered (`76f76b2`).
-- [x] MCP disk-tool minors: (a) roster/count/CLI-only guards added, (c)
-      `c64_disk_rename`/`c64_disk_rm` payloads now cross-checked against the CLI,
-      (d) the `values=[]` guard matches the CLI's `bool()` check exactly, (e)
-      `image` echoed as `str(Path(...))` like the CLI, (f) the `-o` re-raise
-      keeps the `OSError` subclass, (g) `re.escape` on the path passed to
-      `match=` — all `76f76b2`. (b) the bare "bytes must be in range(0, 256)"
-      was fixed in two halves: `disk.block_bytes` in `a7f6ba5`, then the seam
-      commit routed both `cli.py` and `mcp_server.py` through it, so a bad
-      element is now named with its position at either front end.
-- [x] Uneven error-path coverage in `tests/test_cli_disk.py` closed with four
-      tests (both arms of `disk block write`'s byte parsing, `disk validate`'s
-      `DiskError`, and `disk build`'s `DiskError`/`BuildError` arms); none need
-      c1541 (`76f76b2`).
+
+## Observability gaps (demo-05 dogfooding, 2026-07-28)
+
+Six items the debug-hunt run surfaced. They share a theme: the machine tells
+the truth, but the *tooling that reports it* is either silent, misleading, or
+undocumented at the exact moment a debugging agent needs it.
+
+- [ ] **`c64 mem read`'s ASCII gutter decodes screen RAM as ASCII, which
+      inverts the truth.** `_hexdump` (`src/c64lib/cli.py:312-319`) glosses
+      every byte as `chr(b) if 32 <= b < 127 else "."` regardless of address,
+      so reading the screen at `$0400` prints a *broken* PETSCII title
+      (`53 41 4c 45 53`) as `SALES` and the *correct* screen codes
+      (`13 01 0c 05 13`) as `.....` — exactly backwards for the encoding bug
+      demo 05 is built around. An agent trusting the gutter clears a real bug,
+      then flags its own correct fix as a regression. Fix direction open: make
+      the gloss screen-code-aware when the range intersects the live screen
+      base (which `c64 screen` already tracks for relocation), add an
+      `--as screen|petscii|ascii` option, or drop the gutter for screen ranges.
+      `c64 screen --codes` and `c64 mem get` (`cli.py:490`) are the
+      correct-today paths, so at minimum the `c64-development` pitfall list
+      needs the warning — its current line ("Reading `$0400` and expecting
+      ASCII — it holds screen codes") is about the hex, and says nothing about
+      the column that contradicts it. Verify:
+      `tests/test_cli_inspect.py::test_mem_read_hexdump`.
+- [ ] **`6502-debugging` has no procedure for a wedged machine.**
+      `skills/6502-debugging/SKILL.md` covers corruption, register clobber,
+      off-by-one carry, timing repro, routine isolation, waiting and glyphs —
+      nothing for an infinite loop, which is the one thing demo 05 explicitly
+      grades ("work out exactly where it is stuck and why before you reset").
+      The only coverage anywhere is one row of the `c64-development` diagnosis
+      table ("Program seems to hang → sample `c64 reg` two or three times and
+      compare PC"), which stops at "your loop is wrong". The missing next
+      steps — the ones the run actually used — are: `c64 rom disasm <PC-8> 24`
+      to see the loop body, then `c64 step` a handful of times watching which
+      register never changes; the frozen register names the defective
+      instruction. Write it up as a playbook section.
+- [ ] **Disassembly is not discoverable from the debugging docs.**
+      `c64 rom disasm` (`src/c64lib/cli.py:1686`) is the only way to
+      disassemble RAM and its own `--help` says so ("Disassemble live memory
+      with ROM + session label annotations"), but the verb is `rom`, the
+      group summary (`cli.py:1661`) reads "Identify and disassemble the
+      machine's ROMs", and the `c64-development` skill's Debugging section
+      (its numbered reg/mem/break/step/finish/until/watch list) never mentions
+      disassembly at all — its single appearance repo-wide is the SYS-stub row
+      of the diagnosis table. Options, not exclusive: add a `c64 disasm` alias,
+      retitle the group summary to lead with live memory, add a step to the
+      skill's list. Verify: `tests/test_cli_rom.py`, `tests/test_docs_cli.py`.
+- [ ] **No signal for "the program has stopped".** `c64 wait`
+      (`cli.py:1167`) offers `--text`, `--mem`, `--break`. A run that ends in
+      an error, or simply falls to `READY.`, has nothing distinctive to wait
+      on — and the `c64-development` skill explicitly warns off
+      `wait --text "READY."` because the reset banner matches it immediately.
+      The demo-05 run fell back to `--mem '$042C=32'`, which works only
+      because that program clears the screen first; a debug hunt's *first* run
+      is by construction one whose output you cannot predict. Proposal:
+      `c64 wait --idle` — PC in the KERNAL input loop with BASIC in direct
+      mode, i.e. "finished or errored" — whose *timeout* is then the wedge
+      detector item 2 wants. `assert: {reg: pc, in_range: ["$E000","$FFFF"]}`
+      is the hand-rolled version used today. Cheap companion: annotate
+      `c64 reg`'s PC (`cli.py:546`) with a ROM-region name, so `PC=e5d1` reads
+      as "BASIC idle" without consulting the diagnosis table's prose. Verify:
+      `tests/test_cli_wait.py`, `tests/test_cli_inspect.py`.
+- [ ] **The cookbook has no BASIC recipe for poking a *letter* string to
+      screen RAM.** The asm fold ships ("Static text without CHROUT",
+      `skills/c64-development/references/cookbook.md:789-827`, `cmp #$40` /
+      `sbc #$40`), and the BASIC "Score HUD" recipe (same file, 219-238) pokes
+      `asc(mid$(s$,i,1))` straight through — correct, and it explains that
+      digits work only because PETSCII 48-57 *are* the screen codes. Letters
+      in BASIC are covered nowhere, which is demo 05's third bug exactly, and
+      the adjacent digits recipe reads like a template for making it. Add one
+      beside it with the guard a general version needs:
+      `c=asc(mid$(a$,i,1)): if c>63 then c=c-64` — a bare `-64` breaks on
+      space and punctuation. Anything added there is live-verified by
+      `tests/test_docs_cookbook.py` and linted by
+      `tests/test_basic_lint_fixtures.py`.
+- [ ] **`c64 basic check` passes a statically-provable `?BAD SUBSCRIPT`.**
+      `dim v(4)` followed by `for i=1 to 5: read v(i)` lints clean, then dies
+      on the first line it executes. The pieces to catch it are already there:
+      `_check_ranges` (`src/c64lib/basic_lint.py:512-524`) does exactly this
+      class of literal-argument range analysis for POKE (`E150`), and
+      `_check_loops` (line 381) already models FOR bounds — a narrow rule
+      (literal DIM bound + literal FOR bounds + subscript is exactly the loop
+      variable) would catch the classic 0-based/1-based DIM off-by-one.
+      **Decide before building:** demo 05 *wants* this bug found at runtime as
+      its first layer, so catching it statically changes what that demo
+      teaches. Either accept that, or rule that check stays silent here
+      deliberately and record the reason. Verify: `tests/test_basic_lint.py`
+      plus a fixture pair under `tests/test_basic_lint_fixtures.py`.
 
 ## Standing backlog (pre-cartridge)
 
-- [ ] **Dogfood the four remaining C64 demo prompts.** `demos/README.md:12-18`:
-      demos 01-04 are ✅ dogfooded; 05-07 are 🔲 "awaiting C64 dogfood".
+- [ ] **Dogfood the two remaining C64 demo prompts.** `demos/README.md:12-18`:
+      demos 01-05 are ✅ dogfooded; 06-07 are 🔲 "awaiting C64 dogfood".
       01-06 were ported from the PET edition, where each passed a real
       dogfooding run; 07 (1812) was written for the C64 and has never been
       agent-run. Done = an agent given only this toolset builds and verifies
@@ -246,6 +223,13 @@ CI item is still open.
       found two real defects (the ca65 phony-target dep parse and the
       `@row,col` re-resolve) plus the doc gaps in the Unreleased changelog
       section; the solution has not graduated to `tests/programs/` yet.
+      Demo 05 passed (2026-07-28): all three layers found from the machine —
+      `?BAD SUBSCRIPT ERROR IN 30`, then the `sys 828` wedge proven by
+      sampling PC (pinned at `$0340`/`$0343`), `c64 rom disasm 828` showing
+      `$0343 ea nop` where `inx` belongs, and a `c64 step` trace with X frozen
+      at 0, then the PETSCII-vs-screen-code title read out of `$0400`. Fixed
+      and re-proven with a passing `c64 test run` spec. It found no product
+      defects; its friction is the "Observability gaps" section above.
 - [ ] **Build the full annotated C64 ROM label DB.** Only a seed ships:
       `src/c64lib/data/rom_labels/basic2.lbl`, 44 `al C:xxxx .NAME` lines —
       the KERNAL jump table `$FF81`-`$FFF3`, the vectors up to `$FFFE`, and a

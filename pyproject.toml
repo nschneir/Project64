@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "c64-tools"
-version = "0.7.0"
+version = "0.8.0"
 description = "AI-oriented toolset for developing and debugging Commodore 64 software on VICE"
 readme = "README.md"
 license = { text = "MIT" }
