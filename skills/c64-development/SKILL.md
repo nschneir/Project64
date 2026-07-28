@@ -40,6 +40,13 @@ Write → run → observe → fix:
    to see output. Use `c64 wait --text "..."` to block until expected output
    appears; loading and running take a few emulated seconds even in warp, so
    never assume a program has finished — wait for a signal.
+   **Pick that signal out of your own output.** `c64 run` resets the
+   machine, so a wait cannot match the *previous* run's text — but the
+   reset restores the boot banner, and a wait for `READY.`, `BASIC`, `*`
+   or `64K` matches *that* immediately and returns before your program has
+   printed anything. Wait on a distinctive string the program itself emits,
+   or (if it clears the screen first) on a cell the clear must blank:
+   `c64 wait --mem '$042C=32'`.
    For a text-mode program, decoded text is also the *cheapest* observation —
    prefer it over `--png` for verification, and read color back from the
    registers (`c64 mem read '$D020' 2` — bytes come back in address order, so

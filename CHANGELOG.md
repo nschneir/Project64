@@ -6,6 +6,47 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [Unreleased]
+
+What a dogfooding run of demo 03 (sieve benchmark) walked into. The demo
+passed first try — BASIC 933 jiffies, assembly 9.2, both reporting
+`168 PRIMES, LARGEST 997` — and everything here is documentation friction
+found on the way. No code changed.
+
+### Added
+- **Cookbook recipe: "Time a section of code with TI"** — the
+  `ti$="000000"` / `t=ti` bracket, plus the two facts a benchmark needs:
+  `PRINT` prefixes positive numbers with a space, and one jiffy of
+  resolution makes any sub-second measurement mostly quantization error
+  (repeat N times and divide). Timing was documented only as a fact about
+  `TI` in basic-internals.md; the cookbook used jiffies for frame pacing
+  and never for measuring.
+- **Cookbook recipe: "Time a routine and print the jiffies (LINPRT)"** —
+  `$BDCD` prints an unsigned 16-bit number in three instructions. The
+  existing "Print a number as decimal digits" recipe only covers 0-255 by
+  repeated subtraction, and LINPRT was one table row in
+  kernal-routines.md, so the wide case looked like work it isn't. Includes
+  the padding trap (LINPRT emits no leading space where BASIC's `PRINT`
+  does, which prints `LARGEST997`) and snapshotting the clock before
+  formatting.
+
+### Documentation
+- **The string-literal case rule for assembly is now written down**
+  (`6502-assembly` SKILL.md, `petscii.md`). Quoted text in a `.byte` goes
+  UPPERCASE — ca65 does no translation, and ASCII `A`-`Z` coincides with
+  PETSCII's letters while `a`-`z` is the graphics range, so
+  `.byte "hello"` prints `└┌○──`. That is the reverse of the loudly
+  documented `.bas` rule, and every asm example silently followed it
+  without saying so. Scoped explicitly to the characters inside the
+  quotes: ca65 is case-insensitive for mnemonics and labels, where
+  lowercase stays the house style.
+- **How to choose a `wait --text` sentinel** (`c64-development` SKILL.md,
+  step 4 of the loop). `c64 run` resets the machine, so a wait can't match
+  the previous run's output — but the reset restores the boot banner, and
+  waiting on `READY.` or `BASIC` matches that instantly and returns before
+  the program prints anything. Bit this run for real while verifying the
+  case rule above.
+
 ## [0.7.0] — 2026-07-27
 
 What a dogfooding run of demo 02 (bouncing beach ball) walked into. The

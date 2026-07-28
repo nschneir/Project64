@@ -11,7 +11,7 @@ They're graded — start at 01 if you're new:
 |---|------|----------|-----------|--------|
 | 01 | Guess the number | BASIC | The write→run→verify loop | ✅ dogfooded |
 | 02 | Bouncing beach ball | BASIC | Multicolor sprites from BASIC | ✅ dogfooded |
-| 03 | Sieve benchmark | BASIC + asm | Timing, iteration, the asm speedup | 🔲 awaiting C64 dogfood |
+| 03 | Sieve benchmark | BASIC + asm | Timing, iteration, the asm speedup | ✅ dogfooded |
 | 04 | Snake | 6502 assembly | Assembler + debugger workflow, $CB input, SID sound | 🔲 awaiting C64 dogfood |
 | 05 | Debug hunt | BASIC + debugger | Breakpoints, stepping, memory inspection | 🔲 awaiting C64 dogfood |
 | 06 | [Invaders](invaders/) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | 🔲 awaiting C64 dogfood |

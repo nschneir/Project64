@@ -81,6 +81,12 @@ LIVE_RECIPES = [
     ("basic-beep", "basic", "gosub 900", [
         {"wait": {"text": "BEEPED"}},
     ]),
+    ("basic-timing", "basic", "summing 1 to 2000", [
+        # the sum is exact; the jiffy count is not, so assert the label and
+        # the arithmetic, never a specific duration
+        {"wait": {"text": "JIFFIES"}},
+        {"assert": {"screen": "2001000"}},
+    ]),
     ("basic-multicolor-sprite", "basic", "multicolor beach ball", [
         {"wait": {"text": "BALL ON"}},
         {"assert": {"mem": "$D015", "equals": 1}},      # sprite 0 enabled
@@ -106,6 +112,11 @@ LIVE_RECIPES = [
     ]),
     ("asm-beep", "asm", "beep.s", [
         {"wait": {"text": "OK"}},
+    ]),
+    ("asm-jtime", "asm", "jtime.s", [
+        # LINPRT's digits vary with the host; the trailing label does not,
+        # and it only appears once the timed loop has finished
+        {"wait": {"text": "JIFFIES FOR 4 RUNS"}},
     ]),
     ("asm-keyhold", "asm", "keyhold.s", [
         # one full iteration draws the paddle (the first mainloop arrival

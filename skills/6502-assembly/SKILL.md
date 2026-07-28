@@ -69,6 +69,24 @@ kernal jump table (CHRIN, GETIN, STOP, OPEN/CLOSE, …) and register conventions
 are in the `c64-development` skill's ROM-routines reference. CHROUT expects
 **PETSCII**, not a screen code — see that skill's PETSCII reference.
 
+**Quoted text in a `.byte` goes in UPPERCASE — the opposite of a `.bas`
+file.** This is about the characters inside the quotes only; mnemonics,
+labels and directives are case-insensitive to ca65, and lowercase (`lda`,
+`jsr`) is this project's house style. The reason is that ca65 does no
+character translation at all: `.byte "..."` emits raw ASCII, and ASCII
+`A`-`Z` (`$41`-`$5A`) happens to coincide with the PETSCII codes for
+letters, so `"HELLO"` prints HELLO. Lowercase ASCII `a`-`z` (`$61`-`$7A`)
+is a *different* PETSCII range, which the power-on uppercase/graphics
+charset draws as graphics glyphs — `.byte "hello"` prints `└┌○──`. A `.bas`
+file behaves the other way round because petcat *does* translate on the way
+in, which is why lowercase is the rule there. (Switch to the lowercase
+charset and the mapping shifts again — see the cookbook's character-set
+recipe.)
+
+Printing a number is a ROM call too: **LINPRT (`$BDCD`)** prints the
+unsigned 16-bit value in A (high) / X (low) as decimal, with no padding.
+The cookbook's "Time a routine and print the jiffies" recipe uses it.
+
 ## 6502 gotchas
 
 - The NMOS 6502 has **no** `BRA` (unconditional branch) and none of the 65C02

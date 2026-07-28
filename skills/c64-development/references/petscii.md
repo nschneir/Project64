@@ -91,6 +91,15 @@ converted to PETSCII: `\n` → `$0D` (RETURN), letters → ASCII uppercase. Writ
 lowercase source is the norm because lowercase ASCII → unshifted PETSCII, which
 shows as uppercase on screen.
 
+**Assembly source is the exception: write string literals UPPERCASE.**
+Nothing translates them — ca65 puts the raw ASCII bytes of `.byte "..."`
+into the program, and the coincidence that ASCII `A`-`Z` (`$41`-`$5A`) *is*
+PETSCII's letter range is what makes `"HELLO"` work. Lowercase ASCII
+`a`-`z` is PETSCII `$61`-`$7A`, which the uppercase/graphics charset draws
+as graphics glyphs, so `.byte "hello"` sent through CHROUT prints
+`└┌○───♠♥─`. The lowercase rule applies to `.bas` sources and to keyboard
+input, where petcat and `ascii_to_petscii` do the conversion for you.
+
 Only characters in the PETSCII set are available. `ascii_to_petscii` (used by
 `c64 basic type` and `c64 key type`) rejects anything it can't map rather
 than mangling it — so "smart" typography like the em dash (`—`) or curly

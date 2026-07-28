@@ -14,6 +14,7 @@ BASIC:
 - [Prompt loop: INPUT, validate, play again](#prompt-loop-input-validate-play-again)
 - [Poke characters at a screen position](#poke-characters-at-a-screen-position)
 - [Sound: a beep subroutine](#sound-a-beep-subroutine)
+- [Time a section of code with TI](#time-a-section-of-code-with-ti)
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
 - [Score HUD: poke a changing number to the screen](#score-hud-poke-a-changing-number-to-the-screen)
 - [Show a sprite from BASIC](#show-a-sprite-from-basic)
@@ -29,6 +30,7 @@ Assembly:
 - [Point a pointer at screen row/column (plotaddr)](#point-a-pointer-at-screen-rowcolumn-plotaddr)
 - [Static text without CHROUT (poke screen codes)](#static-text-without-chrout-poke-screen-codes)
 - [Print a number as decimal digits](#print-a-number-as-decimal-digits)
+- [Time a routine and print the jiffies (LINPRT)](#time-a-routine-and-print-the-jiffies-linprt)
 - [IRQ wedge: run code 60×/second behind BASIC](#irq-wedge-run-code-60second-behind-basic)
 - [Sprite setup and movement](#sprite-setup-and-movement)
 
@@ -161,6 +163,38 @@ The SID's voice and control registers are **write-only** — don't try to PEEK
 them back. (The four read-only registers are $D419-$D41C: the paddles, the
 oscillator-3 RNG at $D41B, and envelope 3 — see the hardware reference. For a
 note-frequency table, see hardware.md's SID section.)
+
+### Time a section of code with TI
+
+`TI` is the jiffy clock — 60ths of a second, kept by the IRQ in `$A0-$A2`.
+Reset it with `TI$="000000"` immediately before the part you care about and
+read `TI` immediately after; assigning it to a variable first (`t=ti`) stops
+the clock advancing while you format the report:
+
+```basic
+10 print "{clr}summing 1 to 2000..."
+20 s=0
+30 ti$="000000"
+40 for i=1 to 2000
+50 s=s+i
+60 next i
+70 t=ti
+80 print "sum";s
+90 print "took";t;"jiffies"
+```
+
+Prints `TOOK 458 JIFFIES` — 7.6 seconds. Two things to know before you
+report a number from this:
+
+- **`PRINT` puts a space in front of a positive number** (the slot where a
+  minus sign would go), which is why `print "took";t` reads `TOOK 458` with
+  no space in the source. The assembly equivalent, `LINPRT`, does *not* —
+  see the LINPRT recipe below.
+- **The clock's resolution is one jiffy**, so anything under a second is
+  mostly quantization error: 9 jiffies means 9±1, a 22% band. To time
+  something fast, repeat it N times inside the measurement and divide.
+  That matters most when comparing BASIC against machine code, where the
+  asm side often lands in single digits.
 
 ### Switch character sets: uppercase/graphics vs lowercase
 
@@ -812,6 +846,88 @@ tdone:  pha
         sta     POS+2
         rts
 ```
+
+### Time a routine and print the jiffies (LINPRT)
+
+The recipe above is a byte-to-three-digits converter; for anything wider,
+don't write one. The BASIC ROM's **LINPRT (`$BDCD`) prints the unsigned
+16-bit value in A (high) / X (low)** as decimal, which covers 0-65535 in
+three instructions. Here it reports how long a routine took, measured off
+the jiffy clock at `$A0-$A2`:
+
+```asm
+; jtime.s — time a routine with the jiffy clock, print the count with LINPRT.
+REPS   = 4                      ; measure several runs: see the note below
+
+CHROUT = $FFD2
+LINPRT = $BDCD                  ; print A(hi)/X(lo) as unsigned decimal
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  lda     #$93
+        jsr     CHROUT
+        lda     #0              ; restart the clock: $A0-$A2, MSB first
+        sta     $A0
+        sta     $A1
+        sta     $A2
+
+        ldx     #REPS           ; work must leave X alone (or save it here)
+tloop:  jsr     work
+        dex
+        bne     tloop
+
+        lda     $A2             ; snapshot before printing, so the print
+        sta     tlo             ; itself is outside the measurement
+        lda     $A1
+        sta     thi
+
+        lda     thi             ; A = high byte, X = low byte
+        ldx     tlo
+        jsr     LINPRT
+        ldx     #0
+p1:     lda     msg,x
+        beq     done
+        jsr     CHROUT
+        inx
+        bne     p1
+done:   rts
+
+; the routine under test — here, 65536 increments (about half a second)
+work:   lda     #0
+        sta     ctr
+        sta     ctr+1
+w1:     inc     ctr
+        bne     w1
+        inc     ctr+1
+        bne     w1
+        rts
+
+ctr:    .word   0
+tlo:    .byte   0
+thi:    .byte   0
+msg:    .byte   " JIFFIES FOR 4 RUNS", $0D, $00
+```
+
+Prints `150 JIFFIES FOR 4 RUNS`. Three things this encodes:
+
+- **LINPRT emits no padding** — no leading space, no leading zeros. BASIC's
+  `PRINT` *does* prefix positive numbers with a space, so a message ported
+  from BASIC comes out as `LARGEST997` until you put the space in the
+  string yourself (note the leading space in `msg`).
+- **Snapshot the clock into your own bytes before printing.** `$A0-$A2`
+  keeps ticking through CHROUT, so reading it twice during the report
+  yields two different times.
+- **`REPS` exists because one jiffy is the resolution.** A routine that
+  takes 9 jiffies is 9±1 — repeat it and divide, or the speedup you report
+  is mostly noise. (The three-byte clock is read MSB-first: `$A0` is the
+  high byte. Anything under ~18 minutes fits in `$A1`/`$A2` alone.)
 
 ### IRQ wedge: run code 60×/second behind BASIC
 

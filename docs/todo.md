@@ -235,7 +235,11 @@ CI item is still open.
       the demo on a real VICE session, then the row's status flips.
       Demo 02 passed first try (2026-07-27); its solution graduated to
       `tests/programs/bouncing-ball/` and the friction it turned up is the
-      Unreleased section of the changelog.
+      0.7.0 section of the changelog.
+      Demo 03 passed first try (2026-07-27): BASIC 933 jiffies vs 9.2 for
+      the asm sieve, both `168 PRIMES, LARGEST 997`, ~101x. Its friction is
+      the Unreleased section of the changelog; the solution has not
+      graduated to `tests/programs/` yet.
 - [ ] **Build the full annotated C64 ROM label DB.** Only a seed ships:
       `src/c64lib/data/rom_labels/basic2.lbl`, 44 `al C:xxxx .NAME` lines —
       the KERNAL jump table `$FF81`-`$FFF3`, the vectors up to `$FFFE`, and a
