@@ -46,6 +46,7 @@ from .ops import (
     parse_ref,
     run_until,
     session_labels,
+    split_mem_condition,
     staleness,
     wait_for_break,
     wait_for_mem,
@@ -1145,10 +1146,15 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
 
 @main.command("wait")
 @click.option("--text", "text_cond", default=None, help="Wait for screen text.")
-@click.option("--mem", "mem_cond", default=None, help="ADDR=VALUE, e.g. '$1000=42'.")
+@click.option("--mem", "mem_cond", default=None,
+              help="ADDR<op>VALUE with <op> one of = != > >= < <=, e.g. "
+                   "'$1000=42' or '$fb>=20'. Use an inequality for a counter "
+                   "the machine can race past between polls.")
 @click.option("--break", "break_cond", is_flag=False, flag_value="any",
               default=None,
-              help="Wait for a checkpoint hit; give an ID to wait for that "
+              help="RESUME the machine (if stopped) and block until the NEXT "
+                   "checkpoint hit — do not put `c64 continue` in front of it, "
+                   "that consumes a hit. Give an ID to wait for that "
                    "checkpoint only (leftover breakpoints can't intercept).")
 @click.option("--since", is_flag=True,
               help="With --text: fire only on an occurrence appearing AFTER "
@@ -1202,17 +1208,23 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, since, timeout):
         return
 
     try:
-        addr_s, _, val_s = mem_cond.partition("=")
-        addr = resolve_ref(ctx, labels, addr_s.strip(), session=s)
-        want = parse_number(val_s.strip())
-    except ValueError:
-        fail(ctx, f"bad --mem condition {mem_cond!r}; use ADDR=VALUE")
+        addr_s, op, val_s = split_mem_condition(mem_cond)
+    except ValueError as e:
+        fail(ctx, str(e))
         return
-    out = wait_for_mem(s, addr, want, timeout)
+    addr = resolve_ref(ctx, labels, addr_s, session=s)   # reports its own errors
+    try:
+        want = parse_number(val_s)
+    except ValueError:
+        fail(ctx, f"bad --mem value {val_s!r} in {mem_cond!r}; "
+                  "use a decimal or $hex byte")
+        return
+    out = wait_for_mem(s, addr, want, timeout, op=op)
     if out["fired"]:
         emit(ctx, {"fired": "mem", "elapsed": out["elapsed"]}, "mem condition met")
         return
-    fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}",
+    fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}"
+              f" (last value {out['last_value']})",
          extra={"machine": "running"})
 
 
@@ -1979,10 +1991,16 @@ def sprite_from_png(ctx, image, out_path, multicolor):
               help="Encode as hires (1 bit/pixel) instead of the default multicolor pairs.")
 @click.option("--format", "fmt", type=click.Choice(["asm", "basic"]), default="asm",
               show_default=True, help="Rendering for the human/text output.")
+@click.option("--start-line", type=int, default=None,
+              help="With --format basic: number the DATA lines from here so "
+                   "they paste straight into a .bas source (unnumbered "
+                   "otherwise, and a bare DATA line will not store).")
+@click.option("--line-step", type=int, default=10, show_default=True,
+              help="With --start-line: gap between generated line numbers.")
 @click.option("--out", "-o", "out_path", default=None,
               help="Write the rendered rows to this file instead of stdout.")
 @click.pass_context
-def sprite_encode(ctx, file, hires, fmt, out_path):
+def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
     """Encode ASCII-art sprite(s) from FILE into 63 sprite bytes each.
 
     FILE holds one or more 21-row sprites, separated by a blank line. Rows
@@ -1993,6 +2011,9 @@ def sprite_encode(ctx, file, hires, fmt, out_path):
     `c64 sprite show` (the inverse: bytes back to ASCII).
     """
     from .sprites import encode_sprite, format_bytes
+    if start_line is not None and fmt != "basic":
+        fail(ctx, "--start-line only applies to --format basic")
+        return
     blocks = _parse_sprite_art(file.read_text())
     if not blocks:
         fail(ctx, f"no sprite art found in {file}")
@@ -2002,9 +2023,18 @@ def sprite_encode(ctx, file, hires, fmt, out_path):
     except ValueError as e:
         fail(ctx, str(e))
         return
-    text = "\n\n".join(
-        format_bytes(data, fmt, index=i, multicolor=not hires)
-        for i, data in enumerate(sprites)) + "\n"
+    try:
+        # numbering runs on across sprites (21 rows each) so a multi-sprite
+        # file comes out as one ascending listing, not three restarts
+        text = "\n\n".join(
+            format_bytes(data, fmt, index=i, multicolor=not hires,
+                         start_line=(None if start_line is None
+                                     else start_line + i * 21 * line_step),
+                         line_step=line_step)
+            for i, data in enumerate(sprites)) + "\n"
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
     if out_path:
         Path(out_path).write_text(text)
     emit(ctx, {"sprites": [list(data) for data in sprites]},

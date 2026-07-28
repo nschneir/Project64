@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .basic_tokens import MAX_LINE_NUMBER
+
 # Pepto palette (colodore lineage) — index = C64 color number.
 C64_PALETTE = [
     (0, 0, 0), (255, 255, 255), (104, 55, 43), (112, 164, 178),
@@ -133,17 +135,25 @@ def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
 
 
 def format_bytes(data: bytes, fmt: str, index: int = 0,
-                 multicolor: bool = True) -> str:
+                 multicolor: bool = True, start_line: int | None = None,
+                 line_step: int = 10) -> str:
     """Render sprite bytes as ready-to-place source, one sprite row per line.
 
     `fmt` is 'asm' (ca65 `.byte %...`, 3 bytes/row per line, under a
     `spriteN:` label with a header comment — the same shape `c64 sprite
     from-png` emits, so hand- and image-authored sprites look identical in
-    source) or 'basic' (`DATA` lines, 3 bytes/row per line, decimal). `index`
+    source) or 'basic' (`data` lines, 3 bytes/row per line, decimal). `index`
     names the label / header sprite number when a file holds several sprites;
-    `multicolor` only affects the header wording. The `basic` lines carry no
-    line numbers — add them before the listing will store or run in a real
-    BASIC program.
+    `multicolor` only affects the header wording.
+
+    `basic` rows are keyword-lowercase, per the petcat convention the rest
+    of the toolchain uses: an uppercase `DATA` is shifted PETSCII and
+    tokenizes to `STR$ ATN ATN`, so the listing would not run.
+
+    They are unnumbered by default — a bare `data` line will not store in a
+    real BASIC program either, so pass `start_line` to number them
+    (`line_step` apart, 10 by default, leaving room to insert later) and the
+    block pastes straight into a `.bas` source.
     """
     if fmt not in ("asm", "basic"):
         raise ValueError(f"unknown format {fmt!r}; use 'asm' or 'basic'")
@@ -156,7 +166,18 @@ def format_bytes(data: bytes, fmt: str, index: int = 0,
             "; place in a 64-byte block; pointer = block_address / 64",
         ]
         return "\n".join(_emit(rows, header, index))
-    return "\n".join("DATA " + ",".join(str(b) for b in row) for row in rows)
+    lines = ["data " + ",".join(str(b) for b in row) for row in rows]
+    if start_line is None:
+        return "\n".join(lines)
+    if start_line < 0 or line_step < 1:
+        raise ValueError("start_line must be >= 0 and line_step >= 1")
+    numbers = [start_line + i * line_step for i in range(len(lines))]
+    if numbers[-1] > MAX_LINE_NUMBER:
+        raise ValueError(
+            f"line numbers would reach {numbers[-1]}, past the BASIC maximum "
+            f"{MAX_LINE_NUMBER}; lower start_line or line_step")
+    return "\n".join(f"{n} {line}"
+                     for n, line in zip(numbers, lines, strict=True))
 
 
 def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):

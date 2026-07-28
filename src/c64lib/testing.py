@@ -20,7 +20,14 @@ from .build import build_asm
 from .cart_build import build_cart, build_easyflash
 from .disk import IMAGE_DRIVE_TYPES, build_disk
 from .machines import get_profile
-from .ops import call_routine, live_screen_base, parse_ref, run_until
+from .ops import (
+    MEM_COND_KEYS,
+    MEM_OPS,
+    call_routine,
+    live_screen_base,
+    parse_ref,
+    run_until,
+)
 from .screen import read_screen_text
 from .session import Session
 from .symbols import load_labels
@@ -444,7 +451,14 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             return ok, (f"text {want!r} seen" if ok
                         else f"text {want!r} not seen in {timeout}s")
         if "mem" in arg:
-            addr, want = _addr(arg["mem"]), _num(arg["equals"])
+            addr = _addr(arg["mem"])
+            keys = [k for k in MEM_COND_KEYS if k in arg]
+            if len(keys) != 1:
+                raise TestError(
+                    "wait mem step needs exactly one of "
+                    f"{'/'.join(MEM_COND_KEYS)}: {arg}")
+            op = MEM_COND_KEYS[keys[0]]
+            cmp_, want = MEM_OPS[op], _num(arg[keys[0]])
             deadline = time.monotonic() + timeout
             val = None
             while time.monotonic() < deadline:
@@ -453,10 +467,11 @@ def _do_step(session, kind: str, arg, default_timeout: float,
                         val = mon.memory_read(addr, 1)[0]
                     finally:
                         mon.release()
-                if val == want:
-                    return True, f"mem ${addr:04x} == {want}"
+                if cmp_(val, want):
+                    return True, f"mem ${addr:04x} = {val} {op} {want}"
                 time.sleep(0.3)
-            return False, f"mem ${addr:04x} was {val}, wanted {want} ({timeout}s)"
+            return False, (f"mem ${addr:04x} was {val}, wanted {op} {want}"
+                           f" ({timeout}s)")
         raise TestError(f"wait step needs 'text' or 'mem': {arg}")
 
     # kind == "assert"

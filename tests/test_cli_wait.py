@@ -125,9 +125,45 @@ def test_wait_mem_malformed_condition():
     fake, mon = _fake()
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
-        # valid addr, missing =VALUE -> the "use ADDR=VALUE" branch
+        # valid addr, missing <op>VALUE -> the "use ADDR<op>VALUE" branch
         r = CliRunner().invoke(main, ["wait", "--mem", "$0400"])
-    assert r.exit_code == 1 and "ADDR=VALUE" in r.output
+    assert r.exit_code == 1 and "ADDR<op>VALUE" in r.output
+
+
+def test_wait_mem_comparison_reported_as_a_condition_not_a_symbol():
+    """The condition is split before the address is resolved: an operator
+    typo must not surface as 'unknown symbol' naming the whole expression."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["wait", "--mem", "$0400=~7"])
+    assert r.exit_code == 1
+    assert "unknown symbol" not in r.output
+    assert "bad --mem value" in r.output
+
+
+def test_wait_mem_inequality_fires_without_hitting_the_value():
+    """'>=' catches a counter that never reads exactly the wanted value."""
+    fake, mon = _fake()
+    mon.memory_read.side_effect = [b"\x05", b"\x19"]      # 5 then 25, never 20
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(
+            main, ["--json", "wait", "--mem", "$fb>=20", "--timeout", "5"])
+    assert r.exit_code == 0
+    assert json.loads(r.output)["fired"] == "mem"
+
+
+def test_wait_mem_timeout_reports_the_last_value_seen():
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_mem",
+               return_value={"fired": None, "timeout": 0.1, "last_value": 7,
+                             "op": "!=", "value": 7}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["wait", "--mem", "$0400!=7",
+                                      "--timeout", "0.1"])
+    assert r.exit_code == 1 and "last value 7" in r.output
 
 
 def test_wait_mem_timeout():

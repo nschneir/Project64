@@ -178,10 +178,65 @@ def test_sprite_encode_format_basic_emits_data_lines(tmp_path):
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format", "basic"])
     assert r.exit_code == 0, r.output
-    assert "DATA " in r.output
+    # lowercase: uppercase DATA is shifted PETSCII and tokenizes to junk
+    assert "data " in r.output and "DATA " not in r.output
     assert ".byte" not in r.output
     expected = format_bytes(encode_sprite(art, multicolor=True), "basic")
     assert expected in r.output
+
+
+def test_sprite_encode_basic_start_line_numbers_the_rows(tmp_path):
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
+                                  "basic", "--start-line", "1000"])
+    assert r.exit_code == 0, r.output
+    lines = [ln for ln in r.output.splitlines() if ln.strip()]
+    assert len(lines) == 21
+    assert lines[0].startswith("1000 data ")
+    assert lines[1].startswith("1010 data ")
+    assert lines[-1].startswith("1200 data ")
+
+
+def test_sprite_encode_basic_numbering_runs_on_across_sprites(tmp_path):
+    """Two sprites in one file must come out as ONE ascending listing —
+    restarting the numbers would make the second block overwrite the first."""
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "two.txt"
+    src.write_text("\n".join(art) + "\n\n" + "\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
+                                  "basic", "--start-line", "100",
+                                  "--line-step", "5"])
+    assert r.exit_code == 0, r.output
+    numbers = [int(ln.split()[0]) for ln in r.output.splitlines() if ln.strip()]
+    assert len(numbers) == 42
+    assert numbers == sorted(numbers) and len(set(numbers)) == 42
+    assert numbers[0] == 100 and numbers[21] == 100 + 21 * 5
+
+
+def test_sprite_encode_start_line_rejected_for_asm(tmp_path):
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
+                                  "asm", "--start-line", "10"])
+    assert r.exit_code == 1
+    assert "only applies to --format basic" in r.output
+
+
+def test_sprite_encode_start_line_past_the_basic_maximum_is_refused(tmp_path):
+    art = [_DOT_ROW] * 21
+    src = tmp_path / "sprite.txt"
+    src.write_text("\n".join(art) + "\n")
+
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
+                                  "basic", "--start-line", "63900"])
+    assert r.exit_code == 1
+    assert "63999" in r.output
 
 
 def test_sprite_encode_format_asm_emits_byte_rows(tmp_path):

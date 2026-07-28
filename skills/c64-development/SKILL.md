@@ -170,6 +170,25 @@ invisible to `c64 screen` text — inspect them with `c64 sprite status`
 (exact rendered shape), and assert on registers and state bytes. Screen
 relocation is followed automatically by `c64 screen` and `@row,col`.
 
+**Anchoring an observation on a moving program.** Anything you sample or
+screenshot while the machine runs is a race — at warp the ball has flown on
+before the capture lands. Park the machine at the exact moment first, then
+inspect:
+
+- **Assembly:** `c64 until mainloop` — frame-stepping on a label.
+- **BASIC (no labels to break on):** have the program `poke` a byte at the
+  moment of interest (a spare zero-page location: 251-254 / `$FB`-`$FE` are
+  free), then `c64 watch add '$FC' --store` + `c64 wait --break`. The machine
+  stops on that write, so `mem read`, `sprite status` and
+  `screen --png` all see the instant the event happened, not a frame later.
+  Give each event a distinct code in that byte and you can wait for a
+  *specific* one. A store watchpoint on a VIC-II position register
+  (`c64 watch add '$D001' --store`) is the same trick for per-frame stepping.
+
+This is also what makes a BASIC graphics demo testable: the state byte is a
+non-graphics signal a YAML test can assert on, which register-only tests
+cannot express.
+
 **Sprites: authoring with generative AI.** The primary path: obtain a small
 image of the shape you want — from any image-generation model, a drawing
 tool, or by rendering one yourself — then convert it:
@@ -194,24 +213,50 @@ them:
 1. `c64 break add SYMBOL` (or an address) — set an execution breakpoint. It
    also accepts `--condition 'A != 0'` and `--temporary`. Checkpoints survive a
    later `c64 load`/`c64 run`, so set the breakpoint first, then load.
-   Checkpoints persist across c64 run/rebuilds by design — clear stale ones
-   (c64 break clear) or duplicates accumulate.
-2. `c64 wait --break` — block until it fires; this leaves the machine stopped.
+   Checkpoints persist across c64 run/rebuilds by design, and duplicates
+   accumulate silently — clear stale ones, but note that **`c64 break clear`
+   only clears execution breakpoints**. Watchpoints need `c64 watch clear`;
+   `c64 break list` shows both, and is the check to run when the machine
+   stops somewhere you did not ask for.
+2. `c64 wait --break` — **resumes the machine and runs to the NEXT hit**,
+   leaving it stopped there. It is the checkpoint counterpart of
+   `c64 until`, not a passive block.
 3. Inspect: `c64 reg` (registers, PC annotated with the nearest symbol),
-   `c64 mem read ADDR LEN`, `c64 break list`.
+   `c64 mem read ADDR LEN`, `c64 break list`. Inspection never advances the
+   machine.
 4. Single-step: `c64 step N` (add `--over` to step over `JSR`s), `c64 finish`
    (run to the current subroutine's return), or `c64 until SYMBOL` (run to a
    point). Use `c64 watch add ADDR --store` to break on writes.
-5. `c64 continue` to resume.
+5. `c64 continue` when you are done inspecting and want it to run free.
+
+**Never put `c64 continue` in front of `c64 wait --break`.** The wait
+resumes by itself, so the pair advances *two* hits and you observe every
+second arrival — deltas come out doubled and a bounce, a wrap or a one-frame
+state can vanish between samples. To step frame by frame, loop
+`wait --break` → inspect → `wait --break`, with nothing else in between:
+
+```bash
+c64 watch add '$D001' --store         # or: c64 break add mainloop
+for i in $(seq 1 12); do
+  c64 wait --break --timeout 30       # runs one more frame, stops
+  c64 mem read '$D000' 2              # inspection: does not advance
+done
+c64 watch clear && c64 continue        # let it run again
+```
 
 **The stopped-state rule.** The machine's run/stop state persists across `c64`
 commands (a per-session monitor daemon holds it). Four commands intentionally
 halt it so you can inspect it: `c64 step`, `c64 finish`, `c64 until`, and
 `c64 wait --break` when it fires. After any of those the machine STAYS paused —
-through as many inspection commands (`screen`, `mem`, `reg`, ...) as you like —
-until you `c64 continue` or an explicitly-resuming command (`c64 run`,
-`c64 load`, `c64 disk boot`, `c64 session reset`). Inspection never disturbs
-the state.
+through as many inspection commands (`screen`, `mem`, `reg`, `sprite status`,
+`screen --png`, ...) as you like — until you `c64 continue` or an
+explicitly-resuming command (`c64 run`, `c64 load`, `c64 disk boot`,
+`c64 session reset`). Inspection never disturbs the state.
+
+Three of those four halting commands *also resume first*: `until`, `step` and
+`wait --break` all run the machine forward from wherever it is. Only their
+arrival is passive. That is why an extra `c64 continue` before one of them
+costs you a hit.
 
 ## Text encodings — keep three straight
 
@@ -284,6 +329,9 @@ reproduction, use the `6502-debugging` skill.)
 | Assembly crashes or drops to READY immediately | The SYS stub math is off — `c64 rom disasm 2061 16` and confirm your first instruction is at $080D. |
 | `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg`. |
 | Machine appears frozen after debugging | It's stopped (step/finish/until/wait --break leave it stopped) — `c64 continue`. |
+| Sampled values step by exactly 2× the delta the code says | A `c64 continue` in front of `c64 wait --break` — the wait resumes too, so you see every second hit. Drop the `continue`. |
+| The machine stops somewhere you set no breakpoint | A stale watchpoint. `c64 break list` (it lists watchpoints too); `c64 break clear` does NOT remove them — use `c64 watch clear`. |
+| `c64 wait --mem '$FB=20'` never fires on a counter | Waits poll, so a counter can step over 20 between polls. Use an inequality: `c64 wait --mem '$FB>=20'`. |
 | Program vanished after `c64 run` | Autostart resets the machine first — that's normal; reload anything else you need. |
 | A color register assert fails with `f0 != 00` (or `fb != 0b`) | VIC-II color registers are 4-bit — the high nybble reads as 1s. Mask with `and: "$0f"`. |
 | Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). Then inspect the image itself from the host — `c64 disk ls`, `c64 disk validate`, `c64 disk block read IMAGE 18 0` for the BAM. |

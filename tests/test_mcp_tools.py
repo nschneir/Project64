@@ -170,7 +170,19 @@ def test_wait_mem_parses_and_passes_through():
         err, out = call_tool("c64_wait_mem",
                              {"addr": "$0400", "equals": "42", "timeout": 5.0})
     assert err is False and out == result
-    w.assert_called_once_with(s, 0x0400, 42, 5.0)
+    w.assert_called_once_with(s, 0x0400, 42, 5.0, op="=")
+
+
+def test_wait_mem_passes_the_comparison_through():
+    s, _ = _fake_session()
+    result = {"fired": "mem", "elapsed": 0.1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=result) as w:
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem",
+                             {"addr": "$fb", "equals": "20", "op": ">="})
+    assert err is False and out == result
+    w.assert_called_once_with(s, 0xFB, 20, 30.0, op=">=")
 
 
 # --- program running ----------------------------------------------------------

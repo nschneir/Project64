@@ -1,3 +1,4 @@
+from itertools import chain, repeat
 from unittest.mock import Mock, patch
 
 import pytest
@@ -430,6 +431,50 @@ def test_wait_for_mem_timeout_returns_last_value():
     with patch("c64lib.ops.time.sleep"):
         out = wait_for_mem(s, 0x0400, 0x2A, timeout=0.1)
     assert out["fired"] is None and out["last_value"] == 5
+
+
+def test_split_mem_condition_prefers_the_two_character_operators():
+    from c64lib.ops import split_mem_condition
+    assert split_mem_condition("$fb>=20") == ("$fb", ">=", "20")
+    assert split_mem_condition("$fb<=20") == ("$fb", "<=", "20")
+    assert split_mem_condition("$fb!=20") == ("$fb", "!=", "20")
+    assert split_mem_condition("$fb==20") == ("$fb", "==", "20")
+    assert split_mem_condition("  @6,0 = 20  ") == ("@6,0", "=", "20")
+    assert split_mem_condition("ballx>128") == ("ballx", ">", "128")
+
+
+def test_split_mem_condition_rejects_a_bare_address():
+    from c64lib.ops import split_mem_condition
+    for bad in ("$0400", "", "   ", "$0400="):
+        with pytest.raises(ValueError, match="ADDR<op>VALUE"):
+            split_mem_condition(bad)
+
+
+@pytest.mark.parametrize("op,want,reads,fires", [
+    ("=", 42, [b"\x05", b"\x2a"], True),
+    (">=", 20, [b"\x05", b"\x19"], True),     # 25 >= 20 without ever being 20
+    (">", 20, [b"\x14", b"\x15"], True),      # 20 is not > 20; 21 is
+    ("!=", 5, [b"\x05", b"\x06"], True),
+    ("<", 5, [b"\x05", b"\x05"], False),
+])
+def test_wait_for_mem_honors_the_operator(op, want, reads, fires):
+    from c64lib.ops import wait_for_mem
+    s = Mock()
+    mon = Mock()
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    # the last read repeats forever: a condition that never holds must poll
+    # to the deadline rather than run out of canned responses
+    mon.memory_read.side_effect = chain(reads, repeat(reads[-1]))
+    with patch("c64lib.ops.time.sleep"):
+        out = wait_for_mem(s, 0x0400, want, timeout=0.2, op=op)
+    assert (out["fired"] == "mem") is fires
+
+
+def test_wait_for_mem_rejects_an_unknown_operator():
+    from c64lib.ops import wait_for_mem
+    with pytest.raises(ValueError, match="unknown comparison"):
+        wait_for_mem(Mock(), 0x0400, 1, timeout=0.1, op="~")
 
 
 def test_find_bytes_single_and_pattern():

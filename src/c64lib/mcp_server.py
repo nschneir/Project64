@@ -436,11 +436,16 @@ def c64_wait_text(text: str, timeout: float = 30.0, since: bool = False,
 
 @srv.tool()
 def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
-                 session: str | None = None) -> dict:
-    """Block until the byte at addr equals the value ($hex/decimal accepted)."""
+                 op: str = "=", session: str | None = None) -> dict:
+    """Block until the byte at addr compares to the value ($hex/decimal).
+
+    `op` is one of = != > >= < <= and decides how `equals` (the right-hand
+    value, named for the equality case) is compared. Use an inequality for
+    a counter the machine can race past between polls.
+    """
     s = _attach(session)
     return wait_for_mem(s, _ref(s, addr),
-                        parse_number(equals), timeout)
+                        parse_number(equals), timeout, op=op)
 
 
 @srv.tool()

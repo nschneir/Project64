@@ -17,6 +17,7 @@ BASIC:
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
 - [Score HUD: poke a changing number to the screen](#score-hud-poke-a-changing-number-to-the-screen)
 - [Show a sprite from BASIC](#show-a-sprite-from-basic)
+- [Multicolor sprite from BASIC (ASCII art → DATA)](#multicolor-sprite-from-basic-ascii-art--data)
 - [Call a KERNAL routine from BASIC (SYS and 780-783)](#call-a-kernal-routine-from-basic-sys-and-780-783)
 
 Assembly:
@@ -222,6 +223,100 @@ Sprites never appear in `c64 screen` text — inspect them with the purpose-buil
 commands (`c64 sprite status`, `c64 sprite show N`, `c64 sprite png N`), or
 `c64 mem read '$D015' 1` (enable bits) and `c64 screen --png`. Policy and
 testing rules: docs/superpowers/specs/graphics-and-sprites.md.
+
+### Multicolor sprite from BASIC (ASCII art → DATA)
+
+A multicolor sprite trades half its horizontal resolution for color: each
+*pair* of data bits is one double-wide pixel (so the shape is 12×21, drawn
+24 pixels wide) and the pair picks the color — `00` transparent, `01` the
+shared color at `$D025`, `10` the sprite's **own** color at `$D027`+n, `11`
+the shared color at `$D026`. Two of the three are shared by every multicolor
+sprite; only `10` is per-sprite.
+
+Don't work out the bit pairs by hand. Draw the shape as 21 rows of 12
+characters using the `c64 sprite encode` legend — `' '` transparent, `'.'`
+→ `$D025`, `'#'` → the sprite's own color, `'+'` → `$D026` — and let the
+tool encode it. A beach ball, `ball.txt` (every row is exactly 12 columns
+wide, trailing spaces included):
+
+```
+    ++++    
+   +..##+   
+  +...###+  
+  ....####  
+ +....####+ 
+ #....####. 
++##...###..+
++##...###..+
++###..##...+
++####.#....+
++#####.....+
++####.#....+
++###..##...+
++##...###..+
++##...###..+
+ #....####. 
+ +....####+ 
+  ....####  
+  +...###+  
+   +..##+   
+    ++++    
+```
+
+`c64 sprite encode ball.txt --format basic --start-line 1000` emits the 21
+numbered `data` lines below, ready to paste. (Without `--start-line` the
+rows come out unnumbered and will not store; the keyword is lowercase
+because an uppercase `DATA` is shifted PETSCII and tokenizes to junk.)
+
+```basic
+100 rem multicolor beach ball, shape from c64 sprite encode
+110 print "{clr}"
+120 for i=0 to 62 : read a : poke 832+i,a : next : rem block 13 = 832/64
+130 poke 2040,13   : rem $07f8: sprite 0 data pointer
+140 poke 53276,1   : rem $d01c: sprite 0 multicolor on (bit 0)
+150 poke 53285,1   : rem $d025: bit-pair 01 -> white
+160 poke 53287,2   : rem $d027: bit-pair 10 -> sprite 0's own color, red
+170 poke 53286,0   : rem $d026: bit-pair 11 -> black (the rim)
+180 poke 53248,160 : poke 53249,120 : rem $d000/$d001: x,y
+190 poke 53269,1   : rem $d015: enable sprite 0
+200 print "ball on"
+210 goto 210
+1000 data 0,255,0
+1010 data 3,90,192
+1020 data 13,90,176
+1030 data 5,90,160
+1040 data 53,90,172
+1050 data 37,90,164
+1060 data 233,90,151
+1070 data 233,90,151
+1080 data 234,90,87
+1090 data 234,153,87
+1100 data 234,165,87
+1110 data 234,153,87
+1120 data 234,90,87
+1130 data 233,90,151
+1140 data 233,90,151
+1150 data 37,90,164
+1160 data 53,90,172
+1170 data 5,90,160
+1180 data 13,90,176
+1190 data 3,90,192
+1200 data 0,255,0
+```
+
+Verify the shape actually landed before believing anything: `c64 sprite show
+0` renders the loaded block back as ASCII art (it is the inverse of
+`encode`, so it should look like `ball.txt` again, double-wide), and
+`c64 sprite png 0 -o check.png` renders it with the live colors. Registers
+are the ground truth for the setup: `$D015` = 1, `$D01C` = 1, `$07F8` = 13.
+Note that `$D025`/`$D026`/`$D027` are 4-bit registers — they read back with
+the high nybble set (`$F1`, not `$01`), so mask with `and $0f` before
+comparing.
+
+To *move* it, poke `$D000`/`$D001`; past x=255 set the sprite's bit in
+`$D010` as well (`poke 53264,-(x>255)` — a true comparison is -1 in BASIC).
+`tests/programs/bouncing-ball/` is this sprite bounced around a bordered
+playfield, with the state bytes that make it testable.
 
 ### Call a KERNAL routine from BASIC (SYS and 780-783)
 

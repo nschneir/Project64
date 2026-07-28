@@ -6,6 +6,8 @@ two front ends cannot drift.
 
 from __future__ import annotations
 
+import operator
+import re
 import time
 
 from .daemon_client import DaemonMonitorClient
@@ -13,6 +15,42 @@ from .protocol import CP_EXEC
 from .screen import read_screen_text, screen_base
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
+
+#: comparisons a memory wait accepts, longest spelling first so the regex
+#: below prefers '>=' over '>' and '!=' over a bare '='.
+MEM_OPS = {
+    ">=": operator.ge, "<=": operator.le, "!=": operator.ne,
+    "==": operator.eq, "=": operator.eq, ">": operator.gt, "<": operator.lt,
+}
+
+_MEM_COND = re.compile(r"^\s*(?P<addr>.+?)\s*(?P<op>>=|<=|!=|==|=|>|<)\s*"
+                       r"(?P<value>\S.*?)\s*$")
+
+#: how a YAML `wait: {mem: ...}` step spells each comparison. Symbol-free
+#: names, matching the word-key style the `assert` step already uses.
+MEM_COND_KEYS = {"equals": "=", "not_equals": "!=", "above": ">",
+                 "at_least": ">=", "below": "<", "at_most": "<="}
+
+#: the operator menu, for error messages — one spelling of each comparison.
+MEM_OPS_HELP = "= != > >= < <="
+
+
+def split_mem_condition(cond: str) -> tuple[str, str, str]:
+    """Split a memory condition into (address, operator, value), all still
+    text — the caller resolves the address and parses the number, because
+    only it knows the session and label table.
+
+    Raises ValueError when no comparison operator is present; splitting
+    before resolving is what keeps a typo like '251>0' reported as a bad
+    condition rather than as an unknown symbol named '251>0'.
+    """
+    m = _MEM_COND.match(cond)
+    if not m:
+        raise ValueError(
+            f"bad memory condition {cond!r}; use ADDR<op>VALUE where <op> is "
+            f"one of {MEM_OPS_HELP} (e.g. '$fb>=20', '@6,0=20')")
+    return m.group("addr"), m.group("op"), m.group("value")
+
 
 #: the current-key byte the IRQ keyboard scanner maintains (SFDX, $CB):
 #: the keyboard-matrix code of the key held right now, 64 = no key.
@@ -171,7 +209,21 @@ def wait_for_text(session, text: str, timeout: float = 30.0,
     return {"fired": None, "timeout": timeout, "screen": last}
 
 
-def wait_for_mem(session, addr: int, value: int, timeout: float = 30.0) -> dict:
+def wait_for_mem(session, addr: int, value: int, timeout: float = 30.0,
+                 op: str = "=") -> dict:
+    """Block until the byte at `addr` compares to `value` under `op`.
+
+    `op` is one of MEM_OPS. Equality is the common case, but a counter that
+    the machine races past between polls cannot be caught with '=' at all —
+    wait on '>=' instead. Polling is inherent: a value that holds for only
+    a few frames can slip between polls whatever the operator, so for a
+    transition use a store watchpoint and wait_for_break.
+    """
+    try:
+        cmp_ = MEM_OPS[op]
+    except KeyError:
+        raise ValueError(f"unknown comparison {op!r}; use one of "
+                         f"{MEM_OPS_HELP}") from None
     start = time.monotonic()
     deadline = start + timeout
     val = None
@@ -181,10 +233,11 @@ def wait_for_mem(session, addr: int, value: int, timeout: float = 30.0) -> dict:
                 val = mon.memory_read(addr, 1)[0]
             finally:
                 mon.release()
-        if val == value:
+        if cmp_(val, value):
             return {"fired": "mem", "elapsed": round(time.monotonic() - start, 3)}
         time.sleep(0.4)
-    return {"fired": None, "timeout": timeout, "last_value": val}
+    return {"fired": None, "timeout": timeout, "last_value": val,
+            "op": op, "value": value}
 
 
 def wait_for_break(session, timeout: float = 30.0,

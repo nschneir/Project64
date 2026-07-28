@@ -447,11 +447,26 @@ synchronization primitive for scripted use.
   the text lands in instead (`c64 wait --mem '@6,0=20'`, and in YAML
   `assert: { mem: "@6,0", equals_text: "TOO HIGH" }`) — polling the byte
   has no count to race.
-- `--mem ADDR=VALUE` — wait until the byte at ADDR equals VALUE (e.g.
-  `'$1000=42'`).
-- `--break [CK_ID]` — wait until a checkpoint fires; **leaves the machine
-  stopped**. Give an id to wait for that checkpoint only, so a leftover
-  breakpoint can't intercept the wait meant for a watchpoint.
+- `--mem ADDR<op>VALUE` — wait until the byte at ADDR compares to VALUE,
+  where `<op>` is one of `=` `==` `!=` `>` `>=` `<` `<=` (e.g. `'$1000=42'`,
+  `'$fb>=20'`, `'@6,0=20'`). The condition is split on the operator *before*
+  the address is resolved, so a malformed one is reported as a bad condition
+  rather than as an unknown symbol. Reach for an inequality whenever the
+  value you are waiting on is a **counter or a progress byte**: waits poll
+  (0.4 s), so a counter can step past an exact value between two polls and
+  `'$fb=20'` then hangs forever, while `'$fb>=20'` cannot miss. Equality is
+  right for a byte that *settles* — a saturating flag or state code.
+- `--break [CK_ID]` — **resumes the machine if it is stopped**, then blocks
+  until the NEXT checkpoint hit, and leaves it stopped there. It is
+  "run to the next hit", the checkpoint counterpart of `c64 until` — so
+  **never put `c64 continue` in front of it**: that resumes the machine
+  yourself, the wait resumes again after the following hit, and you silently
+  observe every *second* arrival. To step frame by frame, call
+  `c64 wait --break` repeatedly with only inspection commands
+  (`mem read`, `reg`, `screen`, `sprite`, `screen --png`) in between —
+  inspection never advances the machine. Give an id to wait for that
+  checkpoint only, so a leftover breakpoint can't intercept the wait meant
+  for a watchpoint.
 - `--timeout SECS` (default `30`).
 
 Exactly one of `--text`/`--mem`/`--break` is required. JSON on fire:
@@ -1067,11 +1082,21 @@ alongside `c64 sprite from-png` (image input) and the inverse of
 - `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte %...` rows,
   one sprite row (3 bytes) per line, under a `spriteN:` label with a header
   comment — the same shape `c64 sprite from-png` emits, so hand- and
-  image-authored sprites look identical in your source. `basic` emits `DATA`
-  lines, one row (3 bytes) per line, decimal; the `DATA` lines carry no line
-  numbers — add them yourself before the listing will store or run in a real
-  BASIC program. Multiple sprites in one file get distinct labels
-  (`sprite0`, `sprite1`, …).
+  image-authored sprites look identical in your source. `basic` emits `data`
+  lines, one row (3 bytes) per line, decimal. Multiple sprites in one file
+  get distinct labels (`sprite0`, `sprite1`, …).
+
+  The `basic` keyword is **lowercase on purpose**: petcat reads lowercase
+  source as unshifted PETSCII, and an uppercase `DATA` tokenizes to
+  `STR$ ATN ATN` instead of the DATA keyword — the listing then fails at
+  RUN, not at tokenize time.
+- `--start-line N` — with `--format basic`, number the emitted lines from N
+  so the block pastes straight into a `.bas` source. Without it the rows are
+  unnumbered and a bare `data` line will not store in a BASIC program.
+  Numbering runs on across every sprite in the file, so a multi-sprite file
+  stays one ascending listing. Refused past line 63999.
+- `--line-step N` (default `10`) — with `--start-line`, the gap between
+  generated line numbers; 10 leaves room to insert lines later.
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Worked example (one 12x21 multicolor sprite — a small diamond, padded
@@ -1171,6 +1196,13 @@ steps:
   - wait:   { mem: "@6,0", equals: 20 }     # an instant reply races `since`:
   - assert: { mem: "@6,0", equals_text: "TOO HIGH" }  # anchor its cell instead
   - wait:   { mem: "$1000", equals: 42 }    # byte reaches a value
+  - wait:   { mem: "$fb", at_least: 20 }    # counter passes a value —
+                                            #   equals/not_equals/above/
+                                            #   at_least/below/at_most, one
+                                            #   per step. Waits POLL, so a
+                                            #   counter can step over an
+                                            #   exact value: use at_least
+                                            #   for anything that climbs
   - until:  { ref: mainloop, count: 3 }     # frame-step to a label; the
                                             #   machine STAYS stopped there
   - poke:   { addr: "$CB", values: [18] }   # write bytes (state-preserving)

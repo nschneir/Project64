@@ -1,0 +1,28 @@
+# A BASIC sprite demo: nothing about the ball is visible in `c64 screen`
+# text, so every claim is asserted against VIC-II registers, the sprite
+# block, or the state bytes the program publishes.
+#
+# There is no label to `until` on in BASIC, so motion is anchored on the
+# program's own saturating edges-seen mask at $02 (bit 0 left, 1 right,
+# 2 top, 3 bottom). It only ever gains bits, so waiting for 15 cannot race
+# a value the machine steps past — which a bounce *counter* would.
+timeout: 60
+steps:
+  # --- sprite configuration -------------------------------------------
+  - assert: { mem: "$D015", equals: 1 }        # sprite 0 enabled
+  - assert: { mem: "$D01C", equals: 1 }        # ... in multicolor mode
+  - assert: { mem: "$07F8", equals: 13 }       # pointer: block 13 = $0340
+  # 4-bit color registers: reads return the unused high nybble set
+  - assert: { mem: "$D025", mask: { and: "$0f", equals: [1] } }   # 01 white
+  - assert: { mem: "$D027", mask: { and: "$0f", equals: [2] } }   # 10 red
+  - assert: { mem: "$D026", mask: { and: "$0f", equals: [0] } }   # 11 black
+  # the READ/POKE loop really filled the block: first and middle rows
+  - assert: { mem: "$0340", equals: [0, 255, 0] }
+  - assert: { mem: "$035E", equals: [234, 165, 87] }
+
+  # --- motion and bouncing --------------------------------------------
+  - sample: { mem: "$D001", as: y0 }
+  - wait:   { mem: "$02", equals: 15, timeout: 45 }  # all four edges hit
+  - assert: { mem: "$D001", differs: y0 }            # the ball moved
+  - assert: { mem: "$FB", between: { min: 4, max: 255 } }  # >= 4 bounces
+  - assert: { mem: "$FC", between: { min: 1, max: 4 } }    # a valid edge code

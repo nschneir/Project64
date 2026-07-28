@@ -1,3 +1,4 @@
+from itertools import chain, repeat
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -181,7 +182,31 @@ def test_wait_mem_timeout_reports_last_value():
          patch("c64lib.testing.time.sleep"):
         result = run_test(spec, launch=launch)
     assert result.passed is False
-    assert "was 7" in result.steps[0].detail and "wanted 42" in result.steps[0].detail
+    detail = result.steps[0].detail
+    assert "was 7" in detail and "wanted = 42" in detail
+
+
+def test_wait_mem_at_least_fires_without_an_exact_match():
+    """A counter the machine steps past between polls is only catchable
+    with an inequality — `equals` would hang out for a value never read."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.memory_read.side_effect = chain([b"\x05", b"\x19"], repeat(b"\x19"))
+    spec = _spec(steps=[{"wait": {"mem": "$fb", "at_least": 20, "timeout": 1}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.time.sleep"):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+
+
+def test_wait_mem_rejects_two_comparisons_in_one_step():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.memory_read.return_value = b"\x07"
+    spec = _spec(steps=[{"wait": {"mem": "$fb", "equals": 7, "at_least": 3}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         pytest.raises(TestError, match="exactly one of"):
+        run_test(spec, launch=launch)
 
 
 def test_assert_reg_unknown_register_fails_cleanly():

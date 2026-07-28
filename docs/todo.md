@@ -11,9 +11,9 @@ the function/test names are the durable anchors.
 
 ## Decisions (maintainer)
 
-- [ ] **Release timing for 0.6.0.** `pyproject.toml:7` (`version = "0.6.0"`),
-      `CHANGELOG.md`'s `## [0.6.0]` heading and `README.md:180` ("Stable —
-      current release **v0.6.0**") are coherent today.
+- [ ] **Release timing for 0.7.0.** `pyproject.toml:7` (`version = "0.7.0"`),
+      `CHANGELOG.md`'s `## [0.7.0]` heading and `README.md:185` ("Stable —
+      current release **v0.7.0**") are coherent today.
       `.github/workflows/release.yml` triggers on `push: branches: [main]`, so
       pushing `main` arms the release workflow — there is no tag gate. To ship
       later, revert the bump as a unit (all three files together;
@@ -54,8 +54,8 @@ the function/test names are the durable anchors.
 - [ ] **Version-coherence test.**
       `tests/test_package.py::test_changelog_has_current_version` already pins
       `CHANGELOG.md` to `pyproject.toml`, but nothing pins the README: a
-      version revert can leave `README.md:180` ("current release **v0.6.0**")
-      stale and green. Add the assertion to `tests/test_docs_readme.py`,
+      version revert can leave `README.md:185` ("current release **v0.7.0**")
+      stale and green. The 0.7.0 bump had to update it by hand. Add the assertion to `tests/test_docs_readme.py`,
       reusing `tests/test_package.py::_pyproject_version()` and a regex over
       the README release line — parse, never hard-code.
 
@@ -227,12 +227,15 @@ CI item is still open.
 
 ## Standing backlog (pre-cartridge)
 
-- [ ] **Dogfood the six remaining C64 demo prompts.** `demos/README.md:12-18`:
-      demo 01 is ✅ dogfooded; 02-07 are 🔲 "awaiting C64 dogfood". 01-06 were
-      ported from the PET edition, where each passed a real dogfooding run;
-      07 (1812) was written for the C64 and has never been agent-run. Done =
-      an agent given only this toolset builds and verifies the demo on a real
-      VICE session, then the row's status flips.
+- [ ] **Dogfood the five remaining C64 demo prompts.** `demos/README.md:12-18`:
+      demos 01 and 02 are ✅ dogfooded; 03-07 are 🔲 "awaiting C64 dogfood".
+      01-06 were ported from the PET edition, where each passed a real
+      dogfooding run; 07 (1812) was written for the C64 and has never been
+      agent-run. Done = an agent given only this toolset builds and verifies
+      the demo on a real VICE session, then the row's status flips.
+      Demo 02 passed first try (2026-07-27); its solution graduated to
+      `tests/programs/bouncing-ball/` and the friction it turned up is the
+      Unreleased section of the changelog.
 - [ ] **Build the full annotated C64 ROM label DB.** Only a seed ships:
       `src/c64lib/data/rom_labels/basic2.lbl`, 44 `al C:xxxx .NAME` lines —
       the KERNAL jump table `$FF81`-`$FFF3`, the vectors up to `$FFFE`, and a

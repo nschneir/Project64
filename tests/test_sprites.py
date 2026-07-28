@@ -1,9 +1,14 @@
+import shutil
 from unittest.mock import Mock
 
+import pytest
+
+from c64lib.basic import detokenize, tokenize
 from c64lib.sprites import (
     C64_PALETTE,
     SpriteState,
     encode_sprite,
+    format_bytes,
     read_sprite_block,
     read_sprite_states,
     sprite_ascii,
@@ -227,3 +232,27 @@ def test_screen_base_banks_and_slots():
         mon.memory_read.side_effect = lambda a, n, dd00=dd00, d018=d018: {
             0xDD00: bytes([dd00]), 0xD018: bytes([d018])}[a]
         assert screen_base(mon) == want, f"dd00={dd00:02b} d018=${d018:02x}"
+
+
+def test_format_bytes_basic_is_lowercase(tmp_path):
+    """An uppercase `DATA` is shifted PETSCII: the C64 tokenizes it as
+    STR$ ATN ATN and the listing cannot run, so the rows must come out
+    lowercase whether or not they are numbered."""
+    data = bytes(range(63))
+    plain = format_bytes(data, "basic")
+    assert plain.startswith("data ") and "DATA" not in plain
+    assert format_bytes(data, "basic", start_line=1000).splitlines()[0] \
+        == "1000 data 0,1,2"
+
+
+def test_format_bytes_basic_numbered_survives_petcat(tmp_path):
+    """The whole point of --start-line: the block pastes into a .bas and
+    tokenizes back to the same DATA statements."""
+    if shutil.which("petcat") is None:
+        pytest.skip("petcat not installed")
+    numbered = format_bytes(bytes(range(63)), "basic", start_line=1000)
+    src = tmp_path / "d.bas"
+    src.write_text("10 read a : print a\n" + numbered + "\n")
+    listing = detokenize(tokenize(src, tmp_path / "d.prg", "2.0"), "2.0").lower()
+    assert "data 0,1,2" in listing
+    assert "atn" not in listing          # the uppercase-DATA failure mode

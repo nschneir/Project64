@@ -81,6 +81,19 @@ LIVE_RECIPES = [
     ("basic-beep", "basic", "gosub 900", [
         {"wait": {"text": "BEEPED"}},
     ]),
+    ("basic-multicolor-sprite", "basic", "multicolor beach ball", [
+        {"wait": {"text": "BALL ON"}},
+        {"assert": {"mem": "$D015", "equals": 1}},      # sprite 0 enabled
+        {"assert": {"mem": "$D01C", "equals": 1}},      # multicolor on
+        {"assert": {"mem": "$07F8", "equals": 13}},     # pointer -> $0340
+        # 4-bit color registers read back with the high nybble set
+        {"assert": {"mem": "$D025", "mask": {"and": "$0f", "equals": [1]}}},
+        {"assert": {"mem": "$D026", "mask": {"and": "$0f", "equals": [0]}}},
+        {"assert": {"mem": "$D027", "mask": {"and": "$0f", "equals": [2]}}},
+        # the shape reached the block: row 10 of the ball is 234,165,87
+        {"assert": {"mem": "$0340", "equals": [0, 255, 0]}},
+        {"assert": {"mem": "$035E", "equals": [234, 165, 87]}},
+    ]),
     ("asm-ball", "asm", "ball.s", [
         # the program's first act is a $93 clear, which wipes the boot
         # banner: the '*' at row 1, col 4 ($042C) -> space. Waiting on that

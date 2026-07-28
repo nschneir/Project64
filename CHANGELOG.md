@@ -6,6 +6,74 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [0.7.0] — 2026-07-27
+
+What a dogfooding run of demo 02 (bouncing beach ball) walked into. The
+demo itself passed first try; everything here is friction found on the way.
+
+### Added
+- **`c64 wait --mem` takes comparisons**, not just equality:
+  `ADDR<op>VALUE` with `=` `==` `!=` `>` `>=` `<` `<=` (`'$fb>=20'`). Waits
+  poll, so an exact-value wait on a *counter* can hang forever after the
+  machine steps past it between two polls — an inequality cannot miss. The
+  YAML `wait` step gains the same reach as word keys (`equals`,
+  `not_equals`, `above`, `at_least`, `below`, `at_most`, one per step), and
+  `c64_wait_mem` gains an `op` argument.
+- **`c64 sprite encode --format basic --start-line N`** (with
+  `--line-step`, default 10) numbers the emitted `data` lines so the block
+  pastes straight into a `.bas`. Numbering runs on across every sprite in
+  one file, so a multi-sprite file stays a single ascending listing, and
+  numbers past 63999 are refused rather than emitted.
+- **Cookbook recipe: "Multicolor sprite from BASIC (ASCII art → DATA)"** —
+  the bit-pair→register mapping (`01`→`$D025`, `10`→`$D027`, `11`→`$D026`)
+  and the ASCII-art→`sprite encode`→`DATA`/`READ` path in one place, with a
+  live test. The existing sprite recipe only covered a solid hires shape.
+- **`tests/programs/bouncing-ball/`** — the demo-02 solution as a regression
+  test: a multicolor sprite bounced around a character-graphics playfield,
+  publishing a saturating edges-seen bitmask at `$02` plus a bounce count
+  and last-edge code at `$FB`/`$FC` so a BASIC graphics demo is assertable
+  without pixels.
+
+### Fixed
+- **`c64 sprite encode --format basic` emitted an uppercase `DATA`**, which
+  is shifted PETSCII: the C64 tokenizes it as `STR$ ATN ATN`, so the rows
+  had never been paste-able into a working listing. They are lowercase now,
+  matching the petcat convention the rest of the toolchain uses.
+- **A malformed `--mem` condition was reported as a symbol lookup failure** —
+  `c64 wait --mem '251>0'` answered `unknown symbol '251>0'; known: `,
+  pointing at the label table instead of at the condition. The condition is
+  split on its operator before the address is resolved, so the error now
+  names the real problem and lists the operators. A `--mem` timeout also
+  reports the last value seen.
+
+### Documentation
+- **`c64 wait --break` resumes the machine and runs to the *next* hit** —
+  it is the checkpoint counterpart of `c64 until`, not a passive block.
+  `SKILL.md` presented it as "block until it fires" with "`c64 continue` to
+  resume" as the following step, so the obvious sampling loop
+  (`continue` → `wait --break` → inspect) silently advances **two** hits and
+  observes every second frame. Documented in `SKILL.md` (with the correct
+  frame-stepping loop), in `docs/cli.md`, and in the `--break` help text;
+  a diagnosis row catches it by its symptom — sampled deltas exactly 2× what
+  the code says. Inspection commands, by contrast, never advance the
+  machine; the stopped-state rule now says which commands resume first.
+- **`c64 break clear` does not clear watchpoints** — `c64 watch clear` does.
+  `SKILL.md` said "clear stale ones (`c64 break clear`) or duplicates
+  accumulate" without the caveat and never mentioned `watch clear`, so
+  stale watchpoints silently kept stopping the machine.
+- **Anchoring an observation on a BASIC program.** Assembly frame-steps with
+  `c64 until LABEL`; BASIC has no label to break on, and anything sampled or
+  screenshotted while the machine runs is a race under warp. `SKILL.md` and
+  the graphics spec now prescribe the substitutes: a store watchpoint on a
+  state byte the program pokes at the moment of interest (stops the machine
+  *at* the event — the way to capture evidence), and a saturating summary
+  byte for tests.
+- **Where a demo's solution and evidence go.** The graphics spec required
+  evidence at `demos/<name>/evidence/`, which single-file demo prompts
+  (`demos/NN-name.md`) have no directory for. Both the spec and
+  `demos/README.md` now say: directory demos commit evidence, single-file
+  demos don't, and a program worth keeping graduates to `tests/programs/`.
+
 ## [0.6.0] — 2026-07-27
 
 Disks — complete file CRUD, raw block access, validation, one-command game
