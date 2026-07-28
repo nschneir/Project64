@@ -53,14 +53,6 @@ the function/test names are the durable anchors.
       reasoning in the comment above it); `build.py` should match — note the
       size shrinks too. Verify: `tests/test_build.py`,
       `tests/test_integration_build.py`.
-- [ ] **Version-coherence test.**
-      `tests/test_package.py::test_changelog_has_current_version` already pins
-      `CHANGELOG.md` to `pyproject.toml`, but nothing pins the README: a
-      version revert can leave `README.md:185` ("current release **v0.8.0**")
-      stale and green. Both the 0.7.0 and 0.8.0 bumps had to update it by
-      hand. Add the assertion to `tests/test_docs_readme.py`,
-      reusing `tests/test_package.py::_pyproject_version()` and a regex over
-      the README release line — parse, never hard-code.
 
 ## Test health
 

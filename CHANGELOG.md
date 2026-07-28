@@ -41,6 +41,13 @@ friction, filed in `docs/todo.md`.
   self-heals, and follows a screen the program relocates mid-wait.
 
 ### Added
+- **The README's release line is now pinned to `pyproject.toml`**
+  (`tests/test_docs_readme.py::test_readme_release_line_matches_pyproject`).
+  `test_changelog_has_current_version` already pinned the CHANGELOG to the
+  single version source, but nothing pinned the README, so a bump or a
+  revert could leave "current release **vX.Y.Z**" stale with the suite
+  green — it had to be fixed by hand for both 0.7.0 and 0.8.0. Both sides
+  are parsed; a reworded release line fails as loudly as a stale one.
 - **Cookbook recipe: "Time a section of code with TI"** — the
   `ti$="000000"` / `t=ti` bracket, plus the two facts a benchmark needs:
   `PRINT` prefixes positive numbers with a space, and one jiffy of

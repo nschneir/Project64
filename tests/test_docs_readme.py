@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 from tests.doc_helpers import (
@@ -62,6 +63,21 @@ def test_readme_c64_commands_exist():
     for doc in (README, AGENT_SETUP):
         unknown = {c for c in mentioned_commands(doc.read_text()) if c not in valid}
         assert not unknown, f"{doc} mentions nonexistent commands: {sorted(unknown)}"
+
+
+def test_readme_release_line_matches_pyproject():
+    """`pyproject.toml` is the single version source.
+    `tests/test_package.py::test_changelog_has_current_version` pins the
+    CHANGELOG to it, but nothing pinned the README, so a bump (or a revert)
+    could leave the release line stale and the suite green — it had to be
+    updated by hand for both 0.7.0 and 0.8.0. Parse both sides; never
+    hard-code a version here, or this test becomes the next stale copy."""
+    from tests.test_package import _pyproject_version
+
+    m = re.search(r"current release \*\*v([^*]+)\*\*", README.read_text())
+    assert m, "README no longer states 'current release **vX.Y.Z**'"
+    assert m.group(1) == _pyproject_version(), \
+        f"README says v{m.group(1)}; pyproject says {_pyproject_version()}"
 
 
 def test_supported_machines_table_matches_profiles():
