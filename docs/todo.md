@@ -277,3 +277,17 @@ CI item is still open.
       adjudicated; `tests/test_cli_sprite.py::test_sprite_encode_missing_file`
       (line 254) only asserts non-zero, so either convention passes today.
       Decide one convention repo-wide, then tighten the test.
+- [ ] **The YAML test DSL spells the same substring check two ways:
+      `wait: {text: ...}` but `assert: {screen: ...}`.**
+      `src/c64lib/testing.py:447` takes `text` for a wait, `:478` takes
+      `screen` for an assert, and `:569` rejects `assert: {text: ...}` with
+      "assert step needs 'screen', 'mem', or 'reg'". Both read the decoded
+      screen and both do a substring test, so the natural move after
+      writing a `wait` — copy the line, change the verb — fails, which is
+      exactly how it was hit while adding the demo-03 cookbook recipes.
+      `mem` is spelled the same in both, which makes `text`/`screen` read
+      as an oversight rather than a distinction. Cheapest fix: accept
+      `text` as an alias in `assert` (and/or `screen` in `wait`), keeping
+      both spellings working, then say so in the `c64 test run` step table
+      in `docs/cli.md:1197-1230`. Decide whether one spelling becomes
+      canonical in the docs or both stay first-class.
