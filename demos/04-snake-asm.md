@@ -19,7 +19,7 @@ Paste this prompt into your agent:
 > - **Play** — the snake moves continuously, W/A/S/D steer it (read the
 >   held key's matrix code from $CB so steering doesn't depend on key
 >   repeat — see the cookbook's held-key recipe), and it grows each time
->   it eats a `*` that reappears at a random empty position.
+>   it eats a piece of food, which reappears at a random empty position.
 > - **Sound** — a short SID blip when the snake eats, a longer crash sound
 >   when it dies (the hardware reference has the register recipe).
 > - **Score and levels** — a status line showing SCORE and LEVEL during

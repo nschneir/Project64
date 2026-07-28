@@ -227,8 +227,8 @@ CI item is still open.
 
 ## Standing backlog (pre-cartridge)
 
-- [ ] **Dogfood the five remaining C64 demo prompts.** `demos/README.md:12-18`:
-      demos 01 and 02 are ✅ dogfooded; 03-07 are 🔲 "awaiting C64 dogfood".
+- [ ] **Dogfood the four remaining C64 demo prompts.** `demos/README.md:12-18`:
+      demos 01-04 are ✅ dogfooded; 05-07 are 🔲 "awaiting C64 dogfood".
       01-06 were ported from the PET edition, where each passed a real
       dogfooding run; 07 (1812) was written for the C64 and has never been
       agent-run. Done = an agent given only this toolset builds and verifies
@@ -240,6 +240,12 @@ CI item is still open.
       the asm sieve, both `168 PRIMES, LARGEST 997`, ~101x. Its friction is
       the Unreleased section of the changelog; the solution has not
       graduated to `tests/programs/` yet.
+      Demo 04 passed (2026-07-27): a ~700-line asm Snake with a custom
+      charset, title/play/game-over state machine, `$CB` steering, SID
+      blip/crash and a session-persistent high score, all proven live. It
+      found two real defects (the ca65 phony-target dep parse and the
+      `@row,col` re-resolve) plus the doc gaps in the Unreleased changelog
+      section; the solution has not graduated to `tests/programs/` yet.
 - [ ] **Build the full annotated C64 ROM label DB.** Only a seed ships:
       `src/c64lib/data/rom_labels/basic2.lbl`, 44 `al C:xxxx .NAME` lines —
       the KERNAL jump table `$FF81`-`$FFF3`, the vectors up to `$FFFE`, and a

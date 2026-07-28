@@ -55,6 +55,16 @@ def test_screen_decode_matches_documented_behavior():
     assert text.screen_code_to_char(unmapped, style="ascii") == text.GRAPHICS_PLACEHOLDER
 
 
+def test_exactly_three_screen_codes_decode_blank():
+    """Pins the cookbook's custom-charset warning: a redefined glyph is
+    still decoded through its ROM meaning, and codes 32/96/224 decode to a
+    blank — so a glyph parked on 96 vanishes from `c64 screen` text while
+    sitting plainly in the PNG. The demo-04 snake's head-facing-up did
+    exactly that. Grow this set and the advice needs updating."""
+    blank = {c for c in range(256) if screen_code_to_char(c).strip() == ""}
+    assert blank == {32, 96, 224}
+
+
 def test_petscii_doc_has_decoder_section():
     from pathlib import Path
     doc = Path("skills/c64-development/references/petscii.md").read_text()

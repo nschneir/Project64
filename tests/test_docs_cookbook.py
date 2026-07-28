@@ -167,6 +167,16 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$07F8", "equals": 13}},   # pointer: block 13
         {"assert": {"mem": "$D000", "equals": 219}},  # last x written
     ]),
+    ("asm-custom-charset", "asm", "charset.s", [
+        {"wait": {"mem": "@5,0", "equals": 96}},       # the patched glyph is shown
+        {"assert": {"mem": "@5,1", "equals": 97}},
+        # $D018's unused bit 0 reads as 1: $1C written, $1D read back
+        {"assert": {"mem": "$D018", "equals": "$1d"}},
+        # the ROM copy landed: screen code 1 ('A') is unchanged at $3000+8
+        {"assert": {"mem": "$3008", "equals": [24, 60, 102, 126, 102, 102, 102, 0]}},
+        # and the patch landed on top of it at $3000 + 96*8
+        {"assert": {"mem": "$3300", "equals": [60, 126, 219, 255, 255, 189, 126, 60]}},
+    ]),
     ("basic-charset", "basic", "lowercase (business)", [
         {"wait": {"text": "HELLO FROM BUSINESS MODE"}},   # decoder is case-canonical
         {"assert": {"mem": "53272", "equals": 23}},        # $D018 readback

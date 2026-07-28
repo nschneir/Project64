@@ -97,12 +97,34 @@ def test_build_asm_collects_deps_and_built_at(tmp_path, monkeypatch):
     inc = tmp_path / "inc.s"
     src.write_text('; top\n.include "inc.s"\n')
     inc.write_text("; include\n")
-    deps = f"prog.o: {src} \\\n {inc}\n"
-    _stub_pair(tmp_path, monkeypatch, deps_line=deps)
+    _stub_pair(tmp_path, monkeypatch, deps_line=_real_ca65_deps(src, inc))
     t0 = time.time()
     res = build_asm(src)
     assert src in res.deps and inc in res.deps
     assert res.built_at >= t0
+
+
+def _real_ca65_deps(src, *includes) -> str:
+    """ca65 --create-dep's actual output: the rule, then one bare phony
+    target per prerequisite (GNU make's -MP convention), blank-separated."""
+    prereqs = " \\\n ".join(str(p) for p in (src, *includes))
+    phony = "".join(f"\n{p}:\n" for p in (src, *includes))
+    return f"prog.o:\t{prereqs}\n{phony}"
+
+
+def test_build_asm_deps_ignore_ca65_phony_targets(tmp_path, monkeypatch):
+    """The phony `<source>:` lines carry no prerequisites, and a naive
+    split-on-the-first-colon turns them into a path with a trailing colon.
+    That path never exists, and `ops.staleness` counts a vanished source as
+    stale — which reported every freshly built program as out of date."""
+    src = tmp_path / "prog.s"
+    inc = tmp_path / "inc.s"
+    src.write_text('; top\n.include "inc.s"\n')
+    inc.write_text("; include\n")
+    _stub_pair(tmp_path, monkeypatch, deps_line=_real_ca65_deps(src, inc))
+    res = build_asm(src)
+    assert set(res.deps) == {src, inc}
+    assert all(p.exists() for p in res.deps)
 
 
 def test_build_failure_never_touches_existing_prg(tmp_path, monkeypatch):

@@ -451,6 +451,13 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             return ok, (f"text {want!r} seen" if ok
                         else f"text {want!r} not seen in {timeout}s")
         if "mem" in arg:
+            # A `@row,col` reference is resolved against the machine's live
+            # screen base, and the reset `autostart` performs leaves the VIC
+            # registers unreadable for a moment ($D018 reads 0, putting the
+            # cell in zero page). Resolved once, that address is polled for
+            # the whole timeout and the wait can never fire — so re-resolve
+            # per poll. It also follows a screen the program relocates.
+            follow = "@" in str(arg["mem"])
             addr = _addr(arg["mem"])
             keys = [k for k in MEM_COND_KEYS if k in arg]
             if len(keys) != 1:
@@ -462,6 +469,8 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             deadline = time.monotonic() + timeout
             val = None
             while time.monotonic() < deadline:
+                if follow:
+                    addr = _addr(arg["mem"])
                 with session.monitor() as mon:
                     try:
                         val = mon.memory_read(addr, 1)[0]

@@ -33,6 +33,7 @@ Assembly:
 - [Time a routine and print the jiffies (LINPRT)](#time-a-routine-and-print-the-jiffies-linprt)
 - [IRQ wedge: run code 60×/second behind BASIC](#irq-wedge-run-code-60second-behind-basic)
 - [Sprite setup and movement](#sprite-setup-and-movement)
+- [Custom character set: copy the ROM charset to RAM and redefine glyphs](#custom-character-set-copy-the-rom-charset-to-ram-and-redefine-glyphs)
 
 ## BASIC recipes
 
@@ -505,6 +506,30 @@ frame-steps to your loop label; read `c64 mem read pos 1` between holds.
 In a `c64 test run` YAML the same protocol is the `poke:` + `until:` step
 pair.
 
+**Read `$CB` at the top of the loop.** `key hold` pokes the matrix code
+while the machine sits at the anchor, and the IRQ keyboard scan puts 64
+back within a jiffy. If the read is the first thing after the anchor label
+it always wins; if it happens after a pacing delay, the poke is long gone
+and steering silently does nothing. (Sampling `$CB` again *during* the
+pacing loop is fine and makes a human-held key just as responsive — ignore
+64 there rather than latching it.)
+
+**The move that ends the game can never be driven by `key hold`.** On the
+fatal move the program leaves `mainloop` for good, so the hold's wait for
+the anchor times out and (per its documented timeout behavior) leaves the
+machine running with the checkpoint pulled — past the crash you wanted to
+inspect. Break on the death path and supply that one key yourself:
+
+```bash
+c64 break add died         # the label the collision check jumps to
+c64 mem write '$CB' 9      # W's matrix code, by hand (space 60, A 10, D 18)
+c64 wait --break           # resumes, stops the instant the snake dies
+c64 mem read nrow 2        # the cell that killed it
+```
+
+The full matrix-code table is `MATRIX_CODES` in `src/c64lib/ops.py`; the
+common ones are in the hardware reference.
+
 ### Sound: a beep from machine code
 
 Same SID registers as the BASIC version, timed by the jiffy clock:
@@ -623,10 +648,26 @@ c64 continue                  # back to real time
 No in-program stepping scaffolding (gate flags, poke-to-advance loops) is
 needed — the debugger provides deterministic stepping from outside.
 
-Caveat: `c64 until` can only fire while the program still visits the label.
-If play can branch away (death, menu, pause), the wait times out — and on
-timeout the machine is left RUNNING with the checkpoint removed. For those
-states, break at a code path that must still execute instead.
+Two caveats, both about `until` firing at the wrong time or not at all:
+
+- **`c64 until` can only fire while the program still visits the label.**
+  If play can branch away (death, menu, pause), the wait times out — and on
+  timeout the machine is left RUNNING with the checkpoint removed. For those
+  states, break at a code path that must still execute instead.
+- **On a running machine, `until` is a race, not a rewind.** It sets its
+  checkpoint when it runs, so `c64 key type " "` (dismiss the title) followed
+  by `c64 until mainloop` does not stop at move 1 — at warp the wall-clock
+  gap between the two commands is emulated seconds and the game has already
+  played on. Nothing errors; you just get an arbitrary later frame. When the
+  frame you want is the *first* one after a trigger, set a breakpoint
+  **before** the trigger — a checkpoint halts the machine on arrival with no
+  gap to race:
+
+  ```bash
+  c64 break add mainloop     # BEFORE the key that starts play
+  c64 key type " "           # runs, hits mainloop, stops there by itself
+  c64 mem read FRAMES 1      # frame 1, deterministically
+  ```
 
 ### Cheap pseudo-random byte (8-bit Galois LFSR)
 
@@ -1045,6 +1086,135 @@ Sprites are drawn by the VIC-II, not stored in screen RAM — `c64 screen`
 text never shows them. Verify with register reads (`$D015`, `$D000/$D001`)
 and `c64 screen --png`; X > 255 additionally needs the MSB bit in `$D010`
 (see hardware.md).
+
+### Custom character set: copy the ROM charset to RAM and redefine glyphs
+
+Giving a game its own bricks, snake segments or spaceships means pointing
+the VIC-II at a charset in RAM. The character ROM is not in the CPU's
+address space by default — it hides *behind* the I/O registers at `$D000`,
+so the copy has to bank I/O out (`$01` bit 2 = 0) with interrupts off, then
+put it back. Copy all 2 KB, patch only the glyphs you want, and the other
+254 stay exactly as the ROM drew them:
+
+```asm
+; charset.s — ROM charset -> RAM at $3000, then redefine screen codes 96/97.
+CHARSET = $3000                 ; must be in the VIC's bank ($0000-$3FFF)
+SCREEN  = $0400
+COLOR   = $D800
+CHROUT  = $FFD2
+SRC     = $FB                   ; two user pointers (see zero-page.md)
+DST     = $FD
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  lda     #$93
+        jsr     CHROUT          ; clear the screen
+        ldx     #0
+banner: lda     msg,x
+        beq     copy
+        jsr     CHROUT
+        inx
+        bne     banner
+
+copy:   sei                     ; the char ROM replaces I/O at $D000, so the
+        lda     $01             ; IRQ must not run while it is banked in
+        pha
+        and     #$FB            ; CHAREN ($01 bit 2) = 0 -> char ROM visible
+        sta     $01
+        lda     #$00
+        sta     SRC
+        sta     DST
+        lda     #$D0
+        sta     SRC+1           ; from $D000
+        lda     #>CHARSET
+        sta     DST+1           ; to $3000
+        ldx     #8              ; 8 pages = 2048 bytes = 256 glyphs
+cpage:  ldy     #0
+cbyte:  lda     (SRC),y
+        sta     (DST),y
+        iny
+        bne     cbyte
+        inc     SRC+1
+        inc     DST+1
+        dex
+        bne     cpage
+        pla
+        sta     $01             ; I/O back at $D000
+        cli
+
+        ldx     #15             ; two glyphs, 8 bytes each, at codes 96-97
+patch:  lda     shapes,x
+        sta     CHARSET + 96*8,x
+        dex
+        bpl     patch
+
+        lda     #$1C            ; screen $0400 + charset $3000 (math below)
+        sta     $D018
+
+        lda     #96             ; show them on row 5
+        sta     SCREEN + 5*40
+        lda     #97
+        sta     SCREEN + 5*40 + 1
+        lda     #1
+        sta     COLOR + 5*40
+        sta     COLOR + 5*40 + 1
+        rts                     ; back to BASIC, custom charset still live
+
+msg:    .byte   "CHARSET IN RAM", $0D, $00
+
+; the binary literals read as pictures in the source
+shapes: .byte   %00111100       ; 96: a face
+        .byte   %01111110
+        .byte   %11011011
+        .byte   %11111111
+        .byte   %11111111
+        .byte   %10111101
+        .byte   %01111110
+        .byte   %00111100
+        .byte   %00011000       ; 97: a heart
+        .byte   %00111100
+        .byte   %01111110
+        .byte   %11111111
+        .byte   %11111111
+        .byte   %01111110
+        .byte   %00111100
+        .byte   %00011000
+```
+
+**The `$D018` arithmetic.** Bits 7-4 are the screen base in 1 KB steps,
+bits 3-1 the character base in 2 KB steps, bit 0 is unused. Screen `$0400`
+= 1 → `$10`; charset `$3000` = `$3000/$0800` = 6, shifted left one → `$0C`;
+together `$1C`. **It does not read back as `$1C`**: the unused bit 0 reads
+as 1, so `c64 mem read '$D018'` returns `$1D` — the same readback trap the
+4-bit color registers have. Compare against `$1D`, or mask with `and $FE`.
+
+Four more things this encodes:
+
+- **Where the charset can live.** The VIC-II sees only one 16 KB bank at a
+  time, bank 0 (`$0000-$3FFF`) at power-on — a charset outside it is
+  invisible no matter what `$D018` says. `$3000` is the usual home: inside
+  the bank, above a `.prg` of a few KB. Check `load_addr + len - 2` still
+  lands below it every time the code grows (see the 6502-assembly skill).
+- **Leave the screen at `$0400`.** The `$D018` high nybble can move it, but
+  the toolset's screen reader assumes `$0400`.
+- **Hand the ROM charset back before returning to BASIC** if the program
+  quits for real — `lda #$15 / sta $D018` — or `READY.` and everything the
+  user types afterwards is drawn in your glyphs. This demo deliberately
+  leaves it installed so the effect is visible.
+- **`c64 screen` text does not follow your charset.** It decodes screen
+  *codes* through their ROM meanings, so a redefined glyph reads back as
+  whatever the ROM drew there — and screen codes 32, 96 and 224 decode to a
+  **blank**, so a glyph parked on 96 is invisible in decoded text while
+  sitting plainly in the PNG. Assert with `c64 screen --codes` or
+  `c64 mem read`, look with `c64 screen --png`, and prefer codes whose ROM
+  glyph is distinctive for anything you want to eyeball as text.
 
 ## Verifying a recipe-based program
 

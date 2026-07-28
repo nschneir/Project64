@@ -26,6 +26,13 @@ Every `c64 disk` and `c64 cart` verb has a twin; `c64 watch remove` is the
 same command as `c64 break remove`, so `c64_break_remove` removes watchpoints
 too, and `c64 mem get` is only a print-formatting variant of `c64_mem_read`.
 
+**Driving a game move by move? Use MCP.** Each `c64` CLI invocation is a
+fresh Python process — measured at ~130 ms of startup on a 2026 laptop,
+before the emulator does anything. Steering a snake for a few hundred moves
+at 3-4 calls per move spends minutes in process startup while the emulated
+machine, at warp, is idle. The MCP tools run in a live process and have no
+such floor. The CLI is right for a handful of commands; a loop wants MCP.
+
 ## The loop
 
 Write → run → observe → fix:
@@ -251,6 +258,24 @@ done
 c64 watch clear && c64 continue        # let it run again
 ```
 
+**Catching the first frame of a state you just triggered.** `c64 until
+mainloop` right after the keypress that starts play does *not* stop you at
+move 1: `until` sets its checkpoint only when it runs, and the wall-clock
+gap since the previous command is emulated seconds at warp. It does not
+fail — it silently returns some arbitrary later arrival, with the score
+already moving. Arm the checkpoint **before** the trigger instead; a
+breakpoint halts the machine on arrival by itself, so there is no gap to
+race:
+
+```bash
+c64 break add mainloop        # BEFORE the key that starts the game
+c64 key type " "              # the machine runs, hits mainloop, stops there
+c64 mem get headrow 2         # move 1, deterministically
+```
+
+The same applies to a level-up, a death screen, or any other transition:
+break on the code path first, then trigger it.
+
 **The stopped-state rule.** The machine's run/stop state persists across `c64`
 commands (a per-session monitor daemon holds it). Four commands intentionally
 halt it so you can inspect it: `c64 step`, `c64 finish`, `c64 until`, and
@@ -316,6 +341,14 @@ source of bugs:
 - A sprite demo that "shows nothing" in `c64 screen` — sprites never appear
   in decoded text. Check `$D015` and positions with `c64 mem read '$D000' 17`
   and capture `c64 screen --png` for the visual.
+- **A custom charset changes the glyphs, not the screen codes.** `c64 screen`
+  decodes each code through its *ROM* meaning, so your redefined glyph reads
+  back as whatever the ROM drew there — and codes **32, 96 and 224 decode to
+  a blank**, so a glyph parked on 96 is missing from decoded text while
+  sitting plainly in `--png`. Assert with `c64 screen --codes` or
+  `c64 mem read`, look with `c64 screen --png`, and keep anything you want to
+  eyeball as text off those three codes. The cookbook's custom-character-set
+  recipe has the install sequence.
 - **Reading back a VIC-II color register and comparing to the value you
   poked.** `$D020`/`$D021` are 4-bit; the high nybble reads as 1s, so
   `POKE 53280,0` reads back as `$F0`. Mask with `AND $0F`

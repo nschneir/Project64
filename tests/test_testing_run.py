@@ -173,6 +173,29 @@ def test_wait_mem_polls_until_value():
     assert mon.memory_read.call_count == 3
 
 
+def test_wait_mem_screen_cell_reresolves_each_poll():
+    """`@row,col` resolves against the machine's LIVE screen base, and the
+    reset `autostart` performs leaves the VIC registers unreadable for a
+    moment — `$D018` reads 0, so the cell lands in zero page. Resolved once,
+    that bad address is polled for the whole timeout and the wait can never
+    fire. Re-resolving each poll self-heals (and follows a screen the
+    program relocates mid-wait)."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    s.profile.screen_cols = 40
+    s.profile.screen_addr = 0x0400
+    mon.memory_read.side_effect = \
+        lambda addr, n: bytes([96 if addr == 0x04C8 else 3])
+    spec = _spec(steps=[{"wait": {"mem": "@5,0", "equals": 96, "timeout": 2}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.time.sleep"), \
+         patch("c64lib.testing.live_screen_base",
+               side_effect=chain([0], repeat(0x0400))):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert result.steps[0].detail.startswith("mem $04c8")
+
+
 def test_wait_mem_timeout_reports_last_value():
     s, mon = _fake_session()
     launch = Mock(return_value=s)

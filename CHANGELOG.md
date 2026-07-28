@@ -8,10 +8,35 @@ commit).
 
 ## [Unreleased]
 
-What a dogfooding run of demo 03 (sieve benchmark) walked into. The demo
-passed first try — BASIC 933 jiffies, assembly 9.2, both reporting
-`168 PRIMES, LARGEST 997` — and everything here is documentation friction
-found on the way. No code changed.
+What dogfooding runs of demos 03 and 04 walked into. Demo 03 (sieve
+benchmark) passed first try — BASIC 933 jiffies, assembly 9.2, both
+reporting `168 PRIMES, LARGEST 997` — and turned up documentation friction
+only. Demo 04 (Snake in 6502 assembly) also came out working — a custom
+charset, a title/play/game-over state machine, `$CB` steering, SID
+blip/crash and a high score surviving across games, all proven on a live
+machine — but found two real defects on the way.
+
+### Fixed
+- **A freshly built `.s` no longer reports itself STALE.** `c64 status`
+  printed `STALE (source changed since load): …/prog.s:` — note the
+  trailing colon — after *every* `c64 run FILE.s`, forever. ca65's
+  `--create-dep` file ends with a bare `<source>:` phony target per
+  prerequisite (GNU make's `-MP` convention); `_parse_deps` split the whole
+  file on its first colon, so those lines became paths with a trailing
+  colon, which never exist — and `ops.staleness` counts a vanished source
+  as stale. The one warning that exists to stop you debugging an
+  out-of-date binary cried wolf on every assembly run. Parsing is now per
+  line and prerequisites-only. The bug survived because the ca65 stub in
+  `tests/test_build.py` emitted a tidier dep file than the real tool; the
+  stub now emits the real format.
+- **`wait: { mem: "@row,col" }` re-resolves the cell each poll.** `@row,col`
+  is resolved against the machine's *live* screen base, and the reset
+  `autostart` performs leaves the VIC registers unreadable for a moment —
+  `$D018` reads 0, putting the cell at `$00C8` in zero page. Resolved once,
+  that address was polled for the whole timeout, so a YAML test whose first
+  step waited on a screen cell after `autorun: true` could never fire (and
+  reported a zero-page address in its failure). Re-resolving per poll
+  self-heals, and follows a screen the program relocates mid-wait.
 
 ### Added
 - **Cookbook recipe: "Time a section of code with TI"** — the
@@ -29,6 +54,16 @@ found on the way. No code changed.
   the padding trap (LINPRT emits no leading space where BASIC's `PRINT`
   does, which prints `LARGEST997`) and snapshotting the clock before
   formatting.
+- **Cookbook recipe: "Custom character set: copy the ROM charset to RAM and
+  redefine glyphs"** — the `sei` / clear `$01` bit 2 / copy 2 KB / restore /
+  `cli` / patch / `$D018` sequence, live-tested. Demo 04 requires a custom
+  charset and demo 06 promises one, but the install sequence existed
+  nowhere: `$D018`'s bit-fields were in hardware.md, CHAREN in
+  zero-page.md, and the graphics spec covered authoring `.byte` rows only.
+  Carries the `$D018` arithmetic (`$0400` + `$3000` = `$1C`), its readback
+  trap (unused bit 0 reads as 1, so `$1C` reads back `$1D`), the VIC-bank
+  constraint, handing `$15` back before returning to BASIC, and the
+  decoded-text caveat below.
 
 ### Documentation
 - **The string-literal case rule for assembly is now written down**
@@ -46,6 +81,33 @@ found on the way. No code changed.
   waiting on `READY.` or `BASIC` matches that instantly and returns before
   the program prints anything. Bit this run for real while verifying the
   case rule above.
+- **A custom charset changes the glyphs, not the screen codes**
+  (`c64-development` SKILL.md pitfalls, the new cookbook recipe, and the
+  graphics spec, whose §1 claimed custom charsets were "fully observable as
+  text through `c64 screen`"). The decoder maps each code through its *ROM*
+  meaning, and codes **32, 96 and 224 decode to a blank** — demo 04 parked
+  its head-facing-up glyph on 96 and the snake's head was simply absent
+  from decoded text while sitting plainly in the PNG, during a death
+  verification. Pinned by a test that asserts those three codes are the
+  only blanks.
+- **Catching the first frame after a trigger** (`c64-development`
+  SKILL.md's Debugging section, and the cookbook's frame-stepping recipe).
+  `c64 until mainloop` right after the keypress that starts play does not
+  stop at move 1: `until` sets its checkpoint when it runs, and at warp the
+  wall-clock gap is emulated seconds, so it silently returns an arbitrary
+  later arrival. Arm `c64 break add mainloop` *before* the trigger — a
+  checkpoint halts the machine on arrival with no gap to race. Cost demo
+  04's first play-through.
+- **The move that ends the game can't be driven by `c64 key hold`**
+  (cookbook, held-key recipe). On the fatal move the program leaves the
+  anchor for good, so the hold times out and leaves the machine running
+  past the crash; break on the death path and poke `$CB` by hand for that
+  one move. The same recipe now also states *why* `$CB` must be read at the
+  top of the loop — the IRQ scan restores 64 within a jiffy of the poke.
+- **Driving a game move-by-move wants MCP, not the CLI**
+  (`c64-development` SKILL.md). Each `c64` invocation is a fresh Python
+  process, measured at ~130 ms of startup; at 3-4 calls per move that is
+  minutes of process startup while a warp-mode emulator sits idle.
 
 ## [0.7.0] — 2026-07-27
 

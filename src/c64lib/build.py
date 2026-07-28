@@ -88,10 +88,23 @@ def _parse_deps(dep_file: Path, fallback: Path) -> tuple[Path, ...]:
     """Parse ca65's Makefile-style dependency file: every source file the
     build read (the top file plus everything it .include'd). Used for the
     stale-binary warning (`c64 status`). Falls back to just the top file
-    if the dep file is missing (very old ca65)."""
+    if the dep file is missing (very old ca65).
+
+    Per line, and only the prerequisites: after the rule ca65 emits a bare
+    `<source>:` phony target for each one (GNU make's -MP convention).
+    Splitting the whole file on its first colon swallows those into the
+    prerequisite list as paths with a trailing colon, which never exist —
+    and `ops.staleness` counts a vanished source as stale, so every freshly
+    built program reported itself out of date."""
     if not dep_file.exists():
         return (fallback.resolve(),)
-    text = dep_file.read_text().replace("\\\n", " ")
-    _, _, tail = text.partition(":")
-    deps = tuple(Path(tok).resolve() for tok in tail.split() if tok)
-    return deps or (fallback.resolve(),)
+    deps: list[Path] = []
+    for line in dep_file.read_text().replace("\\\n", " ").splitlines():
+        _, sep, tail = line.partition(":")
+        if not sep:
+            continue
+        for tok in tail.split():
+            p = Path(tok).resolve()
+            if p not in deps:
+                deps.append(p)
+    return tuple(deps) or (fallback.resolve(),)
