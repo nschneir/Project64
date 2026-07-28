@@ -26,6 +26,7 @@ import pytest
 
 from c64lib.screen import read_screen_text
 from c64lib.session import Session, _pid_alive
+from tests.vice_helpers import timeout_scale
 
 HAVE_X64SC = bool(shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC"))
 
@@ -140,7 +141,7 @@ def _screen(s: Session) -> str:
 
 
 def _wait_ready(s: Session, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout * timeout_scale()
     while "READY." not in (text := _screen(s)):
         if time.monotonic() >= deadline:
             raise TimeoutError(f"no READY prompt; screen:\n{text}")
@@ -165,7 +166,7 @@ def _reset_clean(s: Session, timeout: float = 30.0) -> None:
         finally:
             mon.resume()                    # also un-parks a halted machine
 
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout * timeout_scale()
     while True:
         with s.monitor() as mon:
             try:

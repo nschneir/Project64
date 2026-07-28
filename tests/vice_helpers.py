@@ -1,5 +1,7 @@
 """Shared helpers for live-VICE integration tests."""
 
+import os
+import sys
 import time
 from pathlib import Path
 
@@ -48,8 +50,24 @@ def example_programs(kind: str) -> list[Path]:
                   if program_kind(p.parent) == kind)
 
 
+def timeout_scale() -> float:
+    """Live-wait timeout multiplier.
+
+    Three live tests have flaked under coverage load — each a "screen state
+    never arrived" against the shared emulator, each green standalone
+    (docs/todo.md, Test health, until this landed). Running under coverage
+    slows both the host poll loop and VICE, so waits sized for an unloaded
+    machine get scaled up. Un-instrumented runs are unchanged.
+    """
+    env = os.environ.get("C64_TOOLS_TEST_TIMEOUT_SCALE")
+    if env:
+        return float(env)
+    instrumented = "coverage" in sys.modules or "COVERAGE_RUN" in os.environ
+    return 3.0 if instrumented else 1.0
+
+
 def wait_for_text(session, needle, timeout=30.0):
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout * timeout_scale()
     text = ""
     while time.monotonic() < deadline:
         with session.monitor() as mon:

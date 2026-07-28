@@ -11,6 +11,7 @@ from c64lib.basic import tokenize
 from c64lib.build import build_asm
 from c64lib.testing import run_test
 from tests.doc_helpers import code_blocks
+from tests.vice_helpers import timeout_scale
 
 COOKBOOK = Path("skills/c64-development/references/cookbook.md")
 
@@ -157,12 +158,12 @@ LIVE_RECIPES = [
     ]),
     ("asm-irq-wedge", "asm", "wedge.s", [
         # the wedge unhooks itself after exactly 60 ticks (~1 s)
-        {"wait": {"mem": "$03F1", "equals": "$2a", "timeout": 20}},
+        {"wait": {"mem": "$03F1", "equals": "$2a", "timeout": 20 * timeout_scale()}},
         {"assert": {"mem": "$03F0", "equals": 60}},
     ]),
     ("asm-sprite", "asm", "sprite.s", [
         # the sweep takes ~190 jiffies, then writes the done marker
-        {"wait": {"mem": "$03F0", "equals": "$2a", "timeout": 30}},
+        {"wait": {"mem": "$03F0", "equals": "$2a", "timeout": 30 * timeout_scale()}},
         {"assert": {"mem": "$D015", "equals": 1}},    # sprite 0 enabled
         {"assert": {"mem": "$07F8", "equals": 13}},   # pointer: block 13
         {"assert": {"mem": "$D000", "equals": 219}},  # last x written
@@ -265,7 +266,7 @@ def test_cookbook_recipe_runs_live(tmp_path, shared_launch, name, lang, key, ste
             f"{name}: substitution target {old!r} not found in recipe block"
         text = text.replace(old, new, 1)
     src.write_text(text)
-    spec = {"name": name, "machine": "c64", "timeout": 30,
+    spec = {"name": name, "machine": "c64", "timeout": 30 * timeout_scale(),
             "autorun": True, "program": str(src), "steps": steps}
     result = run_test(spec, launch=shared_launch)
     assert result.passed, [s.detail for s in result.steps] + [result.screen]
