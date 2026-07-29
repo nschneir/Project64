@@ -1,4 +1,5 @@
 import json
+import re
 from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
@@ -43,3 +44,30 @@ def test_rom_disasm_symbolic_start():
     assert any("jmp $f266" in ln for ln in out["lines"])
     assert out["lines"][0] == "CHROUT:"       # annotated from the curated ROM DB
     mon.release.assert_called_once()
+
+
+def _invoke_disasm(args):
+    fake, mon = _fake()
+    mon.memory_read.return_value = b"\xa9\x00\x8d\x20\xd0\x4c\x66\xf2"
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        return CliRunner().invoke(main, args)
+
+
+def test_top_level_disasm_alias_matches_rom_disasm():
+    """`c64 disasm` is the same command object as `c64 rom disasm`, so the
+    output cannot drift between the two spellings."""
+    aliased = _invoke_disasm(["--json", "disasm", "828", "8"])
+    grouped = _invoke_disasm(["--json", "rom", "disasm", "828", "8"])
+    assert aliased.exit_code == 0, aliased.output
+    assert grouped.exit_code == 0, grouped.output
+    assert aliased.output == grouped.output
+    assert json.loads(aliased.output)["start"] == 828
+
+
+def test_disasm_alias_listed_in_top_level_help():
+    """Discoverability is the point of the alias: it has to show up in the
+    top-level command list, where someone debugging RAM will look."""
+    r = CliRunner().invoke(main, ["--help"])
+    assert r.exit_code == 0, r.output
+    assert re.search(r"^\s+disasm\s+\S", r.output, re.M), r.output

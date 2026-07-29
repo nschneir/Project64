@@ -1150,12 +1150,21 @@ JSON: `{"basic", "kernal", "editor", "hashes": {...}}`. Machine state preserved.
 
 ### `c64 rom disasm`
 
-Disassemble live memory with ROM + session symbol annotations.
+Disassemble live memory — RAM or ROM — with ROM + session symbol
+annotations. Also reachable as `c64 disasm`.
 
-- `START` — address or symbol (e.g. `CHROUT`).
+- `START` — address or symbol (e.g. `CHROUT`, `$C000`, `828`).
 - `LENGTH` (default `32`) — bytes to disassemble.
 
 JSON: `{"start", "length", "lines": [...]}`. Machine state preserved.
+
+### `c64 disasm`
+
+The same command as [`c64 rom disasm`](#c64-rom-disasm) under a top-level
+name — same arguments, same output. It lives at the top level because
+reading the code you are stepping through is a debugging move, not a ROM
+chore; the address may be anywhere, RAM included. See `c64 rom disasm`
+above for the reference.
 
 ---
 

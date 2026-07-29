@@ -240,10 +240,15 @@ them:
 3. Inspect: `c64 reg` (registers, PC annotated with the nearest symbol),
    `c64 mem read ADDR LEN`, `c64 break list`. Inspection never advances the
    machine.
-4. Single-step: `c64 step N` (add `--over` to step over `JSR`s), `c64 finish`
+4. Read the code you are about to step through: `c64 disasm <addr|label> 24`
+   — an alias of `c64 rom disasm` that works on RAM just as well as ROM, so
+   point it at your own routine (or at `c64 reg`'s PC) before stepping.
+   Guessing at which instruction you are on wastes more steps than
+   disassembling does.
+5. Single-step: `c64 step N` (add `--over` to step over `JSR`s), `c64 finish`
    (run to the current subroutine's return), or `c64 until SYMBOL` (run to a
    point). Use `c64 watch add ADDR --store` to break on writes.
-5. `c64 continue` when you are done inspecting and want it to run free.
+6. `c64 continue` when you are done inspecting and want it to run free.
 
 **Never put `c64 continue` in front of `c64 wait --break`.** The wait
 resumes by itself, so the pair advances *two* hits and you observe every

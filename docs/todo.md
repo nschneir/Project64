@@ -99,17 +99,6 @@ undocumented at the exact moment a debugging agent needs it.
       ASCII — it holds screen codes") is about the hex, and says nothing about
       the column that contradicts it. Verify:
       `tests/test_cli_inspect.py::test_mem_read_hexdump`.
-- [ ] **Disassembly is not discoverable from the debugging docs.**
-      `c64 rom disasm` (`src/c64lib/cli.py:1686`) is the only way to
-      disassemble RAM and its own `--help` says so ("Disassemble live memory
-      with ROM + session label annotations"), but the verb is `rom`, the
-      group summary (`cli.py:1661`) reads "Identify and disassemble the
-      machine's ROMs", and the `c64-development` skill's Debugging section
-      (its numbered reg/mem/break/step/finish/until/watch list) never mentions
-      disassembly at all — its single appearance repo-wide is the SYS-stub row
-      of the diagnosis table. Options, not exclusive: add a `c64 disasm` alias,
-      retitle the group summary to lead with live memory, add a step to the
-      skill's list. Verify: `tests/test_cli_rom.py`, `tests/test_docs_cli.py`.
 - [ ] **No signal for "the program has stopped".** `c64 wait`
       (`cli.py:1167`) offers `--text`, `--mem`, `--break`. A run that ends in
       an error, or simply falls to `READY.`, has nothing distinctive to wait

@@ -1660,7 +1660,7 @@ def cart_convert(ctx, source, output, cart_type, name):
 
 @main.group()
 def rom() -> None:
-    """Identify and disassemble the machine's ROMs (read from the live machine)."""
+    """Disassemble live memory and identify the machine's ROMs."""
 
 
 @rom.command("info")
@@ -1686,10 +1686,11 @@ def rom_info(ctx):
 @click.argument("length", default="32")
 @click.pass_context
 def rom_disasm(ctx, start, length):
-    """Disassemble live memory with ROM + session label annotations.
+    """Disassemble live memory (RAM or ROM) with label annotations.
 
     START is an address or symbol (e.g. CHROUT); LENGTH defaults to 32
-    bytes. Does not disturb run/stop state.
+    bytes. Labels come from the ROM database and the session's label
+    file. Does not disturb run/stop state.
     """
     s = attach(ctx)
     labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
@@ -1702,6 +1703,12 @@ def rom_disasm(ctx, start, length):
             mon.release()
     lines = disassemble(data, addr, labels)
     emit(ctx, {"start": addr, "length": n, "lines": lines}, "\n".join(lines))
+
+
+# Reading the code you are stepping through is a debugging move, not a ROM
+# chore, so it also answers at the top level. Same command object as
+# `c64 rom disasm` — the two spellings cannot drift.
+main.add_command(rom_disasm, name="disasm")
 
 
 @main.group("test")
