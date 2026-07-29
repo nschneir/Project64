@@ -50,6 +50,7 @@ from .ops import (
     split_mem_condition,
     staleness,
     wait_for_break,
+    wait_for_idle,
     wait_for_mem,
     wait_for_text,
 )
@@ -1187,6 +1188,12 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
                    "checkpoint hit — do not put `c64 continue` in front of it, "
                    "that consumes a hit. Give an ID to wait for that "
                    "checkpoint only (leftover breakpoints can't intercept).")
+@click.option("--idle", "idle_cond", is_flag=True,
+              help="Wait until the program has finished or errored: PC in the "
+                   "KERNAL direct-mode input loop on three consecutive reads. "
+                   "The one wait that needs no prediction about what the "
+                   "program prints. A timeout means the machine never got "
+                   "there — still running, or wedged.")
 @click.option("--since", is_flag=True,
               help="With --text: fire only on an occurrence appearing AFTER "
                    "this command starts. For a gapped appearance; an instant "
@@ -1195,20 +1202,36 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
 @click.option("--timeout", default=30.0, show_default=True,
               help="Give up after this many seconds.")
 @click.pass_context
-def wait_cmd(ctx, text_cond, mem_cond, break_cond, since, timeout):
+def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
     """Block until exactly one condition fires; report which one.
 
-    Give exactly one of --text, --mem, or --break. This is the primary
-    synchronization primitive for scripted use. Exit 1 on timeout.
+    Give exactly one of --text, --mem, --break, or --idle. This is the
+    primary synchronization primitive for scripted use. Exit 1 on timeout.
     """
-    if sum(bool(x) for x in (text_cond, mem_cond, break_cond)) != 1:
-        fail(ctx, "give exactly one of --text, --mem, --break")
+    if sum(bool(x) for x in (text_cond, mem_cond, break_cond, idle_cond)) != 1:
+        fail(ctx, "give exactly one of --text, --mem, --break, --idle")
         return
     if since and not text_cond:
         fail(ctx, "--since only applies to --text")
         return
     s = attach(ctx)
     labels = session_labels(s)
+
+    if idle_cond:
+        out = wait_for_idle(s, timeout)
+        if out["fired"]:
+            emit(ctx, {"fired": "idle", "elapsed": out["elapsed"]},
+                 "machine idle: the program has finished or errored")
+            return
+        pcs = " ".join(f"${pc:04x}" for pc in out["last_pcs"])
+        fail(ctx, f"timeout after {timeout}s waiting for the machine to go "
+                  f"idle — it never reached direct mode, and may be wedged "
+                  f"(PC last seen at {pcs}). Take it apart with the wedged-machine "
+                  "playbook in the `6502-debugging` skill: sample `c64 reg` "
+                  "a second apart, `c64 disasm <PC-8> 24` the loop body, then "
+                  "`c64 step` watching for the register that never changes.",
+             extra={"machine": "running"})
+        return
 
     if break_cond:
         try:

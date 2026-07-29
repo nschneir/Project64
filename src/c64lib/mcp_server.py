@@ -50,6 +50,7 @@ from .ops import (
     session_labels,
     staleness,
     wait_for_break,
+    wait_for_idle,
     wait_for_mem,
     wait_for_text,
 )
@@ -457,6 +458,27 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     s = _attach(session)
     return wait_for_mem(s, _ref(s, addr),
                         parse_number(equals), timeout, op=op)
+
+
+@srv.tool()
+def c64_wait_idle(timeout: float = 30.0, session: str | None = None) -> dict:
+    """Block until the program has finished or errored — PC in the KERNAL
+    direct-mode input loop on three consecutive reads.
+
+    The wait that needs no prediction about what the program prints, so it
+    is the one to use after running something whose output you do not know
+    (a first run, a debug hunt). Do NOT use c64_wait_text with "READY." for
+    this: the reset banner already says READY and matches instantly.
+
+    A timeout is data, not an error: {"fired": null, "machine": "running",
+    "last_pcs": [...]} means the machine never reached direct mode in the
+    whole window — still running, or wedged, with the PCs naming the loop
+    (feed one to c64_rom_disasm). Caveat: a program blocked on INPUT/GET
+    sits in the same KERNAL routine and reads as idle."""
+    out = wait_for_idle(_attach(session), timeout)
+    if not out.get("fired"):
+        out["machine"] = "running"
+    return out
 
 
 @srv.tool()

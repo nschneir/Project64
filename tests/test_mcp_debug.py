@@ -157,3 +157,27 @@ def test_call_tool_runs_routine():
     assert not err, out
     assert cr.call_args.args[1] == 0x2000 and cr.call_args.kwargs["a"] == 5
     assert out["registers"]["A"] == 42 and out["fired"] is True
+
+
+def test_wait_idle_fires_and_reports_elapsed():
+    s, mon = _fake()
+    mon.registers.return_value = {"PC": 0xE5D1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.ops.time.sleep"):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_idle", {"timeout": 5})
+    assert err is False and out["fired"] == "idle"
+
+
+def test_wait_idle_timeout_is_data_not_an_error():
+    """Parity with c64_wait_text: a timeout hands back what it saw (here the
+    PCs, which name the wedge) instead of raising."""
+    s, mon = _fake()
+    mon.registers.return_value = {"PC": 0x033C}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.ops.time.sleep"):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_idle", {"timeout": 0.3})
+    assert err is False
+    assert out["fired"] is None and 0x033C in out["last_pcs"]
+    assert out["machine"] == "running"

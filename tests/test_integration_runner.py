@@ -112,3 +112,21 @@ def test_cli_end_to_end(home):
     r = CliRunner().invoke(main, ["--json", "test", "run",
                                   "tests/data/hello-autorun.yaml"])
     assert r.exit_code == 0, r.output
+
+
+def test_yaml_wait_idle_blocks_until_the_program_finishes(tmp_path, shared_launch):
+    """The "program has stopped" step, live: a program that takes a visible
+    while, `wait: {idle: true}`, then assert what it printed. No prediction
+    about the output is needed to know when to look — which is the whole
+    point, and the shape demo 05 had to hand-roll as
+    `assert: {reg: pc, in_range: ["$E000","$FFFF"]}`."""
+    (tmp_path / "slow.bas").write_text(
+        '10 for i=1 to 12000: next\n20 print "loop done"\n')
+    (tmp_path / "slow.yaml").write_text(
+        "name: wait-idle\nmachine: c64\nprogram: slow.bas\ntimeout: 45\n"
+        "steps:\n"
+        "  - wait:   { idle: true }\n"
+        '  - assert: { screen: "LOOP DONE" }\n')
+    result = run_test(load_test(tmp_path / "slow.yaml"), launch=shared_launch)
+    assert result.passed, [s.detail for s in result.steps]
+    assert result.steps[0].kind == "wait" and "idle" in result.steps[0].detail

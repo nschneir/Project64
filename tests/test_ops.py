@@ -645,3 +645,54 @@ def test_call_routine_durable_flag_fallback():
     mon.checkpoint_list.return_value = [_call_ck(hit=True)]
     out = call_routine(s, 0x2000, timeout=2)
     assert out["fired"] is True
+
+
+def _idle_session(pcs):
+    """A session whose registers() walks `pcs` and then repeats the last."""
+    s, mon = _fake_session()
+    pcs = list(pcs)
+    mon.registers.side_effect = chain(
+        ({"PC": pc} for pc in pcs), repeat({"PC": pcs[-1]}))
+    return s, mon
+
+
+def test_wait_for_idle_fires_on_consecutive_samples_in_the_input_loop():
+    from c64lib.ops import wait_for_idle
+    s, mon = _idle_session([0x0810, 0xE5CD, 0xE5D1, 0xE5D4])
+    with patch("c64lib.ops.time.sleep"):
+        out = wait_for_idle(s, timeout=5, samples=3, interval=0)
+    assert out["fired"] == "idle" and "elapsed" in out
+    assert mon.release.call_count == 4          # state-preserving, one per read
+
+
+def test_wait_for_idle_does_not_fire_on_one_sample_in_range():
+    """The IRQ handler transits ROM: a single sample landing in the loop is
+    not proof the machine is idle, which is why samples must be CONSECUTIVE."""
+    from c64lib.ops import wait_for_idle
+    s, _ = _fake_session()
+    # a running program that happens to call through the loop every third read
+    s.monitor.return_value.__enter__.return_value.registers.side_effect = \
+        chain([{"PC": 0xA7C9}, {"PC": 0xE5D1}, {"PC": 0x0073}] * 4,
+              repeat({"PC": 0xA7C9}))
+    with patch("c64lib.ops.time.sleep"):
+        out = wait_for_idle(s, timeout=0.5, samples=3, interval=0)
+    assert out["fired"] is None
+
+
+def test_wait_for_idle_timeout_reports_the_last_pcs_seen():
+    from c64lib.ops import wait_for_idle
+    s, mon = _idle_session([0xA7C9])
+    with patch("c64lib.ops.time.sleep"):
+        out = wait_for_idle(s, timeout=0.3, samples=3, interval=0)
+    assert out["fired"] is None and out["timeout"] == 0.3
+    assert out["last_pcs"] and all(pc == 0xA7C9 for pc in out["last_pcs"])
+    assert len(out["last_pcs"]) <= 8            # a window, not the whole run
+
+
+def test_wait_for_idle_reads_at_least_once_with_a_zero_timeout():
+    """Contract shared with wait_for_text: the result always reports what was
+    actually seen, even when the deadline has already passed."""
+    from c64lib.ops import wait_for_idle
+    s, mon = _idle_session([0xA7C9])
+    out = wait_for_idle(s, timeout=0, samples=3, interval=0)
+    assert out["fired"] is None and out["last_pcs"] == [0xA7C9]

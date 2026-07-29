@@ -9,6 +9,7 @@ from __future__ import annotations
 import operator
 import re
 import time
+from collections import deque
 
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
@@ -259,6 +260,62 @@ def wait_for_mem(session, addr: int, value: int, timeout: float = 30.0,
         time.sleep(0.4)
     return {"fired": None, "timeout": timeout, "last_value": val,
             "op": op, "value": value}
+
+
+#: The KERNAL direct-mode input loop, MEASURED rather than quoted: 40
+#: `c64 reg` samples at a fresh READY. prompt on live x64sc (2026-07-29) all
+#: landed in $E5CD-$E5D4 except one at $EA3A (the IRQ handler, caught in
+#: transit). Sampling again after a program ran to completion (12/12) and
+#: after a ?SYNTAX ERROR (12/12) gave the same span; a wedged `10 GOTO 10`
+#: gave 0/12 (it scatters over $A7xx-$A9xx, CHRGET at $0073, $FFE1).
+IDLE_PC_RANGE = (0xE5CD, 0xE5D4)
+
+#: How many PCs a timeout hands back — enough to show a loop's shape.
+_IDLE_PC_WINDOW = 8
+
+
+def wait_for_idle(session, timeout: float = 30.0, samples: int = 3,
+                  interval: float = 0.1) -> dict:
+    """Block until the machine is idle: the PC observed inside the KERNAL
+    direct-mode input loop (IDLE_PC_RANGE) on `samples` CONSECUTIVE reads.
+
+    That is the machine-level reading of "the program has finished or
+    errored; BASIC is back at direct mode" — the thing `--text "READY."`
+    cannot ask for, because the reset banner already says READY. Consecutive
+    reads are the whole trick: the IRQ handler transits ROM, so a single
+    sample landing in the range proves nothing (measured at roughly 1 read
+    in 40 at an idle prompt).
+
+    Two things it deliberately cannot distinguish, both because the KERNAL
+    routine is literally the same code: a program blocked on INPUT/GET reads
+    as idle, and so does a machine sitting at a prompt it reached by never
+    starting your program at all. A timeout is the useful complement — the
+    machine ran the whole time without ever reaching direct mode, i.e. it is
+    still running or wedged — and returns the PCs it saw, which name the
+    loop. Machine state is preserved either way."""
+    start = time.monotonic()
+    deadline = start + timeout
+    lo, hi = IDLE_PC_RANGE
+    recent: deque[int | None] = deque(maxlen=max(samples, _IDLE_PC_WINDOW))
+    run = 0
+    while True:
+        with session.monitor() as mon:
+            try:
+                pc = mon.registers().get("PC")
+            finally:
+                mon.release()          # restore prior run/stop state: a poll
+                                       # must not itself move the machine
+        recent.append(pc)
+        run = run + 1 if pc is not None and lo <= pc <= hi else 0
+        if run >= samples:
+            return {"fired": "idle", "pc": pc,
+                    "elapsed": round(time.monotonic() - start, 3)}
+        # checked AFTER the read, so a zero/expired timeout still reports
+        # what the machine was actually doing (the wait_for_text contract)
+        if time.monotonic() >= deadline:
+            return {"fired": None, "timeout": timeout,
+                    "last_pcs": [pc for pc in recent if pc is not None]}
+        time.sleep(interval)
 
 
 def wait_for_break(session, timeout: float = 30.0,

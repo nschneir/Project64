@@ -46,16 +46,23 @@ tell that it fell off the rails, not that ROM itself is at fault.
 Symptom: the screen stops changing, input does nothing, and `c64 status`
 still reports the machine running. The usual first signal is a `c64 wait`
 that times out — the machine ran for the whole timeout without ever
-reaching the state you asked for. Resist the urge to reset: a wedged
+reaching the state you asked for. `c64 wait --idle` is the sharpest form of
+that signal, because it asks for the one state every finished or errored
+program reaches: it fires the moment BASIC is back at direct mode, and its
+*timeout* means the machine never got there and reports the PCs it saw, so
+step 1 below is already done for you. Resist the urge to reset: a wedged
 machine is still holding every piece of evidence you need. Three steps
 name the defective instruction:
 
 1. `c64 reg`, two or three times a second apart. A PC pinned in a narrow
    range names the loop; compare that range against where your program
-   lives. A SYS stub's loop sits in its own addresses, and the
+   lives. `reg` names the ROM region beside the PC — `(KERNAL ROM)`,
+   `(BASIC ROM)`, `(I/O)` — so you can tell at a glance whether the loop is
+   yours or ROM code you called into. A SYS stub's loop sits in its own addresses, and the
    cassette-buffer idiom at 828 (`$033C`) is a classic host for a routine
    poked in from BASIC. A PC wandering around `$E5xx` means the machine is
-   idling in BASIC waiting for input — not wedged at all.
+   idling in BASIC waiting for input — not wedged at all (that is exactly
+   what `c64 wait --idle` fires on).
 2. `c64 rom disasm <PC-8> 24` — read the loop body. Backing up a few bytes
    catches the branch target that sits above the sampled PC. Despite the
    `rom` verb this disassembles *live memory*, RAM included, so it reads

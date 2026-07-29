@@ -307,7 +307,7 @@ nothing there. The region is the *address space*, not which bank `$01` has
 switched in. Sampling `c64 reg` a second apart is step 1 of the wedged-machine
 playbook in the `6502-debugging` skill; a PC wandering the KERNAL around
 `$E5xx` usually means the program has finished or errored and BASIC is back at
-its input loop.
+its input loop — which is the condition `c64 wait --idle` blocks on.
 
 JSON: `{"registers": {"PC", "A", "X", "Y", "SP", "FL", ...}, "pc_symbol",
 "pc_region", "state"}` — `pc_region` is reported whether or not a symbol
@@ -502,15 +502,34 @@ synchronization primitive for scripted use.
   inspection never advances the machine. Give an id to wait for that
   checkpoint only, so a leftover breakpoint can't intercept the wait meant
   for a watchpoint.
+- `--idle` — wait until **the program has finished or errored**: the PC
+  observed inside the KERNAL direct-mode input loop on three consecutive
+  reads (0.1 s apart). This is the one wait that needs no prediction about
+  what the program prints, so it is what to use after running something
+  whose output you do not know yet — a first run, a debug hunt. Do *not*
+  reach for `--text "READY."` instead: the reset banner already says
+  `READY.` and matches instantly.
+  Consecutive reads are the whole trick — the IRQ handler transits ROM, so
+  a single sample landing in the loop proves nothing (measured at about one
+  read in forty at an idle prompt). Two things it cannot distinguish,
+  because the KERNAL routine is literally the same code: a program blocked
+  on `INPUT`/`GET` reads as idle, and so does a machine that never started
+  your program at all.
 - `--timeout SECS` (default `30`).
 
-Exactly one of `--text`/`--mem`/`--break` is required. JSON on fire:
-`{"fired": "text"|"mem", "elapsed"}` or `{"fired": "break", "checkpoint",
-"pc", "pc_symbol", "elapsed"}`. Exit 1 on timeout (the error carries the last
-screen for `--text`).
+Exactly one of `--text`/`--mem`/`--break`/`--idle` is required. JSON on fire:
+`{"fired": "text"|"mem"|"idle", "elapsed"}` or `{"fired": "break",
+"checkpoint", "pc", "pc_symbol", "elapsed"}`. Exit 1 on timeout (the error
+carries the last screen for `--text`).
 
 On timeout `c64 wait` exits 1 and the machine is **left running**;
 checkpoints you set remain set (JSON gains `"machine": "running"`).
+
+A `--idle` timeout is the **wedge detector**: the machine ran the whole
+window without ever reaching direct mode, so it is still running or stuck in
+a loop. The error says so and carries the PCs it last saw — feed one to
+`c64 disasm` — and points at the wedged-machine playbook in the
+`6502-debugging` skill, which takes it apart in three steps.
 
 ---
 
@@ -1240,6 +1259,13 @@ steps:
   - wait:   { mem: "@6,0", equals: 20 }     # an instant reply races `since`:
   - assert: { mem: "@6,0", equals_text: "TOO HIGH" }  # anchor its cell instead
   - wait:   { mem: "$1000", equals: 42 }    # byte reaches a value
+  - wait:   { idle: true }                  # the program has FINISHED or
+                                            #   errored (BASIC back at direct
+                                            #   mode) — the one wait that
+                                            #   predicts nothing about the
+                                            #   output. A timeout means the
+                                            #   machine is still running or
+                                            #   wedged, and reports the PCs
   - wait:   { mem: "$fb", at_least: 20 }    # counter passes a value —
                                             #   equals/not_equals/above/
                                             #   at_least/below/at_most, one

@@ -234,3 +234,45 @@ def test_wait_break_non_numeric_id_fails_cleanly():
     assert r.exit_code == 1
     assert r.exception is None or isinstance(r.exception, SystemExit)
     assert "checkpoint id" in json.loads(r.output)["error"]
+
+
+def test_wait_idle_joins_the_exactly_one_check():
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--idle",
+                                      "--text", "X"])
+    assert r.exit_code == 1
+    assert "--idle" in json.loads(r.output)["error"]
+
+
+def test_wait_idle_fires():
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_idle",
+               return_value={"fired": "idle", "elapsed": 0.4}) as wfi:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--idle",
+                                      "--timeout", "5"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output)["fired"] == "idle"
+    wfi.assert_called_once_with(fake, 5.0)
+
+
+def test_wait_idle_timeout_points_at_the_wedge_playbook():
+    """The timeout IS the wedge detector: it has to say the machine may be
+    stuck and name the playbook that takes it apart."""
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.wait_for_idle",
+               return_value={"fired": None, "timeout": 0.1,
+                             "last_pcs": [0x033C, 0x0340, 0x033C]}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--idle",
+                                      "--timeout", "0.1"])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["machine"] == "running"
+    err = out["error"]
+    assert "wedged" in err and "6502-debugging" in err
+    assert "$033c" in err            # the PCs it was last seen at

@@ -817,3 +817,39 @@ def test_disk_autorun_false_load_never_finishes(tmp_path):
                side_effect=[(True, "READY."), (False, "LOADING")]), \
          pytest.raises(TestError, match="never finished loading"):
         run_test(spec, launch=Mock(return_value=s))
+
+
+def test_wait_idle_step_fires_when_basic_returns_to_direct_mode():
+    """`wait: {idle: true}` is the DSL's "the program has stopped" step —
+    the shape demo 05 had to hand-roll as an in_range assert on PC."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.registers.side_effect = chain(
+        [{"PC": 0xA7C9}], repeat({"PC": 0xE5D1}))
+    spec = _spec(steps=[{"wait": {"idle": True, "timeout": 2}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.time.sleep"):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True, [st.detail for st in result.steps]
+    assert "idle" in result.steps[0].detail
+
+
+def test_wait_idle_step_fails_on_a_wedged_machine():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.registers.return_value = {"PC": 0x033C}
+    spec = _spec(steps=[{"wait": {"idle": True, "timeout": 0.3}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.time.sleep"):
+        result = run_test(spec, launch=launch)
+    assert result.passed is False
+    assert "$033c" in result.steps[0].detail
+
+
+def test_wait_step_with_no_recognized_key_names_idle_too():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(steps=[{"wait": {}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         pytest.raises(TestError, match="idle"):
+        run_test(spec, launch=launch)

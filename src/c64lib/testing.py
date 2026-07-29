@@ -27,6 +27,7 @@ from .ops import (
     live_screen_base,
     parse_ref,
     run_until,
+    wait_for_idle,
 )
 from .screen import read_screen_text
 from .session import Session
@@ -481,7 +482,19 @@ def _do_step(session, kind: str, arg, default_timeout: float,
                 time.sleep(0.3)
             return False, (f"mem ${addr:04x} was {val}, wanted {op} {want}"
                            f" ({timeout}s)")
-        raise TestError(f"wait step needs 'text' or 'mem': {arg}")
+        if arg.get("idle"):
+            # "the program has finished or errored" without predicting a
+            # single character of its output — the step demo 05 had to
+            # hand-roll as an in_range assert on PC.
+            out = wait_for_idle(session, timeout)
+            if out["fired"]:
+                return True, f"machine idle after {out['elapsed']}s"
+            pcs = " ".join(f"${pc:04x}" for pc in out["last_pcs"])
+            return False, (f"machine never went idle in {timeout}s — it never "
+                           f"reached direct mode, and may be wedged (PC at "
+                           f"{pcs}). Note an earlier `until` step leaves the "
+                           f"machine STOPPED, which never goes idle either.")
+        raise TestError(f"wait step needs 'text', 'mem', or 'idle': {arg}")
 
     # kind == "assert"
     if "screen" in arg:

@@ -53,7 +53,10 @@ Write → run → observe → fix:
    or `64K` matches *that* immediately and returns before your program has
    printed anything. Wait on a distinctive string the program itself emits,
    or (if it clears the screen first) on a cell the clear must blank:
-   `c64 wait --mem '$042C=32'`.
+   `c64 wait --mem '$042C=32'`. When you cannot predict the output at all —
+   a first run, a program you are debugging — use `c64 wait --idle`, which
+   blocks until the program has *finished or errored* rather than until it
+   prints something; its timeout is then your wedge detector.
    For a text-mode program, decoded text is also the *cheapest* observation —
    prefer it over `--png` for verification, and read color back from the
    registers (`c64 mem read '$D020' 2` — bytes come back in address order, so

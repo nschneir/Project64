@@ -82,21 +82,6 @@ Six items the debug-hunt run surfaced. They share a theme: the machine tells
 the truth, but the *tooling that reports it* is either silent, misleading, or
 undocumented at the exact moment a debugging agent needs it.
 
-- [ ] **No signal for "the program has stopped".** `c64 wait`
-      (`cli.py:1167`) offers `--text`, `--mem`, `--break`. A run that ends in
-      an error, or simply falls to `READY.`, has nothing distinctive to wait
-      on — and the `c64-development` skill explicitly warns off
-      `wait --text "READY."` because the reset banner matches it immediately.
-      The demo-05 run fell back to `--mem '$042C=32'`, which works only
-      because that program clears the screen first; a debug hunt's *first* run
-      is by construction one whose output you cannot predict. Proposal:
-      `c64 wait --idle` — PC in the KERNAL input loop with BASIC in direct
-      mode, i.e. "finished or errored" — whose *timeout* is then the wedge
-      detector item 2 wants. `assert: {reg: pc, in_range: ["$E000","$FFFF"]}`
-      is the hand-rolled version used today. Cheap companion: annotate
-      `c64 reg`'s PC (`cli.py:546`) with a ROM-region name, so `PC=e5d1` reads
-      as "BASIC idle" without consulting the diagnosis table's prose. Verify:
-      `tests/test_cli_wait.py`, `tests/test_cli_inspect.py`.
 - [ ] **`c64 basic check` passes a statically-provable `?BAD SUBSCRIPT`.**
       `dim v(4)` followed by `for i=1 to 5: read v(i)` lints clean, then dies
       on the first line it executes. The pieces to catch it are already there:
