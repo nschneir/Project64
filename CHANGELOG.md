@@ -16,6 +16,15 @@ fragility rather than three unrelated bugs. Two of the three never
 reproduced again across dozens of clean iterations; investigating the third
 found a real defect, described below.
 
+Plus the six observability gaps the demo-05 debug hunt filed under 0.8.0,
+all closed here. They shared a theme: the machine tells the truth, but the
+*tooling that reports it* was silent, misleading, or undocumented at the
+exact moment a debugging agent needed it — a hex dump that glossed screen
+RAM as ASCII, a disassembler the `rom` verb hid, a bare `PC=e5d1`, no way
+to wait for "the program stopped", a statically provable `?BAD SUBSCRIPT`
+the linter passed, and no written procedure for a wedged machine.
+`docs/todo.md`'s "Observability gaps" section is gone with them.
+
 ### Fixed
 - **A "headless" VICE launch on a GTK3 build still opened a focused window
   and stole host keystrokes.** `Session.launch(headless=True)` set only
@@ -42,6 +51,20 @@ found a real defect, described below.
   `docs/todo.md` described as "a boot-keyboard artifact" — same shape,
   same code path — but it is only a candidate: there is no way to know
   retroactively whether anyone was typing that day.
+- **A hex dump's text column no longer glosses screen RAM as ASCII.**
+  `c64 mem read` decoded every byte as ASCII regardless of address, so
+  screen RAM at `$0400` printed the *correct* screen codes
+  (`13 01 0c 05 13`) as `.....` while a *broken* PETSCII title
+  (`53 41 4c 45 53`) printed as `SALES` — exactly backwards, and silent
+  about which decoding you were reading. Demo 05's third planted bug lives
+  in that gutter. Every dump now names its own gloss on its last line
+  (`# text column: screen codes`), and the default `--as auto` resolves the
+  gloss against the machine's live screen base, so a relocated screen is
+  followed too; `--as screen|petscii|ascii` overrides it anywhere and costs
+  no extra monitor traffic. If the VIC/CIA state cannot be read the gloss
+  falls back to ASCII and says so rather than guessing. JSON gains
+  `text_encoding`; MCP's `c64_mem_read` gains the matching `encoding`
+  parameter and key.
 
 ### Changed
 - **Live-wait timeouts now scale under `coverage` instrumentation**
@@ -61,6 +84,87 @@ found a real defect, described below.
   scale-1.0 failure's 64s. Scaling a wait on a machine that has already
   gone wrong for an unrelated reason just makes a doomed test take three
   times longer to fail.
+
+### Added
+- **`c64 wait --idle` — block until the program has finished or errored.**
+  `c64 wait` could ask for text, a memory value, or a checkpoint, all of
+  which require predicting something about the run; a run that ends in an
+  error, or simply falls back to `READY.`, offered nothing to wait on, and
+  `--text "READY."` is a trap because the reset banner matches it instantly.
+  Demo 05 hand-rolled it as
+  `assert: {reg: pc, in_range: ["$E000","$FFFF"]}`.
+  `ops.wait_for_idle` samples the PC and fires when it lands in the KERNAL
+  direct-mode input loop on three **consecutive** reads — consecutive is the
+  whole trick, since the IRQ handler transits ROM and one sample proves
+  nothing. The range (`IDLE_PC_RANGE = $E5CD-$E5D4`) is measured, not
+  quoted, with the method and tallies recorded beside the constant: 40
+  samples at a fresh `READY.` gave 39 in range and one at `$EA3A` (the IRQ,
+  caught in transit); 12/12 in range after a program ran to completion and
+  12/12 after a `?SYNTAX ERROR`; a wedged `10 GOTO 10` gave 0/12, scattering
+  over `$A7xx-$A9xx` and CHRGET. The timeout is the other half of the
+  feature — the machine ran the whole window without reaching direct mode,
+  so it is still running or wedged — and the message says so, carries the
+  PCs it last saw, and points at the wedged-machine playbook below. Measured
+  caveat, documented: a program blocked on `INPUT`/`GET` sits in the same
+  KERNAL routine and reads as idle. Surfaces: the flag, the `c64_wait_idle`
+  MCP tool, and the YAML step `wait: {idle: true}`.
+- **Live disassembly is discoverable: `c64 disasm`.** `c64 rom disasm`
+  disassembles live memory — RAM as readily as ROM — but the `rom` verb and
+  the group's old summary ("Identify and disassemble the machine's ROMs")
+  buried it, and the `c64-development` skill's debugging list never
+  mentioned disassembly at all, so an agent stepping through its own routine
+  had no path to the one command that shows the code it is stepping through.
+  The same command object is now registered at the top level as
+  `c64 disasm`, so the two spellings share one callback and cannot drift;
+  the `rom` group leads with live memory and the shared docstring says "RAM
+  or ROM" so it reads right in both places. MCP needed no parity change —
+  `c64_rom_disasm` already exposed the operation; the alias is CLI
+  discoverability only. (The alias is a second leaf path in the click tree,
+  so the landing page's command count went 67 → 68.)
+- **`c64 reg` names the ROM region beside PC.** A run that had fallen off
+  the rails reported a bare `PC=e5d1` — true, and silent about the one thing
+  it means. The PC symbol lookup is now the ROM label database plus the
+  session labels (the lookup `c64 disasm` already builds), so a PC on a
+  KERNAL entry point is named with no label file loaded at all; new
+  `ops.pc_region` names the address-space region — BASIC ROM, I/O, KERNAL
+  ROM, or nothing in RAM — and `reg` prints it when no symbol is within
+  reach: `PC=e5d1  (KERNAL ROM)`. JSON gains `pc_region` whether or not a
+  symbol matched, so a consumer never re-derives it from the address.
+  Mirrored in the `c64_reg_get` MCP tool.
+- **`basic check` rule E131: a statically provable `?BAD SUBSCRIPT`.**
+  `dim v(4)` followed by `for i=1 to 5: read v(i)` linted clean and then
+  died on the first line it executed — demo 05's first planted layer. E131
+  fires only when every piece is provable: a `dim v(N)` with a single
+  integer literal, a `for i=<lit> to <lit>` with no STEP and `low <= high`,
+  and a `v(i)` whose subscript is *exactly* the loop variable, between that
+  FOR and its NEXT. DIM is 0-based, so `dim v(4)` allows `v(0)..v(4)` and
+  only `to 5` overflows. Computed bounds, `v(i+1)`, a different subscript
+  variable, a re-DIM'd array, a stepped loop and an unterminated FOR all
+  stay silent — the narrowness is the rule: it reports crashes that are
+  already proven, never ones that are merely likely. Demo 05's prompt now
+  says outright that evidence must come from the running machine, so
+  catching layer 1 with `basic check` does not clear it.
+
+### Documentation
+- **A wedged-machine playbook** (`6502-debugging` SKILL.md, "A wedged
+  machine (infinite loop)"). Sample `c64 reg` to pin the PC, `c64 rom disasm
+  <PC-8> 24` to read the loop body — it disassembles live RAM despite the
+  `rom` verb — then `c64 step` to find the frozen register that names the
+  defective instruction, closing with demo 05's worked example (`inx`
+  mistyped as `nop`, X frozen at 0). The `c64-development` diagnosis table's
+  "Program seems to hang" row now points at the playbook instead of
+  dead-ending at "your loop is wrong".
+- **Cookbook recipe: "Poke a letter string to the screen (PETSCII → screen
+  codes)"**. Letters' PETSCII (65-90) is not their screen code (1-26), but
+  the Score HUD recipe next door pokes `ASC` straight through — correct only
+  because digits (48-57) already *are* their screen codes — and the letter
+  case was covered nowhere, which is demo 05's third bug exactly. The new
+  recipe carries the guard a string-general version needs
+  (`c=asc(mid$(a$,i,1)): if c>63 then c=c-64`): space (32) and punctuation
+  are already screen codes, and a bare `-64` turns a space into -32 and an
+  `?ILLEGAL QUANTITY ERROR`. The demo string contains a space, so the live
+  run (a new `LIVE_RECIPES` entry reading the eleven screen codes back out
+  of `$059E`) proves the guard rather than asserting it in prose.
 
 ## [0.8.0] — 2026-07-28
 
@@ -183,8 +287,9 @@ friction, filed in `docs/todo.md`.
   machine (the `?BAD SUBSCRIPT`, the `nop`-for-`inx` wedge proven by PC
   sampling plus a disassembly of the cassette buffer, and the
   PETSCII-vs-screen-code title) and fixed them, and found no product
-  defects. The six observability gaps it walked into are recorded in
-  `docs/todo.md`, not here, because none has a ruled fix yet.
+  defects. The six observability gaps it walked into were filed in
+  `docs/todo.md` rather than here, because none had a ruled fix at the time;
+  all six are closed in the Unreleased section above.
 
 ## [0.7.0] — 2026-07-27
 

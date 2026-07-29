@@ -76,12 +76,6 @@ item is still open.
       explicitly. (Task 1's original wording — "the marker is dead in the test
       file" — is stale; later tasks applied it widely.)
 
-## Observability gaps (demo-05 dogfooding, 2026-07-28)
-
-Six items the debug-hunt run surfaced. They share a theme: the machine tells
-the truth, but the *tooling that reports it* is either silent, misleading, or
-undocumented at the exact moment a debugging agent needs it.
-
 ## Standing backlog (pre-cartridge)
 
 - [ ] **Dogfood the two remaining C64 demo prompts.** `demos/README.md:12-18`:
@@ -109,7 +103,8 @@ undocumented at the exact moment a debugging agent needs it.
       `$0343 ea nop` where `inx` belongs, and a `c64 step` trace with X frozen
       at 0, then the PETSCII-vs-screen-code title read out of `$0400`. Fixed
       and re-proven with a passing `c64 test run` spec. It found no product
-      defects; its friction is the "Observability gaps" section above.
+      defects; the six observability gaps it did find are closed in the
+      Unreleased section of the changelog.
 - [ ] **Build the full annotated C64 ROM label DB.** Only a seed ships:
       `src/c64lib/data/rom_labels/basic2.lbl`, 44 `al C:xxxx .NAME` lines —
       the KERNAL jump table `$FF81`-`$FFF3`, the vectors up to `$FFFE`, and a
