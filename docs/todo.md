@@ -82,20 +82,6 @@ Six items the debug-hunt run surfaced. They share a theme: the machine tells
 the truth, but the *tooling that reports it* is either silent, misleading, or
 undocumented at the exact moment a debugging agent needs it.
 
-- [ ] **`c64 basic check` passes a statically-provable `?BAD SUBSCRIPT`.**
-      `dim v(4)` followed by `for i=1 to 5: read v(i)` lints clean, then dies
-      on the first line it executes. The pieces to catch it are already there:
-      `_check_ranges` (`src/c64lib/basic_lint.py:512-524`) does exactly this
-      class of literal-argument range analysis for POKE (`E150`), and
-      `_check_loops` (line 381) already models FOR bounds — a narrow rule
-      (literal DIM bound + literal FOR bounds + subscript is exactly the loop
-      variable) would catch the classic 0-based/1-based DIM off-by-one.
-      **Decide before building:** demo 05 *wants* this bug found at runtime as
-      its first layer, so catching it statically changes what that demo
-      teaches. Either accept that, or rule that check stays silent here
-      deliberately and record the reason. Verify: `tests/test_basic_lint.py`
-      plus a fixture pair under `tests/test_basic_lint_fixtures.py`.
-
 ## Standing backlog (pre-cartridge)
 
 - [ ] **Dogfood the two remaining C64 demo prompts.** `demos/README.md:12-18`:

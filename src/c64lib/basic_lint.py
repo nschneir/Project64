@@ -648,6 +648,97 @@ def _check_subscripts(prog: Program, dimmed: dict[str, int]) -> list[LintIssue]:
     return out
 
 
+def _literal_dims(prog: Program) -> dict[str, tuple[int, int]]:
+    """name -> (bound, line) for every array whose size is a single integer
+    literal. A name dimensioned twice (?redim'd array, W81) or with anything
+    computed or multi-dimensional is dropped: its bound is not provable."""
+    dims: dict[str, tuple[int, int] | None] = {}
+    for line in prog.lines:
+        for stmt in line.statements:
+            if _head(stmt) != "dim":
+                continue
+            for k, t in enumerate(stmt):
+                if not k or t.kind != "IDENT" or k + 1 >= len(stmt) \
+                        or stmt[k + 1].text != "(":
+                    continue
+                size = None
+                if k + 3 < len(stmt) and stmt[k + 2].kind == "NUMBER" \
+                        and stmt[k + 3].text == ")":
+                    size = float(stmt[k + 2].text)
+                dims[t.text] = (
+                    (int(size), line.number)
+                    if size is not None and size == int(size)
+                    and t.text not in dims else None)
+    return {n: d for n, d in dims.items() if d is not None}
+
+
+def _for_bounds(stmt: list[Token]) -> tuple[str, int | None]:
+    """(loop variable, provable top value) for a FOR statement. The top is
+    None unless both bounds are integer literals, low <= high, and there is no
+    STEP — a stepped or computed loop is not something this rule models."""
+    var = next((t.text for t in stmt[1:] if t.kind == "IDENT"), "")
+    if any(t.kind == "KEYWORD" and t.text == "step" for t in stmt):
+        return var, None
+    to = next((i for i, t in enumerate(stmt)
+               if t.kind == "KEYWORD" and t.text == "to"), None)
+    eq = next((i for i, t in enumerate(stmt)
+               if t.kind == "OP" and t.text == "="), None)
+    if to is None or eq is None or eq > to:
+        return var, None
+    lo, hi = _literal(stmt[eq + 1:to]), _literal(stmt[to + 1:])
+    if lo is None or hi is None or lo != int(lo) or hi != int(hi) or lo > hi:
+        return var, None
+    return var, int(hi)
+
+
+def _check_dim_subscripts(prog: Program) -> list[LintIssue]:
+    """E131: a statically provable ?BAD SUBSCRIPT. All three pieces must be
+    literal — `dim v(N)`, a `for i=<lit> to <lit>`, and a `v(i)` whose
+    subscript is *exactly* the loop variable, between that FOR and its NEXT.
+    DIM is 0-based, so `dim v(4)` allows v(0)..v(4) and only `to 5` overflows.
+    Anything less certain than that stays silent: this rule reports crashes
+    that are already proven, never ones that are merely likely."""
+    dims = _literal_dims(prog)
+    if not dims:
+        return []
+    out: list[LintIssue] = []
+    # (loop variable, provable top, issues found in this body). A loop's
+    # findings are only kept when a NEXT closes it — an unterminated FOR
+    # (W131) has no bounded body, so nothing inside it is provable.
+    stack: list[tuple[str, int | None, list[LintIssue]]] = []
+    for line in prog.lines:
+        for stmt in line.statements:
+            head = _head(stmt)
+            if head == "for":
+                stack.append((*_for_bounds(stmt), []))
+                continue
+            if head == "next":
+                for _name in [t.text for t in stmt[1:] if t.kind == "IDENT"] or [""]:
+                    if stack:                   # `next k,j` closes two loops
+                        out.extend(stack.pop()[2])
+                continue
+            if head == "dim":
+                continue
+            for k, t in enumerate(stmt):
+                if t.kind != "IDENT" or t.text not in dims or k + 3 >= len(stmt):
+                    continue
+                if stmt[k + 1].text != "(" or stmt[k + 2].kind != "IDENT" \
+                        or stmt[k + 3].text != ")":
+                    continue                    # v(i+1), v(2), v(i,j): not us
+                bound, at = dims[t.text]
+                for var, top, found in reversed(stack):
+                    if var != stmt[k + 2].text:
+                        continue
+                    if top is not None and top > bound:
+                        found.append(LintIssue(
+                            line.number, "error", "E131",
+                            f"?bad subscript: {t.text}({top}) at line "
+                            f"{line.number} exceeds dim {t.text}({bound}) "
+                            f"(line {at})"))
+                    break                       # innermost loop owns the name
+    return out
+
+
 _W90_CONSEQUENCE = {"new": "wipes the running program",
                     "list": "stops the program", "cont": "cannot continue"}
 
@@ -703,7 +794,8 @@ def _drop_redundant(issues: list[LintIssue]) -> list[LintIssue]:
 
 
 _CHECKS = (_check_line_length, _check_size, _check_shape, _check_flow,
-           _check_loops, _check_reach, _check_values, _check_defs, _check_vocab)
+           _check_loops, _check_reach, _check_values, _check_defs,
+           _check_dim_subscripts, _check_vocab)
 
 
 def lint_source(text: str) -> list[LintIssue]:

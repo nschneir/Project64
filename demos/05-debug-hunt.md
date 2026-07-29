@@ -31,8 +31,11 @@ Paste this prompt (including the listing) into your agent:
 > 110 print: print "total:";v(1)+v(2)+v(3)+v(4)+v(5)
 > ```
 
-**What success looks like:** the agent hits all three layers. (1) The run
-dies immediately with `?BAD SUBSCRIPT` — `dim v(4)` is too small for `v(5)`.
+**What success looks like:** the agent hits all three layers, each proven from
+the running machine — `c64 basic check` flags layer 1 statically (rule E131),
+and finding a bug that way instead of by running does not clear a layer.
+(1) The run dies immediately with `?BAD SUBSCRIPT` — `dim v(4)` is too small
+for `v(5)`.
 (2) The next run wedges at `sys 828`: the poked routine's `INX` was mistyped
 as a `NOP` (`data` byte 234 instead of 232), so X never advances and the
 fill loop spins forever — the agent should prove this from the machine

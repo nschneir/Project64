@@ -282,6 +282,71 @@ def test_dimensioned_array_allows_big_subscripts():
     assert lint_source("10 dim a(20)\n20 a(15)=1\n30 end\n") == []
 
 
+# E131 — the demo-05 shape. Everything below it pins the rule's narrowness:
+# each negative case must stay silent rather than guess.
+_E131 = ("10 dim v(4)\n20 for i=1 to 5: read v(i): next\n"
+         "30 data 12,9,17,4,11\n40 end\n")
+
+
+def e131(text):
+    return [i for i in lint_source(text) if i.rule == "E131"]
+
+
+def test_literal_dim_and_for_bound_overflow_is_an_error():
+    assert (20, "error", "E131") in rules(_E131)
+
+
+def test_bad_subscript_message_names_the_use_and_the_dim():
+    assert e131(_E131)[0].message == (
+        "?bad subscript: v(5) at line 20 exceeds dim v(4) (line 10)")
+
+
+def test_bad_subscript_spans_lines_between_for_and_next():
+    src = ("10 dim v(4)\n20 for i=1 to 5\n30 read v(i)\n40 next\n"
+           "50 data 12,9,17,4,11\n60 end\n")
+    assert (30, "error", "E131") in rules(src)
+
+
+def test_bad_subscript_ignores_a_computed_dim_bound():
+    assert e131("10 n=4\n20 dim v(n)\n30 for i=1 to 5: v(i)=0: next\n"
+                "40 end\n") == []
+
+
+def test_bad_subscript_ignores_a_computed_for_bound():
+    assert e131("10 dim v(4)\n20 n=5\n30 for i=1 to n: v(i)=0: next\n"
+                "40 end\n") == []
+
+
+def test_bad_subscript_ignores_a_computed_subscript():
+    assert e131("10 dim v(4)\n20 for i=1 to 5: v(i+1)=0: next\n40 end\n") == []
+
+
+def test_bad_subscript_ignores_a_different_subscript_variable():
+    assert e131("10 dim v(4)\n20 j=0\n30 for i=1 to 5: v(j)=0: next\n"
+                "40 end\n") == []
+
+
+def test_bad_subscript_counts_dim_as_zero_based():
+    # dim v(4) allocates v(0)..v(4), so `to 4` fits exactly.
+    assert lint_source("10 dim v(4)\n20 for i=1 to 4: v(i)=0: next\n"
+                       "30 end\n") == []
+
+
+def test_bad_subscript_skips_loops_with_a_step():
+    assert e131("10 dim v(4)\n20 for i=1 to 5 step 2: v(i)=0: next\n"
+                "30 end\n") == []
+
+
+def test_bad_subscript_skips_a_redimensioned_array():
+    assert e131("10 dim v(4)\n20 dim v(3)\n30 for i=1 to 5: v(i)=0: next\n"
+                "40 end\n") == []
+
+
+def test_bad_subscript_ignores_uses_outside_the_loop():
+    assert e131("10 dim v(4)\n20 for i=1 to 5: next\n30 v(i)=0\n"
+                "40 end\n") == []
+
+
 def test_new_list_cont_inside_a_program():
     got = rules('10 print "hi":new\n20 list\n30 cont\n')
     assert got == [(10, "warning", "W90"), (20, "warning", "W90"),
