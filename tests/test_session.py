@@ -373,6 +373,27 @@ def test_supports_minimized_false_when_probe_fails(monkeypatch):
     assert session_mod._supports_minimized("/broken/x64sc") is False
 
 
+def test_supports_minimized_false_when_help_is_not_strictly_decodable(monkeypatch):
+    """A --help whose bytes are not valid under the process's locale encoding
+    (e.g. an ASCII locale against a VICE build that emits any non-ASCII byte)
+    must not raise UnicodeDecodeError out of this probe — the docstring's own
+    invariant is that a probe failure never turns into a failed launch, and
+    UnicodeDecodeError is not among the caught exceptions. The fix is passing
+    errors="replace" to subprocess.run; this fake mirrors what subprocess.run's
+    own text-mode decoding does (strict by default, permissive with
+    errors="replace") so removing that kwarg fails this test.
+    """
+    from c64lib import session as session_mod
+
+    def fake_run(*args, **kwargs):
+        if kwargs.get("errors") != "replace":
+            raise UnicodeDecodeError("ascii", b"\xff", 0, 1, "ordinal not in range(128)")
+        return Mock(stdout="-console\n\tConsole mode\n", returncode=0)
+
+    monkeypatch.setattr(session_mod.subprocess, "run", fake_run)
+    assert session_mod._supports_minimized("/broken/locale/x64sc") is False
+
+
 def _stub_launch_deps(monkeypatch, session_mod, seen, help_text):
     class FakePopen:
         def __init__(self, args, env=None, **kw):

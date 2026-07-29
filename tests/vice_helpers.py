@@ -53,11 +53,15 @@ def example_programs(kind: str) -> list[Path]:
 def timeout_scale() -> float:
     """Live-wait timeout multiplier.
 
-    Three live tests have flaked under coverage load — each a "screen state
-    never arrived" against the shared emulator, each green standalone
-    (docs/todo.md, Test health, until this landed). Running under coverage
-    slows both the host poll loop and VICE, so waits sized for an unloaded
-    machine get scaled up. Un-instrumented runs are unchanged.
+    Three live tests once flaked under coverage load — each a "screen state
+    never arrived" against the shared emulator, each green standalone (see
+    the `## [Unreleased]` CHANGELOG entry for the investigation: the one
+    failure that ever reproduced traced to keystroke contamination from a
+    focus-stealing headless-launch bug, not slowness). This multiplier
+    stands on reasoning rather than a measured before/after: coverage
+    tracing plausibly slows both the host poll loop and VICE itself, so
+    waits sized for an unloaded machine get scaled up here. Un-instrumented
+    runs are unchanged.
     """
     env = os.environ.get("C64_TOOLS_TEST_TIMEOUT_SCALE")
     if env:

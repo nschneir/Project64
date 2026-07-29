@@ -69,7 +69,9 @@ def _supports_minimized(exe: str) -> bool:
     every headless launch of the same binary.
     """
     try:
-        r = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(
+            [exe, "--help"], capture_output=True, text=True, errors="replace", timeout=5
+        )
     except (OSError, subprocess.TimeoutExpired):
         return False
     return "-minimized" in (r.stdout or "")
