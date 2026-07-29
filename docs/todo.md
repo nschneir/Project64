@@ -54,36 +54,6 @@ the function/test names are the durable anchors.
       size shrinks too. Verify: `tests/test_build.py`,
       `tests/test_integration_build.py`.
 
-## Test health
-
-- [ ] **`tests/test_integration_debug.py::test_symbolic_debug_loop` flakes
-      under load** (line 31: builds `tests/programs/hello-asm/program.s` with
-      `-g`, sets the label path, then sets a symbolic breakpoint that is never
-      hit). Two sightings, both under parallel load / coverage tracing; passes
-      standalone and in plain full runs. Pre-existing, non-cart; cause not
-      diagnosed. No retry/xfail guard exists. Needs its own investigation —
-      reproduce under `-n auto` + `--cov` before touching the test.
-- [ ] **`tests/test_integration_disk.py::test_disk_attach_at_launch` flaked
-      once in a full run** (line 44; parametrized over image name × model —
-      the failure was a boot-keyboard artifact between `wait_for_text(s,
-      "READY.")` and `_load_and_run(s)` during the 0.4.0 release run). Passed
-      2/2 in isolation and is untouched by the changes it was seen under.
-      Carried out of the demo-01 ledger; no retry/xfail guard exists today.
-- [ ] **`tests/test_docs_cookbook.py::test_cookbook_recipe_runs_live[basic-game-loop]`
-      failed once in the 0.6.0 pre-merge gate** (full suite under `coverage run`,
-      2026-07-27; `1 failed, 1219 passed`). Immediately re-ran green standalone
-      (6.7 s) and green with its whole file (24 passed); the commits since the
-      previous green full run touch only disk validate/payloads/docs, which that
-      BASIC recipe never exercises. No retry/xfail guard exists.
-- [ ] **Three live tests have now flaked under full-suite load** (the two above
-      plus the cookbook one) while each passes standalone — treat this as one
-      harness-level fragility rather than three unrelated tests. Worth
-      investigating together: all three run against the shared warp+headless
-      emulator (`session`/`shared_launch` in `tests/conftest.py`), and all three
-      failures are "expected screen state never arrived" under contention.
-      A first step that needs no diagnosis: make live waits' timeouts scale
-      when the suite runs under `coverage`/parallel load.
-
 ## Disk plan deferred items (one item still open)
 
 Originally mirrored from `.superpowers/sdd/2026-07-24-disk-file-block-ops/progress.md`

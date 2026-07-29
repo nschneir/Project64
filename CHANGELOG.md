@@ -6,6 +6,60 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [Unreleased]
+
+What closing out `docs/todo.md`'s "Test health" section walked into. Three
+live tests — `test_symbolic_debug_loop`, `test_disk_attach_at_launch`, and
+the `basic-game-loop` cookbook recipe — had each flaked once under
+full-suite load and passed standalone, filed as one suspected harness-level
+fragility rather than three unrelated bugs. Two of the three never
+reproduced again across dozens of clean iterations; investigating the third
+found a real defect, described below.
+
+### Fixed
+- **A "headless" VICE launch on a GTK3 build still opened a focused window
+  and stole host keystrokes.** `Session.launch(headless=True)` set only
+  `SDL_VIDEODRIVER=dummy` / `SDL_AUDIODRIVER=dummy`, which are inert on the
+  GTK3 build of `x64sc` installed here — it never reads them. Every
+  "headless" test session therefore opened a real, focused emulator
+  window, and `mon.keyboard_feed()` writes into the same emulated C64
+  keyboard buffer a human typing at the keyboard would land in: whatever
+  the maintainer typed while a live test ran could interleave with what
+  the test fed. A stress harness ran the three historically-flaky tests
+  under `coverage run` with CPU contention, 20 iterations each: with the
+  maintainer typing at the machine, 1 failure in 15 valid iterations; with
+  the keyboard left idle, 0 failures in 20. Both contaminated failures were
+  the same shape — a fed `LOAD"DEMO",8` arriving as `SELOAD"DEMO",8` (once
+  as `╮F          LOAD"DEMO",8`), producing `?SYNTAX ERROR` so nothing
+  loaded. `Session.launch` now probes the binary's own `--help` once per
+  path (cached, fails safe on a VICE build that lacks the option) and
+  passes `-minimized` when supported. Confirmed by the maintainer's own
+  interactive spot-check at the keyboard: a `--headless` launch no longer
+  takes focus. This is a strong candidate explanation for the
+  `test_disk_attach_at_launch` sighting during the 0.4.0 release run that
+  `docs/todo.md` described as "a boot-keyboard artifact" — same shape,
+  same code path — but it is only a candidate: there is no way to know
+  retroactively whether anyone was typing that day.
+
+### Changed
+- **Live-wait timeouts now scale under `coverage` instrumentation**
+  (`timeout_scale()` in `tests/vice_helpers.py`; applied to
+  `wait_for_text`, both `conftest.py` deadlines, and the cookbook
+  timeouts) — ×3.0 when `"coverage" in sys.modules` or `COVERAGE_RUN` is
+  set, ×1.0 otherwise, overridable via `C64_TOOLS_TEST_TIMEOUT_SCALE`.
+  The same stress harness measured this directly: tripling the timeout
+  did **not** reduce the failure rate (1/20 contaminated iterations failed
+  at both scale 1.0 and scale 3.0); removing the keystroke contamination
+  did, to zero at both scales, which makes the scale-1.0-vs-3.0 clean
+  comparison uninformative — both conditions were already clean. This
+  change stands on its reasoning (coverage tracing measurably slows both
+  the host poll loop and VICE itself) rather than on this measurement, and
+  the measurement also showed a real cost to overstating it: the
+  scale-3.0 contaminated failure took 154s to time out against the
+  scale-1.0 failure's 64s. Scaling a wait on a machine that has already
+  gone wrong for an unrelated reason just makes a doomed test take three
+  times longer to fail.
+
 ## [0.8.0] — 2026-07-28
 
 What dogfooding runs of demos 03, 04 and 05 walked into. Demo 03 (sieve
