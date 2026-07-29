@@ -1150,7 +1150,7 @@ JSON: `{"basic", "kernal", "editor", "hashes": {...}}`. Machine state preserved.
 
 ### `c64 rom disasm`
 
-Disassemble live memory — RAM or ROM — with ROM + session symbol
+Disassemble live memory — RAM or ROM — with ROM + session label
 annotations. Also reachable as `c64 disasm`.
 
 - `START` — address or symbol (e.g. `CHROUT`, `$C000`, `828`).
