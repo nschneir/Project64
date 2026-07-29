@@ -188,6 +188,11 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$041F", "equals": 52}},   # '4'
         {"assert": {"mem": "$0420", "equals": 50}},   # '2'
     ]),
+    ("basic-poke-word", "basic", "poke a word", [
+        {"wait": {"text": "DONE"}},
+        # 1024+40*10+14 = $059E: "hello there" as screen codes, space intact
+        {"assert": {"mem": "$059E", "equals": [8, 5, 12, 12, 15, 32, 20, 8, 5, 18, 5]}},
+    ]),
     ("basic-sprite", "basic", "solid 24x21 sprite", [
         {"wait": {"text": "SPRITE ON"}},
         {"assert": {"mem": "$D015", "equals": 1}},    # sprite 0 enabled

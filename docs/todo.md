@@ -125,19 +125,6 @@ undocumented at the exact moment a debugging agent needs it.
       `c64 reg`'s PC (`cli.py:546`) with a ROM-region name, so `PC=e5d1` reads
       as "BASIC idle" without consulting the diagnosis table's prose. Verify:
       `tests/test_cli_wait.py`, `tests/test_cli_inspect.py`.
-- [ ] **The cookbook has no BASIC recipe for poking a *letter* string to
-      screen RAM.** The asm fold ships ("Static text without CHROUT",
-      `skills/c64-development/references/cookbook.md:789-827`, `cmp #$40` /
-      `sbc #$40`), and the BASIC "Score HUD" recipe (same file, 219-238) pokes
-      `asc(mid$(s$,i,1))` straight through — correct, and it explains that
-      digits work only because PETSCII 48-57 *are* the screen codes. Letters
-      in BASIC are covered nowhere, which is demo 05's third bug exactly, and
-      the adjacent digits recipe reads like a template for making it. Add one
-      beside it with the guard a general version needs:
-      `c=asc(mid$(a$,i,1)): if c>63 then c=c-64` — a bare `-64` breaks on
-      space and punctuation. Anything added there is live-verified by
-      `tests/test_docs_cookbook.py` and linted by
-      `tests/test_basic_lint_fixtures.py`.
 - [ ] **`c64 basic check` passes a statically-provable `?BAD SUBSCRIPT`.**
       `dim v(4)` followed by `for i=1 to 5: read v(i)` lints clean, then dies
       on the first line it executes. The pieces to catch it are already there:

@@ -17,6 +17,7 @@ BASIC:
 - [Time a section of code with TI](#time-a-section-of-code-with-ti)
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
 - [Score HUD: poke a changing number to the screen](#score-hud-poke-a-changing-number-to-the-screen)
+- [Poke a letter string to the screen (PETSCII → screen codes)](#poke-a-letter-string-to-the-screen-petscii--screen-codes)
 - [Show a sprite from BASIC](#show-a-sprite-from-basic)
 - [Multicolor sprite from BASIC (ASCII art → DATA)](#multicolor-sprite-from-basic-ascii-art--data)
 - [Call a KERNAL routine from BASIC (SYS and 780-783)](#call-a-kernal-routine-from-basic-sys-and-780-783)
@@ -236,6 +237,44 @@ leaves its old last digit behind, so blank the cell after the digits too:
 170 poke 1024+30+len(s$)-1,32 : rem blank trailing cell
 180 print "done"
 ```
+
+### Poke a letter string to the screen (PETSCII → screen codes)
+
+Digits are the easy case. For *letters* the PETSCII value `ASC` returns
+(65–90 for `A`–`Z`) is **not** the screen code (1–26), so poking it
+straight through — as the Score HUD recipe above legitimately does for
+digits — puts the wrong glyph on screen. Fold the letters down by 64:
+
+```basic
+10 rem poke a word
+20 a$="hello there": b=1024+40*10+14
+30 for i=1 to len(a$)
+40 c=asc(mid$(a$,i,1)): if c>63 then c=c-64
+50 poke b+i-1,c: next
+60 print chr$(19): print "done"
+```
+
+Line 40's `if c>63` guard is what makes this general over any string.
+Space (32) and punctuation are *already* their own screen codes, so a
+bare `c=c-64` would corrupt them — a space would become 32-64 = -32 and
+`POKE` would raise `?ILLEGAL QUANTITY ERROR`. The string above contains
+a space precisely so a live run proves the guard: at `1024+40*10+14`
+($059E) the eleven cells read back as 8, 5, 12, 12, 15, 32, 20, 8, 5,
+18, 5 — the space passed through untouched while every letter folded.
+Digits (48–57) are below 64 too and likewise pass through, which is
+exactly why the Score HUD recipe needs no conversion at all.
+
+Two details worth copying: `PRINT CHR$(19)` on line 60 is HOME, not CLR
+— it parks the cursor at the top-left so printing the `done` marker
+cannot scroll the poked row away. And this recipe leaves color RAM
+alone, so the text inherits whatever color the cells already had; on a
+screen you cleared to the background color, poke `55296+` alongside as
+the Score HUD recipe does.
+
+This is the BASIC twin of the assembly
+[Static text without CHROUT](#static-text-without-chrout-poke-screen-codes)
+recipe, where the same fold is `cmp #$40` / `sbc #$40` — one compare,
+branch below for "already a screen code", subtract otherwise.
 
 ### Show a sprite from BASIC
 
