@@ -88,3 +88,41 @@ tools describe themselves.
    the JSON block above (the file is `~/.gemini/config/mcp_config.json`).
 2. Add the read-the-skill one-liner to `AGENTS.md`.
 3. Paste a prompt from [`demos/`](../demos/).
+
+## Crush
+
+Crush spells the block `mcp` rather than `mcpServers` and wants an explicit
+transport type, so it needs its own snippet instead of the JSON block above:
+
+1. Create `crush.json` in the repo root (`.crush.json` is checked first;
+   `~/.config/crush/crush.json` is the global fallback) containing:
+
+   ```json
+   {
+     "$schema": "https://charm.land/crush.json",
+     "mcp": {
+       "c64-tools": { "type": "stdio", "command": "c64-tools-mcp" }
+     }
+   }
+   ```
+
+2. Install the skills — Crush implements the Agent Skills standard and reads
+   `.crush/skills`, `.agents/skills`, `.claude/skills`, and `.cursor/skills`
+   from the project, so if you already ran the Claude Code copy above there is
+   nothing to do. Otherwise:
+
+   ```
+   mkdir -p .crush/skills && cp -R skills/* .crush/skills/
+   ```
+
+3. Paste a prompt from [`demos/`](../demos/).
+
+Crush also loads project context files on its own — `CRUSH.md`, `AGENTS.md`,
+and `CLAUDE.md` are all on its default list — so the read-the-skill one-liner
+from the Codex step works here too if you'd rather not copy skills at all.
+
+By default Crush asks before every tool call. Pre-approve the ones you get
+tired of confirming under `permissions.allowed_tools`, using the
+`mcp_<server>_<tool>` name (e.g. `mcp_c64-tools_c64_screen_text`) — matching is
+exact, so there is no wildcard for a whole server. `crush --yolo` skips every
+prompt; that means the emulator *and* your shell, so treat it accordingly.
