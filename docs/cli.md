@@ -295,10 +295,23 @@ state preserved.
 ### `c64 reg`
 
 Show the CPU registers (this is a callable group — run it with no subcommand).
-PC is annotated with the nearest symbol when a label file is loaded.
+PC is annotated with the nearest symbol from the ROM label database plus the
+session's label file (the same lookup `c64 disasm` uses), so a PC parked on a
+KERNAL entry point is named even with no label file loaded.
 
-JSON: `{"registers": {"PC", "A", "X", "Y", "SP", "FL", ...}, "pc_symbol"}`.
-Machine state preserved.
+When no symbol is within reach, the **ROM region** is named instead —
+`PC=e5d1  (KERNAL ROM)` — so a PC that landed in `$A000-$BFFF` (BASIC ROM),
+`$D000-$DFFF` (I/O) or `$E000-$FFFF` (KERNAL ROM) reads as such without
+consulting a memory map. A PC in RAM gets no annotation: the region says
+nothing there. The region is the *address space*, not which bank `$01` has
+switched in. Sampling `c64 reg` a second apart is step 1 of the wedged-machine
+playbook in the `6502-debugging` skill; a PC wandering the KERNAL around
+`$E5xx` usually means the program has finished or errored and BASIC is back at
+its input loop.
+
+JSON: `{"registers": {"PC", "A", "X", "Y", "SP", "FL", ...}, "pc_symbol",
+"pc_region", "state"}` — `pc_region` is reported whether or not a symbol
+matched, and is `null` for a PC in RAM. Machine state preserved.
 
 ### `c64 reg set`
 

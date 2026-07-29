@@ -44,6 +44,7 @@ from .ops import (
     machine_state,
     parse_number,
     parse_ref,
+    pc_region,
     run_until,
     session_labels,
     split_mem_condition,
@@ -577,14 +578,20 @@ def reg(ctx) -> None:
             regs = mon.registers()
         finally:
             mon.release()
-    sym = _pc_symbol(session_labels(s), regs)
+    # ROM labels first, session labels on top: a PC parked in the KERNAL is
+    # named even with no label file, which is the case you are in when a run
+    # has fallen off the rails. Same lookup `rom disasm` builds.
+    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    sym = _pc_symbol(labels, regs)
+    region = pc_region(regs.get("PC"))
     human = "  ".join(f"{k}={v:04x}" for k, v in sorted(regs.items()))
-    if sym:
-        human += f"  ({sym})"
+    if sym or region:
+        human += f"  ({sym or region})"     # a name beats the region it is in
     state = machine_state(s)
     if state != "unknown":
         human += f"  [{state}]"
-    emit(ctx, {"registers": regs, "pc_symbol": sym, "state": state}, human)
+    emit(ctx, {"registers": regs, "pc_symbol": sym, "pc_region": region,
+               "state": state}, human)
 
 
 @reg.command("set")

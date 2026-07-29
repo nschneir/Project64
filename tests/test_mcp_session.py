@@ -128,6 +128,20 @@ def test_status_tool():
     assert err is False and out["state"] == "running" and out["name"] == "c64"
 
 
+def test_reg_get_names_the_rom_region_for_a_pc_outside_ram():
+    """CLI parity: `pc_region` tells an agent that a bare $E5D1 is KERNAL,
+    reported whether or not a symbol matched; null for a PC in RAM."""
+    s, mon = _fake_session()
+    mon.registers.return_value = {"PC": 0xE5D1}
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_reg_get", {})
+        assert err is False and out["pc_region"] == "KERNAL ROM"
+        mon.registers.return_value = {"PC": 0x0810}
+        err, out = call_tool("c64_reg_get", {})
+    assert err is False and out["pc_region"] is None
+
+
 def test_reg_get_reports_state():
     s, mon = _fake_session()
     mon.registers.return_value = {"PC": 0x040D}

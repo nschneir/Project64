@@ -44,6 +44,7 @@ from .ops import (
     machine_state,
     parse_number,
     parse_ref,
+    pc_region,
     pc_symbol,
     run_until,
     session_labels,
@@ -254,16 +255,19 @@ def c64_mem_write(addr: str, values: list[int], session: str | None = None) -> d
 
 @srv.tool()
 def c64_reg_get(session: str | None = None) -> dict:
-    """Read CPU registers. PC is annotated with the nearest symbol when a
-    label file is loaded."""
+    """Read CPU registers. PC is annotated with the nearest symbol from the
+    ROM label database plus the session's label file, and with `pc_region` —
+    "BASIC ROM"/"I/O"/"KERNAL ROM", or null in RAM. A PC in the KERNAL after
+    your program ran usually means it finished or errored."""
     s = _attach(session)
     with s.monitor() as mon:
         try:
             regs = mon.registers()
         finally:
             mon.release()
-    return {"registers": regs, "pc_symbol": pc_symbol(session_labels(s), regs),
-            "state": machine_state(s)}
+    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    return {"registers": regs, "pc_symbol": pc_symbol(labels, regs),
+            "pc_region": pc_region(regs.get("PC")), "state": machine_state(s)}
 
 
 @srv.tool()

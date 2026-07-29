@@ -316,6 +316,64 @@ def test_reg_reports_state():
     assert json.loads(r.output)["state"] == "stopped"
 
 
+def test_reg_names_the_rom_region_when_no_symbol_matches():
+    """A PC in the KERNAL means something ($E5D1 is the direct-mode input
+    loop) even with no label file loaded — the bare hex does not say so."""
+    fake, mon = _fake()
+    mon.registers.return_value = {"PC": 0xE5D1}
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"):
+        S.attach.return_value = fake
+        human = CliRunner().invoke(main, ["reg"])
+        r = CliRunner().invoke(main, ["--json", "reg"])
+    assert human.exit_code == 0, human.output
+    assert "(KERNAL ROM)" in human.output
+    assert json.loads(r.output)["pc_region"] == "KERNAL ROM"
+
+
+def test_reg_adds_no_region_noise_for_a_ram_pc():
+    fake, mon = _fake()
+    mon.registers.return_value = {"PC": 0x0810}
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"):
+        S.attach.return_value = fake
+        human = CliRunner().invoke(main, ["reg"])
+        r = CliRunner().invoke(main, ["--json", "reg"])
+    assert human.exit_code == 0, human.output
+    assert "(" not in human.output
+    assert json.loads(r.output)["pc_region"] is None
+
+
+def test_reg_prefers_the_symbol_but_still_reports_the_region(tmp_path):
+    """A named symbol wins the human line; `pc_region` is in JSON either
+    way, so a consumer never has to re-derive it from the address."""
+    lbl = tmp_path / "p.lbl"
+    lbl.write_text("al C:E5D1 .keyloop\n")
+    fake, mon = _fake(labels=str(lbl))
+    mon.registers.return_value = {"PC": 0xE5D1}
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"):
+        S.attach.return_value = fake
+        human = CliRunner().invoke(main, ["reg"])
+        r = CliRunner().invoke(main, ["--json", "reg"])
+    assert "(keyloop)" in human.output and "KERNAL ROM" not in human.output
+    out = json.loads(r.output)
+    assert out["pc_symbol"] == "keyloop" and out["pc_region"] == "KERNAL ROM"
+
+
+def test_reg_resolves_rom_labels_not_only_session_labels():
+    """`reg` builds its lookup the way `rom disasm` does, so a PC sitting on
+    a KERNAL routine is named even with no session label file."""
+    fake, mon = _fake()
+    fake.profile.basic_version = "2.0"
+    mon.registers.return_value = {"PC": 0xFFD2}      # CHROUT, in the seed DB
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "reg"])
+    assert json.loads(r.output)["pc_symbol"] == "CHROUT"
+
+
 def test_screen_codes_matrix():
     mon = Mock()
     mon.memory_read.return_value = bytes([81, 32, 87]) + bytes([32] * 997)

@@ -177,6 +177,27 @@ def pc_symbol(labels: dict[str, int], regs: dict[str, int]) -> str | None:
     return f"{name}+{off}" if off else name
 
 
+#: Static address-space regions, in the order they are tested. Only the
+#: banked-ROM/IO windows are named — a PC in RAM says nothing on its own.
+_PC_REGIONS = (
+    (0xA000, 0xBFFF, "BASIC ROM"),
+    (0xD000, 0xDFFF, "I/O"),
+    (0xE000, 0xFFFF, "KERNAL ROM"),
+)
+
+
+def pc_region(pc: int | None) -> str | None:
+    """Name the ROM/IO region `pc` sits in, or None for RAM.
+
+    The point is a bare `PC=e5d1` reading as "somewhere in the KERNAL"
+    without a label file or a memory map to hand. Which bank is actually
+    switched in at that address is a separate question ($01) — this is the
+    address space, which is what a stopped PC is usually asking about."""
+    if pc is None:
+        return None
+    return next((name for lo, hi, name in _PC_REGIONS if lo <= pc <= hi), None)
+
+
 def _screen(session) -> str:
     with session.monitor() as mon:
         try:
