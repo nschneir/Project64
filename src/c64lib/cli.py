@@ -203,7 +203,8 @@ def session() -> None:
 @click.option("--name", "-s", default=None,
               help="Session name (defaults to the model name).")
 @click.option("--headless", is_flag=True,
-              help="Run without a VICE window (video/audio dummied).")
+              help="No window on SDL builds; starts minimized and never "
+                   "takes focus on GTK builds.")
 @click.option("--warp", is_flag=True,
               help="Run at maximum speed — recommended for automation.")
 @click.option("--disk", "disk8", default=None, help="Attach a d64/d71/d81 image to drive 8.")
@@ -233,7 +234,8 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
 @click.option("--name", "-s", default=None,
               help="Session name to look for / start.")
 @click.option("--headless", is_flag=True,
-              help="Run without a VICE window (only if starting).")
+              help="No window on SDL builds, minimized on GTK builds "
+                   "(only if starting).")
 @click.option("--warp", is_flag=True,
               help="Run at maximum speed (only if starting).")
 @click.pass_context

@@ -26,9 +26,11 @@ found a real defect, described below.
   keyboard buffer a human typing at the keyboard would land in: whatever
   the maintainer typed while a live test ran could interleave with what
   the test fed. A stress harness ran the three historically-flaky tests
-  under `coverage run` with CPU contention, 20 iterations each: with the
-  maintainer typing at the machine, 1 failure in 15 valid iterations; with
-  the keyboard left idle, 0 failures in 20. Both contaminated failures were
+  under `coverage run` with CPU contention, at both the ×1.0 and ×3.0
+  timeout scales described below: with the maintainer typing at the
+  machine, 1 failure in 15 valid iterations at scale 1.0 and 1 in 20 at
+  scale 3.0; with the keyboard left idle, 0 failures across 40 iterations
+  (20 at each scale). Both contaminated failures were
   the same shape — a fed `LOAD"DEMO",8` arriving as `SELOAD"DEMO",8` (once
   as `╮F          LOAD"DEMO",8`), producing `?SYNTAX ERROR` so nothing
   loaded. `Session.launch` now probes the binary's own `--help` once per
@@ -48,8 +50,8 @@ found a real defect, described below.
   timeouts) — ×3.0 when `"coverage" in sys.modules` or `COVERAGE_RUN` is
   set, ×1.0 otherwise, overridable via `C64_TOOLS_TEST_TIMEOUT_SCALE`.
   The same stress harness measured this directly: tripling the timeout
-  did **not** reduce the failure rate (1/20 contaminated iterations failed
-  at both scale 1.0 and scale 3.0); removing the keystroke contamination
+  did **not** reduce the failure rate (1 in 15 valid iterations failed at
+  scale 1.0, 1 in 20 at scale 3.0); removing the keystroke contamination
   did, to zero at both scales, which makes the scale-1.0-vs-3.0 clean
   comparison uninformative — both conditions were already clean. This
   change stands on its reasoning (coverage tracing measurably slows both

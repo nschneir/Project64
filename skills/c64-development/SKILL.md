@@ -70,8 +70,10 @@ Start a machine with `c64 session start` before anything else, and
 ## Sessions and models
 
 `c64 session start` boots a C64 (NTSC, the default — model name `c64`). Add
-`--warp` to run at full speed for automation and `--headless` to suppress the
-window. `--model c64pal` boots the PAL variant — same machine, 50 Hz frame
+`--warp` to run at full speed for automation and `--headless` to keep it out
+of the way: no window at all on SDL builds, and on GTK builds (what's
+installed here) it starts minimized and never steals focus. `--model
+c64pal` boots the PAL variant — same machine, 50 Hz frame
 rate and a slightly different CPU clock; pick it only when timing against
 PAL software. Both run BASIC 2.0 with 38911 bytes free.
 

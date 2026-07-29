@@ -68,7 +68,8 @@ Boot a fresh emulated C64.
 - `--model MODEL` (default `c64`) — `c64` (NTSC) or `c64pal` (see the
   README's Supported machines table).
 - `-s, --name NAME` — session name (defaults to the model name).
-- `--headless` — suppress the VICE window (video/audio dummied).
+- `--headless` — no window on SDL builds; on GTK builds (the installed
+  `x64sc`) it starts minimized and never takes focus.
 - `--warp` — run at maximum speed (recommended for automation).
 - `--disk PATH` — attach a `.d64`/`.d71`/`.d81` image to drive 8 at boot.
 - `--cart PATH` — attach a `.crt` cartridge at power-on. The machine boots
