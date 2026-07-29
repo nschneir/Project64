@@ -805,6 +805,7 @@ image 18/0 is the BAM and 18/1 the first directory sector.
 ```
 $ c64 disk block read game.d64 18 0
 0000: 12 01 41 00 15 ff ff 1f 15 ff ff 1f 15 ff ff 1f  ..A.............
+# text column: ascii
 ```
 
 Out-of-range tracks and sectors are refused with the limit named

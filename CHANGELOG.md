@@ -64,7 +64,9 @@ the linter passed, and no written procedure for a wedged machine.
   no extra monitor traffic. If the VIC/CIA state cannot be read the gloss
   falls back to ASCII and says so rather than guessing. JSON gains
   `text_encoding`; MCP's `c64_mem_read` gains the matching `encoding`
-  parameter and key.
+  parameter and key. `c64 disk block read` shares the same dump helper, so
+  its sector dumps carry the label too (always `# text column: ascii` — a
+  sector is host-side file bytes with no live screen to resolve against).
 
 ### Changed
 - **Live-wait timeouts now scale under `coverage` instrumentation**
@@ -147,13 +149,13 @@ the linter passed, and no written procedure for a wedged machine.
 
 ### Documentation
 - **A wedged-machine playbook** (`6502-debugging` SKILL.md, "A wedged
-  machine (infinite loop)"). Sample `c64 reg` to pin the PC, `c64 rom disasm
-  <PC-8> 24` to read the loop body — it disassembles live RAM despite the
-  `rom` verb — then `c64 step` to find the frozen register that names the
-  defective instruction, closing with demo 05's worked example (`inx`
-  mistyped as `nop`, X frozen at 0). The `c64-development` diagnosis table's
-  "Program seems to hang" row now points at the playbook instead of
-  dead-ending at "your loop is wrong".
+  machine (infinite loop)"). Sample `c64 reg` to pin the PC, `c64 disasm
+  <PC-8> 24` to read the loop body — it reads live RAM, and is the same
+  command as `c64 rom disasm` — then `c64 step` to find the frozen register
+  that names the defective instruction, closing with demo 05's worked
+  example (`inx` mistyped as `nop`, X frozen at 0). The `c64-development`
+  diagnosis table's "Program seems to hang" row now points at the playbook
+  instead of dead-ending at "your loop is wrong".
 - **Cookbook recipe: "Poke a letter string to the screen (PETSCII → screen
   codes)"**. Letters' PETSCII (65-90) is not their screen code (1-26), but
   the Score HUD recipe next door pokes `ASC` straight through — correct only
@@ -176,7 +178,8 @@ charset, a title/play/game-over state machine, `$CB` steering, SID
 blip/crash and a high score surviving across games, all proven on a live
 machine — but found two real defects on the way. Demo 05 (debug hunt)
 passed as well and found no defects; what it walked into was observability
-friction, filed in `docs/todo.md`.
+friction, filed in `docs/todo.md` at the time and since closed — see the
+Unreleased section above.
 
 ### Fixed
 - **A freshly built `.s` no longer reports itself STALE.** `c64 status`

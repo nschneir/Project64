@@ -54,7 +54,7 @@ step 1 below is already done for you. Resist the urge to reset: a wedged
 machine is still holding every piece of evidence you need. Three steps
 name the defective instruction:
 
-1. `c64 reg`, two or three times a second apart. A PC pinned in a narrow
+1. `c64 reg`, two or three times, a second apart. A PC pinned in a narrow
    range names the loop; compare that range against where your program
    lives. `reg` names the ROM region beside the PC — `(KERNAL ROM)`,
    `(BASIC ROM)`, `(I/O)` — so you can tell at a glance whether the loop is
@@ -63,10 +63,11 @@ name the defective instruction:
    poked in from BASIC. A PC wandering around `$E5xx` means the machine is
    idling in BASIC waiting for input — not wedged at all (that is exactly
    what `c64 wait --idle` fires on).
-2. `c64 rom disasm <PC-8> 24` — read the loop body. Backing up a few bytes
-   catches the branch target that sits above the sampled PC. Despite the
-   `rom` verb this disassembles *live memory*, RAM included, so it reads
-   code poked in at runtime just as well as it reads ROM.
+2. `c64 disasm <PC-8> 24` — read the loop body. Backing up a few bytes
+   catches the branch target that sits above the sampled PC. It disassembles
+   *live memory*, RAM included, so it reads code poked in at runtime just as
+   well as it reads ROM (it is also spelled `c64 rom disasm` — same command,
+   the top-level name is the one that says what it does).
 3. `c64 step` a handful of times, watching which register never changes.
    The frozen register names the defective instruction: the loop's exit
    condition depends on it, and nothing in the body advances it.

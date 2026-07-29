@@ -18,7 +18,9 @@ say so rather than substituting another environment.
 → `c64_screen_text`, `c64 break add` → `c64_break_add`, `c64 basic check`
 → `c64_basic_check`, and so on — with the
 same sessions, semantics, and stopped-state rule. Known differences: `c64 wait`
-is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break`; wait
+is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break` /
+`c64_wait_idle`; top-level `c64 disasm` is an alias for `c64 rom disasm`, so
+its tool keeps the older name `c64_rom_disasm` (there is no `c64_disasm`); wait
 timeouts return `{"fired": null, ...}` as data instead of an error; and a few
 commands have no MCP twin yet — `c64 basic tokenize`, `c64 basic detokenize`,
 `c64 sprite encode`, and `c64 break disable`/`enable`. Shell out for those.
