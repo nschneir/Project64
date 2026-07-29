@@ -316,3 +316,123 @@ def test_launch_passes_cartcrt(home, monkeypatch, tmp_path):
     args = seen["args"]
     assert "-cartcrt" in args
     assert args[args.index("-cartcrt") + 1] == str(crt.resolve())
+
+
+# --- -minimized capability probe and headless argument wiring -------------
+#
+# GTK3 builds of x64sc never read SDL_VIDEODRIVER/SDL_AUDIODRIVER (those only
+# affect SDL builds), so headless=True was inert on this machine: every
+# "headless" launch opened a focused window and stole host keystrokes into
+# the emulated keyboard buffer. -minimized fixes that on GTK builds, but VICE
+# errors out on unrecognized options, so it must only be passed when the
+# binary's own --help says it supports it.
+
+
+@pytest.fixture(autouse=True)
+def _clear_minimized_cache():
+    """_supports_minimized is process-cached per binary path; without this,
+    an earlier test's fake "/usr/bin/x64sc" result would leak into a later
+    test that stubs the same path with a different --help output."""
+    from c64lib.session import _supports_minimized
+    _supports_minimized.cache_clear()
+    yield
+    _supports_minimized.cache_clear()
+
+
+def test_supports_minimized_true_when_help_lists_it(monkeypatch):
+    from c64lib import session as session_mod
+
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout="...\n-minimized\n\tStart VICE minimized\n...", returncode=0),
+    )
+    assert session_mod._supports_minimized("/usr/bin/x64sc") is True
+
+
+def test_supports_minimized_false_when_help_omits_it(monkeypatch):
+    from c64lib import session as session_mod
+
+    help_text = "...\n-console\n\tConsole mode (for music playback)\n..."
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=help_text, returncode=0),
+    )
+    assert session_mod._supports_minimized("/some/other/vice/x64sc") is False
+
+
+def test_supports_minimized_false_when_probe_fails(monkeypatch):
+    """A binary that can't even run --help (missing, wrong permissions,
+    times out) must degrade to "no -minimized" rather than raise — a failed
+    probe must never turn into a failed launch."""
+    from c64lib import session as session_mod
+
+    def boom(*a, **k):
+        raise OSError("no such file")
+
+    monkeypatch.setattr(session_mod.subprocess, "run", boom)
+    assert session_mod._supports_minimized("/broken/x64sc") is False
+
+
+def _stub_launch_deps(monkeypatch, session_mod, seen, help_text):
+    class FakePopen:
+        def __init__(self, args, env=None, **kw):
+            seen["args"] = args
+            seen["env"] = env
+            self.pid = 4242
+
+        def poll(self):
+            return None
+
+    class FakeMon:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def connect(self, deadline=0): pass
+        def ping(self): pass
+        def resume(self): pass
+
+    monkeypatch.setattr(session_mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=help_text, returncode=0),
+    )
+    monkeypatch.setattr(session_mod, "_spawn_daemon", lambda *a, **k: 99)
+    monkeypatch.setattr(session_mod.Session, "_save", lambda self: None)
+    monkeypatch.setattr(session_mod, "MonitorClient", lambda **kw: FakeMon())
+    monkeypatch.setenv("C64_TOOLS_X64SC", "/usr/bin/x64sc")
+
+
+def test_launch_headless_passes_minimized_when_supported(home, monkeypatch):
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(monkeypatch, session_mod, seen, "-minimized\n\tStart VICE minimized\n")
+    session_mod.Session.launch(name="headless-sess", headless=True)
+    assert "-minimized" in seen["args"]
+    assert seen["env"]["SDL_VIDEODRIVER"] == "dummy"
+    assert seen["env"]["SDL_AUDIODRIVER"] == "dummy"
+
+
+def test_launch_headless_omits_minimized_when_unsupported(home, monkeypatch):
+    """A VICE build whose --help doesn't mention -minimized must still get a
+    working headless launch (SDL vars only) rather than a hard failure from
+    an unrecognized option."""
+    from c64lib import session as session_mod
+
+    seen = {}
+    help_text = "-console\n\tConsole mode (for music playback)\n"
+    _stub_launch_deps(monkeypatch, session_mod, seen, help_text)
+    session_mod.Session.launch(name="headless-sess-old-vice", headless=True)
+    assert "-minimized" not in seen["args"]
+    assert seen["env"]["SDL_VIDEODRIVER"] == "dummy"
+
+
+def test_launch_non_headless_omits_minimized(home, monkeypatch):
+    """headless=False must be unchanged: no -minimized, no SDL env vars."""
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(monkeypatch, session_mod, seen, "-minimized\n\tStart VICE minimized\n")
+    session_mod.Session.launch(name="windowed-sess", headless=False)
+    assert "-minimized" not in seen["args"]
+    assert "SDL_VIDEODRIVER" not in seen["env"]
+    assert "SDL_AUDIODRIVER" not in seen["env"]

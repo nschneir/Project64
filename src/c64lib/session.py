@@ -6,6 +6,7 @@ find the process (pid) and its monitor (port).
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -49,6 +50,29 @@ def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+@functools.cache
+def _supports_minimized(exe: str) -> bool:
+    """Whether this VICE binary's own --help lists -minimized.
+
+    GTK3 builds of x64sc never read SDL_VIDEODRIVER/SDL_AUDIODRIVER (those
+    only affect SDL builds), so on those builds a "headless" launch still
+    opens a focused window and steals host keystrokes into the emulated
+    keyboard buffer via mon.keyboard_feed(). -minimized fixes that on
+    builds that have it, but VICE errors out on unrecognized command-line
+    options, so it must never be passed blind. Probing --help and caching
+    the answer per binary path is the simplest thing that cannot break a
+    user whose VICE lacks the option: worst case here is a wasted probe on
+    an unsupported build, never a failed launch. Cached because callers
+    (including the test suite, which launches many sessions) call this on
+    every headless launch of the same binary.
+    """
+    try:
+        r = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return "-minimized" in (r.stdout or "")
 
 
 RESPAWN_LIMIT = 5
@@ -233,6 +257,14 @@ class Session:
         if headless:
             env["SDL_VIDEODRIVER"] = "dummy"
             env["SDL_AUDIODRIVER"] = "dummy"
+            # SDL_VIDEODRIVER/SDL_AUDIODRIVER are inert on the GTK3 build of
+            # x64sc (it never reads them), so on that build the two lines
+            # above alone leave "headless" launches opening a focused window
+            # that steals host keystrokes into the emulated keyboard buffer.
+            # -minimized (checked via _supports_minimized, see its docstring
+            # for why this can't be passed unconditionally) closes that gap.
+            if _supports_minimized(exe):
+                base_args.append("-minimized")
 
         # A cold x64sc under heavy system load can be slow to open its binary
         # monitor; retry with a fresh port so a transient slow start self-heals
