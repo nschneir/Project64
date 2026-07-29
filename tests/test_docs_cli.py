@@ -52,6 +52,17 @@ def test_disk_validate_documents_its_damage_findings():
         "the docs never mention the DOS error validate reports as a finding"
 
 
+def test_mem_read_documents_its_text_column_gloss():
+    """The gutter is a *gloss*, not the bytes: the docs have to say which
+    decoding is in play and how to override it, or the ASCII-on-screen-RAM
+    trap comes straight back."""
+    section = _section(DOC.read_text(), "### `c64 mem read`")
+    assert "--as" in section, "the `--as` encoding override is undocumented"
+    assert "screen codes" in section
+    assert "text column" in section, "the gutter's label is undocumented"
+    assert "text_encoding" in section, "the JSON key is undocumented"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

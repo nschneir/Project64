@@ -65,16 +65,18 @@ from .packaging import PackageError, package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE
 from .romdoc import identify, rom_labels
 from .screen import (
+    TEXT_ENCODINGS,
     number_screen_text,
     read_screen_codes,
     read_screen_text,
+    resolve_text_encoding,
     save_screenshot_png,
     screen_base,
 )
 from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import TestError, load_test, program_test, run_test
-from .text import ascii_to_petscii
+from .text import GUTTER_LABELS, ascii_to_petscii, gutter_text
 
 
 def emit(ctx: click.Context, data: dict, human: str) -> None:
@@ -311,13 +313,18 @@ def session_reset(ctx, hard):
          f"{'hard' if hard else 'soft'} reset {s.name!r} (machine running)")
 
 
-def _hexdump(addr: int, data: bytes) -> str:
+def _hexdump(addr: int, data: bytes, encoding: str = "ascii",
+             label: str | None = None) -> str:
+    """A hex dump whose text column says which decoding it is. The gloss is
+    never silent: an unlabeled column invites reading screen codes as ASCII
+    (which inverts the truth), so every dump ends with its label."""
     lines = []
     for i in range(0, len(data), 16):
         chunk = data[i : i + 16]
         hexpart = " ".join(f"{b:02x}" for b in chunk)
-        asciipart = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
-        lines.append(f"{addr + i:04x}: {hexpart:<47}  {asciipart}")
+        lines.append(f"{addr + i:04x}: {hexpart:<47}  "
+                     f"{gutter_text(chunk, encoding)}")
+    lines.append(f"# text column: {label or GUTTER_LABELS[encoding]}")
     return "\n".join(lines)
 
 
@@ -417,15 +424,25 @@ def mem() -> None:
 @click.argument("length", default="256")
 @click.option("--decimal", "decimal", is_flag=True,
               help="Render values in decimal instead of a hex dump.")
+@click.option("--as", "as_", type=click.Choice(TEXT_ENCODINGS),
+              default="auto", show_default=True,
+              help="Decoding for the text column: auto (screen codes when "
+                   "the range is on the live screen, else ascii), screen, "
+                   "petscii, or ascii.")
 @click.pass_context
-def mem_read(ctx, addr, length, decimal):
-    """Dump LENGTH bytes of memory from ADDR as a hex + ASCII dump.
+def mem_read(ctx, addr, length, decimal, as_):
+    """Dump LENGTH bytes of memory from ADDR as a hex dump with a text column.
 
     ADDR is $hex/0x/decimal, a symbol, symbol+offset (alienX+49), or a
     screen cell @row,col (model-aware); LENGTH (default 256) is decimal
-    or $hex. --decimal renders decimal values instead. JSON output always
-    includes both "hex" and "bytes" (a decimal int array). Does not
-    disturb run/stop state.
+    or $hex. --decimal renders decimal values instead.
+
+    The hex is the truth; the text column is a gloss, and the dump's last
+    line names it ("# text column: screen codes"). By default the gloss
+    follows the *live* screen (relocation included), so screen RAM reads as
+    screen codes instead of ASCII gibberish; --as overrides it anywhere.
+    JSON output always includes "hex", "bytes" (a decimal int array), and
+    "text_encoding". Does not disturb run/stop state.
     """
     s = attach(ctx)
     start = resolve_ref(ctx, session_labels(s), addr, session=s)
@@ -433,11 +450,16 @@ def mem_read(ctx, addr, length, decimal):
     with s.monitor() as mon:
         try:
             data = mon.memory_read(start, n)
+            encoding, degraded = resolve_text_encoding(mon, s.profile, start,
+                                                       len(data), as_)
         finally:
             mon.release()
+    label = GUTTER_LABELS[encoding] + (" (VIC state unreadable)" if degraded
+                                       else "")
     emit(ctx, {"addr": start, "length": len(data), "hex": data.hex(),
-               "bytes": list(data)},
-         _decdump(start, data) if decimal else _hexdump(start, data))
+               "bytes": list(data), "text_encoding": encoding},
+         _decdump(start, data) if decimal
+         else _hexdump(start, data, encoding, label))
 
 
 @mem.command("write")

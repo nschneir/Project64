@@ -87,6 +87,50 @@ def screen_to_text(data: bytes, cols: int, style: str = "unicode",
     return "\n".join(rows).rstrip("\n")
 
 
+# Gutter glosses for hex dumps. A hex dump's text column is a *gloss*: the
+# hex is the truth, the column is one decoding of it, and which decoding is
+# right depends on what the bytes are for. Screen RAM read as ASCII inverts
+# the truth (screen codes print as dots, broken PETSCII prints as words), so
+# every gloss here is named and the dump says which one it used.
+GUTTER_LABELS = {"screen": "screen codes", "petscii": "petscii", "ascii": "ascii"}
+
+
+def _screen_gutter(b: int) -> str:
+    if b < 32:                      # 0 '@', 1-26 'A'-'Z', 27-31 '[' '\' ']' ^ _
+        return _LOW[b]
+    if b < 64:                      # space, digits, punctuation: as ASCII
+        return _MID[b - 32]
+    return "."                      # graphics and reverse video: no ASCII form
+
+
+def _petscii_gutter(b: int) -> str:
+    if 32 <= b <= 93:               # space..'?', '@', 'A'-'Z', '[' '\' ']'
+        return chr(b)
+    if 193 <= b <= 218:             # shifted 'A'-'Z' (uppercase/graphics set)
+        return chr(b - 128)
+    return "."
+
+
+def _ascii_gutter(b: int) -> str:
+    return chr(b) if 32 <= b < 127 else "."
+
+
+_GUTTERS = {"screen": _screen_gutter, "petscii": _petscii_gutter,
+            "ascii": _ascii_gutter}
+
+
+def gutter_text(data: bytes, encoding: str = "ascii") -> str:
+    """Gloss `data` as text for a hex dump's right-hand column. `encoding`
+    is one of `screen` (screen codes), `petscii`, or `ascii`; anything the
+    chosen encoding cannot print becomes `.`."""
+    try:
+        gloss = _GUTTERS[encoding]
+    except KeyError:
+        raise ValueError(f"unknown text encoding {encoding!r}: choose from "
+                         f"{', '.join(sorted(_GUTTERS))}") from None
+    return "".join(gloss(b) for b in data)
+
+
 def ascii_to_petscii(s: str) -> bytes:
     out = bytearray()
     for ch in s:

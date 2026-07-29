@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 from .machines import MachineProfile
-from .monitor import MonitorClient
+from .monitor import MonitorClient, MonitorError
 from .text import screen_to_text
 
 
@@ -18,6 +18,34 @@ def screen_base(mon: MonitorClient) -> int:
     bank = (~mon.memory_read(0xDD00, 1)[0]) & 3
     slot = (mon.memory_read(0xD018, 1)[0] >> 4) & 0x0F
     return bank * 0x4000 + slot * 0x0400
+
+
+TEXT_ENCODINGS = ("auto", "screen", "petscii", "ascii")
+
+
+def resolve_text_encoding(mon: MonitorClient, profile: MachineProfile,
+                          addr: int, length: int,
+                          requested: str = "auto") -> tuple[str, bool]:
+    """Pick the gloss for a dump's text column. `auto` answers "are these
+    bytes on the live screen?" — `screen_base` follows relocation — and says
+    `screen` if the range intersects it, `ascii` otherwise. Anything else is
+    taken as given (and costs no monitor traffic).
+
+    Returns `(encoding, degraded)`; `degraded` is True when the VIC/CIA
+    state could not be read, so the ASCII answer is a fallback rather than a
+    finding and callers must label it as such — never guess silently."""
+    if requested not in TEXT_ENCODINGS:
+        raise ValueError(f"unknown text encoding {requested!r}: choose from "
+                         f"{', '.join(TEXT_ENCODINGS)}")
+    if requested != "auto":
+        return requested, False
+    try:
+        base = screen_base(mon)
+    except (OSError, IndexError, MonitorError):
+        return "ascii", True
+    size = profile.screen_cols * profile.screen_rows
+    overlaps = addr < base + size and base < addr + max(length, 1)
+    return ("screen" if overlaps else "ascii"), False
 
 
 def read_screen_text(mon: MonitorClient, profile: MachineProfile,

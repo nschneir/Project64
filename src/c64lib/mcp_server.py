@@ -59,6 +59,7 @@ from .screen import (
     number_screen_text,
     read_screen_codes,
     read_screen_text,
+    resolve_text_encoding,
     save_screenshot_png,
 )
 from .session import Session, SessionError
@@ -196,19 +197,25 @@ def c64_screenshot(path: str, session: str | None = None, scale: int = 1,
 
 
 @srv.tool()
-def c64_mem_read(addr: str, length: int = 256, session: str | None = None) -> dict:
+def c64_mem_read(addr: str, length: int = 256, session: str | None = None,
+                 encoding: str = "auto") -> dict:
     """Read emulated memory. addr accepts $hex, 0xhex, decimal, or a symbol
     from the loaded label file. Returns hex-encoded bytes plus "bytes" as a
-    decimal int array."""
+    decimal int array. "text_encoding" names how these bytes decode to text:
+    encoding="auto" resolves to "screen" when the range is on the live screen
+    (screen RAM holds screen codes, not ASCII) and "ascii" otherwise; pass
+    "screen", "petscii", or "ascii" to say so yourself."""
     s = _attach(session)
     a = _ref(s, addr)
     with s.monitor() as mon:
         try:
             data = mon.memory_read(a, length)
+            resolved, _ = resolve_text_encoding(mon, s.profile, a, len(data),
+                                                encoding)
         finally:
             mon.release()
     return {"addr": a, "length": len(data), "hex": data.hex(),
-            "bytes": list(data)}
+            "bytes": list(data), "text_encoding": resolved}
 
 
 @srv.tool()

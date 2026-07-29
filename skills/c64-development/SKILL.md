@@ -329,7 +329,11 @@ source of bugs:
   outgrowing ±127 bytes). See the `6502-assembly` skill's gotchas for the
   fixes.
 - Forgetting to `c64 wait` after `c64 run` and reading the screen too early.
-- Reading `$0400` and expecting ASCII — it holds screen codes.
+- Reading `$0400` and expecting ASCII — it holds screen codes. In a
+  `c64 mem read` dump the hex is the truth and the text column is only a
+  gloss: check the `# text column:` label under the dump, and use `--as
+  screen|petscii|ascii` to override it. `c64 screen --codes` is still the
+  purpose-built view of the screen.
 - Assuming the machine is running after `c64 step`/`finish`/`until` — it is
   stopped; `c64 continue` to resume.
 - **Warp discipline.** At `--warp`, wall-clock seconds between your commands

@@ -214,15 +214,36 @@ timeout: exit 1, machine left running, checkpoint removed.
 
 ### `c64 mem read`
 
-Read emulated memory and print a hex dump (16 bytes/line with an ASCII column).
+Read emulated memory and print a hex dump (16 bytes/line plus a text column).
 
 - `ADDR` — start address (`$hex`/`0x`/decimal/symbol).
 - `LENGTH` (default `256`) — number of bytes.
 - `--decimal` — render decimal values instead of a hex dump.
+- `--as auto|screen|petscii|ascii` (default `auto`) — decoding for the text
+  column.
 
-JSON: `{"addr", "length", "hex", "bytes"}` (`hex` is the bytes hex-encoded;
-`"bytes"` is always present as a decimal int array). Machine state
-preserved.
+**The hex is the truth; the text column is a gloss.** Every dump ends with a
+line naming the gloss it used, so the column can never mislead silently:
+
+    c64 mem read $0400 5
+    0400: 13 01 0c 05 13                                   SALES
+    # text column: screen codes
+
+`auto` asks where the *live* screen is — `$DD00`'s VIC bank plus `$D018`'s
+slot, so a relocated screen is followed — and glosses ranges that intersect
+it as screen codes (`1`-`26` are `A`-`Z`, `0` is `@`, `32`-`63` match ASCII,
+graphics and reverse video show as `.`); everything else stays ASCII. If the
+VIC state cannot be read, the dump falls back to ASCII and says so
+(`# text column: ascii (VIC state unreadable)`). `--as screen` forces the
+screen-code gloss anywhere (a sprite/charset buffer, a screen you are
+building in spare RAM), `--as petscii` suits keyboard-buffer and
+CHROUT-bound bytes, and `--as ascii` restores the old unconditional gloss.
+`c64 screen --codes` remains the purpose-built view of the whole screen.
+
+JSON: `{"addr", "length", "hex", "bytes", "text_encoding"}` (`hex` is the
+bytes hex-encoded; `"bytes"` is always present as a decimal int array;
+`"text_encoding"` is the resolved gloss — `screen`, `petscii`, or `ascii`).
+Machine state preserved.
 
 ### `c64 mem get`
 

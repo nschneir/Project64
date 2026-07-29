@@ -82,23 +82,6 @@ Six items the debug-hunt run surfaced. They share a theme: the machine tells
 the truth, but the *tooling that reports it* is either silent, misleading, or
 undocumented at the exact moment a debugging agent needs it.
 
-- [ ] **`c64 mem read`'s ASCII gutter decodes screen RAM as ASCII, which
-      inverts the truth.** `_hexdump` (`src/c64lib/cli.py:312-319`) glosses
-      every byte as `chr(b) if 32 <= b < 127 else "."` regardless of address,
-      so reading the screen at `$0400` prints a *broken* PETSCII title
-      (`53 41 4c 45 53`) as `SALES` and the *correct* screen codes
-      (`13 01 0c 05 13`) as `.....` — exactly backwards for the encoding bug
-      demo 05 is built around. An agent trusting the gutter clears a real bug,
-      then flags its own correct fix as a regression. Fix direction open: make
-      the gloss screen-code-aware when the range intersects the live screen
-      base (which `c64 screen` already tracks for relocation), add an
-      `--as screen|petscii|ascii` option, or drop the gutter for screen ranges.
-      `c64 screen --codes` and `c64 mem get` (`cli.py:490`) are the
-      correct-today paths, so at minimum the `c64-development` pitfall list
-      needs the warning — its current line ("Reading `$0400` and expecting
-      ASCII — it holds screen codes") is about the hex, and says nothing about
-      the column that contradicts it. Verify:
-      `tests/test_cli_inspect.py::test_mem_read_hexdump`.
 - [ ] **No signal for "the program has stopped".** `c64 wait`
       (`cli.py:1167`) offers `--text`, `--mem`, `--break`. A run that ends in
       an error, or simply falls to `READY.`, has nothing distinctive to wait

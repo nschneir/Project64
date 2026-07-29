@@ -1,7 +1,8 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
+from tests.test_cli_inspect import _vic_reads
 from tests.test_mcp_scaffold import call_tool
 
 
@@ -15,6 +16,7 @@ def _fake_session(labels=None):
     s.name, s.model, s.pid, s.port, s.labels = "c64", "c64", 1, 6502, labels
     s.loaded_prg, s.loaded_at, s.loaded_deps = None, 0.0, None
     s.profile.basic_version = "2.0"
+    s.profile.screen_cols, s.profile.screen_rows = 40, 25
     mon = Mock()
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
     s.monitor.return_value.__exit__ = Mock(return_value=False)
@@ -51,13 +53,14 @@ def test_mem_read_symbolic(tmp_path):
     lbl = tmp_path / "p.lbl"
     lbl.write_text("al C:0400 .screen\n")
     s, mon = _fake_session(labels=str(lbl))
-    mon.memory_read.return_value = bytes([1, 2])
+    mon.memory_read.side_effect = _vic_reads(bytes([1, 2]))
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_mem_read", {"addr": "screen", "length": 2})
     assert err is False
     assert out["addr"] == 0x0400 and out["hex"] == "0102"
-    mon.memory_read.assert_called_once_with(0x0400, 2)
+    # auto encoding adds the $DD00/$D018 reads screen_base() makes
+    assert call(0x0400, 2) in mon.memory_read.call_args_list
 
 
 def test_reg_get_includes_pc_symbol(tmp_path):
@@ -82,11 +85,28 @@ def test_mem_write():
 
 def test_mem_read_includes_bytes():
     s, mon = _fake_session()
-    mon.memory_read.return_value = bytes([42, 0])
+    mon.memory_read.side_effect = _vic_reads(bytes([42, 0]), screen=0xC000)
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_mem_read", {"addr": "$0400", "length": 2})
     assert err is False and out["bytes"] == [42, 0] and out["hex"] == "2a00"
+
+
+def test_mem_read_reports_the_resolved_text_encoding():
+    """CLI parity: `--as`/`encoding` and the resolved gloss, so an MCP client
+    reading screen RAM is told the bytes are screen codes, not ASCII."""
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = _vic_reads(b"\x13\x01\x0c\x05\x13")
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_mem_read", {"addr": "$0400", "length": 5})
+        assert err is False and out["text_encoding"] == "screen"
+        err, out = call_tool("c64_mem_read", {"addr": "$0400", "length": 5,
+                                              "encoding": "ascii"})
+        assert err is False and out["text_encoding"] == "ascii"
+        err, out = call_tool("c64_mem_read", {"addr": "$0400", "length": 5,
+                                              "encoding": "nonsense"})
+    assert err is True
 
 
 def test_mem_find_tool():
