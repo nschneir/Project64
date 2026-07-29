@@ -99,18 +99,6 @@ undocumented at the exact moment a debugging agent needs it.
       ASCII — it holds screen codes") is about the hex, and says nothing about
       the column that contradicts it. Verify:
       `tests/test_cli_inspect.py::test_mem_read_hexdump`.
-- [ ] **`6502-debugging` has no procedure for a wedged machine.**
-      `skills/6502-debugging/SKILL.md` covers corruption, register clobber,
-      off-by-one carry, timing repro, routine isolation, waiting and glyphs —
-      nothing for an infinite loop, which is the one thing demo 05 explicitly
-      grades ("work out exactly where it is stuck and why before you reset").
-      The only coverage anywhere is one row of the `c64-development` diagnosis
-      table ("Program seems to hang → sample `c64 reg` two or three times and
-      compare PC"), which stops at "your loop is wrong". The missing next
-      steps — the ones the run actually used — are: `c64 rom disasm <PC-8> 24`
-      to see the loop body, then `c64 step` a handful of times watching which
-      register never changes; the frozen register names the defective
-      instruction. Write it up as a playbook section.
 - [ ] **Disassembly is not discoverable from the debugging docs.**
       `c64 rom disasm` (`src/c64lib/cli.py:1686`) is the only way to
       disassemble RAM and its own `--help` says so ("Disassemble live memory

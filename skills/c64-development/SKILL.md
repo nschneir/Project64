@@ -367,7 +367,7 @@ reproduction, use the `6502-debugging` skill.)
 | Screen shows graphics glyphs instead of text | Uppercase in the `.bas` source — rewrite keywords AND strings lowercase. |
 | `c64 wait --text` times out | `c64 screen` and look. The program may be awaiting input (feed it with `c64 basic type` or a `key` step), still loading, or crashed. |
 | `c64 until LABEL` times out on a label that used to fire | The program branched away (death/menu/pause) and never executes LABEL again. Break at a code path that must still run and `c64 wait --break`. |
-| Program seems to hang | Sample it: run `c64 reg` two or three times and compare PC. PC stuck in your code = your loop is wrong; PC around $E5xx = the machine is idling in BASIC waiting for input. |
+| Program seems to hang | Sample it: run `c64 reg` two or three times and compare PC. PC stuck in your code = your loop is wrong — then follow the wedged-machine playbook in the `6502-debugging` skill; PC around $E5xx = the machine is idling in BASIC waiting for input. |
 | Assembly crashes or drops to READY immediately | The SYS stub math is off — `c64 rom disasm 2061 16` and confirm your first instruction is at $080D. |
 | `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg`. |
 | Machine appears frozen after debugging | It's stopped (step/finish/until/wait --break leave it stopped) — `c64 continue`. |
