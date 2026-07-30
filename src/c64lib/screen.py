@@ -7,11 +7,11 @@ from pathlib import Path
 from PIL import Image
 
 from .machines import MachineProfile
-from .monitor import MonitorClient, MonitorError
+from .monitor import MonitorError, MonitorLike
 from .text import screen_to_text
 
 
-def screen_base(mon: MonitorClient) -> int:
+def screen_base(mon: MonitorLike) -> int:
     """The live screen RAM base: VIC bank (CIA2 $DD00 bits 0-1, inverted)
     plus the screen slot in $D018 bits 4-7. Follows programs that relocate
     the screen; $0400 is only the power-on default."""
@@ -23,7 +23,7 @@ def screen_base(mon: MonitorClient) -> int:
 TEXT_ENCODINGS = ("auto", "screen", "petscii", "ascii")
 
 
-def resolve_text_encoding(mon: MonitorClient, profile: MachineProfile,
+def resolve_text_encoding(mon: MonitorLike, profile: MachineProfile,
                           addr: int, length: int,
                           requested: str = "auto") -> tuple[str, bool]:
     """Pick the gloss for a dump's text column. `auto` answers "are these
@@ -48,14 +48,14 @@ def resolve_text_encoding(mon: MonitorClient, profile: MachineProfile,
     return ("screen" if overlaps else "ascii"), False
 
 
-def read_screen_text(mon: MonitorClient, profile: MachineProfile,
+def read_screen_text(mon: MonitorLike, profile: MachineProfile,
                      style: str = "unicode", ansi_reverse: bool = False) -> str:
     size = profile.screen_cols * profile.screen_rows
     data = mon.memory_read(screen_base(mon), size)
     return screen_to_text(data, profile.screen_cols, style, ansi_reverse)
 
 
-def read_screen_codes(mon: MonitorClient, profile: MachineProfile) -> list[list[int]]:
+def read_screen_codes(mon: MonitorLike, profile: MachineProfile) -> list[list[int]]:
     """The raw screen-code matrix (rows x cols) — exact values for
     asserting on glyphs without decoding ambiguity."""
     size = profile.screen_cols * profile.screen_rows
@@ -64,7 +64,7 @@ def read_screen_codes(mon: MonitorClient, profile: MachineProfile) -> list[list[
     return [list(data[i:i + c]) for i in range(0, size, c)]
 
 
-def save_screenshot_png(mon: MonitorClient, path: str | Path,
+def save_screenshot_png(mon: MonitorLike, path: str | Path,
                         scale: int = 1, border: bool = False) -> tuple[int, int]:
     """Save the emulated display as a PNG. By default captures the 320x200
     inner screen; border=True captures the whole frame, so `POKE 53280`

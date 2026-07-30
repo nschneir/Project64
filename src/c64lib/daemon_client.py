@@ -7,8 +7,12 @@ from __future__ import annotations
 import itertools
 import json
 import socket
+from pathlib import Path
+from typing import Any
 
 from . import rpc
+from .monitor import StopInfo
+from .protocol import Checkpoint
 
 DEFAULT_TIMEOUT = 10.0
 
@@ -29,7 +33,15 @@ class DaemonMonitorClient:
 
     # --- plumbing ---------------------------------------------------------
 
-    def _call(self, method: str, *args, _timeout: float | None = None, **kwargs):
+    # `-> Any` is deliberate, not laziness: what comes back is whatever the
+    # named remote method returns, decoded by rpc.decode_value — bytes for
+    # memory_read, a Checkpoint for checkpoint_set, a dict for registers. The
+    # type is selected by the `method` string at runtime and can't be spelled
+    # statically without a per-method overload for all 24. Each public wrapper
+    # below re-narrows it with its own return annotation; do NOT "improve"
+    # this back into a union, which is what made every caller unusable.
+    def _call(self, method: str, *args, _timeout: float | None = None,
+              **kwargs) -> Any:
         rid = next(self._ids)
         rpc.send_line(self._file, {
             "id": rid, "method": method,
@@ -79,10 +91,10 @@ class DaemonMonitorClient:
     def ping(self) -> None:
         self._call("ping")
 
-    def memory_read(self, start, length, **kw) -> bytes:
+    def memory_read(self, start: int, length: int, **kw) -> bytes:
         return self._call("memory_read", start, length, **kw)
 
-    def memory_write(self, start, data, **kw) -> None:
+    def memory_write(self, start: int, data: bytes, **kw) -> None:
         self._call("memory_write", start, data, **kw)
 
     def resume(self) -> None:
@@ -91,10 +103,10 @@ class DaemonMonitorClient:
     def release(self) -> None:
         self._call("release")
 
-    def registers(self) -> dict:
+    def registers(self) -> dict[str, int]:
         return self._call("registers")
 
-    def set_register(self, name, value) -> None:
+    def set_register(self, name: str, value: int) -> None:
         self._call("set_register", name, value)
 
     def reset(self, hard: bool = False) -> None:
@@ -103,11 +115,11 @@ class DaemonMonitorClient:
     def keyboard_feed(self, petscii: bytes) -> None:
         self._call("keyboard_feed", petscii)
 
-    def display(self, full: bool = False):
+    def display(self, full: bool = False) -> tuple[int, int, bytes]:
         w, h, px = self._call("display", full=full)
         return w, h, px
 
-    def palette(self):
+    def palette(self) -> list[tuple[int, int, int]]:
         return [tuple(c) for c in self._call("palette")]
 
     def vice_info(self) -> str:
@@ -119,34 +131,34 @@ class DaemonMonitorClient:
         except (ConnectionError, TimeoutError, OSError):
             pass                       # daemon/VICE may exit before replying
 
-    def resource_get(self, name):
+    def resource_get(self, name: str) -> str | int:
         return self._call("resource_get", name)
 
-    def autostart(self, path, run: bool = True) -> None:
+    def autostart(self, path: str | Path, run: bool = True) -> None:
         self._call("autostart", str(path), run=run)
 
-    def checkpoint_set(self, start, end=None, **kw):
+    def checkpoint_set(self, start: int, end: int | None = None, **kw) -> Checkpoint:
         return self._call("checkpoint_set", start, end, **kw)
 
-    def checkpoint_delete(self, number) -> None:
+    def checkpoint_delete(self, number: int) -> None:
         self._call("checkpoint_delete", number)
 
-    def checkpoint_toggle(self, number, enabled) -> None:
+    def checkpoint_toggle(self, number: int, enabled: bool) -> None:
         self._call("checkpoint_toggle", number, enabled)
 
-    def checkpoint_list(self) -> list:
+    def checkpoint_list(self) -> list[Checkpoint]:
         return self._call("checkpoint_list")
 
-    def condition_set(self, number, expr) -> None:
+    def condition_set(self, number: int, expr: str) -> None:
         self._call("condition_set", number, expr)
 
-    def step(self, count: int = 1, over: bool = False) -> dict:
+    def step(self, count: int = 1, over: bool = False) -> dict[str, int]:
         return self._call("step", count, over=over)
 
-    def finish(self) -> dict:
+    def finish(self) -> dict[str, int]:
         return self._call("finish")
 
-    def wait_for_stop(self, timeout: float):
+    def wait_for_stop(self, timeout: float) -> StopInfo | None:
         return self._call("wait_for_stop", timeout, _timeout=timeout + 5.0)
 
     def run_until(self, addr: int, timeout: float, count: int = 1) -> dict:
