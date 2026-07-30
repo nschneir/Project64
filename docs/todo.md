@@ -125,15 +125,6 @@ item is still open.
       Verify: `.venv/bin/pytest tests/test_romdoc.py
       tests/test_docs_rom_basic.py -q`, plus `.venv/bin/c64 disasm <NAME> 8`
       live for each name added.
-- [ ] **Deferred spec items from §6 of
-      `docs/superpowers/specs/graphics-and-sprites.md`.** Two of the three
-      originally listed have since landed (the `c64 sprite` command group and
-      relocation-aware screen reads — see that section's "Implemented since
-      this spec was written" note, release 0.2.0). What remains is
-      **sprite-aware screenshot diffing** = §6's "pixel-assertion tooling
-      (golden-image diff with tolerance)", which the spec says to revisit only
-      if register+state assertions prove insufficient in practice. Re-scope
-      against current needs before starting.
 - [ ] **Charset/bitmap PNG conversion.** `c64 sprite from-png`
       (`src/c64lib/cli.py:1931`, via `sprites.sprite_from_image`) handles 24×21
       sprites only. This is the other still-open bullet in §6 of
