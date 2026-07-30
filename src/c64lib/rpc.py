@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+from typing import Any
 
 from .monitor import MonitorError, StopInfo
 from .protocol import Checkpoint
@@ -34,7 +35,14 @@ def encode_value(v):
     return v
 
 
-def decode_value(v):
+# `-> Any` is deliberate, the same call as `DaemonMonitorClient._call`: the
+# return type is chosen by the tag inside `v` at runtime — bytes for
+# `__bytes__`, a Checkpoint, a StopInfo, or a container of any of those,
+# nested arbitrarily. Spelled honestly it is a recursive union, and pyright
+# expands it at every call site into a type no caller can use: it is what made
+# `daemon.py`'s two `_dispatch` arguments and all of `tests/test_rpc.py`
+# unusable. Callers know which method they asked for and re-narrow themselves.
+def decode_value(v) -> Any:
     if isinstance(v, dict):
         if "__bytes__" in v:
             return base64.b64decode(v["__bytes__"])
