@@ -58,6 +58,60 @@ def test_wait_text_since_ignores_stale_occurrence():
     assert [st.ok for st in result.steps] == [True]
 
 
+def test_wait_accepts_screen_as_alias_for_text():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    screens = ["READY.", "READY.", "HELLO", "HELLO", "HELLO"]
+    spec = _spec(steps=[{"wait": {"screen": "HELLO"}}])
+    with patch("c64lib.testing.read_screen_text", side_effect=screens):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert [st.ok for st in result.steps] == [True]
+
+
+def test_wait_screen_since_ignores_stale_occurrence():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    screens = ["READY.", "TOO HIGH", "TOO HIGH", "TOO HIGH\nTOO HIGH", "TOO HIGH\nTOO HIGH"]
+    spec = _spec(steps=[
+        {"wait": {"screen": "TOO HIGH", "since": True}},
+    ])
+    with patch("c64lib.testing.read_screen_text", side_effect=screens):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert [st.ok for st in result.steps] == [True]
+
+
+def test_assert_accepts_text_as_alias_for_screen():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(steps=[{"assert": {"text": "READY."}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert [st.ok for st in result.steps] == [True]
+
+
+def test_wait_step_with_neither_text_nor_mem_names_both_spellings():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(steps=[{"wait": {"nonsense": 1}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         pytest.raises(TestError, match="screen") as exc:
+        run_test(spec, launch=launch)
+    assert "text" in str(exc.value)
+
+
+def test_assert_step_with_no_recognized_key_names_both_spellings():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(steps=[{"assert": {"nonsense": 1}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         pytest.raises(TestError, match="text") as exc:
+        run_test(spec, launch=launch)
+    assert "screen" in str(exc.value)
+
+
 def test_poke_and_until_steps():
     s, mon = _fake_session()
     launch = Mock(return_value=s)

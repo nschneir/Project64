@@ -1283,7 +1283,9 @@ steps:
   - call:   { routine: add_score, a: 5 }    # JSR one routine in isolation
                                             #   (unit test: poke inputs
                                             #   first, assert results after)
-  - assert: { screen: "READY." }            # substring on screen now
+  - assert: { text: "READY." }              # substring on screen now
+  - assert: { screen: "READY." }            # `screen` is an accepted alias for
+                                            #   `text` — in `wait` too
   - assert: { mem: "@12,20", equals: 81 }   # screen cell row 12, col 20
   - assert: { mem: "$0400", equals_text: "HELLO" }  # screen RAM as text
   - assert: { mem: "$1000", equals: [1, 2, 3] }     # exact bytes
@@ -1316,6 +1318,9 @@ and `call` (JSR `routine` in isolation with optional `a`/`x`/`y` on
 entry, stopping at its RTS — routine-level unit testing; fails on
 timeout, which usually means the routine never returns from that entry
 state).
+The screen-substring check is spelled `text` in both `wait` and `assert`,
+and `screen` is accepted as an alias in both — so a copied step survives a
+change of verb.
 A `poke` right before an `until` is the held-key protocol (`c64 key
 hold` as steps). Step addresses accept everything the CLI does —
 `$hex`/`0xhex`/decimal, symbols from the built program's label file,

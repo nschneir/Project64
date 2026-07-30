@@ -445,8 +445,10 @@ def _do_step(session, kind: str, arg, default_timeout: float,
 
     if kind == "wait":
         timeout = arg.get("timeout", default_timeout)
-        if "text" in arg:
-            want = str(arg["text"])
+        if "text" in arg or "screen" in arg:
+            # `screen` is the assert spelling; both verbs accept both so a
+            # copied step survives a verb change.
+            want = str(arg["text"] if "text" in arg else arg["screen"])
             base = _screen(session).count(want) if arg.get("since") else 0
             ok, _ = _wait_screen(session, lambda t: t.count(want) > base, timeout)
             return ok, (f"text {want!r} seen" if ok
@@ -494,14 +496,17 @@ def _do_step(session, kind: str, arg, default_timeout: float,
                            f"reached direct mode, and may be wedged (PC at "
                            f"{pcs}). Note an earlier `until` step leaves the "
                            f"machine STOPPED, which never goes idle either.")
-        raise TestError(f"wait step needs 'text', 'mem', or 'idle': {arg}")
+        raise TestError(
+            f"wait step needs 'text' (alias 'screen'), 'mem', or 'idle': {arg}")
 
     # kind == "assert"
-    if "screen" in arg:
+    if "screen" in arg or "text" in arg:
+        # `text` is the wait spelling; accepted here for the same reason.
+        needle = str(arg["screen"] if "screen" in arg else arg["text"])
         text = _screen(session)
-        ok = arg["screen"] in text
-        return ok, (f"screen contains {arg['screen']!r}" if ok
-                    else f"screen missing {arg['screen']!r}")
+        ok = needle in text
+        return ok, (f"screen contains {needle!r}" if ok
+                    else f"screen missing {needle!r}")
     if "mem" in arg:
         addr = _addr(arg["mem"])
 
@@ -588,7 +593,8 @@ def _do_step(session, kind: str, arg, default_timeout: float,
         ok = lo <= val <= hi
         return ok, (f"{name}={val:#06x} in [{lo:#06x}, {hi:#06x}]" if ok
                     else f"{name}={val:#06x} not in [{lo:#06x}, {hi:#06x}]")
-    raise TestError(f"assert step needs 'screen', 'mem', or 'reg': {arg}")
+    raise TestError(
+        f"assert step needs 'screen' (alias 'text'), 'mem', or 'reg': {arg}")
 
 
 def run_test(spec: dict, launch=Session.launch) -> TestResult:
