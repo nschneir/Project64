@@ -25,6 +25,18 @@ to wait for "the program stopped", a statically provable `?BAD SUBSCRIPT`
 the linter passed, and no written procedure for a wedged machine.
 `docs/todo.md`'s "Observability gaps" section is gone with them.
 
+And a triage pass over the standing backlog, which was six items and is
+three. Two closed outright — a CLI exit code that disagreed with the other
+~25 input arguments, and a test-DSL check that was spelled two ways — and
+one shrank to its next tranche once the ROM label DB grew past a seed. The
+other two closed without code: golden-image sprite diffing was ruled out
+because its own revisit trigger ("only if register+state assertions prove
+insufficient in practice") never fired across the demo 02 and 04 runs, and
+PNG charset and bitmap conversion was re-scoped as blocked on demo 07, its
+first real consumer, rather than designed against a guess at what it will
+need. Those two have no entries below because nothing shipped; their
+reasoning is in the commit messages.
+
 ### Fixed
 - **A "headless" VICE launch on a GTK3 build still opened a focused window
   and stole host keystrokes.** `Session.launch(headless=True)` set only
@@ -67,6 +79,21 @@ the linter passed, and no written procedure for a wedged machine.
   parameter and key. `c64 disk block read` shares the same dump helper, so
   its sector dumps carry the label too (always `# text column: ascii` — a
   sector is host-side file bytes with no live screen to resolve against).
+- **`c64 sprite from-png` on a missing file exits 2, not 1.** Its `IMAGE`
+  argument was the CLI's only bare `click.Path()` input: the command opened
+  the path itself and routed `FileNotFoundError` through `fail()`, so a
+  typo'd filename exited 1 — the runtime-failure code — while the ~25 other
+  input-file arguments, its own sibling `c64 sprite encode` included, exited
+  2 through Click's `UsageError`. An agent branching on the exit code was
+  told "your image is broken" where every other command in the CLI would
+  have said "you asked wrong". The argument now declares
+  `exists=True, dir_okay=False, path_type=Path` and lets Click do the check;
+  the dead `FileNotFoundError` arm is gone. The line lands where the rest of
+  the CLI draws it: a file that is *present* and will not decode still exits
+  1. `docs/cli.md`'s Exit codes bullet documented only 0 and 1 and now
+  carries the exit-2 case plus the split under `c64 sprite from-png`, and
+  the tests for both commands moved from asserting "non-zero" to the exact
+  code on each side of the line.
 
 ### Changed
 - **Live-wait timeouts now scale under `coverage` instrumentation**
@@ -86,6 +113,17 @@ the linter passed, and no written procedure for a wedged machine.
   scale-1.0 failure's 64s. Scaling a wait on a machine that has already
   gone wrong for an unrelated reason just makes a doomed test take three
   times longer to fail.
+- **The test DSL's `wait` and `assert` take `text` and `screen`
+  interchangeably.** The same screen-substring check was spelled
+  `wait: {text: "READY."}` but `assert: {screen: "READY."}`, so copying a
+  step and changing the verb failed — and failed with an error that named
+  only the key the *other* verb wanted, which reads like the step is
+  malformed rather than like the key has two spellings. Both steps now
+  accept either key (the verb's own spelling wins if a step carries both),
+  and both error messages name the pair. `text` is canonical in
+  `docs/cli.md`, with `screen` written down as its alias instead of left to
+  be rediscovered. `_STEP_KEYS` is untouched: `wait` and `assert` stay
+  lenient about unrecognized keys by design.
 
 ### Added
 - **`c64 wait --idle` — block until the program has finished or errored.**
@@ -146,6 +184,40 @@ the linter passed, and no written procedure for a wedged machine.
   already proven, never ones that are merely likely. Demo 05's prompt now
   says outright that evidence must come from the running machine, so
   catching layer 1 with `basic check` does not clear it.
+- **First curated tranche of the ROM label database: `basic2.lbl` goes 44 →
+  184 labels.** The seed that shipped in 0.1.0 was the KERNAL jump table,
+  the hardware vectors and a few BASIC pointers — the addresses a program
+  *calls*, which is not where a debugging agent's PC actually lands. The 140
+  new labels are that second set: 76 zero page, 39 BASIC ROM, 25 KERNAL
+  internals, covering the interpreter core (`CHRGET`, `MAIN`, `CRUNCH`,
+  `GONE`, `EVAL`, `SNERR` → `ERROR` → `READY`), the editor and interrupt
+  paths (`INLOOP`, `IRQMAIN`, `IRQBRK`, `RESET`), and the zero-page state a
+  live session reads (`TXTTAB`-`MEMSIZ`, `CURLIN`, `DATLIN`, `NDX`, `TIME`).
+  `c64 reg` and `c64 disasm` merge this file with the session labels, so the
+  bare `PC=e5d1` above now reads as `INLOOP+4` with no label file loaded at
+  all — and `$E5CD` is the same address `ops.IDLE_PC_RANGE` watches for
+  `c64 wait --idle`, so a comment beside that constant points at the label
+  and the two cannot drift apart silently. The file is address-ordered
+  throughout now, so a new label lands beside its neighbours.
+  Provenance is the constraint `romdoc.py`'s docstring sets: names and
+  addresses are ours, no ROM bytes and no published disassembly enter the
+  repo, and every address was checked against a live x64sc (KERNAL
+  901227-03) before shipping — ROM entry points by their own code
+  (`SYNCHR $AEFF` as `cmp ($7a),y / bne SNERR / jmp CHRGET`), the rest
+  against the machine's own tables (the `$FF81-$FFF3` jump targets, the
+  `$A00C` statement vectors, the `$0314` RAM vectors, `$03`/`$05` holding
+  `$B1AA`/`$B391`) and zero page read at known states. Two candidates were
+  dropped rather than guessed at, `$E8EA` because its disassembly did not
+  distinguish it from its neighbours. Two hygiene tests gate the next
+  tranche — `test_label_file_hygiene` (parses, no duplicate name or address,
+  addresses inside the allowed regions) and
+  `test_label_file_is_address_ordered` — and the existing doc-parity test
+  grew with the DB: it now accepts `references/zero-page.md` alongside
+  `references/kernal-routines.md`, and both gained the matching rows, so no
+  shipped name is a number a reader cannot look up. While writing those
+  rows, `zero-page.md`'s claim that `c64 mem read` annotates zero page from
+  the label DB was corrected — it does not, and now says so; `reg` and
+  `disasm` are the two commands that merge it.
 
 ### Documentation
 - **A wedged-machine playbook** (`6502-debugging` SKILL.md, "A wedged
