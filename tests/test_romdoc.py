@@ -40,16 +40,21 @@ def test_label_file_hygiene(fname):
 
     # every non-blank line is a label line in the file's house format --
     # `al C:xxxx .NAME`, lowercase hex, uppercase name
-    bad = [ln for ln in lines if not _LINE_RE.match(ln)]
+    matched = [(ln, _LINE_RE.match(ln)) for ln in lines]
+    bad = [ln for ln, m in matched if m is None]
     assert not bad, f"{fname}: malformed lines: {bad}"
     assert len(labels) == len(lines), f"{fname}: {len(lines)} lines parsed to " \
                                      f"{len(labels)} labels"
 
-    names = [_LINE_RE.match(ln).group(2) for ln in lines]
+    # `m is not None` for every line — that is what the assert above just
+    # established. Matching once and reusing it also drops two extra regex
+    # passes over the whole label file.
+    hits = [m for _, m in matched if m is not None]
+    names = [m.group(2) for m in hits]
     dup_names = sorted({n for n in names if names.count(n) > 1})
     assert not dup_names, f"{fname}: duplicate names: {dup_names}"
 
-    addrs = [int(_LINE_RE.match(ln).group(1), 16) for ln in lines]
+    addrs = [int(m.group(1), 16) for m in hits]
     dup_addrs = sorted({f"${a:04x}" for a in addrs if addrs.count(a) > 1})
     assert not dup_addrs, f"{fname}: duplicate addresses: {dup_addrs}"
 

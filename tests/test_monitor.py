@@ -99,6 +99,7 @@ def test_quit_swallows_no_reply():
 def test_request_times_out_without_response():
     fake = FakeVice({Command.PING: lambda b, rid: []})   # server never replies
     with _client(fake) as c:
+        assert c._sock is not None       # `_client` connected it
         c._sock.settimeout(0.3)          # recv gives up quickly -> TimeoutError
         with pytest.raises(TimeoutError):
             c.ping()

@@ -20,9 +20,14 @@ def test_inventory_size_sanity():
 
 def test_session_commands_share_name_option():
     """WS4: one spelling (-s/--name) works on every session-targeting command."""
+    import click
+
     from c64lib.cli import main as cli
+    session = cli.commands["session"]
+    # click types Group.commands as dict[str, Command]; `session` is a group.
+    assert isinstance(session, click.Group)
     for cmd_name in ("start", "stop"):
-        cmd = cli.commands["session"].commands[cmd_name]
+        cmd = session.commands[cmd_name]
         names = {o for p in cmd.params for o in getattr(p, "opts", [])}
         assert "--name" in names and "-s" in names, \
             f"session {cmd_name} lacks -s/--name (has {sorted(names)})"

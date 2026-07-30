@@ -413,6 +413,9 @@ def test_merge_bank_labels_prefixes_each_symbol(tmp_path):
     hi = tmp_path / "b1hi.lbl"
     hi.write_text("al 00A000 .table\n")
     out = merge_bank_labels({(1, "lo"): lo, (1, "hi"): hi}, tmp_path / "game.crt.lbl")
+    # None means "no symbols survived the merge" — a distinct failure from
+    # "merged the wrong ones", and worth saying so before reading the file.
+    assert out is not None
     text = out.read_text()
     assert ".b01lo_update" in text
     assert ".b01lo_draw" in text
@@ -423,6 +426,7 @@ def test_merge_bank_labels_drops_linker_internals(tmp_path):
     lbl = tmp_path / "b0lo.lbl"
     lbl.write_text("al 008000 .main\nal 00E100 .__RAMCODE_LOAD__\n")
     out = merge_bank_labels({(0, "lo"): lbl}, tmp_path / "m.lbl")
+    assert out is not None                  # dropping *every* symbol is a bug too
     assert "__RAMCODE_LOAD__" not in out.read_text()
     assert ".b00lo_main" in out.read_text()
 

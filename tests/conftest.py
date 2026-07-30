@@ -20,6 +20,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -256,7 +257,7 @@ def _shared_c64(_c64_home, _track_launches):
 
 
 @pytest.fixture
-def session(_shared_c64) -> Session:
+def session(_shared_c64) -> Iterator[Session]:
     """A live C64 at the READY prompt, shared across the run.
 
     Cleaned before the test — the actual protection — and after it, so a leak

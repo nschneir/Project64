@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -129,7 +130,11 @@ def test_cli_rename_reports_a_missing_source_file(tmp_path):
 
 
 def test_cli_rm_alias_delete_exists():
-    assert "delete" in main.commands["disk"].commands
+    disk = main.commands["disk"]
+    # click types Group.commands as dict[str, Command], so a nested group
+    # comes back as the base class; assert what `disk` actually is.
+    assert isinstance(disk, click.Group)
+    assert "delete" in disk.commands
 
 
 @needs_c1541

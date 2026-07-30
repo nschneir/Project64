@@ -4,6 +4,7 @@ what people type first)."""
 import json
 from unittest.mock import Mock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -29,7 +30,10 @@ def test_json_before_subcommand_still_works():
 
 
 def test_json_available_on_nested_group_commands():
-    cmd = main.commands["basic"].commands["check"]
+    basic = main.commands["basic"]
+    # click types Group.commands as dict[str, Command]; `basic` is a group.
+    assert isinstance(basic, click.Group)
+    cmd = basic.commands["check"]
     assert "--json" in {o for p in cmd.params for o in getattr(p, "opts", [])}
 
 

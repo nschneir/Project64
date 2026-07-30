@@ -76,8 +76,13 @@ def test_parses_easyflash_banks_and_windows(tmp_path):
     crt = parse_crt(path)
     assert crt.mode == "ultimax"          # EasyFlash boots in Ultimax
     assert crt.banks == (0, 2)            # sparse banks are normal output
-    assert crt.chip(2, "lo").data[:1] == b"A"
-    assert crt.chip(2, "hi").data[:1] == b"a"
+    lo, hi = crt.chip(2, "lo"), crt.chip(2, "hi")
+    # `chip()` returns None for an absent window — which is the very next
+    # assertion for bank 1, so name the difference instead of letting a
+    # missing bank-2 chip surface as AttributeError on None.
+    assert lo is not None and hi is not None
+    assert lo.data[:1] == b"A"
+    assert hi.data[:1] == b"a"
     assert crt.chip(1, "lo") is None
 
 

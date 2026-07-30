@@ -14,6 +14,8 @@ from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
 
+from tests.test_mcp_scaffold import text_of
+
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
@@ -37,7 +39,7 @@ def test_stdio_subprocess_handshake(tmp_path):
                 names = [t.name for t in tools.tools]
                 assert "c64_screen_text" in names and "c64_build" in names
                 r = await cs.call_tool("c64_session_list", {})
-                assert json.loads(r.content[0].text) == {"sessions": []}
+                assert json.loads(text_of(r.content[0])) == {"sessions": []}
 
     anyio.run(go)
 
@@ -56,8 +58,8 @@ def test_live_flow_through_mcp():
         async with client_session(srv._mcp_server) as client:
             async def call(name, args):
                 r = await client.call_tool(name, args)
-                assert not r.isError, r.content[0].text
-                return json.loads(r.content[0].text)
+                assert not r.isError, text_of(r.content[0])
+                return json.loads(text_of(r.content[0]))
 
             out = await call("c64_session_start", {"model": "c64"})
             try:

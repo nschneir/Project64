@@ -398,8 +398,14 @@ def test_the_built_distributions_carry_the_data_files(tmp_path):
     import tarfile
     import zipfile
 
-    from hatchling.builders.sdist import SdistBuilder
-    from hatchling.builders.wheel import WheelBuilder
+    # hatchling is the build backend (`[build-system] requires`), not a `dev`
+    # dependency, so it is absent from the project venv a type checker
+    # resolves against. The skipif above is the runtime guard; these say the
+    # same thing to pyright. Do not "fix" by adding hatchling to `dev` —
+    # installing the build backend into the runtime env to satisfy a checker
+    # is the wrong trade.
+    from hatchling.builders.sdist import SdistBuilder  # pyright: ignore[reportMissingImports]
+    from hatchling.builders.wheel import WheelBuilder  # pyright: ignore[reportMissingImports]
 
     root = str(Path(__file__).resolve().parents[1])
     wheel = next(iter(WheelBuilder(root).build(directory=str(tmp_path))))

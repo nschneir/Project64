@@ -7,11 +7,26 @@ import pytest
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
+from mcp.types import TextContent
 
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+
+
+def text_of(block) -> str:
+    """The text of one tool-result content block.
+
+    `CallToolResult.content` is a union — TextContent, ImageContent,
+    AudioContent, ResourceLink, EmbeddedResource — and only the first has
+    `.text`. Every tool in this server answers with a JSON string, so the
+    isinstance check is the invariant these tests already assume; stating it
+    narrows the union and turns the day it stops holding into a named failure
+    instead of `AttributeError: 'ImageContent' object has no attribute 'text'`.
+    """
+    assert isinstance(block, TextContent), f"expected text content, got {block!r}"
+    return block.text
 
 
 def call_tool(name: str, args: dict) -> tuple[bool, dict]:
@@ -23,7 +38,7 @@ def call_tool(name: str, args: dict) -> tuple[bool, dict]:
             return await client.call_tool(name, args)
 
     r = anyio.run(go)
-    text = r.content[0].text if r.content else ""
+    text = text_of(r.content[0]) if r.content else ""
     payload = json.loads(text) if not r.isError and text else {"raw": text}
     return r.isError, payload
 

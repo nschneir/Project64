@@ -151,7 +151,9 @@ def test_blocks_for_an_empty_file_still_costs_one():
 def test_dos_status_parses_the_error_line():
     assert dos_status("renaming\nERR = 62, FILE NOT FOUND, 00, 00\n") == (
         62, "FILE NOT FOUND", 0, 0)
-    assert dos_status("ERR = 01, FILES SCRATCHED, 03, 00")[2] == 3
+    scratched = dos_status("ERR = 01, FILES SCRATCHED, 03, 00")
+    assert scratched is not None            # the None case is the next line
+    assert scratched[2] == 3
     assert dos_status("nothing to see here") is None
 
 

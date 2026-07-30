@@ -435,14 +435,18 @@ def test_build_tool_round_trips_through_the_mcp_server(tmp_path):
 
 def test_every_disk_cli_command_has_an_mcp_tool():
     """The repo's cardinal rule: CLI and MCP move in lockstep."""
+    import click
+
     from c64lib.cli import main
     registered = _registered_tool_names()
     disk = main.commands["disk"]
+    # click types Group.commands as dict[str, Command]; `disk` is a group.
+    assert isinstance(disk, click.Group)
     for name, cmd in disk.commands.items():
         if name == "delete":
             continue                            # alias of rm
         leaves = ([f"{name}_{sub}" for sub in cmd.commands]
-                  if hasattr(cmd, "commands") else [name])
+                  if isinstance(cmd, click.Group) else [name])
         for leaf in leaves:
             tool = f"c64_disk_{leaf.replace('-', '_')}"
             assert hasattr(mcp_server, tool), f"missing MCP tool {tool}"

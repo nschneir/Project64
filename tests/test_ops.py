@@ -281,9 +281,15 @@ def test_run_until_falls_back_on_old_daemon():
     for name in ("checkpoint_set", "wait_for_stop", "registers",
                  "checkpoint_delete", "resume", "checkpoint_list"):
         setattr(mon, name, Mock())
-    mon.checkpoint_set.return_value = _ck7()
-    mon.wait_for_stop.return_value = StopInfo(pc=0x1000, checkpoint=7)
-    mon.registers.return_value = {"PC": 0x1000}
+    # `mon` is deliberately a real DaemonMonitorClient (that is what the
+    # fallback has to work on), so pyright resolves `mon.checkpoint_set` to
+    # the declared bound method and cannot see the Mock that setattr just put
+    # there. Unmodellable rather than wrong — the alternative is a Mock(spec=)
+    # stand-in, which would stop testing the real class.
+    mon.checkpoint_set.return_value = _ck7()  # pyright: ignore[reportAttributeAccessIssue]
+    _stopped = StopInfo(pc=0x1000, checkpoint=7)
+    mon.wait_for_stop.return_value = _stopped  # pyright: ignore[reportAttributeAccessIssue]
+    mon.registers.return_value = {"PC": 0x1000}  # pyright: ignore[reportAttributeAccessIssue]
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
     s.monitor.return_value.__exit__ = Mock(return_value=False)
     out = run_until(s, 0x1000, timeout=5, count=1)

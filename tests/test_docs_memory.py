@@ -108,6 +108,7 @@ def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
     section = (REF / "zero-page.md").read_text().split(
         "## Free zero page for user ML pointers")[1]
     row = re.search(r"\|\s*([0-9A-F]{2})-([0-9A-F]{2})\s*\|", section)
+    assert row, "no $xx-$xx range row under the free-zero-page heading"
     lo, hi = int(row.group(1), 16), int(row.group(2), 16)
     claimed = list(range(lo, hi + 1))
 

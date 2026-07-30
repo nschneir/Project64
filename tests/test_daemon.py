@@ -26,12 +26,18 @@ def _hit_event(number=3):
                 body=bytes([number, 0, 0, 0, 1]))
 
 
-def _daemon(state=RUNNING):
-    d = PetDaemon(Mock(), None, "t")
+def _daemon(state=RUNNING) -> tuple[PetDaemon, Mock]:
+    # Configure the Mock directly rather than reaching back through `d.mon`:
+    # `PetDaemon.mon` is declared `MonitorClient`, so every `.return_value` /
+    # `.assert_called_once()` reached that way is a mock attribute on a type
+    # that does not declare one. Same object either way (`__init__` just
+    # assigns), and the annotation carries `Mock` out to the callers.
+    mon = Mock()
+    d = PetDaemon(mon, None, "t")
     d.state = state
-    d.mon.events = collections.deque()
-    d.mon.poll_events.return_value = []   # _restore pumps before deciding
-    return d, d.mon
+    mon.events = collections.deque()
+    mon.poll_events.return_value = []     # _restore pumps before deciding
+    return d, mon
 
 
 def _talk(d):

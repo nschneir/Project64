@@ -1,4 +1,5 @@
 import shutil
+from dataclasses import replace
 from unittest.mock import Mock
 
 import pytest
@@ -22,7 +23,13 @@ def _mock_mon(vic: bytes, pointers: bytes):
     return mon
 
 
-def _vic(**over):
+def _vic():
+    # No override hook: the one this helper used to carry (`**over` writing
+    # `v[k] = val`) indexed a bytearray with the keyword *name*, so any call
+    # that actually passed an override would have raised TypeError. Nothing
+    # ever did — every caller in this file and in test_cli_sprite.py calls
+    # `_vic()` bare. Removed rather than repaired; add a typed one when a test
+    # needs it.
     v = bytearray(0x2F)
     v[0x00], v[0x01] = 100, 120          # sprite 0 x/y
     v[0x02], v[0x03] = 44, 55            # sprite 1 x/y
@@ -34,8 +41,6 @@ def _vic(**over):
     v[0x20], v[0x21] = 14, 6             # border, background
     v[0x25], v[0x26] = 10, 11            # mc shared colors
     v[0x27], v[0x28] = 7, 2              # sprite 0/1 colors
-    for k, val in over.items():
-        v[k] = val
     return bytes(v)
 
 
@@ -90,12 +95,17 @@ def test_sprite_ascii_multicolor_pairs():
     assert rows[0][:8] == "··▒▒██▓▓"
 
 
+# Overrides go through dataclasses.replace rather than a `dict` of kwargs: a
+# dict mixing the int fields (x, pointer, color) with the bool ones widens to
+# `dict[str, int]`, and splatting that back into SpriteState offers an int for
+# every `bool` field. `replace` keeps each field's own type.
+_BASE_STATE = SpriteState(index=0, enabled=True, x=0, y=0, pointer=13,
+                          block_addr=832, color=1, multicolor=False,
+                          expand_x=False, expand_y=False, behind_text=False)
+
+
 def _state(**over):
-    base = dict(index=0, enabled=True, x=0, y=0, pointer=13, block_addr=832,
-                color=1, multicolor=False, expand_x=False, expand_y=False,
-                behind_text=False)
-    base.update(over)
-    return SpriteState(**base)
+    return replace(_BASE_STATE, **over)
 
 
 _SHARED = {"mc_color1": 10, "mc_color2": 11, "background": 6, "border": 14}

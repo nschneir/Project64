@@ -215,9 +215,14 @@ def test_run_names_crt_among_the_runnable_extensions(tmp_path):
 
 def test_every_cart_cli_command_has_an_mcp_tool():
     """The repo's cardinal rule: CLI and MCP move in lockstep."""
+    import click
+
     from c64lib.cli import main
     registered = _registered_tool_names()
-    for name in main.commands["cart"].commands:
+    cart = main.commands["cart"]
+    # click types Group.commands as dict[str, Command]; `cart` is a group.
+    assert isinstance(cart, click.Group)
+    for name in cart.commands:
         tool = f"c64_cart_{name.replace('-', '_')}"
         assert hasattr(mcp_server, tool), f"missing MCP tool {tool}"
         assert tool in registered, f"{tool} is not registered with the server"

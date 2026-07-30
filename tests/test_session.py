@@ -95,6 +95,7 @@ def test_labels_path_persists(home):
         s.set_labels_path("/tmp/prog.lbl")
         again = Session.attach("alpha")
         # set_labels_path resolves; macOS resolves /tmp -> /private/tmp
+        assert again.labels is not None      # `s.labels is None` was the before-state
         assert again.labels.endswith("/tmp/prog.lbl")
     finally:
         proc.kill()

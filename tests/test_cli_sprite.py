@@ -7,7 +7,10 @@ from c64lib.cli import main
 from c64lib.sprites import encode_sprite, format_bytes
 
 
-def _vic(**over):
+def _vic():
+    # See test_sprites.py's twin: the old `**over` hook indexed a bytearray
+    # with the keyword name, so it could only ever raise TypeError. Both call
+    # sites here pass nothing.
     v = bytearray(0x2F)
     v[0x00], v[0x01] = 100, 120
     v[0x02], v[0x03] = 44, 55
@@ -16,8 +19,6 @@ def _vic(**over):
     v[0x20], v[0x21] = 14, 6
     v[0x25], v[0x26] = 10, 11
     v[0x27], v[0x28] = 7, 2
-    for k, val in over.items():
-        v[k] = val
     return bytes(v)
 
 

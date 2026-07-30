@@ -46,6 +46,17 @@ class _FakeMonitorCtx:
 
 
 class _FakeSession:
+    """The whole `Session` surface `_wait_ready`/`_reset_clean` touch.
+
+    Deliberately not a `Session` subclass: inheriting would drag in the real
+    `__init__` (registry record, socket, a live x64sc) and stop this from
+    being the no-emulator test it exists to be. So the two calls below carry
+    `# pyright: ignore[reportArgumentType]` — the mismatch is the point of
+    the fake, not a defect. Widening the helpers' annotations to a Protocol
+    would type it properly, but that is a change to conftest's public shape
+    and belongs with whoever needs it.
+    """
+
     profile = None
 
     def monitor(self):
@@ -69,7 +80,7 @@ def test_wait_ready_deadline_scales_with_timeout_scale(monkeypatch, fake_clock):
     monkeypatch.setattr(ct, "read_screen_text", lambda mon, profile: "")
 
     with pytest.raises(TimeoutError):
-        ct._wait_ready(_FakeSession(), timeout=1.0)
+        ct._wait_ready(_FakeSession(), timeout=1.0)  # pyright: ignore[reportArgumentType]
 
     # An unscaled deadline would have given up around clock == 1.0; reaching
     # 5.0 proves the ×5 sentinel scale was applied to the wait itself.
@@ -81,6 +92,6 @@ def test_reset_clean_deadline_scales_with_timeout_scale(monkeypatch, fake_clock)
     monkeypatch.setattr(ct, "read_screen_text", lambda mon, profile: "")
 
     with pytest.raises(TimeoutError):
-        ct._reset_clean(_FakeSession(), timeout=1.0)
+        ct._reset_clean(_FakeSession(), timeout=1.0)  # pyright: ignore[reportArgumentType]
 
     assert fake_clock["now"] >= 5.0
