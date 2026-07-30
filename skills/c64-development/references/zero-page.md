@@ -119,9 +119,11 @@ behavior switches (verified on a live machine unless noted):
 
 ## The label database
 
-The names `c64 disasm` and `c64 mem read` annotate these bytes with, shipped
-in `src/c64lib/data/rom_labels/basic2.lbl` — so `lda $c6` prints as
-`lda $c6 (NDX)`. Sections above are the *explanation*; this is the index.
+The names `c64 disasm` and `c64 reg` annotate these bytes with, shipped in
+`src/c64lib/data/rom_labels/basic2.lbl` — so `lda $c6` prints as
+`lda $c6 (NDX)`. (`c64 mem read` does *not* see them: it resolves only the
+session's own label file, and its hex dump carries no label gloss.)
+Sections above are the *explanation*; this is the index.
 Each address was checked on a live machine while the tranche was authored
 (a memory read at a known state, or the ROM code that touches it — e.g.
 `$45/$46` read `XY` after `10 XY=7`), but only the entries marked *(live)*
