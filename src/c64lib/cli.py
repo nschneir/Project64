@@ -843,8 +843,17 @@ def run_cmd(ctx, source):
                           f"at power-on) and stopping it failed: {e}")
                 return
         try:
-            new = Session.launch(model=model, name=name, headless=False,
-                                 warp=False, cart=str(src))
+            # `name`/`model` are bound on every path that reaches here, and
+            # the ignore is a checker limitation, not a papered-over hole:
+            # they are unbound only if `if old is not None` was False, and
+            # `old` is None only on the `except SessionError` branch — which
+            # is the branch that binds them. Pyright does not correlate a
+            # variable's *value* with another variable's boundness, so the
+            # tuple unpack `old, name, model = None, None, "c64"` widens `old`
+            # to `Session | None` and it stops being able to see that.
+            new = Session.launch(
+                model=model, name=name,  # pyright: ignore[reportPossiblyUnboundVariable]
+                headless=False, warp=False, cart=str(src))
         except (SessionError, KeyError) as e:
             fail(ctx, str(e))
             return

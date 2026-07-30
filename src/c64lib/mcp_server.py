@@ -577,8 +577,13 @@ def c64_run(source: str, session: str | None = None) -> dict:
                     f"and stopping it failed: {e}") from e
         # headless/warp as everywhere in this server (see c64_session_start):
         # an MCP client is an automation, not someone watching a window.
-        new = Session.launch(model=model, name=name, headless=True, warp=True,
-                             cart=str(src))
+        # `name`/`model`: same shape as cli.py's `run` — bound on every path
+        # that reaches here (unbound only if `old is not None` was False, and
+        # `old` is None only on the except branch that binds them). Pyright
+        # cannot correlate `old`'s value with their boundness.
+        new = Session.launch(
+            model=model, name=name,  # pyright: ignore[reportPossiblyUnboundVariable]
+            headless=True, warp=True, cart=str(src))
         lbl = src.with_suffix(".lbl")
         if lbl.exists():
             new.set_labels_path(str(lbl))
