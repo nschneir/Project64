@@ -116,3 +116,94 @@ behavior switches (verified on a live machine unless noted):
 | 678 / $02A6 | Region flag set at power-on: 0 = NTSC (`c64`), 1 = PAL (`c64pal`) — a program can self-detect and adjust timing *(verified: 0 on NTSC)* |
 | 780-783 | A / X / Y / status passed to (and returned from) the next `SYS` — how BASIC drives the KERNAL jump table (see cookbook.md) *(verified via PLOT)* |
 | 808 / $0328 | STOP-key vector low byte: `POKE 808,239` disables RUN/STOP (STOP/RESTORE still works), `234` disables both but breaks LIST, `237` restores |
+
+## The label database
+
+The names `c64 disasm` and `c64 mem read` annotate these bytes with, shipped
+in `src/c64lib/data/rom_labels/basic2.lbl` — so `lda $c6` prints as
+`lda $c6 (NDX)`. Sections above are the *explanation*; this is the index.
+Each address was checked on a live machine while the tranche was authored
+(a memory read at a known state, or the ROM code that touches it — e.g.
+`$45/$46` read `XY` after `10 XY=7`), but only the entries marked *(live)*
+elsewhere in this file are re-asserted by the test suite.
+
+| Addr | Name   | Byte(s) |
+|------|--------|---------|
+| 0000 | D6510  | 6510 data-direction register (default $2F) |
+| 0001 | R6510  | 6510 I/O port — memory banking (default $37) |
+| 0003 | ADRAY1 | Vector: FAC1 → signed integer (holds $B1AA) |
+| 0005 | ADRAY2 | Vector: signed integer → FAC1 (holds $B391) |
+| 0007 | CHARAC | String-scan terminator character |
+| 0008 | ENDCHR | Second string-scan terminator |
+| 000B | COUNT  | Input-buffer index / subscript count |
+| 000C | DIMFLG | DIM in progress |
+| 000D | VALTYP | Expression type: 0 = numeric, $FF = string |
+| 000E | INTFLG | Integer-variable flag |
+| 000F | GARBFL | String garbage-collection flag |
+| 0010 | SUBFLG | Subscript / FN name allowed |
+| 0011 | INPFLG | Which of INPUT / GET / READ is running |
+| 0013 | CHANNL | Current I/O channel for PRINT |
+| 0014 | LINNUM | 16-bit line-number scratch; where GETADR leaves its result |
+| 0022 | INDEX  | Four bytes of pointer scratch ($22-$25) |
+| 002B | TXTTAB | Start of BASIC text (= $0801) |
+| 002D | VARTAB | End of program / start of variables |
+| 002F | ARYTAB | Start of arrays |
+| 0031 | STREND | End of arrays (start of free memory) |
+| 0033 | FRETOP | Bottom of string storage |
+| 0035 | FRESPC | String-work pointer |
+| 0037 | MEMSIZ | Top of BASIC memory (= $A000) |
+| 0039 | CURLIN | Line being executed; $FF in the high byte = direct mode |
+| 003B | OLDLIN | Line CONT resumes at (set by STOP/END) |
+| 003D | OLDTXT | Text pointer CONT resumes at |
+| 003F | DATLIN | Line the last READ took DATA from |
+| 0041 | DATPTR | Text address READ is pulling DATA from |
+| 0043 | INPPTR | Source pointer for INPUT/READ |
+| 0045 | VARNAM | Name (2 chars) of the variable being looked up |
+| 0047 | VARPNT | Pointer to that variable's value |
+| 0049 | FORPNT | Pointer to the current FOR loop's variable |
+| 0061 | FACEXP | FAC1 exponent (bias 129) |
+| 0062 | FACHO  | FAC1 mantissa ($62-$65) |
+| 0066 | FACSGN | FAC1 sign |
+| 0069 | ARGEXP | FAC2/ARG exponent |
+| 006A | ARGHO  | FAC2/ARG mantissa ($6A-$6D) |
+| 006E | ARGSGN | FAC2/ARG sign |
+| 0070 | FACOV  | FAC1 rounding byte |
+| 0073 | CHRGET | Fetch the next BASIC character (routine copied into RAM) |
+| 0079 | CHRGOT | Re-read the current character (the `LDA` inside CHRGET) |
+| 007A | TXTPTR | The address CHRGOT reads — BASIC's program counter |
+| 008B | RNDX   | RND seed / previous random number (5-byte float) |
+| 0090 | STATUS | I/O status byte ST |
+| 0091 | STKEY  | Last-row keyboard scan; 127 = STOP held |
+| 0093 | VERCK  | 0 = LOAD, 1 = VERIFY |
+| 0098 | LDTND  | Number of open files |
+| 0099 | DFLTN  | Default input device (0 = keyboard) |
+| 009A | DFLTO  | Default output device (3 = screen) |
+| 009D | MSGFLG | KERNAL message control (SETMSG's byte) |
+| 00A0 | TIME   | Jiffy clock, 3 bytes, most-significant first |
+| 00B7 | FNLEN  | Length of the current filename |
+| 00B8 | LA     | Current logical file number |
+| 00B9 | SA     | Current secondary address |
+| 00BA | FA     | Current device number |
+| 00BB | FNADR  | Pointer to the current filename |
+| 00C1 | STAL   | Start address for LOAD/SAVE |
+| 00C5 | LSTX   | Matrix code of the key pressed at the last IRQ scan (64 = none) |
+| 00C6 | NDX    | Characters waiting in the keyboard buffer |
+| 00C7 | RVS    | Reverse-video flag |
+| 00C8 | LNEND  | End-of-line pointer for screen input |
+| 00C9 | LXSP   | Cursor row/column where the current input started |
+| 00CB | SFDX   | Matrix code of the key held right now (64 = none) |
+| 00CC | BLNSW  | Cursor-blink enable (0 = blinking) |
+| 00CD | BLNCT  | Cursor-blink countdown |
+| 00CE | GDBLN  | Character under the cursor |
+| 00CF | BLNON  | Cursor-blink phase |
+| 00D0 | CRSW   | Input source: keyboard or screen line |
+| 00D1 | PNT    | Pointer to screen RAM of the cursor's line |
+| 00D3 | PNTR   | Cursor column within the line |
+| 00D4 | QTSW   | Quote-mode flag |
+| 00D5 | LNMX   | Logical line length (39 or 79) |
+| 00D6 | TBLX   | Cursor screen line |
+| 00D8 | INSRT  | Outstanding insert count |
+| 00D9 | LDTB1  | Screen line-link table (25+1 bytes; bit 7 starts a logical line) |
+| 00F3 | USER   | Pointer to color RAM of the cursor's line |
+| 00F5 | KEYTAB | Pointer to the keyboard decode table in use |
+| 00FB | FREEZP | Free for user pointers ($FB-$FE) |

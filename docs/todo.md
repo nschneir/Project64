@@ -105,17 +105,44 @@ item is still open.
       and re-proven with a passing `c64 test run` spec. It found no product
       defects; the six observability gaps it did find are closed in the
       Unreleased section of the changelog.
-- [ ] **Build the full annotated C64 ROM label DB.** Only a seed ships:
-      `src/c64lib/data/rom_labels/basic2.lbl`, 44 `al C:xxxx .NAME` lines —
-      the KERNAL jump table `$FF81`-`$FFF3`, the vectors up to `$FFFE`, and a
-      few zero-page pointers (`$002B TXTTAB`, `$002D VARTAB`). Loaded by
-      `romdoc.rom_labels` (`src/c64lib/romdoc.py:21-26`, keyed on BASIC
-      version via `_LABEL_FILES`) and merged into label lookups at
-      `cli.py:1667` and `mcp_server.py:886`. Licensing posture stated in
-      `romdoc.py`'s module docstring: ship only annotations we authored (names
-      and addresses); ROM bytes are read from the user's emulator at runtime
-      and never enter the repo. Extend with BASIC/KERNAL internals in the same
-      `.lbl` format `symbols.parse_labels` already reads.
+- [ ] **Next tranche of the ROM label DB.**
+      `src/c64lib/data/rom_labels/basic2.lbl` is 184 `al C:xxxx .NAME` lines
+      after the first curated tranche: the interpreter and editor
+      paths a debugging agent actually lands on — 78 zero-page cells
+      (`CHRGET`/`CHRGOT`/`TXTPTR`, the `$2B`-`$4A` pointer block, FAC1/FAC2,
+      the screen-editor and KERNAL I/O bytes), 39 BASIC ROM entries
+      (`READY`/`MAIN`/`NEWSTT`/`GONE`, `ERROR`, `FRMEVL`, the `CHKCOM`
+      family, `GETADR`/`GIVAYF`/`FOUT`), and 67 KERNAL (the jump table plus
+      `RESET`/`NMI`/`IRQMAIN`/`KEYSCAN`/`BASIN`/`BSOUT`, and `INLOOP`, the
+      direct-mode loop `ops.IDLE_PC_RANGE` watches). Still missing, in rough
+      order of usefulness: the **BASIC token and statement dispatch table**
+      (`$A00C` statement vectors, `$A052` function vectors, `$A09E` keywords,
+      and the statement handlers they point at), the **floating-point
+      package** (`$B7xx`-`$BFxx` arithmetic and transcendentals — start by
+      adopting the ten rows `references/kernal-routines.md` already documents
+      and verified: `MOVFM`, `MOVMF`, `FADDT`, `FSUBT`, `FMULTT`, `FDIVT`,
+      `FPWRT`, `SIGN`, `ABS`, `INT`), and
+      **tape/serial internals** (`$ED09`-`$EE13` IEC, `$F49E` LOAD /
+      `$F5DD` SAVE and their tape paths). Same file, same format
+      `symbols.parse_labels` reads, loaded by `romdoc.rom_labels`
+      (`src/c64lib/romdoc.py:21-26`, keyed on BASIC version via
+      `_LABEL_FILES`) and merged into lookups at `cli.py:585`, `cli.py:1748`,
+      `mcp_server.py:269` and `mcp_server.py:942`. Licensing posture stated
+      in `romdoc.py`'s module docstring and binding on every tranche: ship
+      only annotations we authored (names and addresses); ROM bytes are read
+      from the user's emulator at runtime and never enter the repo — so
+      **every new address is verified against the live machine**, not copied
+      (`c64 disasm <NAME> 8`, or a memory read for zero page), and anything
+      that does not check out is dropped rather than guessed at.
+      Two tests gate a tranche:
+      `test_romdoc.py::test_label_file_hygiene` (format, uniqueness, address
+      order, legal ranges) and
+      `test_docs_rom_basic.py::test_label_db_is_documented`, which requires
+      every name to be written up beside its address in
+      `references/kernal-routines.md` (ROM) or `references/zero-page.md`
+      (zero page) — budget the doc rows with the labels. Verify with
+      `.venv/bin/pytest tests/test_romdoc.py tests/test_docs_rom_basic.py -q`
+      plus a live `.venv/bin/c64 disasm <NEW_NAME> 8` for each name added.
 - [ ] **Deferred spec items from §6 of
       `docs/superpowers/specs/graphics-and-sprites.md`.** Two of the three
       originally listed have since landed (the `c64 sprite` command group and

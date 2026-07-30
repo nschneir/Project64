@@ -433,9 +433,11 @@ Read the matching file when you need the detail:
   copy-adaptable recipes (game loops, screen pokes, sprites, sound) in BASIC and asm.
 - `references/memory-maps.md` — the C64 memory layout (RAM, screen, ROM, I/O, banking).
 - `references/zero-page.md` — the 6510 port, BASIC pointer chain, low-memory
-  usage, and handy control-flag locations (RUN/STOP, key repeat, color, region).
+  usage, handy control-flag locations (RUN/STOP, key repeat, color, region),
+  and the zero-page half of the label database `c64 disasm` annotates with.
 - `references/kernal-routines.md` — KERNAL jump table, the ST status word,
-  hardware vectors, and stable BASIC-ROM math/output entry points.
+  hardware vectors, stable BASIC-ROM math/output entry points, and the
+  BASIC-interpreter / KERNAL internals a stopped program's PC lands in.
 - `references/basic-internals.md` — program storage & tokens, statement
   execution / GOTO cost, variables & number formats, keyword abbreviations,
   runtime errors, string GC / FRE footgun, derived math functions, and disk I/O.

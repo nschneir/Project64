@@ -268,6 +268,8 @@ def wait_for_mem(session, addr: int, value: int, timeout: float = 30.0,
 #: transit). Sampling again after a program ran to completion (12/12) and
 #: after a ?SYNTAX ERROR (12/12) gave the same span; a wedged `10 GOTO 10`
 #: gave 0/12 (it scatters over $A7xx-$A9xx, CHRGET at $0073, $FFE1).
+#: The loop head is `INLOOP` in the ROM label DB (data/rom_labels/basic2.lbl),
+#: so `c64 disasm INLOOP 8` shows the code this range covers.
 IDLE_PC_RANGE = (0xE5CD, 0xE5D4)
 
 #: How many PCs a timeout hands back — enough to show a loop's shape.

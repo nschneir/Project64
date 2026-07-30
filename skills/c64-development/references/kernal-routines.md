@@ -136,3 +136,84 @@ keep the system services running.
 | 002D | VARTAB | End of program / start of vars.  |
 
 Full zero-page map: zero-page.md.
+
+## BASIC interpreter internals
+
+Where a stopped or wedged BASIC program actually is. These are the names
+`c64 disasm` and `c64 reg` print, so a PC of `$A7AE` reads as `NEWSTT` — the
+statement loop — rather than a bare number. Every address was confirmed on a
+live machine (`c64 disasm NAME 8`, plus the `$A00C` statement-vector table as
+an oracle for FOR/NEXT); they are entry points to call or break on, not a
+calling convention — check the code before depending on register use.
+
+| Addr | Name     | What it is |
+|------|----------|------------|
+| A000 | COLD_VEC | BASIC's cold-start vector — the word here is $E394 |
+| A002 | WARM_VEC | BASIC's warm-start vector — the word here is $E37B |
+| A38A | FNDFOR   | Search the stack for a FOR/GOSUB frame (walks upward from TSX) |
+| A3B8 | BLTU     | Open up space in the program/variable area (block move up) |
+| A3FB | GETSTK   | Stack-depth check; falls into OMERR when there is no room |
+| A408 | REASON   | Memory-space check against FRETOP ($33) — the `?OUT OF MEMORY` gate |
+| A435 | OMERR    | Load error 16 and fall into ERROR: `?OUT OF MEMORY` |
+| A437 | ERROR    | Error dispatch: `JMP ($0300)`, X = error number; repoint $0300 to trap errors |
+| A469 | ERRFIN   | Print the message, then ` ERROR IN <line>` unless CURLIN hi is $FF |
+| A474 | READY    | Print `READY.` and drop into direct mode |
+| A480 | MAIN     | Direct-mode main loop: `JMP ($0302)` |
+| A49C | MAIN1    | Store the typed line into the program (tokenize, relink) |
+| A533 | LNKPRG   | Rebuild the line-link pointers after an edit |
+| A560 | INLIN    | Read one line into the input buffer until RETURN |
+| A579 | CRUNCH   | Tokenize the input buffer: `JMP ($0304)` |
+| A613 | FNDLIN   | Search the program for a line number |
+| A68E | STXTPT   | Point TXTPTR ($7A) at the start of the program minus one |
+| A742 | FOR      | The FOR statement (verified against the $A00C statement vectors) |
+| A7AE | NEWSTT   | Execute the next statement — the interpreter's per-statement loop |
+| A7E1 | GONE     | Execute the current statement: `JMP ($0308)` |
+| A7ED | GONE3    | Token dispatch proper: token−$80, range-checked against 35 statements |
+| AD1E | NEXT     | The NEXT statement (verified against the $A00C statement vectors) |
+| AD8A | FRMNUM   | Evaluate an expression and demand a numeric result |
+| AD9E | FRMEVL   | Evaluate an expression at TXTPTR into FAC1 |
+| AE83 | EVAL     | Evaluate one term: `JMP ($030A)` — the hook for new functions |
+| AEF1 | PARCHK   | Expect `(`, evaluate, expect `)` |
+| AEF7 | CHKCLS   | Demand `)` at TXTPTR |
+| AEFA | CHKOPN   | Demand `(` at TXTPTR |
+| AEFD | CHKCOM   | Demand `,` at TXTPTR |
+| AEFF | SYNCHR   | Demand the character in A at TXTPTR, else SNERR |
+| AF08 | SNERR    | Load error 11 and jump to ERROR: `?SYNTAX ERROR` |
+| B79E | GETBYT   | Evaluate a 0-255 expression into X |
+| B7EB | GETNUM   | GETADR then CHKCOM then GETBYT — the `POKE addr,byte` parameter pair |
+| B7F7 | GETADR   | FAC1 → unsigned 16-bit into LINNUM ($14/$15) |
+
+## KERNAL internals
+
+**Revision caveat:** unlike the jump table and the BASIC ROM, these live
+inside the KERNAL, which has three revisions. Addresses below were verified
+on the stock 901227-03 image (`$FF80` = $03); re-verify with `c64 disasm`
+before depending on one under a different KERNAL.
+
+| Addr | Name      | What it is |
+|------|-----------|------------|
+| E37B | BASWARM   | BASIC warm start — CLRCHN, reset the I/O channel, back to READY |
+| E394 | BASCOLD   | BASIC cold start — init vectors, init RAM, print the banner |
+| E3BF | INITBAS   | Initialize BASIC's RAM: CHRGET, the USR JMP at $0310, pointers |
+| E453 | INITBVEC  | Copy the default BASIC vectors ($0300-$030B) out of ROM |
+| E505 | SCRORG    | SCREEN's body: X = 40 columns, Y = 25 rows |
+| E518 | CINT1     | Screen-editor init proper (CINT's body) |
+| E544 | CLSR      | Clear the screen using HIBASE ($0288) |
+| E566 | HOME      | Cursor to 0,0 (clears PNTR and TBLX), then falls into SCRPOS |
+| E56C | SCRPOS    | Walk the line-link table ($D9) to place the cursor on its logical line |
+| E5A0 | INITIO    | Set the default I/O devices (DFLTN 0 / DFLTO 3) and the VIC registers |
+| E5B4 | LP2       | Pull one character out of the keyboard buffer ($0277) and shift it down |
+| E5CD | INLOOP    | The direct-mode input loop: spins on NDX ($C6) waiting for a key. **This is what `c64 wait --idle` watches** (`ops.IDLE_PC_RANGE` = $E5CD-$E5D4) |
+| E716 | SCROUT    | Put one character on the screen (the screen half of CHROUT) |
+| EA31 | IRQMAIN   | The default IRQ service routine: UDTIM, cursor blink, keyboard scan |
+| EA87 | KEYSCAN   | Keyboard matrix scan (SCNKEY's body); sets SFDX ($CB) and KEYTAB ($F5) |
+| F13E | GETCH     | GETIN's body: buffered key from NDX, or the current input channel |
+| F157 | BASIN     | CHRIN's body — the default $0324 target |
+| F1CA | BSOUT     | CHROUT's body — the default $0326 target; screen when DFLTO = 3 |
+| F6ED | STOPCHK   | STOP's body: compare STKEY ($91) with 127 |
+| FCE2 | RESET     | Power-on/reset entry: SEI, stack to $FF, then the cartridge check |
+| FD02 | CARTCHK   | Compare `$8004` against the `CBM80` signature to autostart a cartridge |
+| FE43 | NMI       | ROM NMI entry: SEI then `JMP ($0318)` |
+| FE47 | NMIHDLR   | The default NMI handler — the $0318 target (RESTORE key, RS-232) |
+| FE66 | WARMRST   | Warm restart: restore vectors, re-init I/O and the editor, then BASIC |
+| FF48 | IRQBRK    | The IRQ/BRK dispatcher: saves A/X/Y, then $0314 (IRQ) or $0316 (BRK) |

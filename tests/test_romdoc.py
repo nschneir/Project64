@@ -1,7 +1,71 @@
 import hashlib
+import re
+from importlib import resources
 from unittest.mock import Mock
 
+import pytest
+
+from c64lib import romdoc
 from c64lib.romdoc import identify, rom_labels
+from c64lib.symbols import parse_labels
+
+#: Where a C64 label can legitimately point: zero page, the BASIC/KERNAL
+#: work areas and vectors, the two ROMs, and the I/O block. Anything else
+#: (the stack, screen RAM, the RAM under BASIC) is either not a fixed
+#: address or not something a ROM label should be naming.
+_LEGAL_RANGES = ((0x0000, 0x00FF), (0x0200, 0x03FF),
+                 (0xA000, 0xBFFF), (0xD000, 0xDFFF), (0xE000, 0xFFFF))
+
+_LINE_RE = re.compile(r"^al C:([0-9a-f]{4}) \.([A-Z0-9_]+)$")
+
+
+def _label_file_text(fname: str) -> str:
+    return (resources.files("c64lib") / "data" / "rom_labels" / fname).read_text()
+
+
+@pytest.mark.parametrize("fname", sorted(romdoc._LABEL_FILES.values()))
+def test_label_file_hygiene(fname):
+    """Every shipped label file parses, is unique both ways, and points
+    somewhere a C64 label can legitimately point.
+
+    The DB is hand-authored and grows a tranche at a time, so the failure
+    modes are clerical: a typo'd line that silently parses to nothing, a
+    name reused at a second address (the later line wins and the earlier
+    label vanishes from lookups), two names for one address, or a digit
+    dropped from an address so it lands in the RAM under BASIC.
+    """
+    text = _label_file_text(fname)
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    labels = parse_labels(text)
+
+    # every non-blank line is a label line in the file's house format --
+    # `al C:xxxx .NAME`, lowercase hex, uppercase name
+    bad = [ln for ln in lines if not _LINE_RE.match(ln)]
+    assert not bad, f"{fname}: malformed lines: {bad}"
+    assert len(labels) == len(lines), f"{fname}: {len(lines)} lines parsed to " \
+                                     f"{len(labels)} labels"
+
+    names = [_LINE_RE.match(ln).group(2) for ln in lines]
+    dup_names = sorted({n for n in names if names.count(n) > 1})
+    assert not dup_names, f"{fname}: duplicate names: {dup_names}"
+
+    addrs = [int(_LINE_RE.match(ln).group(1), 16) for ln in lines]
+    dup_addrs = sorted({f"${a:04x}" for a in addrs if addrs.count(a) > 1})
+    assert not dup_addrs, f"{fname}: duplicate addresses: {dup_addrs}"
+
+    illegal = [f"{n} ${a:04x}" for n, a in zip(names, addrs, strict=True)
+               if not any(lo <= a <= hi for lo, hi in _LEGAL_RANGES)]
+    assert not illegal, f"{fname}: addresses outside the legal ranges: {illegal}"
+
+
+@pytest.mark.parametrize("fname", sorted(romdoc._LABEL_FILES.values()))
+def test_label_file_is_address_ordered(fname):
+    """Address order is how the file is read and edited: a new label goes
+    beside its neighbours, which is what makes a wrong region obvious."""
+    addrs = [int(m.group(1), 16) for m in
+             (_LINE_RE.match(ln) for ln in _label_file_text(fname).splitlines()
+              if ln.strip()) if m]
+    assert addrs == sorted(addrs), f"{fname}: labels are not in address order"
 
 
 def test_rom_labels_basic2_has_jump_table():

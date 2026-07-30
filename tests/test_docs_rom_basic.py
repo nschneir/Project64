@@ -14,11 +14,20 @@ TOKENS = {"end": 0x80, "for": 0x81, "next": 0x82, "data": 0x83,
           "goto": 0x89, "gosub": 0x8D, "rem": 0x8F, "print": 0x99, "sys": 0x9E}
 
 
-def test_rom_routines_covers_label_db():
-    doc = (REF / "kernal-routines.md").read_text()
+#: Where a shipped label may be documented. A label a reader cannot look up
+#: is worse than no label at all, so every name in the DB has to appear in
+#: one of these, in the same file as its address: ROM entry points in
+#: kernal-routines.md, zero page and low memory in zero-page.md.
+LABEL_DOCS = ("kernal-routines.md", "zero-page.md")
+
+
+def test_label_db_is_documented():
+    docs = {f: (REF / f).read_text() for f in LABEL_DOCS}
     for name, addr in rom_labels("2.0").items():
-        assert name in doc, f"kernal-routines.md missing {name}"
-        assert f"{addr:04x}" in doc.lower(), f"kernal-routines.md missing ${addr:04x} for {name}"
+        where = [f for f, doc in docs.items()
+                 if re.search(rf"\b{name}\b", doc) and f"{addr:04x}" in doc.lower()]
+        assert where, (f"none of {'/'.join(LABEL_DOCS)} documents {name} "
+                       f"alongside ${addr:04x}")
 
 
 def test_basic_internals_token_table_matches_doc():
