@@ -186,6 +186,9 @@ def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
 
     img = Image.new("RGB", (24, 21))
     bg = C64_PALETTE[shared["background"]]
+    # None = hires; the shared mc_* entries are only read in multicolor mode,
+    # so a caller rendering a hires sprite need not supply them.
+    pair_colors = None
     if state.multicolor:
         pair_colors = {0: bg,
                        1: C64_PALETTE[shared["mc_color1"]],
@@ -193,7 +196,7 @@ def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
                        3: C64_PALETTE[shared["mc_color2"]]}
     for y in range(21):
         bits = _row_bits(data, y)
-        if state.multicolor:
+        if pair_colors is not None:
             for p in range(12):
                 c = pair_colors[(bits >> (22 - 2 * p)) & 3]
                 img.putpixel((2 * p, y), c)
@@ -203,7 +206,7 @@ def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
             for x in range(24):
                 img.putpixel((x, y), fg if bits & (1 << (23 - x)) else bg)
     if scale > 1:
-        img = img.resize((24 * scale, 21 * scale), Image.NEAREST)
+        img = img.resize((24 * scale, 21 * scale), Image.Resampling.NEAREST)
     return img
 
 
@@ -257,8 +260,9 @@ def sprite_from_image(img, multicolor: bool) -> tuple[bytes, list[str]]:
     img = img.resize((12, 21), _resample())
     grid = [[_nearest_palette(img.getpixel((x, y))) if img.getpixel((x, y))[3] >= 128
              else None for x in range(12)] for y in range(21)]
-    edge = [grid[y][x] for y in range(21) for x in range(12)
-            if (x in (0, 11) or y in (0, 20)) and grid[y][x] is not None]
+    border_px = [grid[y][x] for y in range(21) for x in range(12)
+                 if x in (0, 11) or y in (0, 20)]
+    edge = [c for c in border_px if c is not None]      # opaque edge pixels
     background = max(set(edge), key=edge.count) if edge else 0
     order: list[int] = []
     for y in range(21):
@@ -267,7 +271,7 @@ def sprite_from_image(img, multicolor: bool) -> tuple[bytes, list[str]]:
             if c is not None and c != background and c not in order:
                 order.append(c)
     order = order[:3]
-    pair_of = {background: 0, None: 0}
+    pair_of = {background: 0}
     for i, c in enumerate(order):
         pair_of[c] = i + 1                     # 01, 10, 11 in raster order
     rows = []
@@ -275,11 +279,16 @@ def sprite_from_image(img, multicolor: bool) -> tuple[bytes, list[str]]:
         bits = 0
         for x in range(12):
             c = grid[y][x]
-            pv = pair_of.get(c)
-            if pv is None:                     # extra color: nearest of the 4
-                chosen = min([background, *order], key=lambda k: sum(
-                    (a - b) ** 2 for a, b in zip(C64_PALETTE[c], C64_PALETTE[k], strict=True)))
-                pv = pair_of[chosen]
+            if c is None:                      # transparent: show background
+                pv = 0
+            else:
+                pv = pair_of.get(c)
+                if pv is None:                 # extra color: nearest of the 4
+                    px = C64_PALETTE[c]        # same for every candidate
+                    chosen = min([background, *order], key=lambda k: sum(
+                        (a - b) ** 2
+                        for a, b in zip(px, C64_PALETTE[k], strict=True)))
+                    pv = pair_of[chosen]
             bits |= pv << (22 - 2 * x)
         rows.append(bits.to_bytes(3, "big"))
     names = {1: "01 ($D025)", 2: "10 (sprite color)", 3: "11 ($D026)"}
@@ -294,4 +303,4 @@ def sprite_from_image(img, multicolor: bool) -> tuple[bytes, list[str]]:
 
 def _resample():
     from PIL import Image
-    return Image.LANCZOS
+    return Image.Resampling.LANCZOS

@@ -78,7 +78,7 @@ def save_screenshot_png(mon: MonitorLike, path: str | Path,
     img.putpalette(flat)
     img.putdata(list(pixels))
     if scale > 1:                     # nearest-neighbour: crisp fat pixels
-        img = img.resize((width * scale, height * scale), Image.NEAREST)
+        img = img.resize((width * scale, height * scale), Image.Resampling.NEAREST)
     img.save(Path(path), format="PNG")
     return img.width, img.height
 

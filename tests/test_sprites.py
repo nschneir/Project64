@@ -166,6 +166,27 @@ def test_from_image_multicolor_quantizes_to_pairs():
     assert any("multicolor" in ln for ln in lines)
 
 
+def test_from_image_multicolor_maps_extra_and_transparent_pixels():
+    """The two fallback paths in the multicolor converter, which the
+    roundtrip tests never reach because they feed back exactly four colors:
+    a fifth color collapses to whichever of the four pairs is nearest in RGB,
+    and a transparent pixel is background (pair 00), same as an unmapped one.
+    """
+    from PIL import Image
+
+    from c64lib.sprites import sprite_from_image
+    img = Image.new("RGBA", (12, 21), (*C64_PALETTE[0], 255))   # edges -> bg 0
+    for color in (1, 2, 3):                        # -> pairs 01, 10, 11
+        img.putpixel((color, 1), (*C64_PALETTE[color], 255))
+    img.putpixel((4, 1), (*C64_PALETTE[5], 255))   # 5th color: nearest is 2
+    img.putpixel((5, 1), (0, 0, 0, 0))             # transparent: pair 00
+    data, lines = sprite_from_image(img, multicolor=True)
+    # row 1 pairs: 00 01 10 11 | 10 00 00 00 | 00 00 00 00
+    assert data[3:6] == bytes([0b00011011, 0b10000000, 0])
+    assert data[0:3] == bytes(3)                   # row 0 is all background
+    assert "background (00) = color 0" in lines[1]
+
+
 def test_multicolor_row_encodes_two_bits_per_pixel():
     art = [" .#+" + " " * 8] + ["            "] * 20
     data = encode_sprite(art, multicolor=True)
