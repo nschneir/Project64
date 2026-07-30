@@ -125,6 +125,25 @@ reasoning is in the commit messages.
   be rediscovered. `_STEP_KEYS` is untouched: `wait` and `assert` stay
   lenient about unrecognized keys by design.
 
+- **The c1541-dependent tests are a subset you can ask for, and the contract
+  around them is written down.** They were guarded by a per-file
+  `pytest.mark.skipif` alias repeated across six files plus two inline copies,
+  which skips silently and — the part that mattered — is invisible to `-m`:
+  there was no way to select the disk subset at all, so "run what you touched"
+  meant running whole files or the whole suite. The guard is now a registered
+  `needs_c1541` marker that `tests/conftest.py` turns into a skip when the
+  binary is missing, resolving it the way `c64lib.disk` does (PATH or
+  `C64_TOOLS_C1541`, which five of the eight sites previously ignored), and
+  `pytest -m "needs_c1541 and not vice"` runs the 100 of them that need no
+  emulator in about six seconds. Rewriting the guards is behavior-neutral by
+  measurement: with c1541 hidden, the same 116 node ids skip before and after.
+  The open question this closes was whether CI should run them — a job
+  installing VICE on an Ubuntu runner is technically feasible, since c1541 is
+  a command-line image tool needing neither ROMs nor a display. Ruled against:
+  emulators and their tooling are not expected to run on GitHub, so VICE-
+  dependent validation stays on developer machines. `AGENTS.md` now says so
+  where it documents the test markers, with the selection to run.
+
 ### Added
 - **`c64 wait --idle` — block until the program has finished or errored.**
   `c64 wait` could ask for text, a memory value, or a checkpoint, all of

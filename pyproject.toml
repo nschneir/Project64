@@ -32,7 +32,10 @@ packages = ["src/c64lib"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["vice: requires a working x64sc (VICE) installation on PATH"]
+markers = [
+    "vice: requires a working x64sc (VICE) installation on PATH",
+    "needs_c1541: requires VICE's c1541 utility (PATH or C64_TOOLS_C1541)",
+]
 
 [tool.coverage.run]
 source = ["c64lib"]

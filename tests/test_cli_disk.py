@@ -1,5 +1,4 @@
 import json
-import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -10,8 +9,7 @@ from c64lib.build import BuildError
 from c64lib.cli import main
 from c64lib.disk import DiskError
 
-needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
-                                 reason="needs VICE's c1541")
+needs_c1541 = pytest.mark.needs_c1541
 
 
 def make_image(tmp_path, *names):

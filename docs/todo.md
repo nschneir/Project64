@@ -54,28 +54,6 @@ the function/test names are the durable anchors.
       size shrinks too. Verify: `tests/test_build.py`,
       `tests/test_integration_build.py`.
 
-## Disk plan deferred items (one item still open)
-
-Originally mirrored from `.superpowers/sdd/2026-07-24-disk-file-block-ops/progress.md`
-(the disk file/block-ops plan's ledger, which is deleted when that plan
-finishes). The deferred wave landed in two commits — `a7f6ba5` (core:
-`disk.py`, `testing.py`, their tests) and `76f76b2` (surfaces: MCP/CLI minors,
-counts, CHANGELOG) — plus a seam commit that finished the two front-end tokens
-wave A could not reach; read those commits for what each item turned into,
-including the two places measurement contradicted the item as written. One
-item is still open.
-
-- [ ] **c1541-dependent tests are invisible to CI.** The `needs_c1541` marker
-      (`tests/test_disk_blocks.py:27`, `tests/test_disk.py:29`,
-      `tests/test_disk_build.py:16`, `tests/test_mcp_disk.py:19`) skips when
-      `shutil.which("c1541")` is None — measured today: 29 + 2 + 7 + 23 tests
-      guarded. There is no CI test workflow at all
-      (`.github/workflows/release.yml` only builds a dist), so c1541 drift is
-      caught only on a developer machine with VICE installed. Fix direction
-      open: install VICE in a CI job, or state the local-only contract
-      explicitly. (Task 1's original wording — "the marker is dead in the test
-      file" — is stale; later tasks applied it widely.)
-
 ## Standing backlog (pre-cartridge)
 
 - [ ] **Dogfood the two remaining C64 demo prompts.** `demos/README.md:12-18`:

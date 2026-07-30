@@ -15,8 +15,7 @@ from c64lib.disk import (
 )
 from c64lib.symbols import parse_labels
 
-needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
-                                 reason="needs VICE's c1541")
+needs_c1541 = pytest.mark.needs_c1541
 needs_cc65 = pytest.mark.skipif(
     not all(shutil.which(t) for t in ("ca65", "ld65")), reason="needs cc65")
 

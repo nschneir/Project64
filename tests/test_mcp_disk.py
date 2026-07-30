@@ -17,8 +17,7 @@ from c64lib import mcp_server
 from c64lib.disk import DiskError
 from tests.test_mcp_scaffold import call_tool, list_tools
 
-needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
-                                 reason="needs VICE's c1541")
+needs_c1541 = pytest.mark.needs_c1541
 
 
 @pytest.fixture(autouse=True)

@@ -88,9 +88,7 @@ DISK_PROGRAMS = example_programs("disk")
     shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",
 )
-@pytest.mark.skipif(shutil.which("c1541") is None
-                    and not os.environ.get("C64_TOOLS_C1541"),
-                    reason="c1541 (VICE) not installed")
+@pytest.mark.needs_c1541
 @pytest.mark.parametrize("program", DISK_PROGRAMS,
                          ids=[d.name for d in DISK_PROGRAMS])
 def test_disk_reference_program_loads_at_runtime(program):

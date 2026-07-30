@@ -20,7 +20,7 @@ pytestmark = [
         not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
         reason="x64sc not installed",
     ),
-    pytest.mark.skipif(shutil.which("c1541") is None, reason="c1541 not installed"),
+    pytest.mark.needs_c1541,
 ]
 
 

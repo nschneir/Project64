@@ -25,6 +25,7 @@ pip install -e ".[dev]"        # install with pytest + coverage
 
 pytest                          # full suite (vice-marked tests need x64sc/VICE on PATH)
 pytest -m "not vice"            # unit tests only — no emulator required
+pytest -m "needs_c1541 and not vice"   # disk subset — needs c1541, never run in CI
 pytest tests/test_monitor.py    # one file
 pytest tests/test_monitor.py::test_name   # one test
 
@@ -49,6 +50,19 @@ needs `petcat`; `c64 disk` needs `c1541` (and `c64 disk build` needs the other
 two as well, for its `.s`/`.bas` manifest entries); `c64 cart build`/`convert`
 (and any `.crt` output from `c64 package`) needs `cartconv` — all external
 subprocesses.
+
+**Everything VICE-dependent is validated locally, by decision — not in CI.**
+The only workflow, `.github/workflows/release.yml`, builds a release dist and
+runs no tests: we don't expect emulators to run on GitHub, and that extends to
+VICE's command-line tools. So the gate is you, on a machine with VICE
+installed, running the affected subset before you commit — nothing downstream
+will catch what you skip. Make that runnable rather than remembered: guard a
+test that shells out to `c1541` with `@pytest.mark.needs_c1541` rather than a
+local `skipif` (a `skipif` is invisible to `-m`, so the subset can't be asked
+for), and `pytest -m "needs_c1541 and not vice"` runs the whole disk subset —
+100 tests, ~6s, no emulator. `tests/conftest.py` turns the marker into a skip
+when c1541 is missing, resolving it the way `c64lib.disk` does — PATH or
+`C64_TOOLS_C1541` — so the subset skips rather than fails where VICE is absent.
 
 Most live tests share **one** warp+headless emulator, via the session-scoped
 fixtures in `tests/conftest.py` — a full run launches ~14 emulators rather than

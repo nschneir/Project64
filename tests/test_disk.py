@@ -1,5 +1,3 @@
-import shutil
-
 import pytest
 
 from c64lib.disk import (
@@ -27,9 +25,7 @@ def test_missing_c1541_message(monkeypatch, tmp_path):
         create_image(tmp_path / "x.d64")
 
 
-needs_c1541 = pytest.mark.skipif(
-    shutil.which("c1541") is None, reason="c1541 not installed"
-)
+needs_c1541 = pytest.mark.needs_c1541
 
 
 @needs_c1541

@@ -30,8 +30,7 @@ from c64lib.disk import (
     validate_image,
 )
 
-needs_c1541 = pytest.mark.skipif(shutil.which("c1541") is None,
-                                 reason="needs VICE's c1541")
+needs_c1541 = pytest.mark.needs_c1541
 
 
 def test_block_constants():

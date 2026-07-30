@@ -14,9 +14,7 @@ needs_cc65 = pytest.mark.skipif(
     reason="cc65 not installed")
 needs_petcat = pytest.mark.skipif(
     shutil.which("petcat") is None, reason="petcat not installed")
-needs_c1541 = pytest.mark.skipif(
-    shutil.which("c1541") is None and not os.environ.get("C64_TOOLS_C1541"),
-    reason="c1541 not installed")
+needs_c1541 = pytest.mark.needs_c1541
 
 HELLO_ASM = Path("tests/programs/hello-asm/program.s")
 HELLO_BAS = Path("tests/programs/hello-basic/program.bas")

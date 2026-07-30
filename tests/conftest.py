@@ -30,6 +30,26 @@ from tests.vice_helpers import timeout_scale
 
 HAVE_X64SC = bool(shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC"))
 
+#: Same resolution order as ``c64lib.disk._c1541``, so a test skips exactly
+#: when the library it exercises would fail to find the binary.
+HAVE_C1541 = bool(os.environ.get("C64_TOOLS_C1541") or shutil.which("c1541"))
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip ``needs_c1541`` tests when c1541 is absent.
+
+    A real marker rather than a per-file ``skipif`` because these tests are
+    validated locally and nowhere else (see AGENTS.md): a ``skipif`` is
+    invisible to ``-m``, so the subset could not be *asked* for — only run by
+    naming whole files. ``pytest -m "needs_c1541 and not vice"`` selects it.
+    """
+    if HAVE_C1541:
+        return
+    skip = pytest.mark.skip(reason="c1541 (VICE) not installed")
+    for item in items:
+        if "needs_c1541" in item.keywords:
+            item.add_marker(skip)
+
 #: Top-left screen cell. The boot screen clear overwrites it, which is how the
 #: reset below proves the machine really rebooted instead of us reading the
 #: previous test's stale screen.
