@@ -39,7 +39,11 @@ class LintIssue:
 
 @dataclass
 class Line:
-    number: int | None
+    # Always an int: _parse is the only place a Line is built, and it skips
+    # any source line with no leading digits (E10, LintIssue.line=None) before
+    # reaching the constructor. So every Line in Program.lines is numbered,
+    # and the reachability/subroutine graphs can key on `number` directly.
+    number: int
     text: str                       # source after the line number
     raw: str                        # the whole source line, right-stripped
     file_line: int                  # 1-based position in the file

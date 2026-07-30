@@ -14,6 +14,17 @@ def test_missing_line_number_is_a_warning():
     assert rules('print "hi"\n') == [(None, "warning", "E10")]
 
 
+def test_unnumbered_line_among_numbered_ones_does_not_crash_the_graph():
+    # An unnumbered line must not reach _check_reach or _check_subroutines,
+    # which compare and index by line number. It is dropped at parse time
+    # (E10) and never enters prog.lines, so the graph stays all-int.
+    src = ('10 gosub 100\n'
+           'print "no number"\n'
+           '20 goto 10\n'
+           '100 return\n')
+    assert rules(src) == [(None, "warning", "E10")]
+
+
 def test_line_number_above_the_editor_limit_is_a_warning():
     # Verified on x64sc: `64000 end` loads and runs; only the editor refuses it.
     assert rules("64000 end\n") == [(64000, "warning", "E11")]
