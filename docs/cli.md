@@ -32,7 +32,9 @@ exposes the same operations; see the README.
   (e.g. `@23,18`), resolved against the machine's LIVE screen base
   (relocation-aware; 40×25, $0400 at power-on).
 - **Exit codes.** `0` on success; `1` on error, on a `c64 wait` timeout, or on
-  a failing `c64 test`.
+  a failing `c64 test`; `2` on CLI misuse (Click's usage errors — an unknown
+  option, a bad `--flag` value, or an input-file argument naming a path that
+  does not exist).
 - **Machine state.** Every session runs a monitor daemon that owns the one
   VICE connection, so the machine's run/stop state persists across `c64`
   commands. **`c64 step`**, **`c64 finish`**, **`c64 until`**, and
@@ -1110,7 +1112,8 @@ luminance (transparent = clear), `--multicolor` quantizes to the C64
 palette and records the pair-value mapping in the emitted header. Verify
 the pasted result with `c64 sprite show` / `c64 sprite png`.
 
-- `IMAGE` — the input image file.
+- `IMAGE` — the input image file. Must exist: a missing path is a usage error
+  (exit 2), while a present-but-undecodable image is a runtime error (exit 1).
 - `-o, --out PATH` — write the rows to a file instead of stdout.
 - `--multicolor` — quantize to multicolor pairs instead of hires 1-bit.
 

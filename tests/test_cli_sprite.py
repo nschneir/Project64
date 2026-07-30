@@ -131,8 +131,20 @@ def test_sprite_from_png_no_session(tmp_path):
 
 
 def test_sprite_from_png_missing_file():
+    """A missing input path is CLI misuse: exit 2, like every other input
+    argument in the CLI, and the offending path is named in the output."""
     r = CliRunner().invoke(main, ["--json", "sprite", "from-png", "/nope.png"])
-    assert r.exit_code == 1
+    assert r.exit_code == 2, r.output
+    assert "/nope.png" in r.output
+
+
+def test_sprite_from_png_corrupt_image(tmp_path):
+    """A present-but-unreadable image is a runtime failure, not misuse: 1."""
+    bad = tmp_path / "junk.png"
+    bad.write_bytes(b"not a png at all\x00\x01\x02")
+    r = CliRunner().invoke(main, ["--json", "sprite", "from-png", str(bad)])
+    assert r.exit_code == 1, r.output
+    assert "cannot read image" in json.loads(r.output)["error"]
 
 
 # --- c64 sprite encode -------------------------------------------------
@@ -308,4 +320,5 @@ def test_sprite_encode_writes_out_file(tmp_path):
 
 def test_sprite_encode_missing_file():
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", "/nope.txt"])
-    assert r.exit_code != 0
+    assert r.exit_code == 2, r.output
+    assert "/nope.txt" in r.output

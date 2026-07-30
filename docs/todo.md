@@ -132,16 +132,6 @@ item is still open.
       decision first — 8×8 charset cells versus a full 320×200 hires /
       160×200 multicolor bitmap plus screen and color RAM — since the two
       imply different outputs and different verification.
-- [ ] **`c64 sprite encode` exits 2 on a missing `FILE` while `c64 sprite
-      from-png` exits 1.** `sprite_encode` (`cli.py:1962-1963`) declares
-      `click.Path(exists=True, dir_okay=False)`, so Click raises `UsageError`
-      → exit 2; `sprite_from_png` (`cli.py:1931-1932`) declares a bare
-      `click.Path()`, opens the path itself and calls `fail()` on
-      `FileNotFoundError` (`cli.py:1949-1953`) → exit 1. Flagged during the
-      sprite-encode work as "pre-existing house pattern, accepted" and never
-      adjudicated; `tests/test_cli_sprite.py::test_sprite_encode_missing_file`
-      (line 254) only asserts non-zero, so either convention passes today.
-      Decide one convention repo-wide, then tighten the test.
 - [ ] **The YAML test DSL spells the same substring check two ways:
       `wait: {text: ...}` but `assert: {screen: ...}`.**
       `src/c64lib/testing.py:447` takes `text` for a wait, `:478` takes

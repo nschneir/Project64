@@ -2016,7 +2016,7 @@ def sprite_png(ctx, index, out_path, scale, block):
 
 
 @sprite.command("from-png")
-@click.argument("image", type=click.Path())
+@click.argument("image", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--out", "-o", "out_path", default=None,
               help="Write the ca65 .byte rows to this file instead of stdout.")
 @click.option("--multicolor", is_flag=True,
@@ -2035,8 +2035,8 @@ def sprite_from_png(ctx, image, out_path, multicolor):
     from .sprites import sprite_from_image
     try:
         img = Image.open(image)
-    except (FileNotFoundError, UnidentifiedImageError) as e:
-        fail(ctx, f"cannot read image {image!r}: {e}")
+    except UnidentifiedImageError as e:
+        fail(ctx, f"cannot read image {str(image)!r}: {e}")
         return
     data, lines = sprite_from_image(img, multicolor=multicolor)
     text = "\n".join(lines) + "\n"
