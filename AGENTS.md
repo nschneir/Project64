@@ -32,6 +32,7 @@ python -m coverage run -m pytest && python -m coverage combine && python -m cove
                                 # coverage (fail_under=90); subprocesses (daemon, MCP stdio) are measured too
 
 ruff check src tests            # lint (config in pyproject.toml); must be clean
+pyright                         # type check (config in pyproject.toml); not a gate yet
 ```
 
 Keep shell invocations in the plain form above: one command, executable
@@ -95,6 +96,17 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   and the aligned struct/profile tables in `protocol.py`/`machines.py` are
   intentional). Comments state contracts, hardware quirks, and non-obvious
   *why* — see `monitor.py`/`daemon.py` for the house tone; no narration.
+- Type-check with bare `pyright` — no flags: `[tool.pyright]` in
+  `pyproject.toml` sets `venvPath`/`venv` so it resolves imports against
+  `.venv` (run it from the repo root, or it will type-check against whatever
+  interpreter is first on PATH and report ~68 phantom missing imports).
+  pyright is a developer-local tool, deliberately **not** in `[dev]` — the
+  PyPI wrapper downloads a Node toolchain, heavier than anything else this
+  project installs. Get it with `brew install pyright` or `npm i -g pyright`.
+  It currently reports **200 pre-existing errors** (111 in `src`, 89 in
+  `tests`) and is *not* a gate: don't chase them wholesale, but don't add
+  new ones in code you touch. Bringing that count to zero is staged in the
+  maintainer's local plan (under the gitignored `.superpowers/`).
 - Never vendor Commodore ROM bytes or any copyrighted Commodore code into
   the repo — ROM tooling reads bytes from the user's running emulator and
   ships only original label annotations.

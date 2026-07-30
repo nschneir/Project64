@@ -45,6 +45,15 @@ patch = ["subprocess"]
 show_missing = true
 fail_under = 90
 
+[tool.pyright]
+# venvPath/venv are load-bearing: pyright is a developer-local tool (brew/npm,
+# not in `[dev]`), so without them it resolves imports against whatever
+# interpreter is first on PATH and invents ~68 phantom missing-import errors.
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests"]
+typeCheckingMode = "standard"
+
 [tool.ruff]
 line-length = 100
 
