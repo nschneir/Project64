@@ -107,8 +107,8 @@ item is still open.
       Unreleased section of the changelog.
 - [ ] **Next tranche of the ROM label DB.**
       `src/c64lib/data/rom_labels/basic2.lbl` holds 184 labels after the first
-      curated tranche (zero-page, BASIC interpreter core, KERNAL editor/IRQ
-      paths — see the changelog). Still missing, in rough order of
+      curated tranche: zero page, the BASIC interpreter core, and the KERNAL
+      editor/IRQ paths. Still missing, in rough order of
       usefulness: the **BASIC token and statement dispatch table** (`$A00C`
       statement vectors, `$A052` function vectors, `$A09E` keywords, and the
       handlers they point at); the **floating-point package** (`$B7xx`-`$BFxx`
