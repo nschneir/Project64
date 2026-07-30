@@ -465,6 +465,36 @@ def test_unknown_sample_name_fails_actionably():
     assert "no sample named" in result.steps[0].detail
 
 
+@pytest.mark.parametrize("cmp_key", ["differs", "greater_than", "less_than"])
+def test_assert_mem_between_with_a_sample_key_is_judged_not_crashed(cmp_key):
+    """An assert step naming both `between` and a sample comparison used to
+    size its read from `between` and then judge it with the sample branch,
+    which read three names the sizing branch never bound — `NameError` in the
+    middle of a test run instead of a pass/fail. One chain now decides both,
+    and `between` wins because it is what the read was sized for.
+    """
+    arg = {"mem": "$0400", "between": {"min": 50, "max": 54}, cmp_key: "x0"}
+    r = _assert_step(bytes([52]), arg)
+    assert r.passed is True
+    assert "in [50, 54]" in r.steps[0].detail
+    r = _assert_step(bytes([55]), arg)
+    assert r.passed is False
+    assert "not in [50, 54]" in r.steps[0].detail
+
+
+def test_assert_mem_between_with_a_sample_key_reads_one_byte_once():
+    """The ambiguous step is still sized by `between` — one byte, one read —
+    so the fix cannot have quietly moved the machine access."""
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([52])
+    spec = _spec(steps=[{"assert": {"mem": "$0400", "differs": "x0",
+                                    "between": {"min": 50, "max": 54}}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    mon.memory_read.assert_called_once_with(0x0400, 1)
+
+
 def test_cart_spec_resolves_and_leaves_program_unset(tmp_path):
     """`cart:` resolves against the spec's own directory and never becomes a
     program (the runner's skip of the READY./autostart path is asserted by

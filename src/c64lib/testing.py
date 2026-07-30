@@ -513,54 +513,60 @@ def _do_step(session, kind: str, arg, default_timeout: float,
         def _bytes(v) -> bytes:
             return bytes(_num(b) for b in v) if isinstance(v, list) else bytes([_num(v)])
 
+        def _read(length: int) -> bytes:
+            with session.monitor() as mon:
+                try:
+                    return mon.memory_read(addr, length)
+                finally:
+                    mon.release()
+
+        # One chain, not two. Sizing the read and judging the bytes are the same
+        # decision, and splitting them across two if-chains let a step naming two
+        # conditions be sized by one and judged by the other: `between` sized the
+        # read, then the sample branch judged it out of three names `between` had
+        # never bound — UnboundLocalError mid-run instead of a pass or a fail.
+        # The order below is the old sizing order, which is what the machine was
+        # actually read for; for the documented one-condition-per-step shape
+        # every branch does exactly what it did before.
         if "equals_text" in arg:
             want_t = str(arg["equals_text"])
-            length = len(want_t)
-        elif "equals_any" in arg:
-            alts = [_bytes(a) for a in arg["equals_any"]]
-            if len({len(a) for a in alts}) != 1:
-                raise TestError(f"equals_any alternatives differ in length: {arg}")
-            length = len(alts[0])
-        elif "mask" in arg:
-            m = arg["mask"]
-            mask_and, want_b = _num(m["and"]), _bytes(m["equals"])
-            length = len(want_b)
-        elif "between" in arg:
-            lo, hi = _num(arg["between"]["min"]), _num(arg["between"]["max"])
-            length = 1
-        elif any(k in arg for k in ("differs", "greater_than", "less_than")):
-            cmp_key = next(k for k in ("differs", "greater_than", "less_than")
-                           if k in arg)
-            name = str(arg[cmp_key])
-            if name not in captures:
-                return False, (f"no sample named {name!r} "
-                               f"(have: {', '.join(sorted(captures)) or 'none'})")
-            ref_val = captures[name]
-            length = 1
-        else:
-            want_b = _bytes(arg["equals"])
-            length = len(want_b)
-        with session.monitor() as mon:
-            try:
-                data = mon.memory_read(addr, length)
-            finally:
-                mon.release()
-        if "equals_text" in arg:
+            data = _read(len(want_t))
             got = screen_to_text(data, len(want_t))
             ok = got == want_t
             return ok, f"mem ${addr:04x} text {got!r}" + ("" if ok else f" != {want_t!r}")
         if "equals_any" in arg:
+            alts = [_bytes(a) for a in arg["equals_any"]]
+            if len({len(a) for a in alts}) != 1:
+                raise TestError(f"equals_any alternatives differ in length: {arg}")
+            data = _read(len(alts[0]))
             ok = data in alts
             return ok, (f"mem ${addr:04x} = {data.hex()}" if ok else
                         f"mem ${addr:04x} = {data.hex()} != any of "
                         + " / ".join(a.hex() for a in alts))
         if "mask" in arg:
+            m = arg["mask"]
+            mask_and, want_b = _num(m["and"]), _bytes(m["equals"])
+            data = _read(len(want_b))
             got_m = bytes(b & mask_and for b in data)
             ok = got_m == want_b
             return ok, (f"mem ${addr:04x} & {mask_and:#04x} = {got_m.hex()}"
                         + ("" if ok else f" != {want_b.hex()} (raw {data.hex()})"))
+        if "between" in arg:
+            lo, hi = _num(arg["between"]["min"]), _num(arg["between"]["max"])
+            val = _read(1)[0]
+            ok = lo <= val <= hi
+            return ok, (f"mem ${addr:04x} = {val} in [{lo}, {hi}]" if ok
+                        else f"mem ${addr:04x} = {val} not in [{lo}, {hi}]")
         if any(k in arg for k in ("differs", "greater_than", "less_than")):
-            val = data[0]
+            cmp_key = next(k for k in ("differs", "greater_than", "less_than")
+                           if k in arg)
+            name = str(arg[cmp_key])
+            if name not in captures:
+                # still before the read, so an unknown name costs no monitor trip
+                return False, (f"no sample named {name!r} "
+                               f"(have: {', '.join(sorted(captures)) or 'none'})")
+            ref_val = captures[name]
+            val = _read(1)[0]
             ok = {"differs": val != ref_val,
                   "greater_than": val > ref_val,
                   "less_than": val < ref_val}[cmp_key]
@@ -568,11 +574,8 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             return ok, (f"mem ${addr:04x} = {val} {op} sample {name}={ref_val}"
                         if ok else
                         f"mem ${addr:04x} = {val} not {op} sample {name}={ref_val}")
-        if "between" in arg:
-            val = data[0]
-            ok = lo <= val <= hi
-            return ok, (f"mem ${addr:04x} = {val} in [{lo}, {hi}]" if ok
-                        else f"mem ${addr:04x} = {val} not in [{lo}, {hi}]")
+        want_b = _bytes(arg["equals"])
+        data = _read(len(want_b))
         ok = data == want_b
         return ok, f"mem ${addr:04x} = {data.hex()}" + ("" if ok else f" != {want_b.hex()}")
     if "reg" in arg:
