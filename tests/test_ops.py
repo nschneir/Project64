@@ -696,3 +696,9 @@ def test_wait_for_idle_reads_at_least_once_with_a_zero_timeout():
     s, mon = _idle_session([0xA7C9])
     out = wait_for_idle(s, timeout=0, samples=3, interval=0)
     assert out["fired"] is None and out["last_pcs"] == [0xA7C9]
+
+
+def test_idle_pc_range_starts_at_the_inloop_label():
+    """The constant and the ROM label DB name one address; neither may drift."""
+    from c64lib import romdoc
+    assert romdoc.rom_labels("2.0")["INLOOP"] == ops.IDLE_PC_RANGE[0]

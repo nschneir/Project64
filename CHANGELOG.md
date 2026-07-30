@@ -197,12 +197,15 @@ reasoning is in the commit messages.
   bare `PC=e5d1` above now reads as `INLOOP+4` with no label file loaded at
   all — and `$E5CD` is the same address `ops.IDLE_PC_RANGE` watches for
   `c64 wait --idle`, so a comment beside that constant points at the label
-  and the two cannot drift apart silently. The file is address-ordered
+  and `test_idle_pc_range_starts_at_the_inloop_label` pins the two together.
+  The file is address-ordered
   throughout now, so a new label lands beside its neighbours.
-  Provenance is the constraint `romdoc.py`'s docstring sets: names and
-  addresses are ours, no ROM bytes and no published disassembly enter the
-  repo, and every address was checked against a live x64sc (KERNAL
-  901227-03) before shipping — ROM entry points by their own code
+  Provenance is the constraint `romdoc.py`'s docstring sets: the annotations
+  are names and addresses only, the names following the long-standing
+  Commodore-source and community convention so they match published
+  references — no ROM bytes, and no prose or comment text from any
+  disassembly, ever enter the repo. Every address was checked against a live
+  x64sc (KERNAL 901227-03) before shipping — ROM entry points by their own code
   (`SYNCHR $AEFF` as `cmp ($7a),y / bne SNERR / jmp CHRGET`), the rest
   against the machine's own tables (the `$FF81-$FFF3` jump targets, the
   `$A00C` statement vectors, the `$0314` RAM vectors, `$03`/`$05` holding

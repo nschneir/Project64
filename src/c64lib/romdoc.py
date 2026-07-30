@@ -1,8 +1,11 @@
 """ROM identification and the curated C64 ROM label database.
 
-Licensing posture (spec §2): this module ships only annotations we authored
-(names + addresses). ROM bytes are read from the USER'S running emulator at
-runtime and are never written to the repo.
+Licensing posture (spec §2): this module ships annotations only — names and
+addresses, nothing else. The names follow the long-standing convention of
+Commodore's own BASIC/KERNAL sources and the community references built on
+them, so a label here reads the same as it does in published documentation.
+No ROM bytes and no prose or comment text from any disassembly ever enter the
+repo; ROM bytes are read from the USER'S running emulator at runtime.
 """
 
 from __future__ import annotations

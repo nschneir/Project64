@@ -115,9 +115,9 @@ item is still open.
       arithmetic, starting with the ten rows `kernal-routines.md` already
       documents and verified, `MOVFM` through `INT`); and **tape/serial
       internals** (`$ED09`-`$EE13` IEC, `$F49E` LOAD / `$F5DD` SAVE, tape).
-      `romdoc.py`'s docstring binds every tranche: only names and addresses we
-      authored, never ROM bytes or prose — so verify each address on the live
-      machine and drop, never guess, whatever fails to check out. Two tests
+      `romdoc.py`'s docstring binds every tranche: names and addresses only,
+      by the conventional names, never ROM bytes or disassembly prose — so
+      verify each address live and drop, never guess, whatever fails to check. Two tests
       gate a tranche: `test_label_file_hygiene` (format, uniqueness, address
       order, ranges) and `test_label_db_is_documented`, which wants each name
       written up beside its address in `references/kernal-routines.md` or
