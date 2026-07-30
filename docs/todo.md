@@ -125,10 +125,17 @@ item is still open.
       Verify: `.venv/bin/pytest tests/test_romdoc.py
       tests/test_docs_rom_basic.py -q`, plus `.venv/bin/c64 disasm <NAME> 8`
       live for each name added.
-- [ ] **Charset/bitmap PNG conversion.** `c64 sprite from-png`
-      (`src/c64lib/cli.py:1931`, via `sprites.sprite_from_image`) handles 24×21
-      sprites only. This is the other still-open bullet in §6 of
-      `docs/superpowers/specs/graphics-and-sprites.md`. Needs a target-format
-      decision first — 8×8 charset cells versus a full 320×200 hires /
-      160×200 multicolor bitmap plus screen and color RAM — since the two
-      imply different outputs and different verification.
+- [ ] **Charset/bitmap PNG conversion — blocked on demo-07 evidence.**
+      `c64 sprite from-png` (`sprite_from_png` in `src/c64lib/cli.py`, via
+      `sprites.sprite_from_image`) handles 24×21 sprites only; charset and
+      bitmap conversion is the one bullet still open in §6 of
+      `docs/superpowers/specs/graphics-and-sprites.md` (the pixel-assertion
+      bullet beside it was ruled out 2026-07-30). What blocks it is a
+      target-format decision — 8×8 charset cells versus a full 320×200
+      hires / 160×200 multicolor bitmap plus screen and color RAM — and the
+      two imply different outputs and different verification. Don't rule it
+      from first principles: demo 07 (`demos/1812/PROMPT.md`, multicolor
+      bitmap, never agent-run — see the dogfood item above) is the first real
+      consumer, so the decision waits on it. Fix direction: when that run
+      completes, re-scope this item from what it actually needed out of a
+      PNG — and close it if it needed nothing. Verify: inspection.
