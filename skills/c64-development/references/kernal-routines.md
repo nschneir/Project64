@@ -90,7 +90,7 @@ operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
 | B86A | FADDT  | FAC1 = ARG + FAC1 |
 | BA28 | FMULT  | FAC1 = mem(A/Y) × FAC1 |
 | BA2B | FMULTT | FAC1 = ARG × FAC1 |
-| BA8C | CONUPK | Unpack mem(A/Y) into ARG — the prologue every mem-operand entry JSRs |
+| BA8C | CONUPK | Unpack mem(A/Y) into ARG — the prologue FADD/FSUB/FMULT/FDIV JSR (FPWR instead loads via MOVFM) |
 | BAE2 | MUL10  | FAC1 = FAC1 × 10 |
 | BAFE | DIV10  | FAC1 = FAC1 ÷ 10 |
 | BB0F | FDIV   | FAC1 = mem(A/Y) ÷ FAC1 |
@@ -106,7 +106,7 @@ operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
 | BC9B | QINT   | FAC1 → 32-bit signed integer in `$62-$65` |
 | BCCC | INT    | FAC1 = INT(FAC1) |
 | BCF3 | FIN    | ASCII number at TXTPTR → FAC1 (the interpreter's number parser) |
-| BF78 | FPWR   | FAC1 = mem(A/Y) ^ FAC1 |
+| BF78 | FPWR   | FAC1 = ARG ^ mem(A/Y) — loads the exponent from mem(A/Y) into FAC1 via MOVFM (not CONUPK), so the base must already be in ARG; falls into FPWRT |
 | BF7B | FPWRT  | FAC1 = ARG ^ FAC1 |
 | BFB4 | NEGOP  | FAC1 = −FAC1 |
 | BDDD | FOUT   | FAC1 → ASCII digits at `$0100`; pointer returned in A (low)/Y (high) |
