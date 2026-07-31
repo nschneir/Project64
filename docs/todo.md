@@ -107,19 +107,3 @@ the function/test names are the durable anchors.
       completes, re-scope this item from what it actually needed out of a
       PNG — and close it if it needed nothing. Verify: inspection.
 
-## CI and tooling
-
-- [ ] **The pyright gate pins the checker but not what it checks against.**
-      `.github/workflows/checks.yml:43` pins `pyright@1.1.411` on purpose (the
-      comment above it says why), yet line 35 builds the venv it resolves
-      imports through with `.venv/bin/pip install --quiet -e ".[dev]"` — no
-      constraints, so click, pillow, pyyaml, mcp and pytest are re-resolved to
-      whatever is newest on every run. A dependency that ships new or changed
-      stubs can therefore turn the gate red on a commit that touched no code,
-      and the breakage lands on whoever pushes next rather than beside the
-      change that caused it — the same failure mode the pyright pin already
-      rules out. Fix direction: commit a `constraints.txt` (a pinned
-      `pip freeze` of the dev venv) and install with `pip install -c
-      constraints.txt -e ".[dev]"`, refreshing it deliberately so a dependency
-      bump is its own commit with its own green pyright run. Verify:
-      inspection of the workflow, then the first CI run after it lands.

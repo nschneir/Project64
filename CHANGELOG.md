@@ -6,6 +6,20 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [Unreleased]
+
+The pyright gate is out of CI, by ruling: type checks run locally, like
+every other check this project runs. `.github/workflows/checks.yml` pinned
+the checker at 1.1.411 but built its venv with an unconstrained
+`pip install -e ".[dev]"` on every run, so a dependency shipping new or
+changed stubs could turn the gate red on a commit that touched no code —
+the exact failure mode the pyright pin existed to rule out, landing on
+whoever pushed next. Rather than pin the whole resolution behind a gate
+that duplicated a local check, the workflow is deleted; `release.yml` is
+the only workflow again. `pyright` — still 1.1.411 by convention, still
+`standard` mode over `src` and `tests` — remains the pre-commit bar, and
+AGENTS.md now says so in the local-first terms the tests have always used.
+
 ## [0.9.0] — 2026-07-31
 
 What closing out `docs/todo.md`'s "Test health" section walked into. Three
