@@ -338,10 +338,10 @@ source's own convention for vectored bodies). The line-level helpers
 drive CIA 2 at `$DD00` (bit 3 = ATN, bit 4 = clock out, bit 5 = data
 out, all inverted on the bus — setting the bit pulls the line low).
 
-`CLKLO`/`CLKHI` are swapped from the plan's original candidates: live
-disassembly shows `$EE85` clearing bit 4 (release/HI) and `$EE8E`
-setting it (pull-low/LO), the opposite of the candidate pairing, so
-the names follow the code.
+The `CLKHI`/`CLKLO` assignment comes from the code itself: `$EE85` ANDs
+bit 4 away (releases the line high) and `$EE8E` ORAs it on (pulls the
+line low). Remember the inversion when reading the table — the routine
+that *clears* the bit is the one that raises the line.
 
 `NLOAD`/`NSAVE` are the `$FFD5`/`$FFD8` jump-table targets, confirmed
 live the same way as the other entries here. Each stashes X/Y and then
@@ -370,8 +370,8 @@ jumps *indirectly* through its RAM vector (`JMP ($0330)` / `JMP
 | F49E | NLOAD  | LOAD's body: stash X/Y, then jump indirect through ILOAD ($0330); the chain reached this way checks FA for device 1 = tape, else IEC |
 | F5DD | NSAVE  | SAVE's body: stash X/Y, then jump indirect through ISAVE ($0332); same device-1-vs-IEC branch downstream |
 
-Tape (datasette, device 1) internals, reached from NLOAD/NSAVE's
-device-1 branches:
+Tape (datasette, device 1) internals, reached from the tape paths,
+including NLOAD/NSAVE's device-1 branches:
 
 | Addr | Name  | What it is |
 |------|-------|------------|
