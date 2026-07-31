@@ -99,6 +99,15 @@ def test_rom_labels_basic2_has_dispatch_tables():
     assert labels["LOAD_STMT"] == 0xE168
 
 
+def test_rom_labels_basic2_has_function_handlers():
+    labels = rom_labels("2.0")
+    assert labels["SGN"] == 0xBC39
+    assert labels["USR"] == 0x0310
+    assert labels["CHRD"] == 0xB6EC
+    assert labels["MIDD"] == 0xB737
+    assert labels["RND"] == 0xE097
+
+
 def test_identify_reads_resources_and_hashes():
     mon = Mock()
     mon.resource_get.side_effect = lambda n: {

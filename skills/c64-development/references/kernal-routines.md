@@ -245,6 +245,39 @@ above.
 | A1 | AB7B | GET |
 | A2 | A642 | NEW |
 
+### Function handlers (via FUNDSP)
+
+Naming: the `$`-suffix functions use the Commodore-source D-for-dollar
+convention (STRD = STR$, CHRD = CHR$, LEFTD/RIGHTD/MIDD likewise). USR
+dispatches through the RAM JMP at $0310 (see the USR vector note above);
+everything else lands in ROM. Numeric results return in FAC1.
+
+| Token | Addr | Name |
+|-------|------|------|
+| B4 | BC39 | SGN |
+| B5 | BCCC | INT |
+| B6 | BC58 | ABS |
+| B7 | 0310 | USR |
+| B8 | B37D | FRE |
+| B9 | B39E | POS |
+| BA | BF71 | SQR |
+| BB | E097 | RND |
+| BC | B9EA | LOG |
+| BD | BFED | EXP |
+| BE | E264 | COS |
+| BF | E26B | SIN |
+| C0 | E2B4 | TAN |
+| C1 | E30E | ATN |
+| C2 | B80D | PEEK |
+| C3 | B77C | LEN |
+| C4 | B465 | STRD |
+| C5 | B7AD | VAL |
+| C6 | B78B | ASC |
+| C7 | B6EC | CHRD |
+| C8 | B700 | LEFTD |
+| C9 | B72C | RIGHTD |
+| CA | B737 | MIDD |
+
 ## KERNAL internals
 
 **Revision caveat:** unlike the jump table and the BASIC ROM, these live
