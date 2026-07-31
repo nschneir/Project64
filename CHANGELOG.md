@@ -20,6 +20,23 @@ the only workflow again. `pyright` — still 1.1.411 by convention, still
 `standard` mode over `src` and `tests` — remains the pre-commit bar, and
 AGENTS.md now says so in the local-first terms the tests have always used.
 
+The ROM label DB's final tranche — `docs/todo.md`'s "Next tranche" item,
+closed rather than advanced. `basic2.lbl` grows 184 → 291: the BASIC
+token dispatch tables (STMDSP/FUNDSP/OPTAB/RESLST) and all 35 statement +
+23 function handlers, the floating-point package, and the IEC serial and
+tape KERNAL internals. Every address came off a live machine — dispatch
+words read out of the ROM's own tables, jump-table JMPs followed to their
+bodies, the FP package cross-checked by its own prologue structure — per
+the standing rule: names and addresses only, verify live, drop rather than
+guess. No candidate was dropped; instead the live reads corrected the
+expectations twice. `FPWR $BF78` opens with `JSR MOVFM`, not the `JSR
+CONUPK` the other FP prologues use, so its documented contract is
+`FAC1 = ARG ^ mem(A/Y)` — the base must already be in ARG. And `CLKLO`/
+`CLKHI` landed swapped relative to the working candidates, because the
+`$DD00` bit operations decide the polarity, not the address order: `$EE85`
+is CLKHI, `$EE8E` is CLKLO. All new names are documented beside their
+addresses in `kernal-routines.md`, gated by `test_label_db_is_documented`.
+
 ## [0.9.0] — 2026-07-31
 
 What closing out `docs/todo.md`'s "Test health" section walked into. Three

@@ -72,26 +72,6 @@ the function/test names are the durable anchors.
       and re-proven with a passing `c64 test run` spec. It found no product
       defects; the six observability gaps it did find are closed in the
       Unreleased section of the changelog.
-- [ ] **Next tranche of the ROM label DB.**
-      `src/c64lib/data/rom_labels/basic2.lbl` holds 184 labels after the first
-      curated tranche: zero page, the BASIC interpreter core, and the KERNAL
-      editor/IRQ paths. Still missing, in rough order of
-      usefulness: the **BASIC token and statement dispatch table** (`$A00C`
-      statement vectors, `$A052` function vectors, `$A09E` keywords, and the
-      handlers they point at); the **floating-point package** (`$B7xx`-`$BFxx`
-      arithmetic, starting with the ten rows `kernal-routines.md` already
-      documents and verified, `MOVFM` through `INT`); and **tape/serial
-      internals** (`$ED09`-`$EE13` IEC, `$F49E` LOAD / `$F5DD` SAVE, tape).
-      `romdoc.py`'s docstring binds every tranche: names and addresses only,
-      by the conventional names, never ROM bytes or disassembly prose — so
-      verify each address live and drop, never guess, whatever fails to check. Two tests
-      gate a tranche: `test_label_file_hygiene` (format, uniqueness, address
-      order, ranges) and `test_label_db_is_documented`, which wants each name
-      written up beside its address in `references/kernal-routines.md` or
-      `references/zero-page.md` — budget those doc rows with the labels.
-      Verify: `.venv/bin/pytest tests/test_romdoc.py
-      tests/test_docs_rom_basic.py -q`, plus `.venv/bin/c64 disasm <NAME> 8`
-      live for each name added.
 - [ ] **Charset/bitmap PNG conversion — blocked on demo-07 evidence.**
       `c64 sprite from-png` (`sprite_from_png` in `src/c64lib/cli.py`, via
       `sprites.sprite_from_image`) handles 24×21 sprites only; charset and
