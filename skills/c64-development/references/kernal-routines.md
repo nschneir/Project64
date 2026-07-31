@@ -328,3 +328,44 @@ before depending on one under a different KERNAL.
 | FE47 | NMIHDLR   | The default NMI handler — the $0318 target (RESTORE key, RS-232) |
 | FE66 | WARMRST   | Warm restart: restore vectors, re-init I/O and the editor, then BASIC |
 | FF48 | IRQBRK    | The IRQ/BRK dispatcher: saves A/X/Y, then $0314 (IRQ) or $0316 (BRK) |
+
+### Serial (IEC) and load/save internals
+
+Each `$FFxx` serial call is one `JMP` from its body below — verified by
+disassembling the jump-table entry and taking the target. N-prefixed
+names mark the body of a same-named jump-table entry (the KERNAL
+source's own convention for vectored bodies). The line-level helpers
+drive CIA 2 at `$DD00` (bit 3 = ATN, bit 4 = clock out, bit 5 = data
+out, all inverted on the bus — setting the bit pulls the line low).
+
+`CLKLO`/`CLKHI` are swapped from the plan's original candidates: live
+disassembly shows `$EE85` clearing bit 4 (release/HI) and `$EE8E`
+setting it (pull-low/LO), the opposite of the candidate pairing, so
+the names follow the code.
+
+`NLOAD`/`NSAVE` are the `$FFD5`/`$FFD8` jump-table targets, confirmed
+live the same way as the other entries here. Each stashes X/Y and then
+jumps *indirectly* through its RAM vector (`JMP ($0330)` / `JMP
+($0332)`); the live vector words read `$F4A5`/`$F5ED`, one level past
+`NLOAD`/`NSAVE` themselves, not back at their own addresses — RESTOR's
+"default" is that downstream continuation, not the fixed stub.
+
+| Addr | Name   | What it is |
+|------|--------|------------|
+| ED09 | NTALK  | TALK's body: OR the device number with $40, send it under ATN |
+| ED0C | NLISTN | LISTEN's body: OR the device number with $20, send it under ATN |
+| EDB9 | SECND  | SECOND's body: send the secondary address after LISTEN |
+| EDBE | SCATN  | Release ATN ($DD00 bit 3) |
+| EDC7 | NTKSA  | TKSA's body: send the secondary address after TALK (bus turnaround) |
+| EDDD | NCIOUT | CIOUT's body: buffer the byte in BSOUR ($95), transmit the previous one |
+| EDEF | NUNTLK | UNTLK's body |
+| EDFE | NUNLSN | UNLSN's body |
+| EE13 | NACPTR | ACPTR's body: clock one byte in from the bus into A |
+| EE85 | CLKHI  | Release the serial clock line (AND clears $DD00 bit 4) |
+| EE8E | CLKLO  | Pull the serial clock line low (ORA sets $DD00 bit 4) |
+| EE97 | DATAHI | Release the serial data line (AND clears $DD00 bit 5) |
+| EEA0 | DATALO | Pull the serial data line low (ORA sets $DD00 bit 5) |
+| EEA9 | DEBPIA | Debounced read of $DD00; serial data-in bit lands in carry via ASL |
+| EEB3 | W1MS   | Busy-wait ~1 ms |
+| F49E | NLOAD  | LOAD's body: stash X/Y, then jump indirect through ILOAD ($0330); the chain reached this way checks FA for device 1 = tape, else IEC |
+| F5DD | NSAVE  | SAVE's body: stash X/Y, then jump indirect through ISAVE ($0332); same device-1-vs-IEC branch downstream |

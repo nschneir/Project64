@@ -117,6 +117,15 @@ def test_rom_labels_basic2_has_fp_package():
     assert labels["FIN"] == 0xBCF3
 
 
+def test_rom_labels_basic2_has_serial_internals():
+    labels = rom_labels("2.0")
+    assert labels["NTALK"] == 0xED09
+    assert labels["NACPTR"] == 0xEE13
+    assert labels["SECND"] == 0xEDB9
+    assert labels["NLOAD"] == 0xF49E
+    assert labels["NSAVE"] == 0xF5DD
+
+
 def test_identify_reads_resources_and_hashes():
     mon = Mock()
     mon.resource_get.side_effect = lambda n: {
