@@ -57,13 +57,12 @@ dist and `.github/workflows/checks.yml` type-checks. We don't expect emulators
 to run on GitHub, and that extends to VICE's command-line tools — pyright is
 in CI precisely because it needs none of that. So the gate is you, on a machine
 with VICE installed, running the affected subset before you commit — nothing
-downstream will catch what you skip. Make that runnable rather than
-remembered: guard a
-test that shells out to `c1541` with `@pytest.mark.needs_c1541` rather than a
-local `skipif` (a `skipif` is invisible to `-m`, so the subset can't be asked
-for), and `pytest -m "needs_c1541 and not vice"` runs the whole disk subset —
-100 tests, ~6s, no emulator. `tests/conftest.py` turns the marker into a skip
-when c1541 is missing, resolving it the way `c64lib.disk` does — PATH or
+downstream will catch what you skip. Make that runnable rather than remembered:
+guard a test that shells out to `c1541` with `@pytest.mark.needs_c1541` rather
+than a local `skipif` (a `skipif` is invisible to `-m`, so the subset can't be
+asked for), and `pytest -m "needs_c1541 and not vice"` runs the whole disk
+subset — 100 tests, ~6s, no emulator. `tests/conftest.py` turns the marker into
+a skip when c1541 is missing, resolving it the way `c64lib.disk` does — PATH or
 `C64_TOOLS_C1541` — so the subset skips rather than fails where VICE is absent.
 
 Most live tests share **one** warp+headless emulator, via the session-scoped

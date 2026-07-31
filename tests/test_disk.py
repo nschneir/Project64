@@ -107,6 +107,11 @@ def test_c1541_failure_raises_disk_error(tmp_path, monkeypatch):
 
     def fail(cmd, capture_output, text):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="bad image")
+    # `_c1541()` resolves the binary before `subprocess.run` is reached, so
+    # without this the test fails with "install VICE" on a machine that has
+    # no c1541 instead of exercising the error path it is about. The name is
+    # never executed: `subprocess.run` is patched out.
+    monkeypatch.setenv("C64_TOOLS_C1541", "c1541")
     monkeypatch.setattr(disk.subprocess, "run", fail)
     with pytest.raises(disk.DiskError, match="bad image"):
         disk.list_files(tmp_path / "x.d64")
@@ -119,6 +124,9 @@ def test_get_file_missing_output_raises(tmp_path, monkeypatch):
 
     def ok_but_writes_nothing(cmd, capture_output, text):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    # See above: resolve the binary by name so this runs without VICE. The
+    # patched `subprocess.run` means nothing is executed.
+    monkeypatch.setenv("C64_TOOLS_C1541", "c1541")
     monkeypatch.setattr(disk.subprocess, "run", ok_but_writes_nothing)
     with pytest.raises(disk.DiskError, match="was not written"):
         disk.get_file(tmp_path / "x.d64", "game", tmp_path / "out.prg")

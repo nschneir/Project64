@@ -58,11 +58,12 @@ fail_under = 90
 # `tests` is in `include` on purpose, at the same `standard` mode as `src`.
 # The suite is not scaffolding: conftest.py and vice_helpers.py own the shared
 # emulator and every timeout in the live tests, and test_mcp_scaffold.py is
-# imported by three other test modules. Dropping tests from `include`, or
-# giving them a lower mode via `executionEnvironments`, would stop checking
-# that code to silence findings that turned out to be tractable — of the 87
-# test findings this policy started from, 80 were resolved at their cause and
-# 7 needed a per-site suppression.
+# imported by eight other test modules — every other `test_mcp_*` file, plus
+# test_integration_mcp.py. Dropping tests from `include`, or giving them a
+# lower mode via `executionEnvironments`, would stop checking that code to
+# silence findings that turned out to be tractable — of the 87 test findings
+# this policy started from, 80 were resolved at their cause and 7 needed a
+# per-site suppression.
 #
 # Suppressions are per-site `# pyright: ignore[<rule>]` with a comment saying
 # why, never a bare `# type: ignore` and never a rule switched off here. If a
