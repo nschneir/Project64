@@ -33,7 +33,7 @@ python -m coverage run -m pytest && python -m coverage combine && python -m cove
                                 # coverage (fail_under=90); subprocesses (daemon, MCP stdio) are measured too
 
 ruff check src tests            # lint (config in pyproject.toml); must be clean
-pyright                         # type check (config in pyproject.toml); must be clean — CI gates on it
+pyright                         # type check (config in pyproject.toml); must be clean — local-only, CI does not run it
 ```
 
 Keep shell invocations in the plain form above: one command, executable
@@ -51,13 +51,16 @@ two as well, for its `.s`/`.bas` manifest entries); `c64 cart build`/`convert`
 (and any `.crt` output from `c64 package`) needs `cartconv` — all external
 subprocesses.
 
-**Everything VICE-dependent is validated locally, by decision — not in CI.**
-Neither workflow runs a test: `.github/workflows/release.yml` builds a release
-dist and `.github/workflows/checks.yml` type-checks. We don't expect emulators
-to run on GitHub, and that extends to VICE's command-line tools — pyright is
-in CI precisely because it needs none of that. So the gate is you, on a machine
-with VICE installed, running the affected subset before you commit — nothing
-downstream will catch what you skip. Make that runnable rather than remembered:
+**Everything is validated locally, by decision — CI runs no checks at all.**
+The one workflow, `.github/workflows/release.yml`, builds a release dist; no
+workflow runs a test or a type check. We don't expect emulators to run on
+GitHub, and the pyright gate that briefly lived in
+`.github/workflows/checks.yml` was retired by the same local-first ruling: it
+pinned the checker but built its venv fresh each run with unpinned
+dependencies, so it could turn red on a commit that touched no code. So the
+gate is you, on a machine with VICE installed, running the affected subset —
+and `pyright` — before you commit; nothing downstream will catch what you
+skip. Make that runnable rather than remembered:
 guard a test that shells out to `c1541` with `@pytest.mark.needs_c1541` rather
 than a local `skipif` (a `skipif` is invisible to `-m`, so the subset can't be
 asked for), and `pytest -m "needs_c1541 and not vice"` runs the whole disk
@@ -112,9 +115,12 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   intentional). Comments state contracts, hardware quirks, and non-obvious
   *why* — see `monitor.py`/`daemon.py` for the house tone; no narration.
 - Type-check with bare `pyright` — no flags, and **the tree must stay
-  clean**: `.github/workflows/checks.yml` runs it (pinned to 1.1.411) on
-  every push, so a new error is a red check, not a note for later — it can
-  live there because static analysis needs no emulator, which the suite does.
+  clean**: the check is local-only, by ruling (the CI gate was retired
+  because its venv re-resolved dependencies on every run and could go red
+  with no code change), so a new error is yours to fix before you commit,
+  not a note for later. 1.1.411 is the known-good version; bump it
+  deliberately, with the tree clean before and after, and update this
+  number when you do.
   `[tool.pyright]` in
   `pyproject.toml` sets `venvPath`/`venv` so imports resolve against `.venv`
   — that config is what stands between you and ~70 phantom missing-import

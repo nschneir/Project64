@@ -52,8 +52,7 @@ fail_under = 90
 # venvPath/venv are load-bearing: pyright is a developer-local tool (brew/npm,
 # not in `[dev]`), so without them it resolves imports against whatever
 # interpreter is first on PATH and invents ~70 phantom missing-import errors,
-# plus knock-on failures wherever those imports are used. `.github/workflows/
-# checks.yml` builds the venv for the same reason before it runs the gate.
+# plus knock-on failures wherever those imports are used.
 #
 # `tests` is in `include` on purpose, at the same `standard` mode as `src`.
 # The suite is not scaffolding: conftest.py and vice_helpers.py own the shared
