@@ -94,6 +94,31 @@ reasoning is in the commit messages.
   carries the exit-2 case plus the split under `c64 sprite from-png`, and
   the tests for both commands moved from asserting "non-zero" to the exact
   code on each side of the line.
+- **A test step naming two memory conditions crashed the spec runner instead
+  of judging it.** `_do_step`'s `assert: {mem: …}` handling ran two if-chains
+  over the same keys — one to size the memory read, one to judge the bytes it
+  got back — and positions 4 and 5 disagreed: sizing tested `between` before
+  `differs`/`greater_than`/`less_than`, judging tested them the other way
+  round. `assert` is one of the lenient step kinds, so nothing rejects a step
+  naming both, and such a step was sized by the `between` branch and then
+  judged by a branch whose three names the sizing had never bound —
+  `UnboundLocalError` mid-run, from the code that decides whether the example
+  programs pass. The two chains are now one, in the sizing order, with the
+  read behind a local `_read(length)` helper, so the halves cannot disagree
+  again. Nothing changes for a step naming a single condition, which is every
+  assert step in the repo (28 scanned, 0 multi-condition): same branch, same
+  read length, same monitor round-trips, same detail strings. For the
+  crashing combination `between` now wins — the order that already decided
+  what to read off the machine.
+- **A session daemon whose monitor was already closed died with a traceback
+  instead of shutting down.** `_idle_wait` selects on the VICE socket and the
+  listening socket, and it catches the `ValueError`/`OSError` that a *closed*
+  socket raises (fileno -1) precisely so a dead emulator ends the daemon
+  cleanly. But `MonitorClient.close()` clears `_sock` to `None`, and
+  `select()` answers `None` with `TypeError` — a different exception, past
+  that guard, out through the daemon's top-level handler as the traceback the
+  guard exists to prevent. A monitor with no socket is the same VICE-gone
+  situation and now gets the same clean shutdown.
 
 ### Changed
 - **Live-wait timeouts now scale under `coverage` instrumentation**
@@ -143,6 +168,47 @@ reasoning is in the commit messages.
   emulators and their tooling are not expected to run on GitHub, so VICE-
   dependent validation stays on developer machines. `AGENTS.md` now says so
   where it documents the test markers, with the selection to run.
+
+- **The type checker is a gate: `pyright` must be clean, and CI is what says
+  so.** It went in as an advisory tool over a tree that reported **200
+  errors** and comes out reporting **0**, with ten per-site suppressions,
+  each carrying a comment saying what the checker cannot see there. The ratio
+  is the part worth recording, because "run a type checker over an untyped
+  codebase" is usually sold on the bugs it will find, and the honest tally is
+  three — two of them shipped, one in the suite: the multi-condition `assert`
+  crash and the daemon shutdown above, plus `test_sprites.py`'s `_vic(**over)`,
+  which indexed a bytearray with the keyword *name* and would have raised
+  `TypeError` for any caller that passed an override. No caller ever did, so
+  that helper's whole override feature was dead on arrival, and it is gone
+  rather than repaired. A fourth finding is worth its own sentence because it
+  is the failure mode a type checker is *uniquely* good at: 26 of the
+  test-suite findings traced to one helper returning `d.mon` instead of the
+  Mock it had just built. Same object at runtime, so nothing misbehaved — but
+  it arrived typed as `PetDaemon.mon`'s declared `MonitorClient`, which
+  declares no `.return_value` and no `.assert_called_once()`, so an entire
+  file's worth of mock configuration was unverifiable. The helper now keeps
+  the Mock in a local and hands that back.
+  Two findings that looked like bugs were not, and saying so is the useful
+  result: `sprites.py`'s Pillow constants (the pre-9.1 aliases still resolve;
+  migrated to `Image.Resampling` because the deprecation is real, not because
+  anything was broken) and `basic_lint.py`'s optional line number (the parser
+  guarantees a number before the linter ever sees one — the *declaration* was
+  wider than the value, and was narrowed). The rest was noise of two kinds:
+  findings the checker cannot model — test idioms like a monkeypatched real
+  client that a `Mock(spec=)` would stop testing or a structural fake that
+  must not subclass `Session`, and three `src` sites where one guard's result
+  is only knowable by correlating it with another's; those are the ten
+  suppressions. And, before any of it, ~70 phantom missing imports from
+  resolving against
+  whatever interpreter is first on PATH, fixed by pointing `[tool.pyright]`
+  at the project venv. That last one is not a footnote: it is exactly the
+  volume of false output that teaches a team to stop reading a tool.
+  `.github/workflows/checks.yml` now runs `pyright` pinned at 1.1.411 on
+  every push. It is the only thing CI checks and it runs no tests — pure
+  static analysis needs no emulator, which is precisely why it can live there
+  under the same ruling that keeps VICE off GitHub. `tests` is checked at the
+  same `standard` mode as `src`; suppressions stay per-site with a reason, and
+  no rule is switched off in `pyproject.toml`.
 
 ### Added
 - **`c64 wait --idle` — block until the program has finished or errored.**

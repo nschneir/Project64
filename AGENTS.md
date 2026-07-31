@@ -33,7 +33,7 @@ python -m coverage run -m pytest && python -m coverage combine && python -m cove
                                 # coverage (fail_under=90); subprocesses (daemon, MCP stdio) are measured too
 
 ruff check src tests            # lint (config in pyproject.toml); must be clean
-pyright                         # type check (config in pyproject.toml); not a gate yet
+pyright                         # type check (config in pyproject.toml); must be clean — CI gates on it
 ```
 
 Keep shell invocations in the plain form above: one command, executable
@@ -52,11 +52,13 @@ two as well, for its `.s`/`.bas` manifest entries); `c64 cart build`/`convert`
 subprocesses.
 
 **Everything VICE-dependent is validated locally, by decision — not in CI.**
-The only workflow, `.github/workflows/release.yml`, builds a release dist and
-runs no tests: we don't expect emulators to run on GitHub, and that extends to
-VICE's command-line tools. So the gate is you, on a machine with VICE
-installed, running the affected subset before you commit — nothing downstream
-will catch what you skip. Make that runnable rather than remembered: guard a
+Neither workflow runs a test: `.github/workflows/release.yml` builds a release
+dist and `.github/workflows/checks.yml` type-checks. We don't expect emulators
+to run on GitHub, and that extends to VICE's command-line tools — pyright is
+in CI precisely because it needs none of that. So the gate is you, on a machine
+with VICE installed, running the affected subset before you commit — nothing
+downstream will catch what you skip. Make that runnable rather than
+remembered: guard a
 test that shells out to `c1541` with `@pytest.mark.needs_c1541` rather than a
 local `skipif` (a `skipif` is invisible to `-m`, so the subset can't be asked
 for), and `pytest -m "needs_c1541 and not vice"` runs the whole disk subset —
@@ -110,17 +112,22 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   and the aligned struct/profile tables in `protocol.py`/`machines.py` are
   intentional). Comments state contracts, hardware quirks, and non-obvious
   *why* — see `monitor.py`/`daemon.py` for the house tone; no narration.
-- Type-check with bare `pyright` — no flags: `[tool.pyright]` in
-  `pyproject.toml` sets `venvPath`/`venv` so it resolves imports against
-  `.venv` (run it from the repo root, or it will type-check against whatever
-  interpreter is first on PATH and report ~68 phantom missing imports).
+- Type-check with bare `pyright` — no flags, and **the tree must stay
+  clean**: `.github/workflows/checks.yml` runs it (pinned to 1.1.411) on
+  every push, so a new error is a red check, not a note for later — it can
+  live there because static analysis needs no emulator, which the suite does.
+  `[tool.pyright]` in
+  `pyproject.toml` sets `venvPath`/`venv` so imports resolve against `.venv`
+  — that config is what stands between you and ~70 phantom missing-import
+  errors, so keep the venv installed and let pyright find the config (it
+  looks upward from wherever you run it; the repo root always works).
   pyright is a developer-local tool, deliberately **not** in `[dev]` — the
   PyPI wrapper downloads a Node toolchain, heavier than anything else this
   project installs. Get it with `brew install pyright` or `npm i -g pyright`.
-  It currently reports **200 pre-existing errors** (111 in `src`, 89 in
-  `tests`) and is *not* a gate: don't chase them wholesale, but don't add
-  new ones in code you touch. Bringing that count to zero is staged in the
-  maintainer's local plan (under the gitignored `.superpowers/`).
+  Fix a finding at its cause; where one is genuinely a checker limitation,
+  the house pattern is a per-site `# pyright: ignore[<rule>]` with a comment
+  saying why (`cli.py`'s `Session.launch` call is the model), never a bare
+  `# type: ignore` and never a rule switched off in `pyproject.toml`.
 - Never vendor Commodore ROM bytes or any copyrighted Commodore code into
   the repo — ROM tooling reads bytes from the user's running emulator and
   ships only original label annotations.
