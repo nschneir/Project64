@@ -183,6 +183,68 @@ calling convention — check the code before depending on register use.
 | B7EB | GETNUM   | GETADR then CHKCOM then GETBYT — the `POKE addr,byte` parameter pair |
 | B7F7 | GETADR   | FAC1 → unsigned 16-bit into LINNUM ($14/$15) |
 
+## BASIC token dispatch tables
+
+How a token becomes code. GONE3 takes the statement token − $80 and pushes
+the word at STMDSP + 2×index (stored as handler − 1, RTS-dispatched); EVAL
+reaches function handlers through the words at FUNDSP (stored directly).
+RESLST is the keyword list CRUNCH tokenizes against — the last character
+of each keyword has bit 7 set, and a token's value is $80 + its position.
+Every handler address below was read out of the live STMDSP/FUNDSP tables
+themselves (`c64 mem read $A00C 70` / `$A052 46`), not copied from a
+reference — the ROM's own tables are the oracle.
+
+| Addr | Name   | What it is |
+|------|--------|------------|
+| A00C | STMDSP | Statement dispatch table: 35 words, each handler − 1 |
+| A052 | FUNDSP | Function dispatch table: 23 words |
+| A080 | OPTAB  | Operator priority/dispatch table (runs up to RESLST) |
+| A09E | RESLST | The keyword list; bit 7 marks each keyword's last character |
+
+### Statement handlers (via STMDSP)
+
+Naming: `#` forms take an N suffix (PRINTN = PRINT#, INPUTN = INPUT#);
+where the statement's name is already a KERNAL jump-table label the
+handler takes a `_STMT` suffix (the same disambiguation precedent as
+BASIN/BSOUT). FOR ($A742) and NEXT ($AD1E) are in the interpreter table
+above.
+
+| Token | Addr | Name |
+|-------|------|------|
+| 80 | A831 | END |
+| 83 | A8F8 | DATA |
+| 84 | ABA5 | INPUTN |
+| 85 | ABBF | INPUT |
+| 86 | B081 | DIM |
+| 87 | AC06 | READ |
+| 88 | A9A5 | LET |
+| 89 | A8A0 | GOTO |
+| 8A | A871 | RUN |
+| 8B | A928 | IF |
+| 8C | A81D | RESTORE |
+| 8D | A883 | GOSUB |
+| 8E | A8D2 | RETURN |
+| 8F | A93B | REM |
+| 90 | A82F | STOP_STMT |
+| 91 | A94B | ON |
+| 92 | B82D | WAIT |
+| 93 | E168 | LOAD_STMT |
+| 94 | E156 | SAVE_STMT |
+| 95 | E165 | VERIFY |
+| 96 | B3B3 | DEF |
+| 97 | B824 | POKE |
+| 98 | AA80 | PRINTN |
+| 99 | AAA0 | PRINT |
+| 9A | A857 | CONT |
+| 9B | A69C | LIST |
+| 9C | A65E | CLR |
+| 9D | AA86 | CMD |
+| 9E | E12A | SYS |
+| 9F | E1BE | OPEN_STMT |
+| A0 | E1C7 | CLOSE_STMT |
+| A1 | AB7B | GET |
+| A2 | A642 | NEW |
+
 ## KERNAL internals
 
 **Revision caveat:** unlike the jump table and the BASIC ROM, these live

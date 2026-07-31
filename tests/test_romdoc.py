@@ -88,6 +88,17 @@ def test_rom_labels_unknown_version_empty():
     assert rom_labels("1.0") == {}
 
 
+def test_rom_labels_basic2_has_dispatch_tables():
+    labels = rom_labels("2.0")
+    assert labels["STMDSP"] == 0xA00C
+    assert labels["FUNDSP"] == 0xA052
+    assert labels["OPTAB"] == 0xA080
+    assert labels["RESLST"] == 0xA09E
+    assert labels["GOTO"] == 0xA8A0
+    assert labels["LIST"] == 0xA69C
+    assert labels["LOAD_STMT"] == 0xE168
+
+
 def test_identify_reads_resources_and_hashes():
     mon = Mock()
     mon.resource_get.side_effect = lambda n: {
