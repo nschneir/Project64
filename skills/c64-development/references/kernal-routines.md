@@ -83,16 +83,32 @@ operand in **ARG/FAC2** (`$69-$6E`); the result returns in FAC1.
 |------|------|----------|
 | B391 | GIVAYF | Signed 16-bit int (A = high, Y = low) → FAC1; sets VALTYP (`$0D`) to 0 = numeric |
 | B1AA | AYINT  | FAC1 → signed 16-bit int in `$64/$65` (verified round-trip) |
+| B849 | FADDH  | FAC1 = FAC1 + 0.5 |
+| B850 | FSUB   | FAC1 = mem(A/Y) − FAC1 |
+| B853 | FSUBT  | FAC1 = ARG − FAC1 |
+| B867 | FADD   | FAC1 = mem(A/Y) + FAC1 |
+| B86A | FADDT  | FAC1 = ARG + FAC1 |
+| BA28 | FMULT  | FAC1 = mem(A/Y) × FAC1 |
+| BA2B | FMULTT | FAC1 = ARG × FAC1 |
+| BA8C | CONUPK | Unpack mem(A/Y) into ARG — the prologue every mem-operand entry JSRs |
+| BAE2 | MUL10  | FAC1 = FAC1 × 10 |
+| BAFE | DIV10  | FAC1 = FAC1 ÷ 10 |
+| BB0F | FDIV   | FAC1 = mem(A/Y) ÷ FAC1 |
+| BB12 | FDIVT  | FAC1 = ARG ÷ FAC1 |
 | BBA2 | MOVFM  | Load FAC1 from the 5-byte constant at A (low)/Y (high) |
 | BBD4 | MOVMF  | Round FAC1 and store it as a packed 5-byte float at X (low)/Y (high) — the inverse of MOVFM |
-| B86A | FADDT  | FAC1 = ARG + FAC1 |
-| B853 | FSUBT  | FAC1 = ARG − FAC1 |
-| BA2B | FMULTT | FAC1 = ARG × FAC1 |
-| BB12 | FDIVT  | FAC1 = ARG ÷ FAC1 |
-| BF7B | FPWRT  | FAC1 = ARG ^ FAC1 |
+| BBFC | MOVFA  | Copy ARG → FAC1 |
+| BC0C | MOVAF  | Copy FAC1 → ARG |
+| BC1B | ROUND  | Round FAC1 using the overflow byte FACOV (`$70`) |
 | BC2B | SIGN   | Sign of FAC1 → A (−1 / 0 / +1) |
 | BC58 | ABS    | FAC1 = |FAC1| (clears the sign bit) |
+| BC5B | FCOMP  | Compare FAC1 with mem(A/Y): A = 1 / 0 / $FF |
+| BC9B | QINT   | FAC1 → 32-bit signed integer in `$62-$65` |
 | BCCC | INT    | FAC1 = INT(FAC1) |
+| BCF3 | FIN    | ASCII number at TXTPTR → FAC1 (the interpreter's number parser) |
+| BF78 | FPWR   | FAC1 = mem(A/Y) ^ FAC1 |
+| BF7B | FPWRT  | FAC1 = ARG ^ FAC1 |
+| BFB4 | NEGOP  | FAC1 = −FAC1 |
 | BDDD | FOUT   | FAC1 → ASCII digits at `$0100`; pointer returned in A (low)/Y (high) |
 | AB1E | STROUT | Print the `$00`/quote-terminated string at A (low)/Y (high) |
 | BDCD | LINPRT | Print the unsigned 16-bit int in A (high)/X (low) as decimal |
