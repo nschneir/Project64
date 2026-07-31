@@ -11,17 +11,6 @@ produced these items (`.superpowers/sdd/*/progress.md`) are deleted when a plan
 finishes, so this file is the only surviving record. Line numbers are a hint;
 the function/test names are the durable anchors.
 
-## Decisions (maintainer)
-
-- [ ] **Release timing for 0.8.0.** `pyproject.toml:7` (`version = "0.8.0"`),
-      `CHANGELOG.md`'s `## [0.8.0]` heading and `README.md:185` ("Stable —
-      current release **v0.8.0**") are coherent today.
-      `.github/workflows/release.yml` triggers on `push: branches: [main]`, so
-      pushing `main` arms the release workflow — there is no tag gate. To ship
-      later, revert the bump as a unit (all three files together;
-      `tests/test_package.py::test_changelog_has_current_version` enforces the
-      pyproject↔CHANGELOG half and must stay green).
-
 ## Cartridge follow-ups
 
 - [ ] **EasyFlash window configs have no BSS/RAM area.** `ef_window_config`

@@ -6,7 +6,7 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
-## [Unreleased]
+## [0.9.0] — 2026-07-31
 
 What closing out `docs/todo.md`'s "Test health" section walked into. Three
 live tests — `test_symbolic_debug_loop`, `test_disk_attach_at_launch`, and
