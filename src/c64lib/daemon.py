@@ -42,7 +42,7 @@ STOPPING = frozenset({"step", "finish"})
 class PetDaemon:
     """One VICE connection + the session's desired run/stop state."""
 
-    def __init__(self, mon: MonitorClient, listen: socket.socket | None,
+    def __init__(self, mon: MonitorClient, listen: socket.socket,
                  session: str):
         self.mon = mon
         self.listen = listen
@@ -68,14 +68,20 @@ class PetDaemon:
         inspection command's release() would destroy the parked state.
         Returns False when the VICE connection is gone."""
         while True:
+            vice = self.mon._sock
+            if vice is None:
+                # close() clears the socket outright: there is no connection
+                # left to select on, and select() answers None with TypeError,
+                # which the guard below does not catch. Same VICE-gone answer.
+                return False
             try:
-                r, _, _ = select.select([self.listen, self.mon._sock], [], [])
+                r, _, _ = select.select([self.listen, vice], [], [])
             except (ValueError, OSError):
                 # A socket closed under us (fileno -1) — VICE died, or we're
                 # being torn down. Treat as VICE-gone so serve_forever exits
                 # cleanly instead of crashing the daemon with a traceback.
                 return False
-            if self.mon._sock in r and not self._pump_vice_events():
+            if vice in r and not self._pump_vice_events():
                 return False
             if self.listen in r:
                 return True

@@ -8,6 +8,7 @@ import socket
 import tempfile
 import threading
 import time
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -33,7 +34,12 @@ def _daemon(state=RUNNING) -> tuple[PetDaemon, Mock]:
     # that does not declare one. Same object either way (`__init__` just
     # assigns), and the annotation carries `Mock` out to the callers.
     mon = Mock()
-    d = PetDaemon(mon, None, "t")
+    # No listening socket: these daemons are driven through `_handle` on a
+    # socketpair, so `listen` is never touched. The cast keeps that "unused
+    # here" rather than widening `PetDaemon.listen` to Optional for every
+    # caller — the real daemon always has one (`main` binds it before
+    # constructing).
+    d = PetDaemon(mon, cast(socket.socket, None), "t")
     d.state = state
     mon.events = collections.deque()
     mon.poll_events.return_value = []     # _restore pumps before deciding
@@ -229,6 +235,21 @@ def test_idle_wait_treats_closed_vice_socket_as_death():
     b.close()                          # VICE socket yanked out from under us
     assert d._idle_wait() is False     # returns cleanly (was ValueError: fd -1)
     a.close()
+
+
+def test_idle_wait_treats_a_closed_monitor_as_death():
+    """The other half of the same shutdown: `MonitorClient.close()` clears
+    `_sock` to None, and select() answers None with TypeError — which the
+    ValueError/OSError guard does not catch, so the daemon crashed with a
+    traceback instead of exiting cleanly. A monitor with no socket is the
+    same VICE-gone situation as a yanked one, and gets the same clean False."""
+    d, mon = _daemon(state=RUNNING)
+    a, b = socket.socketpair()
+    d.listen = a
+    mon._sock = None                   # the monitor was closed under us
+    assert d._idle_wait() is False     # returns cleanly (was TypeError)
+    a.close()
+    b.close()
 
 
 def test_handle_survives_client_gone_before_hello():
