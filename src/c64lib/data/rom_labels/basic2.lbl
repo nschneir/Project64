@@ -235,6 +235,12 @@ al C:f1ca .BSOUT
 al C:f49e .NLOAD
 al C:f5dd .NSAVE
 al C:f6ed .STOPCHK
+al C:f72c .FAH
+al C:f76a .TAPEH
+al C:f817 .CSTE1
+al C:f838 .CSTE2
+al C:f841 .RBLK
+al C:f864 .WBLK
 al C:fce2 .RESET
 al C:fd02 .CARTCHK
 al C:fe43 .NMI

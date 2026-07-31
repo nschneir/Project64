@@ -126,6 +126,12 @@ def test_rom_labels_basic2_has_serial_internals():
     assert labels["NSAVE"] == 0xF5DD
 
 
+def test_rom_labels_basic2_has_tape_internals():
+    labels = rom_labels("2.0")
+    assert labels["CSTE1"] == 0xF817
+    assert labels["FAH"] == 0xF72C
+
+
 def test_identify_reads_resources_and_hashes():
     mon = Mock()
     mon.resource_get.side_effect = lambda n: {

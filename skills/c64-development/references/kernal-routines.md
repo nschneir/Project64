@@ -369,3 +369,15 @@ jumps *indirectly* through its RAM vector (`JMP ($0330)` / `JMP
 | EEB3 | W1MS   | Busy-wait ~1 ms |
 | F49E | NLOAD  | LOAD's body: stash X/Y, then jump indirect through ILOAD ($0330); the chain reached this way checks FA for device 1 = tape, else IEC |
 | F5DD | NSAVE  | SAVE's body: stash X/Y, then jump indirect through ISAVE ($0332); same device-1-vs-IEC branch downstream |
+
+Tape (datasette, device 1) internals, reached from NLOAD/NSAVE's
+device-1 branches:
+
+| Addr | Name  | What it is |
+|------|-------|------------|
+| F72C | FAH   | Find any tape header: read blocks until a header block arrives |
+| F76A | TAPEH | Write a tape header block from the tape buffer ($B2 pointer) |
+| F817 | CSTE1 | Wait for PLAY (tests the cassette switch, $01 bit 4) |
+| F838 | CSTE2 | Wait for PLAY and RECORD |
+| F841 | RBLK  | Initiate an IRQ-driven tape block read |
+| F864 | WBLK  | Initiate an IRQ-driven tape block write |
