@@ -820,8 +820,15 @@ def c64_disk_block_write(image: str, track: int, sector: int,
         written, at = 256, 0
     else:
         at = offset or 0
-        block_poke(Path(image), track, sector, at, block_bytes(values))
-        written = len(values)
+        # Size the write from the coerced bytes, not from `values`: the guard
+        # above already proves `values` is a non-empty list here (it rejects a
+        # None `src` with a falsy `values`), but it says so through
+        # `(src is None) == (not values)`, which narrows nothing. block_bytes
+        # is 1:1 — one appended byte per element, or it raises — so the count
+        # is the same one, taken from a value that cannot be None.
+        poke = block_bytes(values)
+        block_poke(Path(image), track, sector, at, poke)
+        written = len(poke)
     return {"image": str(Path(image)), "track": track, "sector": sector,
             "written": written, "offset": at}
 

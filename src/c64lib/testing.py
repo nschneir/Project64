@@ -250,8 +250,17 @@ def program_test(program_dir: str | Path) -> dict:
             spec["program"] = str(prog.resolve())
         spec["steps"] = steps + spec["steps"]   # expect lines still gate first
         return spec                             # timeout: load_test's default
+    # `prog` is not None on this path and the ignore is a checker limitation,
+    # not a papered-over hole: reaching here means `extra` does not exist, and
+    # `_spec_key` answers None for a missing file, so `has_image` is False —
+    # and with `has_image` False the guard above has already raised for a
+    # missing program file. Pyright cannot carry a Path.exists() result
+    # to another, so it cannot see that `has_image` and this branch exclude
+    # each other.
     return {"name": program_dir.name, "machine": "c64", "timeout": 30,
-            "autorun": True, "program": str(prog.resolve()), "steps": steps,
+            "autorun": True,
+            "program": str(prog.resolve()),  # pyright: ignore[reportOptionalMemberAccess]
+            "steps": steps,
             "dir": str(program_dir.resolve())}
 
 

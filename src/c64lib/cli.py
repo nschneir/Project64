@@ -8,6 +8,7 @@ import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
+from typing import NoReturn
 
 import click
 
@@ -88,7 +89,10 @@ def emit(ctx: click.Context, data: dict, human: str) -> None:
         click.echo(human)
 
 
-def fail(ctx: click.Context, message: str, extra: dict | None = None) -> None:
+def fail(ctx: click.Context, message: str, extra: dict | None = None) -> NoReturn:
+    """Report `message` and exit 1. Never returns — `NoReturn` is what lets a
+    caller treat the line after a `fail()` as unreachable (the `help` command
+    relies on it to know a resolved subcommand is not None)."""
     if ctx.obj["json"]:
         click.echo(_json.dumps({"error": message, **(extra or {})}))
     else:
