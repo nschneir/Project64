@@ -7,6 +7,8 @@
 #
 # Order here IS the screen-code order: the first glyph lands on code 64.
 # Invaders are two cells wide; a left/right pair makes one 8x8 alien.
+#
+# Regenerate: c64 charset encode tools/charset.txt --first-code 64 -o chars.inc
 
 # --- 64/65: squid, frame A (top row, 30 points, narrow silhouette) ---------
 name: squid_a_left

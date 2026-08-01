@@ -53,7 +53,7 @@ firing.
 | `player.s` `bombs.s` `shields.s` `ufo.s` | the rest of the game |
 | `sound.s` | three SID voices, every write shadowed in RAM |
 | `test.yaml` | 82-step regression test: `c64 test run demos/invaders/test.yaml` |
-| `tools/charset.py` `tools/charset.txt` | ASCII art → the charset `.byte` rows |
+| `tools/charset.txt` | ASCII art → `chars.inc` via `c64 charset encode --first-code 64` |
 | `tools/sprites.txt` | ASCII art → `sprites.inc` via `c64 sprite encode` |
 | `tools/evidence.sh` | re-runs the deterministic proof protocol and rewrites `evidence/` |
 | `evidence/` | the screenshots that proof protocol captures, one per claim |
