@@ -1,0 +1,240 @@
+# Invaders custom charset — multicolor text mode, 4 color-pixels per cell row.
+#
+#   .  background        ($D021, black)
+#   1  shared color 1    ($D022, white   — eyes / highlights)
+#   2  shared color 2    ($D023, orange  — scorch marks)
+#   3  the cell's own color (class color from the color-RAM nybble)
+#
+# Order here IS the screen-code order: the first glyph lands on code 64.
+# Invaders are two cells wide; a left/right pair makes one 8x8 alien.
+
+# --- 64/65: squid, frame A (top row, 30 points, narrow silhouette) ---------
+name: squid_a_left
+...3
+..33
+.333
+.313
+.333
+..3.
+.3.3
+.3..
+
+name: squid_a_right
+3...
+33..
+333.
+313.
+333.
+.3..
+3.3.
+..3.
+
+# --- 66/67: squid, frame B (tentacles pulled in) ---------------------------
+name: squid_b_left
+...3
+..33
+.333
+.313
+.333
+..3.
+..33
+33..
+
+name: squid_b_right
+3...
+33..
+333.
+313.
+333.
+.3..
+33..
+..33
+
+# --- 68/69: crab, frame A (20 points, antennae down, arms out) -------------
+name: crab_a_left
+..3.
+...3
+..33
+.331
+.333
+.3.3
+.3..
+...3
+
+name: crab_a_right
+.3..
+3...
+33..
+133.
+333.
+3.3.
+..3.
+3...
+
+# --- 70/71: crab, frame B (antennae up, arms down) ------------------------
+name: crab_b_left
+.3.3
+...3
+..33
+.331
+.333
+..33
+.3..
+.3..
+
+name: crab_b_right
+3.3.
+3...
+33..
+133.
+333.
+33..
+..3.
+..3.
+
+# --- 72/73: octopus, frame A (10 points, wide body, legs apart) -----------
+name: octo_a_left
+..33
+.333
+.333
+.313
+.333
+..3.
+.3.3
+.3..
+
+name: octo_a_right
+33..
+333.
+333.
+313.
+333.
+.3..
+3.3.
+..3.
+
+# --- 74/75: octopus, frame B (legs together) ------------------------------
+name: octo_b_left
+..33
+.333
+.333
+.313
+.333
+.33.
+.3..
+...3
+
+name: octo_b_right
+33..
+333.
+333.
+313.
+333.
+.33.
+..3.
+3...
+
+# --- 76/77/78: shield damage states, solid -> cracked -> crumbling --------
+name: shield_solid
+3333
+3333
+3333
+3333
+3333
+3333
+3333
+3333
+
+name: shield_cracked
+3323
+33.3
+3.23
+3333
+323.
+3.33
+3332
+33.3
+
+name: shield_crumbling
+3.2.
+.3.3
+2..3
+3.3.
+.2.3
+3..2
+.3..
+2.3.
+
+# --- 79/80: slow straight bomb (zigzag, two frames) -----------------------
+name: bomb_slow_a
+.3..
+..3.
+.3..
+..3.
+.3..
+..3.
+.3..
+..3.
+
+name: bomb_slow_b
+..3.
+.3..
+..3.
+.3..
+..3.
+.3..
+..3.
+.3..
+
+# --- 81: fast straight bomb (the plunger — a solid bright shaft) ----------
+name: bomb_fast
+.33.
+.33.
+.33.
+.33.
+.33.
+.33.
+.33.
+.33.
+
+# --- 82/83: wiggly bomb, two frames --------------------------------------
+name: bomb_wiggle_a
+.3..
+.3..
+..3.
+..3.
+.3..
+.3..
+3...
+3...
+
+name: bomb_wiggle_b
+..3.
+..3.
+.3..
+.3..
+..3.
+..3.
+...3
+...3
+
+# --- 84/85: invader explosion (two cells, matches an alien's width) -------
+name: boom_left
+3..2
+.33.
+..33
+3333
+..33
+.33.
+3..2
+....
+
+name: boom_right
+2..3
+.33.
+33..
+3333
+33..
+.33.
+2..3
+....
