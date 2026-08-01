@@ -72,7 +72,7 @@ name the defective instruction:
    The frozen register names the defective instruction: the loop's exit
    condition depends on it, and nothing in the body advances it.
 
-The worked example is `demos/05-debug-hunt.md`. The PC circled the
+The worked example is `demos/04-debug-hunt/PROMPT.md`. The PC circled the
 cassette buffer at $033C-$0348, where the BASIC program had poked a
 machine-language routine from `data` bytes. The disassembly showed
 `cpx #$28 / bne` guarding the exit, and stepping showed X frozen at 0 —
