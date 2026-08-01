@@ -1,8 +1,10 @@
 # Invaders — the dogfooded solution
 
-`PROMPT.md` is what you paste into an agent. This directory is what one run
-produced: the sources, the plan it worked from, the fidelity audit, a
-regression test, and the evidence frames.
+`PROMPT.md` started life as a detailed prompt written by a human; Claude
+helped draft it into its present shape, and a human edited the result. Every
+other file here — the sources, the plan they were built from, the fidelity
+audit, the regression test, the evidence frames, and the packaged disk — was
+written by Claude Opus 5 in answer to that prompt.
 
 ![the attract screen](evidence/title.png)
 ![wave 1 under way](evidence/formation.png)
@@ -15,8 +17,10 @@ regression test, and the evidence frames.
 x64sc -ntsc demos/invaders/invaders.d64
 ```
 
-The `-ntsc` flag matters: the game is paced on the jiffy clock and was
-tested on the NTSC machine. To rebuild the image (and the `.prg` beside it)
+The `-ntsc` flag matters: given no video-standard flag, stock VICE boots
+the PAL machine (verified live — the KERNAL's PAL flag at `$02A6` comes up
+set on a bare `x64sc`), and this game was built and tested on the NTSC
+machine that c64-tools boots by default. To rebuild the image (and the `.prg` beside it)
 from source:
 
 ```sh
@@ -32,7 +36,7 @@ firing.
 
 | File | |
 |---|---|
-| `PROMPT.md` | the prompt this was built from |
+| `PROMPT.md` | the human-directed, Claude-assisted prompt everything else answers |
 | `PLAN.md` | the implementation plan written before any code |
 | `AUDIT.md` | the three-iteration fidelity audit — every spec bullet, with evidence |
 | `invaders.s` | load address, BASIC stub, equates, the state machine, includes |
@@ -47,6 +51,9 @@ firing.
 | `tools/charset.py` `tools/charset.txt` | ASCII art → the charset `.byte` rows |
 | `tools/sprites.txt` | ASCII art → `sprites.inc` via `c64 sprite encode` |
 | `tools/evidence.sh` | re-runs the deterministic proof protocol and rewrites `evidence/` |
+| `evidence/` | the screenshots that proof protocol captures, one per claim |
+| `invaders.d64` | the packaged disk image, autostartable in stock VICE |
+| `invaders.prg` | the assembled program `c64 package` writes beside the image |
 
 ## The bit worth reading
 

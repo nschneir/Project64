@@ -4,7 +4,7 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A faithful C64 recreation of the 1978 arcade Space Invaders in pure
+**Goal:** A faithful C64 recreation of the 1978 arcade original in pure
 6502 assembly — custom multicolor charset formation, hardware-sprite base/shot/UFO,
 the authentic one-invader-per-tick march engine, eroding shields, three bomb
 flavours, the UFO shot-count secret, and three-voice SID — shipped as an

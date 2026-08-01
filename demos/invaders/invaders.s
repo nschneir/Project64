@@ -1,4 +1,4 @@
-; invaders.s — Space Invaders (Taito, 1978) recreated for the Commodore 64.
+; invaders.s — Invaders, an arcade shooter recreated for the Commodore 64.
 ;
 ; Pure 6502 with a BASIC SYS stub.  Custom multicolor character set for the
 ; formation, the shields and the bombs; hardware sprites for the laser base,
