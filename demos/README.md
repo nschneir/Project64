@@ -14,14 +14,15 @@ They're graded — start at 01 if you're new:
 | 03 | Sieve benchmark | BASIC + asm | Timing, iteration, the asm speedup | ✅ dogfooded |
 | 04 | Snake | 6502 assembly | Assembler + debugger workflow, $CB input, SID sound | ✅ dogfooded |
 | 05 | Debug hunt | BASIC + debugger | Breakpoints, stepping, memory inspection | ✅ dogfooded |
-| 06 | [Invaders](invaders/PROMPT.md) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | 🔲 awaiting C64 dogfood |
+| 06 | [Invaders](invaders/PROMPT.md) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | ✅ dogfooded |
 | 07 | [1812](1812/PROMPT.md) | 6502 assembly | Spec→plan→build, bitmap mode, rotating polygon rasterizer, 3-voice SID | 🔲 awaiting C64 dogfood |
 
 Demos 01–06 were ported from the PET edition of this project, where each
 passed a real dogfooding run (an agent given only the toolset built and
 verified the result); 07 was written for the C64. The ports still marked 🔲
 await their own dogfooding runs — a prompt's status flips to ✅ only when a
-real agent run passes on the C64.
+real agent run passes on the C64. Demo 06's C64 run is written up in
+[invaders/AUDIT.md](invaders/AUDIT.md), with its sources and evidence beside it.
 Graphics and sprite expectations follow docs/superpowers/specs/graphics-and-sprites.md.
 
 **Where the work goes.** A single-file prompt (`NN-name.md`) doesn't ship a

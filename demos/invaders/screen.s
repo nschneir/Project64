@@ -194,6 +194,21 @@ uh6:    lda     lvdirty
         lda     lives
         ora     #48
         sta     SCREEN + 40*LIVEROW + LIVECOL
+        ; ...and one little laser base per remaining life, as the cabinet did
+        ldx     #0
+        ldy     #0                      ; every other cell, so they read as
+uhl:    lda     #32                     ; separate little ships
+        cpx     lives
+        bcs     uhl2                    ; X >= lives: leave the slot blank
+        lda     #BASEICON
+uhl2:   sta     SCREEN + 40*LIVEROW + LIVECOL + 3,y
+        lda     #8|5                    ; multicolor, green
+        sta     COLRAM + 40*LIVEROW + LIVECOL + 3,y
+        iny
+        iny
+        inx
+        cpx     #5
+        bne     uhl
 uh7:    rts
 
 ; --- the title screen -----------------------------------------------------

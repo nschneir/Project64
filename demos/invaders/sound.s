@@ -79,7 +79,6 @@ sil2:   jsr     sidput
         sta     beatgap
         sta     sndprio2
         sta     sndprio3
-        sta     fx2
         sta     fx2t
         sta     fx3
         sta     fx3t
@@ -151,9 +150,7 @@ sfxshot:
         jsr     claim2
         bcs     sxs
         rts
-sxs:    lda     #1
-        sta     fx2
-        lda     #10
+sxs:    lda     #10
         sta     fx2t
         lda     #$60
         sta     fx2fh
@@ -184,9 +181,7 @@ sfxhit: lda     #2
         jsr     claim2
         bcs     sxh
         rts
-sxh:    lda     #2
-        sta     fx2
-        lda     #14
+sxh:    lda     #14
         sta     fx2t
         lda     #$30
         sta     fx2fh
@@ -216,9 +211,7 @@ sfxextra:
         jsr     claim2
         bcs     sxe
         rts
-sxe:    lda     #2
-        sta     fx2
-        lda     #20
+sxe:    lda     #20
         sta     fx2t
         lda     #$40
         sta     fx2fh
@@ -330,7 +323,6 @@ st2n:   lda     fx2t
         ldx     #V2CTL
         jsr     sidput
         lda     #0
-        sta     fx2
         sta     sndprio2
 
 st3v:   lda     fx3t

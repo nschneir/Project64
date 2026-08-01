@@ -53,7 +53,8 @@ BOMBFLOOR = 24                  ; a bomb below this is gone
 BASEMAX   = 136                 ; basex is in 2-pixel units: X = 24 + 2*basex
 UFOMAX    = 148
 UFOPERIOD = 1200                ; ticks between saucers (20 seconds)
-BOMBRATE  = 35                  ; ticks between drop attempts
+FIRSTBOMB = 60                  ; grace ticks before a wave's first bomb
+                                ; (the per-wave rate lives in bombs.s)
 EXPTICKS  = 10                  ; how long an invader's explosion shows
 
 ; ---- glyph codes (patched over the ROM charset by charsinit) -------------
@@ -61,6 +62,7 @@ GLYPHBASE = 64                  ; 64-75: three classes x two frames x two halves
 SHGLYPH   = 76                  ; 76-78: shield solid / cracked / crumbling
 BOMBGLYPH = 79                  ; 79-83: the three bomb flavours
 BOOMGLYPH = 84                  ; 84-85: the invader explosion, two cells
+BASEICON  = 86                  ; 86: the little base drawn per life in the HUD
 
         .macro  SETSTR addr
         lda     #<addr
@@ -174,7 +176,7 @@ ngs:    sta     score,x
         sta     ufoact
         sta     expcnt
         sta     bnexttype
-        lda     #BOMBRATE
+        lda     #FIRSTBOMB
         sta     bombtimer
         lda     #68
         sta     basex
@@ -293,7 +295,7 @@ swc2:   dec     sttimer
         sta     wvdirty
         jsr     shieldinit
         jsr     newwave
-        lda     #BOMBRATE
+        lda     #FIRSTBOMB
         sta     bombtimer
         lda     #1
         sta     gstate

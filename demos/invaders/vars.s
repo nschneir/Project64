@@ -90,7 +90,6 @@ sndprio2:   .byte 0             ; priority of whatever owns voice 2 (0 = idle)
 sndprio3:   .byte 0             ; ... and voice 3
 beatidx:    .byte 0             ; which of the four heartbeat notes is next
 beatgap:    .byte 0             ; ticks left before a note may retrigger
-fx2:        .byte 0             ; 0 none, 1 shot, 2 invader hit
 fx2t:       .byte 0             ; ticks left
 fx2fh:      .byte 0             ; swept frequency high byte
 fx2rate:    .byte 0             ; sweep step per tick
