@@ -211,8 +211,13 @@ wipeshieldcells:
 irowidx: .repeat NINV, I
         .byte   I / 11
         .endrepeat
+; Column pitch is 3 cells for a 2-cell invader: the one blank column between
+; neighbours is what lets an invader take its 1-column step without landing on
+; the cell its neighbour is still drawn in. 11 invaders therefore span 32 of
+; the 40 columns and the formation sweeps the remaining 8 — the same
+; formation-to-screen proportion the arcade cabinet had.
 icolbase: .repeat NINV, I
-        .byte   FORMLEFT + 2 * (I .MOD 11)
+        .byte   FORMLEFT + 3 * (I .MOD 11)
         .endrepeat
 rowbase: .byte  0, 11, 22, 33, 44
 

@@ -40,7 +40,7 @@ ufoleft:
         sta     ufoxu
         lda     #1
         sta     ufodir
-ufoon:  lda     #58
+ufoon:  lda     #UFOSPY
         sta     $D005                   ; sprite 2 Y: text row 1
         jsr     sfxufo
         jmp     uforeload

@@ -10,7 +10,11 @@ bombstep:
         beq     bspawn
         dec     bombtimer
         jmp     bmove
-bspawn: lda     #BOMBRATE
+bspawn: ldx     wave                    ; bomb pressure ramps with the wave
+        cpx     #13
+        bcc     brok
+        ldx     #12
+brok:   lda     bombrate,x
         sta     bombtimer
         jsr     bombspawn
 bmove:  lda     #0
@@ -237,6 +241,9 @@ random: lda     seed
 rnofb:  sta     seed
         rts
 
+; ticks between drop attempts, indexed by wave (entry 0 unused, 12 and up
+; share the last value) — the arcade leans on the player harder as it goes
+bombrate: .byte 28, 28, 28, 26, 24, 22, 20, 18, 17, 16, 15, 14, 12
 ; ticks between row steps: slow, fast, wiggly
 bratetab: .byte 4, 2, 3
 ; base glyph per type; bganim marks the two-frame ones

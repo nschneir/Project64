@@ -47,7 +47,7 @@ fireshot:
         lsr
         lsr
         sta     shotcol
-        lda     #210
+        lda     #BASESPY-8              ; the bolt leaves just above the base
         sta     shoty
         inc     shots
         jsr     setshotx
@@ -72,13 +72,13 @@ ssgo:   lda     shoty
         sec
         sbc     #6
         sta     shoty
-        cmp     #54
+        cmp     #TOPRASTER
         bcs     ssalive
         jmp     killshot                ; off the top of the screen
 ssalive:
         sta     $D003                   ; sprite 1 Y
         sec
-        sbc     #50
+        sbc     #TOPRASTER
         lsr
         lsr
         lsr
@@ -174,10 +174,19 @@ esgo:   dec     expcnt
         ldx     exprow
         ldy     expcol
         jsr     cellptr
-        lda     #32
+        ; blank only cells that still hold the explosion: the formation may
+        ; have marched over them while it was showing
         ldy     #0
+        lda     (PTR),y
+        cmp     #BOOMGLYPH
+        bne     esr
+        lda     #32
         sta     (PTR),y
-        iny
+esr:    ldy     #1
+        lda     (PTR),y
+        cmp     #BOOMGLYPH+1
+        bne     esdone
+        lda     #32
         sta     (PTR),y
 esdone: rts
 

@@ -40,11 +40,15 @@ STR     = $22                   ; text pointer for txtat/putblocks
 
 ; ---- geometry ------------------------------------------------------------
 NINV      = 55                  ; 5 rows of 11
-FORMLEFT  = 9                   ; starting left column of the formation
-BASELINE  = 20                  ; an invader at this row ends the game
+FORMLEFT  = 4                   ; starting left column of the formation
+BASELINE  = 21                  ; an invader at this row ends the game
 SHROW0    = 17                  ; the two shield rows
 SHROW1    = 18
-BASEROW   = 21                  ; the top text row the laser base occupies
+BASEROW   = 22                  ; the top text row the laser base occupies
+TOPRASTER = 51                  ; raster line of the first text row: sprite
+                                ; Y for text row R is 51 + 8*R, not 50 + 8*R
+BASESPY   = TOPRASTER + 8*22    ; sprite Y that puts the base on row 22
+UFOSPY    = TOPRASTER + 8*1     ; sprite Y that puts the saucer on row 1
 BOMBFLOOR = 24                  ; a bomb below this is gone
 BASEMAX   = 136                 ; basex is in 2-pixel units: X = 24 + 2*basex
 UFOMAX    = 148

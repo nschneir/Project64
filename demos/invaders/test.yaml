@@ -1,0 +1,116 @@
+name: invaders
+machine: c64
+program: invaders.s
+timeout: 30
+steps:
+  # ---- the attract screen -------------------------------------------------
+  - wait:   { text: "PRESS ANY KEY TO PLAY" }
+  - assert: { text: "SCORE ADVANCE TABLE" }
+  - assert: { text: "= 30 POINTS" }
+  - assert: { text: "= 20 POINTS" }
+  - assert: { text: "= 10 POINTS" }
+  - assert: { text: "? MYSTERY" }
+  - assert: { mem: "$D015", equals: 0 }          # no sprites on the title
+
+  # ---- graphics mode ------------------------------------------------------
+  # $D018 = $1C (screen $0400 + charset $3000); bit 0 is unused and reads 1.
+  - assert: { mem: "$D018", mask: { and: "$fe", equals: ["$1c"] } }
+  - assert: { mem: "$D016", mask: { and: "$10", equals: ["$10"] } }  # multicolor text
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }
+  - assert: { mem: "$D022", mask: { and: "$0f", equals: [1] } }
+  - assert: { mem: "$D023", mask: { and: "$0f", equals: [8] } }
+  # the charset really is the patched RAM copy, not the ROM one:
+  # code 76 (shield, solid) is 8 bytes of $FF at $3000 + 76*8 = $3260
+  - assert: { mem: "$3260", equals: ["$ff","$ff","$ff","$ff","$ff","$ff","$ff","$ff"] }
+
+  # ---- start a game (any key; $CB is the held-key matrix code) ------------
+  - until:  { ref: mainloop, count: 50 }         # the attract key lockout
+  - poke:   { addr: "$CB", values: [60] }        # SPACE
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: "gstate", equals: 1 }
+  - assert: { text: "SCORE 000000" }
+  - assert: { text: "HI 000000" }
+  - assert: { text: "WAVE 01" }
+  - assert: { text: "LIVES 3" }
+
+  # ---- the formation ------------------------------------------------------
+  - assert: { mem: "nalive", equals: 55 }
+  - assert: { mem: "wave", equals: 1 }
+  - assert: { mem: "irow", equals: 3 }           # wave 1 starts at row 3
+  - assert: { mem: "irow+44", equals: 11 }       # five rows, pitch 2
+  - assert: { mem: "icol+10", equals: 34 }       # 11 invaders, pitch 3
+
+  # ---- sprites ------------------------------------------------------------
+  - assert: { mem: "$07F8", equals: [224, 225, 226] }   # $3800/$3840/$3880
+  - assert: { mem: "$D015", mask: { and: "$01", equals: [1] } }  # base live
+  - assert: { mem: "$D01C", equals: 7 }          # all three are multicolor
+  - assert: { mem: "$D001", equals: 227 }        # base Y: text row 22 (51 + 8*22)
+
+  # ---- the shields, with their arch --------------------------------------
+  - assert: { mem: "shdmg", equals: [3,3,3,3,3,0,0,3] }
+  - assert: { mem: "@17,4", equals: 76 }         # solid shield glyph
+  - assert: { mem: "@18,6", equals: 32 }         # the arch is a hole
+
+  # ---- the march moves exactly one invader per tick -----------------------
+  - sample: { mem: "sweep", as: s0 }
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: "sweep", greater_than: s0 }
+  - sample: { mem: "icol", as: c0 }
+  - until:  { ref: mainloop, count: 60 }         # more than one full sweep
+  - assert: { mem: "icol", differs: c0 }
+
+  # ---- held-key steering: D moves the base right, A moves it back ---------
+  - sample: { mem: "basex", as: b0 }
+  - poke:   { addr: "$CB", values: [18] }        # D
+  - until:  { ref: mainloop, count: 1 }
+  - poke:   { addr: "$CB", values: [18] }
+  - until:  { ref: mainloop, count: 1 }
+  - poke:   { addr: "$CB", values: [18] }
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: "basex", greater_than: b0 }
+  - sample: { mem: "basex", as: b1 }
+  - poke:   { addr: "$CB", values: [10] }        # A
+  - until:  { ref: mainloop, count: 1 }
+  - poke:   { addr: "$CB", values: [10] }
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: "basex", less_than: b1 }
+
+  # ---- sound: the shadow of the write-only SID ---------------------------
+  # sidshadow+24 mirrors $D418: low-pass (bit 4) + volume 15.
+  - assert: { mem: "sidshadow+24", equals: ["$1f"] }
+  - assert: { mem: "sidshadow+23", equals: ["$f4"] }   # res 15, voice 3 filtered
+  - until:  { ref: mainloop, count: 60 }              # one full formation sweep
+  - assert: { mem: "sidshadow+4", equals: ["$41"] }   # voice 1: pulse + gate on
+  - assert: { mem: "sidshadow+5", equals: ["$08"] }   # voice 1 attack/decay
+
+  # ---- unit tests on isolated routines (destructive: keep them last) ------
+  # The mystery UFO's shot-count secret: 300 points on the 23rd shot and
+  # every 15th after it; the ordinary table otherwise.
+  - poke:   { addr: "shots", values: [23] }
+  - poke:   { addr: "score", values: [0,0,0,0,0,0] }
+  - call:   { routine: ufoscore }
+  - assert: { mem: "score", equals: [0,0,0,3,0,0] }
+  - poke:   { addr: "shots", values: [38] }
+  - poke:   { addr: "score", values: [0,0,0,0,0,0] }
+  - call:   { routine: ufoscore }
+  - assert: { mem: "score", equals: [0,0,0,3,0,0] }
+  - poke:   { addr: "shots", values: [1] }
+  - poke:   { addr: "score", values: [0,0,0,0,0,0] }
+  - call:   { routine: ufoscore }
+  - assert: { mem: "score", equals: [0,0,0,0,5,0] }
+
+  # Scoring and the extra life at 1500 points.
+  - poke:   { addr: "score", values: [0,0,1,4,9,0] }
+  - poke:   { addr: "extradone", values: [0] }
+  - poke:   { addr: "lives", values: [3] }
+  - call:   { routine: addscore, a: 1 }
+  - assert: { mem: "score", equals: [0,0,1,5,0,0] }
+  - assert: { mem: "lives", equals: 4 }
+
+  # Wave start heights: 1 -> row 3, one lower per wave, 10 resets to row 3.
+  - poke:   { addr: "wave", values: [9] }
+  - call:   { routine: newwave }
+  - assert: { mem: "irow", equals: 11 }
+  - poke:   { addr: "wave", values: [10] }
+  - call:   { routine: newwave }
+  - assert: { mem: "irow", equals: 3 }

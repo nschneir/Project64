@@ -46,9 +46,12 @@ sicp:   lda     sprite0,x
         sta     $D01D                   ; no horizontal expand
         sta     $D01B                   ; sprites in front of the characters
         sta     $D015                   ; nothing enabled until a state asks
-        lda     #218
-        sta     $D001                   ; base Y: text rows 21-23
-        lda     #58
+        ; The 25-row display window starts at raster 51, so the sprite Y for
+        ; text row R is 51 + 8*R — not 50 + 8*R. One line out and the UFO
+        ; clips the bottom pixel row of the HUD.
+        lda     #BASESPY
+        sta     $D001                   ; base Y: text row 22
+        lda     #UFOSPY
         sta     $D005                   ; UFO Y: text row 1
         rts
 
