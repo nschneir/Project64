@@ -4,6 +4,9 @@ __pycache__/
 dist/
 .venv/
 .claude/
+.crush/
+.crush.json
+crush.json
 .DS_Store
 *.prg
 *.lbl
