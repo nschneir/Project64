@@ -48,6 +48,7 @@ from .ops import (
     parse_number,
     parse_ref,
     pc_region,
+    profile_routine,
     run_until,
     session_labels,
     split_mem_condition,
@@ -1244,6 +1245,42 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
         return
     _emit_stopped_regs(ctx, labels, out["registers"],
                        extra={"called": format_addr(labels, addr)})
+
+
+@main.command("profile")
+@click.argument("ref")
+@click.option("--with-irq", "with_irq", is_flag=True,
+              help="Leave interrupts live during the measurement (real-world "
+                   "cost; expect variance — rerun a few times).")
+@click.option("--timeout", default=30.0, show_default=True,
+              help="Give up after this many seconds.")
+@click.pass_context
+def profile_cmd(ctx, ref, with_irq, timeout):
+    """Measure the cycle cost of the routine at REF (entry to its RTS).
+
+    A fake JSR exactly like `c64 call`, with CIA#2 timers A+B cascaded as
+    a 32-bit hardware cycle counter across the run. Counts are wall
+    cycles — badline DMA included, which is the frame-budget truth. By
+    default the I flag is set on entry so the KERNAL IRQ cannot land
+    inside the window; --with-irq measures with interrupts live. The
+    machine ends STOPPED at the trap, like `c64 call`.
+    """
+    s = attach(ctx)
+    labels = session_labels(s)
+    addr = resolve_ref(ctx, labels, ref, session=s)
+    out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+    if not out["fired"]:
+        fail(ctx, f"profile {format_addr(labels, addr)}: never returned in "
+                  f"{timeout}s — machine left running (runaway routine? "
+                  "check the address is a subroutine ending in RTS)",
+             extra={"machine": "running"})
+        return
+    where = format_addr(labels, addr)
+    mask = "IRQs masked" if not with_irq else "IRQs live"
+    emit(ctx, {"called": where, "cycles": out["cycles"],
+               "irq_masked": not with_irq, "registers": out["registers"],
+               "trap": out["trap"]},
+         f"{where}: {out['cycles']} cycles (entry to rts, {mask})")
 
 
 @main.command("wait")

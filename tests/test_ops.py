@@ -675,6 +675,80 @@ def test_call_routine_durable_flag_fallback():
     assert out["fired"] is True
 
 
+def test_profile_routine_counts_cycles_via_the_cia_cascade():
+    """507 emulated cycles: the counter ticks 504 of them ($FFFF-504=$FE07 in
+    TA, TB untouched at $FFFF) and _CIA_START_SLACK adds the window's first
+    three back — the live-verified correction."""
+    from c64lib.ops import profile_routine
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},    # entry snapshot
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},    # stopped at the trap
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = [bytes([0x07, 0xFE]),   # TA lo/hi
+                                   bytes([0xFF, 0xFF])]   # TB lo/hi
+    out = profile_routine(s, 0xC000)
+    assert out["fired"] is True
+    assert out["cycles"] == 507
+    # timers were programmed through the chip model, then stopped
+    writes = {c.args[0]: c for c in mon.memory_write.call_args_list}
+    assert writes[0xDD0E].kwargs.get("side_effects") is True
+    assert writes[0xDD0F].kwargs.get("side_effects") is True
+    # I flag masked on entry (FL 0x20 | 0x04), restored from the entry value
+    fl_sets = [c.args for c in mon.set_register.call_args_list
+               if c.args[0] == "FL"]
+    assert ("FL", 0x24) in fl_sets                  # masked on entry
+    assert fl_sets[-1] == ("FL", 0x20)              # I bit restored after
+
+
+def test_profile_routine_with_irq_leaves_the_flags_alone():
+    from c64lib.ops import profile_routine
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x20, "PC": 0x0400},
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = [bytes([0x07, 0xFE]), bytes([0xFF, 0xFF])]
+    out = profile_routine(s, 0xC000, with_irq=True)
+    assert out["cycles"] == 507
+    assert all(c.args[0] != "FL" for c in mon.set_register.call_args_list)
+
+
+def test_profile_routine_cascades_timer_b_for_long_routines():
+    """TB counts TA underflows: one underflow plus 0x0100 TA ticks is a
+    65792-cycle routine (+ the start slack) — a frame and a half."""
+    from c64lib.ops import profile_routine
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = [bytes([0xFF, 0xFE]),   # TA = $FEFF
+                                   bytes([0xFE, 0xFF])]   # TB = $FFFE
+    out = profile_routine(s, 0xC000)
+    assert out["cycles"] == 0x10000 + 0x0100 + 3
+
+
+def test_profile_routine_timeout_leaves_the_machine_running():
+    from c64lib.ops import profile_routine
+    s, mon = _fake_session()
+    mon.registers.return_value = {"SP": 0xF9, "FL": 0x20, "PC": 0x1234}
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = None
+    mon.checkpoint_list.return_value = [_call_ck(number=7, hit=False)]
+    out = profile_routine(s, 0xC000, timeout=0.3)
+    assert out["fired"] is False
+    assert out["cycles"] is None and out["registers"] is None
+    mon.checkpoint_delete.assert_called_once_with(7)
+    mon.resume.assert_called()          # machine left running on timeout
+
+
 def _idle_session(pcs):
     """A session whose registers() walks `pcs` and then repeats the last."""
     s, mon = _fake_session()

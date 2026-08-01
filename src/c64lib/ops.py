@@ -467,6 +467,89 @@ def call_routine(session, addr: int, a: int | None = None, x: int | None = None,
         return {"fired": True, "registers": out, "trap": trap}
 
 
+#: CIA#2 timer registers for profile_routine's 32-bit cycle cascade.
+_CIA2_TA = 0xDD04
+_CIA2_TB = 0xDD06
+_CIA2_CRA = 0xDD0E
+_CIA2_CRB = 0xDD0F
+FLAG_I = 0x04
+#: measured: CR write takes effect 3 cycles into the resumed window, so the
+#: counter misses the window's first 3 cycles and they are added back. Stable
+#: across 3 runs at each of three loop counts (hand-computed 507/57/1007 read
+#: back 504/54/1004) and from both stop contexts profile can start in.
+_CIA_START_SLACK = 3
+
+
+def profile_routine(session, addr: int, timeout: float = 30.0,
+                    with_irq: bool = False, trap: int = CALL_TRAP) -> dict:
+    """Measure one routine's cycle cost: call_routine's fake-JSR bracket
+    with CIA#2 timers A+B cascaded into a 32-bit cycle counter.
+
+    The emulation is frozen while the monitor programs the timers, so the
+    count spans exactly the resumed window: the routine's first instruction
+    through its own RTS. Counts are wall cycles — badline DMA (and, with
+    with_irq=True, any interrupt handlers) land in the number, which is the
+    frame-budget truth. By default the I flag is set on entry so the KERNAL
+    IRQ cannot land inside the window (the flag's entry value is restored
+    afterwards). Perturbs CIA#2 timers A/B; they are left stopped.
+    _CIA_START_SLACK is added back because the timer only starts a few
+    cycles into the window; with it the count is exact against hand-computed
+    routines (verified live in tests/test_integration_profile.py).
+
+    Returns {"fired": bool, "cycles": int|None, "registers": regs-or-None,
+    "trap": trap}; cycles/registers are None on timeout (checkpoint removed,
+    machine left running), exactly like call_routine.
+    """
+    deadline = time.monotonic() + timeout
+    with session.monitor() as mon:
+        regs = mon.registers()          # also stops the machine
+        sp, fl = regs["SP"], regs["FL"]
+        ret = (trap - 1) & 0xFFFF
+        mon.memory_write(0x0100 + sp, bytes([ret >> 8]))
+        mon.memory_write(0x0100 + ((sp - 1) & 0xFF), bytes([ret & 0xFF]))
+        mon.set_register("SP", (sp - 2) & 0xFF)
+        if not with_irq:
+            mon.set_register("FL", fl | FLAG_I)
+        mon.set_register("PC", addr)
+        # 32-bit cascade: TB counts TA underflows; both latch $FFFF. Start
+        # TB first (it only moves on TA underflows), TA last.
+        mon.memory_write(_CIA2_TA, b"\xff\xff", side_effects=True)
+        mon.memory_write(_CIA2_TB, b"\xff\xff", side_effects=True)
+        mon.memory_write(_CIA2_CRB, b"\x51", side_effects=True)
+        mon.memory_write(_CIA2_CRA, b"\x11", side_effects=True)
+        ck = mon.checkpoint_set(trap, op=CP_EXEC, temporary=False)
+        mon.resume()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                mon.checkpoint_delete(ck.number)
+                mon.resume()
+                return {"fired": False, "cycles": None, "registers": None,
+                        "trap": trap}
+            info = mon.wait_for_stop(min(1.0, remaining))
+            if info is not None and info.checkpoint == ck.number:
+                break
+            cur = next((c for c in mon.checkpoint_list()
+                        if c.number == ck.number), None)
+            if cur is not None and (cur.hit or cur.hit_count > 0):
+                break                    # durable flag caught a lost event
+            mon.resume()                 # the list stopped the machine
+        out = mon.registers()
+        ta = mon.memory_read(_CIA2_TA, 2)
+        tb = mon.memory_read(_CIA2_TB, 2)
+        mon.memory_write(_CIA2_CRA, b"\x00", side_effects=True)
+        mon.memory_write(_CIA2_CRB, b"\x00", side_effects=True)
+        if not with_irq:
+            mon.set_register("FL", (out["FL"] & ~FLAG_I) | (fl & FLAG_I))
+        mon.checkpoint_delete(ck.number)
+        ta_v = ta[0] | (ta[1] << 8)
+        tb_v = tb[0] | (tb[1] << 8)
+        cycles = ((0xFFFF - tb_v) * 0x10000 + (0xFFFF - ta_v)
+                  + _CIA_START_SLACK)
+        return {"fired": True, "cycles": cycles, "registers": out,
+                "trap": trap}
+
+
 def run_until(session, addr: int, timeout: float = 30.0, count: int = 1) -> dict:
     """Run until addr is executed `count` times; the machine stays stopped at
     the final arrival ("frame stepping" when addr is a main-loop label).

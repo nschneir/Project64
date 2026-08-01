@@ -161,6 +161,28 @@ def test_until_success_and_timeout():
     assert err is True and "timeout" in out["raw"].lower()
 
 
+def test_profile_reports_cycles_and_timeout_is_an_error():
+    s, _ = _fake_session()
+    fired = {"fired": True, "cycles": 507, "registers": {"PC": 0x0400},
+             "trap": 0x0400}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine", return_value=fired) as pr:
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000"})
+    assert err is False
+    assert out["cycles"] == 507 and out["irq_masked"] is True
+    assert out["trap"] == 0x0400 and out["called"] == "$c000"
+    assert pr.call_args.args[1] == 0xC000
+
+    timed_out = {"fired": False, "cycles": None, "registers": None,
+                 "trap": 0x0400}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine", return_value=timed_out):
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000"})
+    assert err is True and "never returned" in out["raw"]
+
+
 def test_wait_mem_parses_and_passes_through():
     s, _ = _fake_session()
     result = {"fired": "mem", "elapsed": 0.1}

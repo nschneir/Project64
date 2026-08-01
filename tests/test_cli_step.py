@@ -195,3 +195,43 @@ def test_call_command_timeout_fails():
         r = CliRunner().invoke(main, ["call", "$2000", "--timeout", "1"])
     assert r.exit_code == 1
     assert "never returned" in r.output
+
+
+def test_profile_reports_cycles():
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine",
+               return_value={"fired": True, "cycles": 396,
+                             "registers": {"PC": 0x0400}, "trap": 0x0400}) as pr, \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000"])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out["cycles"] == 396 and out["irq_masked"] is True
+    pr.assert_called_once()
+
+
+def test_profile_with_irq_flags_the_payload():
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine",
+               return_value={"fired": True, "cycles": 1695,
+                             "registers": {"PC": 0x0400}, "trap": 0x0400}) as pr, \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000", "--with-irq"])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out["irq_masked"] is False and out["cycles"] == 1695
+    assert pr.call_args.kwargs["with_irq"] is True
+
+
+def test_profile_timeout_is_a_clean_failure():
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine",
+               return_value={"fired": False, "cycles": None,
+                             "registers": None, "trap": 0x0400}), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["profile", "$C000"])
+    assert r.exit_code == 1
+    assert "never returned" in r.output

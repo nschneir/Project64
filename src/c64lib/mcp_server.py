@@ -47,6 +47,7 @@ from .ops import (
     parse_ref,
     pc_region,
     pc_symbol,
+    profile_routine,
     run_until,
     session_labels,
     staleness,
@@ -507,6 +508,24 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
     if out.get("fired"):
         out["pc_symbol"] = pc_symbol(session_labels(s), dict(out["registers"]))
     return out
+
+
+@srv.tool()
+def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
+                session: str | None = None) -> dict:
+    """Measure a routine's cycle cost: fake-JSR it (like c64_call) with
+    CIA#2 timers cascaded as a cycle counter. IRQs are masked during the
+    window unless with_irq; counts include badline DMA. Machine ends
+    STOPPED at the trap; on timeout it is left running."""
+    s = _attach(session)
+    addr = _ref(s, routine, session_labels(s))
+    out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+    if not out["fired"]:
+        raise RuntimeError(f"profile {routine}: never returned in {timeout}s — "
+                           "machine left running")
+    return {"called": routine, "cycles": out["cycles"],
+            "irq_masked": not with_irq, "registers": out["registers"],
+            "trap": out["trap"]}
 
 
 @srv.tool()

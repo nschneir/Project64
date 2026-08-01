@@ -477,6 +477,30 @@ entry point).
 The same operation is a YAML test step: `call: { routine: LABEL, a: 5 }`
 followed by ordinary `assert:` steps (see `c64 test run`).
 
+### `c64 profile`
+
+Measure the cycle cost of one routine: a fake JSR at `REF` exactly like
+`c64 call`, with CIA#2 timers A+B cascaded into a 32-bit hardware cycle
+counter across the run. Reports the cycles from the routine's first
+instruction through its own RTS.
+
+- `REF` — address or symbol of a subroutine ending in RTS.
+- `--with-irq` — leave interrupts live during the window (real-world cost;
+  expect variance and rerun a few times). By default the I flag is set on
+  entry so the KERNAL IRQ cannot land inside the measurement, and the
+  flag's entry value is restored afterwards.
+- `--timeout N` (default `30.0`) — give up after N seconds (machine left
+  running, like `c64 call`).
+
+Counts are wall cycles: badline DMA steals are included, which is the
+frame-budget truth (blank the screen — `$D011` bit 4 — if you want the
+bare instruction cost). Perturbs CIA#2 timers A/B; they are left stopped.
+The machine ends STOPPED at the trap, like `c64 call`. Sessions started
+before this verb existed need a `c64 session stop`/`start` once (the old
+daemon predates a monitor argument profile uses).
+
+JSON: `{"called", "cycles", "irq_masked", "registers", "trap"}`.
+
 ---
 
 ## Waiting
