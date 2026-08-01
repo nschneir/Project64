@@ -43,33 +43,6 @@ the function/test names are the durable anchors.
       size shrinks too. Verify: `tests/test_build.py`,
       `tests/test_integration_build.py`.
 
-## Invaders dogfood results
-
-Friction found by the demo-06 dogfood (2026-08-01), which built
-`demos/invaders/` from `demos/invaders/PROMPT.md` — a ~5.3 KB pure-asm arcade
-game across ten `.include`d sources, with a custom multicolor charset,
-hardware sprites, three-voice SID, an 82-step `c64 test run` spec and a
-three-iteration fidelity audit (`demos/invaders/AUDIT.md`). The CLI, skills,
-and cookbook findings all landed (what was done is in `CHANGELOG.md` and git
-history); only the process items below remain.
-
-### Process and repo
-
-- [ ] **Record the ruling: plans need not transcribe code bodies.**
-      `superpowers:writing-plans`' no-placeholders rule ("every step must
-      contain the actual content", code blocks required for code steps) is
-      the *skill's* bar, not the maintainer's — read literally it would mean
-      transcribing a 5.3 KB 6502 program into a plan before writing it,
-      doubling the work and going stale within the hour. The maintainer has
-      ruled (2026-08-01) that this is not a requirement in this repo: what
-      carried the invaders build was the *interface* half of its plan —
-      exact label names, the byte-level variable table, the glyph-code
-      allocation, the memory map, and one verification command per task —
-      and that is the bar for a plan an agent executes itself. Remaining
-      action: one line in `AGENTS.md`, beside the plan-placement line the
-      item above calls for, so future planning agents don't over-transcribe
-      out of skill obedience. Verify: inspection.
-
 ## Deferred from the 2026-08-01 dogfood-fixes review
 
 - [ ] **`c64 disk block write` lacks the byte-list ergonomics `mem write`

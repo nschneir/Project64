@@ -172,6 +172,16 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   the CLI surface or docs, update both sides in the same change — and give
   new doc claims the same honesty treatment.
 
+## Plans
+
+- A plan an agent executes itself specifies *interfaces*, not code bodies:
+  exact label/function names, byte-level variable tables, memory maps and
+  allocations, and one verification command per task. Do not transcribe
+  program bodies into a plan out of `superpowers:writing-plans` obedience —
+  its no-placeholders rule is the skill's bar, not this repo's (maintainer
+  ruling, 2026-08-01). A short pinned snippet is fine only when the snippet
+  *is* the spec (an exact error message, a test case, a linker line).
+
 ## Git
 
 - Commit messages follow the existing `type(scope): summary` style
