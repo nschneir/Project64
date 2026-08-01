@@ -1,3 +1,5 @@
+import os
+import shutil
 import stat
 from pathlib import Path
 
@@ -137,3 +139,33 @@ def test_build_failure_never_touches_existing_prg(tmp_path, monkeypatch):
     with pytest.raises(BuildError):
         build_asm(src)
     assert old.read_bytes() == b"\x01\x08OLD"  # stale binary intact, not rebuilt
+
+
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+def test_include_resolves_relative_to_the_including_file(tmp_path, monkeypatch):
+    """The contract 6502-assembly/SKILL.md documents: a multi-file program
+    builds with no -I, wherever the build runs from — the invaders dogfood
+    burned a round trip discovering this."""
+    src = tmp_path / "src"
+    nested = src / "nested"
+    nested.mkdir(parents=True)
+    (nested / "inc.s").write_text('        lda #1\n')
+    (src / "main.s").write_text(
+        '        .segment "LOADADDR"\n'
+        '        .word $0801\n'
+        '        .segment "EXEHDR"\n'
+        '        .word nextln\n'
+        '        .word 10\n'
+        '        .byte $9E, "2061", $00\n'
+        'nextln: .word $0000\n'
+        '        .segment "CODE"\n'
+        'start:  .include "nested/inc.s"\n'
+        '        rts\n')
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    res = build_asm(src / "main.s", basic_start=0x0801)
+    assert Path(res.prg).exists()

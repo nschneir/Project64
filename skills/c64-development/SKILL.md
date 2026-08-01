@@ -385,6 +385,7 @@ reproduction, use the `6502-debugging` skill.)
 | Screen shows graphics glyphs instead of text | Uppercase in the `.bas` source — rewrite keywords AND strings lowercase. |
 | `c64 wait --text` times out | `c64 screen` and look. The program may be awaiting input (feed it with `c64 basic type` or a `key` step), still loading, or crashed. |
 | `c64 until LABEL` times out on a label that used to fire | The program branched away (death/menu/pause) and never executes LABEL again. Break at a code path that must still run and `c64 wait --break`. |
+| `c64 until LABEL` returned, but the numbers are nonsense | It answered a different question: the current state does not reach LABEL every tick, so the run sailed an arbitrary number of frames before landing there. Check the state/mode byte before anchoring timing on LABEL — and for a routine's cost, `c64 profile` needs no anchor at all. |
 | Program seems to hang | Sample it: run `c64 reg` two or three times and compare PC. PC stuck in your code = your loop is wrong — then follow the wedged-machine playbook in the `6502-debugging` skill; PC around $E5xx = the machine is idling in BASIC waiting for input. |
 | Assembly crashes or drops to READY immediately | The SYS stub math is off — `c64 rom disasm 2061 16` and confirm your first instruction is at $080D. |
 | `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg`. |
@@ -448,6 +449,14 @@ seeded. `RND(-X)` reseeds deterministically (`30 x=rnd(-1)`), so the run is
 reproducible; `RND(-TI)` gives a different game each run. Keep the seeding
 call on its own line so a test can substitute it — see the cookbook's
 prompt-loop recipe.
+
+For one routine, do not wait for a symptom: unit-test it against the live
+machine with `c64 call` — poke its inputs, call, assert on registers and
+memory — and keep the proof as a YAML `call:` step in a permanent test.
+Boundary sweeps that would take hours in-game take seconds this way:
+prove a scoring routine at shot counts 1/5/22/23/24 in one loop instead
+of engineering the 23rd live shot. `c64 profile ROUTINE` prices the same
+bracket in cycles (IRQs masked, so the sample is clean).
 
 ## References
 

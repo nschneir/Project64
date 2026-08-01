@@ -133,6 +133,10 @@ The cookbook's "Time a routine and print the jiffies" recipe uses it.
   (typically a `?SYNTAX ERROR` or garbage when execution reaches the
   unloaded region). Start every included source file with an explicit
   `.segment "CODE"` (or the segment it really wants).
+  `.include` resolves relative to the including file, so a multi-file
+  program needs no `-I`: `c64 build main.s` finds `.include
+  "nested/tables.s"` from `main.s`'s own directory, whatever directory
+  the build runs from.
 - **BSS is not in the .prg.** `.res` storage is just reserved address space
   — at load it holds whatever was in RAM (often `$AA`s), and a flag or
   timer that "should be zero" silently isn't. Initialize every mutable
@@ -186,7 +190,10 @@ the `c64-development` skill's hardware reference, "Sprites" section.
    wrong 63 bytes.
 4. X is in the visible range **24-343** (X > 255 needs its bit set in
    `$D010`, one bit per sprite).
-5. Y is in the visible range **50-249**.
+5. Y is in the visible range **50-249**. To align with text, sprite Y for
+   text row R is `51 + 8*R` — the 25-row window spans rasters 51-250, so
+   Y=50 is one raster line *above* row 0 (see the hardware reference's
+   Sprites section).
 6. Nothing has overwritten the sprite's own 63 bytes of data — a program
    that grew into its data region is a common cause (below).
 

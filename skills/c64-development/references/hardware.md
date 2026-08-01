@@ -116,7 +116,11 @@ Both CIAs expose the same 16 registers, at an offset from `$DC00` (CIA1) or
 
 Data pointers live at screen+`$3F8` (`$07F8-$07FF` for the default screen);
 pointer value = data address / 64. Visible X range starts at 24, Y at 50
-(a sprite at X<24 is partly off the left edge).
+(a sprite at X<24 is partly off the left edge). Sprite Y for **text row R
+is `51 + 8*R`** — the 25-row display window spans rasters 51-250, so a
+sprite at Y=50 sits one raster line *above* row 0. Off by one raster line
+is invisible until a sprite lands next to text; the invaders dogfood
+shipped its UFO a line high through a whole audit iteration this way.
 
 A multicolor sprite (`$D01C` bit set) trades horizontal resolution for color:
 each color-pixel is 2 data bits and 2 screen-pixels wide (12×21) and each pair picks a color — `00` transparent,

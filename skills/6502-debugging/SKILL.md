@@ -156,7 +156,8 @@ assert after. Use it to prove a suspect routine innocent (or guilty)
 without the game loop muddying the evidence, and as the YAML `call:` step
 for permanent routine-level unit tests. A `call` timeout means the routine
 never returned from that entry state — itself a finding (runaway loop, or
-you called a non-subroutine).
+you called a non-subroutine). `c64 profile <routine>` uses the same
+bracket to report the routine's cycle cost.
 
 ## Waiting for something that might stop happening
 
