@@ -194,6 +194,48 @@ def test_mem_write():
     mon.release.assert_called_once()
 
 
+def test_mem_write_accepts_a_whitespace_separated_string():
+    """A shell variable expands to one token under zsh; that's a byte list."""
+    mon = Mock()
+    fake, p = _patched(mon)
+    with p as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["mem", "write", "$0400", "0 0 1 4 9 0"])
+    assert r.exit_code == 0, r.output
+    mon.memory_write.assert_called_once_with(0x0400, bytes([0, 0, 1, 4, 9, 0]))
+
+
+def test_mem_write_bad_byte_is_a_clean_error_not_a_traceback():
+    mon = Mock()
+    fake, p = _patched(mon)
+    with p as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["mem", "write", "$0400", "1", "x9"])
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    assert "x9" in r.output
+
+
+def test_mem_write_out_of_range_byte_is_a_clean_error():
+    mon = Mock()
+    fake, p = _patched(mon)
+    with p as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "mem", "write", "$0400", "300"])
+    assert r.exit_code == 1, r.output
+    assert "out of range" in json.loads(r.output)["error"]
+
+
+def test_mem_read_bad_length_is_a_clean_error():
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["mem", "read", "$0400", "bogus"])
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    assert "bogus" in r.output
+
+
 def test_reg_get_and_set():
     mon = Mock()
     mon.registers.return_value = {"PC": 0x0801, "A": 0x2A}

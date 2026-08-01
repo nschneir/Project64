@@ -277,7 +277,11 @@ not disturb run/stop state.
 Write bytes to emulated memory.
 
 - `ADDR` — start address (`$hex`/`0x`/decimal/symbol).
-- `VALUES...` — one or more byte values (`$hex`/`0x`/decimal).
+- `VALUES...` — one or more byte values (`$hex`/`0x`/decimal). They may be
+  separate arguments or a single whitespace-separated string
+  (`c64 mem write score "0 0 1 4 9 0"`), which is what a shell variable
+  expands to. A value that is not a byte is reported by position and text
+  (`byte 2 is 'x9', not a number`), not as a traceback.
 - `--stdin` — batch form: read one write per line (`REF V1 V2 …`; blank
   lines and `#` comments skipped) from stdin instead of arguments. The
   heredoc pattern:

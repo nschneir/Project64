@@ -43,6 +43,7 @@ from .ops import (
     find_bytes,
     live_screen_base,
     machine_state,
+    parse_byte_values,
     parse_number,
     parse_ref,
     pc_region,
@@ -122,6 +123,15 @@ def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
         return parse_ref(labels, ref, **kw)
     except (KeyError, ValueError) as e:
         fail(ctx, str(e))
+        raise AssertionError("unreachable") from None
+
+
+def parse_count(ctx: click.Context, value, what: str) -> int:
+    """parse_number with CLI error reporting, for LENGTH/COUNT/VALUE args."""
+    try:
+        return parse_number(value)
+    except ValueError:
+        fail(ctx, f"bad {what} {value!r}; use decimal, $hex, or 0x hex")
         raise AssertionError("unreachable") from None
 
 
@@ -452,7 +462,7 @@ def mem_read(ctx, addr, length, decimal, as_):
     """
     s = attach(ctx)
     start = resolve_ref(ctx, session_labels(s), addr, session=s)
-    n = parse_number(length)
+    n = parse_count(ctx, length, "LENGTH")
     with s.monitor() as mon:
         try:
             data = mon.memory_read(start, n)
@@ -499,8 +509,12 @@ def mem_write(ctx, addr, values, from_stdin):
         lines = [[addr, *values]]
     s = attach(ctx)
     labels = session_labels(s)
-    writes = [(resolve_ref(ctx, labels, ln[0], session=s),
-               bytes(parse_number(v) for v in ln[1:])) for ln in lines]
+    try:
+        writes = [(resolve_ref(ctx, labels, ln[0], session=s),
+                   parse_byte_values(ln[1:])) for ln in lines]
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
     with s.monitor() as mon:
         try:
             for start, data in writes:
@@ -526,7 +540,7 @@ def mem_get(ctx, addr, length):
     """
     s = attach(ctx)
     start = resolve_ref(ctx, session_labels(s), addr, session=s)
-    n = parse_number(length)
+    n = parse_count(ctx, length, "LENGTH")
     with s.monitor() as mon:
         try:
             data = mon.memory_read(start, n)
@@ -556,8 +570,12 @@ def mem_find(ctx, values, start, length, limit):
     s = attach(ctx)
     labels = session_labels(s)
     begin = resolve_ref(ctx, labels, start, session=s)
-    n = parse_number(length)
-    pattern = bytes(parse_number(v) for v in values)
+    n = parse_count(ctx, length, "--length")
+    try:
+        pattern = parse_byte_values(values)
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
     with s.monitor() as mon:
         try:
             matches, truncated = find_bytes(mon, begin, n, pattern, limit=limit)
@@ -606,7 +624,7 @@ def reg(ctx) -> None:
 def reg_set(ctx, name, value):
     """Set register NAME (PC, A, X, Y, or SP) to VALUE ($hex/0x/decimal)."""
     s = attach(ctx)
-    v = parse_number(value)
+    v = parse_count(ctx, value, "VALUE")
     with s.monitor() as mon:
         try:
             mon.set_register(name, v)
@@ -1099,8 +1117,9 @@ def step_cmd(ctx, count, over):
     """Execute N instructions; the machine stays stopped."""
     s = attach(ctx)
     labels = session_labels(s)
+    n = parse_count(ctx, count, "COUNT")
     with s.monitor() as mon:
-        regs = mon.step(parse_number(count), over=over)
+        regs = mon.step(n, over=over)
     _emit_stopped_regs(ctx, labels, regs)
 
 
@@ -1175,7 +1194,7 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
     s = attach(ctx)
     labels = session_labels(s)
     addr = resolve_ref(ctx, labels, ref, session=s)
-    regs_in = {k: parse_number(v) for k, v in
+    regs_in = {k: parse_count(ctx, v, f"--{k} value") for k, v in
                (("a", a_), ("x", x_), ("y", y_)) if v is not None}
     out = call_routine(s, addr, a=regs_in.get("a"), x=regs_in.get("x"),
                        y=regs_in.get("y"), timeout=timeout)
@@ -1760,7 +1779,7 @@ def rom_disasm(ctx, start, length):
     s = attach(ctx)
     labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
     addr = resolve_ref(ctx, labels, start, session=s)
-    n = parse_number(length)
+    n = parse_count(ctx, length, "LENGTH")
     with s.monitor() as mon:
         try:
             data = mon.memory_read(addr, n)

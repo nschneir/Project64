@@ -176,6 +176,16 @@ def test_call_command_invokes_routine(tmp_path):
     assert out["registers"]["A"] == 42 and out["stopped"] is True
 
 
+def test_call_bad_register_value_is_a_clean_error():
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["call", "$C000", "--x", "nope"])
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    assert "nope" in r.output
+
+
 def test_call_command_timeout_fails():
     fake, mon = _fake()
     out = {"fired": False, "registers": None, "trap": 0x0400}

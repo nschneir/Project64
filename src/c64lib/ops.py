@@ -80,6 +80,31 @@ def parse_number(s) -> int:
     return int(s, 10)
 
 
+def parse_byte_values(tokens) -> bytes:
+    """Coerce CLI byte tokens to bytes, naming the one that is wrong.
+
+    Splits whitespace *inside* each token first: a shell variable holding
+    "0 0 1 4 9 0" reaches the CLI as one argument (zsh does not word-split
+    unquoted expansions), and that is a byte list, not a parse error.
+    The wording mirrors disk.block_bytes for the same reason that helper
+    exists: the bare int()/bytes() errors never say WHICH value was bad.
+    """
+    toks = [t for tok in tokens for t in str(tok).split()]
+    if not toks:
+        raise ValueError("no byte values given")
+    out = bytearray()
+    for i, t in enumerate(toks):
+        try:
+            v = parse_number(t)
+        except ValueError:
+            raise ValueError(
+                f"byte {i} is {t!r}, not a number ($hex/0x/decimal)") from None
+        if not 0 <= v <= 255:
+            raise ValueError(f"byte {i} is {v}, out of range for a byte (0-255)")
+        out.append(v)
+    return bytes(out)
+
+
 def parse_ref(labels: dict[str, int], ref, *, screen_base: int | None = None,
               screen_width: int | None = None) -> int:
     """Address forms: $hex / 0xhex / decimal / symbol, plus:

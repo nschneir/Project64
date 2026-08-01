@@ -5,7 +5,14 @@ import pytest
 
 from c64lib import ops
 from c64lib.monitor import StopInfo
-from c64lib.ops import parse_number, parse_ref, run_until, wait_for_break, wait_for_text
+from c64lib.ops import (
+    parse_byte_values,
+    parse_number,
+    parse_ref,
+    run_until,
+    wait_for_break,
+    wait_for_text,
+)
 from c64lib.protocol import CP_EXEC, Checkpoint
 
 
@@ -24,6 +31,21 @@ def test_parse_number_and_ref():
     assert parse_ref({"start": 0x040D}, "start") == 0x040D
     with pytest.raises(KeyError):
         parse_ref({}, "nosuch")
+
+
+def test_parse_byte_values_splits_whitespace_inside_tokens():
+    # a shell variable expands to one whitespace-joined token under zsh
+    assert parse_byte_values(["0 0 1 4 9 0"]) == bytes([0, 0, 1, 4, 9, 0])
+    assert parse_byte_values(["$ff", "2 3"]) == bytes([0xFF, 2, 3])
+
+
+def test_parse_byte_values_names_the_bad_token():
+    with pytest.raises(ValueError, match=r"byte 2 is 'x9'"):
+        parse_byte_values(["1", "2", "x9"])
+    with pytest.raises(ValueError, match=r"byte 1 is 300, out of range"):
+        parse_byte_values(["1", "300"])
+    with pytest.raises(ValueError, match="no byte values"):
+        parse_byte_values([])
 
 
 def test_parse_ref_symbol_plus_offset():
