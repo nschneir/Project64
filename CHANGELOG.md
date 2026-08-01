@@ -14,9 +14,26 @@ Closed out the ROM label database with its final tranche: `basic2.lbl` grew
 184 → 291 labels, covering the BASIC token dispatch tables, the
 floating-point package, and the IEC serial and tape KERNAL internals.
 Dogfooded demo 06 (Invaders), which now ships its whole solution — sources,
-a fidelity audit, a regression test and a runnable `.d64` — and filed the
-fourteen tooling gaps it found in `docs/todo.md`. This changelog itself was
-cut from 843 lines to something a person can actually skim.
+a fidelity audit, a regression test and a runnable `.d64` — and closed the
+twelve CLI, skill and cookbook gaps it found (only its process items are
+still open in `docs/todo.md`). This changelog itself was cut from 843 lines
+to something a person can actually skim.
+
+Out of that dogfood: `c64 profile REF` reports hardware cycle counts for one
+routine (CIA#2 cascade, IRQs masked by default, `--with-irq`), with the MCP
+twin `c64_profile`; and `c64 charset encode` turns ASCII art into charset
+`.byte` rows (multicolor `.123`, hires `.#`), retiring the invaders demo's
+local converter. `-s/--session` is now accepted after the subcommand, like
+`--json`. Disk boots register symbols — `c64 disk boot`,
+`c64 session start --disk/--cart`, and disk test specs pick up a sibling
+`.lbl` (or `disk build`'s first-entry label), silently skipped when absent.
+`mem get`/`mem read` JSON payloads now both carry `values` and `bytes`, and
+`c64 mem write` names a bad byte token instead of dumping a traceback and
+accepts one whitespace-separated byte string; bad LENGTH/COUNT/VALUE args
+across the CLI fail cleanly too. Newly documented: the sprite-Y ↔ text-row
+mapping (`51 + 8*R`), the `.include` resolution contract (now build-tested),
+routine-level unit testing with `c64 call`, the misleading-`until` diagnosis
+row, and a live-tested screen-code-readback collision recipe.
 
 ## [0.9.0] — 2026-07-31
 
