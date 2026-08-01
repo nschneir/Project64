@@ -76,6 +76,26 @@ history); only the process items below remain.
       yourself next", and let the second lean on interfaces over bodies.
       Verify: inspection.
 
+## Deferred from the 2026-08-01 dogfood-fixes review
+
+- [ ] **`c64 disk block write` lacks the byte-list ergonomics `mem write`
+      gained.** `disk_block_write` (`src/c64lib/cli.py`, the
+      `block_bytes(parse_number(v) for v in values)` site) is guarded — no
+      traceback — but gets neither the whitespace-joined-string acceptance
+      nor the per-index "which byte was bad" naming that `mem write` and
+      `mem find` now get from `ops.parse_byte_values`. Fix direction: route
+      it through `parse_byte_values`, keeping `block_bytes`'s 256-byte
+      length check. Verify: `tests/test_cli_disk.py`.
+- [ ] **`c64 profile` has no impossible-count guard.** A raw cascade count
+      of 0 cannot happen for a real routine (a bare `RTS` costs 6 cycles),
+      yet `_CIA_START_SLACK` would dress one up as `"cycles": 3`. It would
+      mean the CIA pokes never reached the chip model (e.g. a future VICE
+      change, or I/O banked out so `$DD0E` wrote to RAM underneath) — a
+      silent wrong number rather than an error. Fix direction: treat
+      `raw == 0` in `profile_routine` (`src/c64lib/ops.py`) as a failure
+      naming the likely cause, not a measurement. Verify:
+      `tests/test_ops.py -k profile`.
+
 ## Standing backlog (pre-cartridge)
 
 - [ ] **Charset/bitmap PNG conversion — blocked on demo-07 evidence.**
