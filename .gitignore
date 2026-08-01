@@ -13,6 +13,14 @@ dist/
 *.d64
 *.d71
 *.d81
+
+# A directory demo ships the artefact a reader is meant to run — demo 06's
+# `c64 package ... -o demos/invaders/invaders.d64` is the last step of its
+# own prompt. Keep those two beside the sources; every other build output
+# (including the .lbl) stays ignored.
+!demos/*/*.prg
+!demos/*/*.d64
+
 scratch/
 docs/superpowers/
 .superpowers/

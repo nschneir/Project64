@@ -9,17 +9,19 @@ regression test, and the evidence frames.
 
 ## Play it
 
-Build the disk image and run it in stock VICE:
+`invaders.d64` sits beside the sources, so stock VICE is all you need:
 
 ```sh
-c64 package demos/invaders/invaders.s -o demos/invaders/invaders.d64 --title "INVADERS"
 x64sc -ntsc demos/invaders/invaders.d64
 ```
 
-`invaders.d64` and `invaders.prg` are not committed — this repository
-gitignores build artefacts, and the two commands above rebuild them exactly.
 The `-ntsc` flag matters: the game is paced on the jiffy clock and was
-tested on the NTSC machine.
+tested on the NTSC machine. To rebuild the image (and the `.prg` beside it)
+from source:
+
+```sh
+c64 package demos/invaders/invaders.s -o demos/invaders/invaders.d64 --title "INVADERS"
+```
 
 **Controls.** Hold `A` and `D` to move the laser base, `SPACE` to fire. Any
 key starts a game from the attract screen. Input is read from `$CB`, the

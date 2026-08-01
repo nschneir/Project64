@@ -198,9 +198,11 @@ not an unfinished bullet:
 4. **Invaders that march over a bunker destroy it permanently** (`shzero`
    clears the damage state rather than letting it redraw).  This is arcade
    behaviour, and it is why late waves that start low eat the shields.
-5. **`invaders.d64` and `invaders.prg` are not committed** — the repository
-   gitignores build artefacts.  They are one `c64 package` away from the
-   committed source, and the exact command is in the README section below.
+5. **`invaders.d64` and `invaders.prg` are committed** beside the sources, so
+   a reader needs only stock VICE: `x64sc -ntsc demos/invaders/invaders.d64`.
+   `.gitignore` still ignores every other build output — including the
+   `.lbl` — and carves out only `demos/*/*.prg` and `demos/*/*.d64`, because
+   shipping the runnable artefact is the last step of this demo's own prompt.
 
 ### Verdict
 
