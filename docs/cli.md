@@ -1246,6 +1246,37 @@ FILE.
 
 ---
 
+## Charsets
+
+### `c64 charset encode`
+
+Encode ASCII-art glyph sheets into 8 charset bytes per glyph — the charset
+twin of `c64 sprite encode`. Needs no session.
+
+- `FILE` — `name:` blocks (a bare `squid:` header works too), each exactly
+  8 rows. Multicolor rows (the default) are 4 characters of `.123`: pair
+  values `00 01 10 11` = background `$D021` / `$D022` / `$D023` / the
+  cell's own color — the multicolor-*text* order, which is **not** the
+  sprite legend's (sprites order their pairs differently, so the two
+  commands deliberately do not share a legend). Hires rows are 8
+  characters of `.#`. Blank lines and `#` comments are ignored (a comment
+  cannot consist solely of legend characters at exactly row width). Block
+  order is screen-code order.
+- `--hires` — 1 bit/pixel, 8 chars/row (`.#`) instead of multicolor pairs.
+- `--first-code N` (default `0`) — screen code of the first glyph; sets
+  the `; code N: name` comments (the data itself is position-independent).
+- `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
+
+Output is one contiguous block: a `glyphs:` label, 8 `.byte %binary` rows
+per glyph (each echoing its art row as a trailing comment), and a
+`glyphs_end:` label — so an installer copies with
+`cpx #(glyphs_end - glyphs)` and patches over `CHARSET + code*8`. See the
+cookbook's custom-character-set recipe for the RAM-charset setup.
+
+JSON: `{"glyphs": [{"name", "bytes"}, ...]}` — 8 ints per glyph, file order.
+
+---
+
 ## ROM tools
 
 ROM tooling reads ROM bytes from *your* running emulator; nothing

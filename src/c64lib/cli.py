@@ -2212,3 +2212,47 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
         Path(out_path).write_text(text)
     emit(ctx, {"sprites": [list(data) for data in sprites]},
          text if not out_path else f"wrote {out_path}")
+
+
+@main.group()
+def charset() -> None:
+    """Author and convert custom character sets."""
+
+
+@charset.command("encode")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--hires", is_flag=True,
+              help="Encode as hires (1 bit/pixel, 8 chars/row, legend '.#') "
+                   "instead of the default multicolor pairs.")
+@click.option("--first-code", default=0, show_default=True,
+              help="Screen code of the first glyph (sets the per-glyph "
+                   "comments; the data itself is position-independent).")
+@click.option("--out", "-o", "out_path", default=None,
+              help="Write the rendered rows to this file instead of stdout.")
+@click.pass_context
+def charset_encode(ctx, file, hires, first_code, out_path):
+    """Encode ASCII-art glyphs from FILE into 8 charset bytes each.
+
+    FILE holds `name:` blocks of exactly 8 rows. Multicolor rows (the
+    default) are 4 characters of `.123` — pair values 00/01/10/11 =
+    background $D021 / $D022 / $D023 / the cell's own color, the
+    multicolor-text order (NOT the sprite legend's). Hires rows are 8
+    characters of `.#`. `#` comment lines and blank lines are ignored;
+    block order is screen-code order. Emits one contiguous block under a
+    `glyphs:` label with a `glyphs_end:` end label, 8 `.byte` rows per
+    glyph, each glyph introduced by a `; code N: name` comment. Needs no
+    session; the charset twin of `c64 sprite encode`.
+    """
+    from .charset import CharsetError, encode_row, format_glyphs, parse_charset
+    try:
+        glyphs = parse_charset(file.read_text(), multicolor=not hires)
+    except CharsetError as e:
+        fail(ctx, str(e))
+        return
+    text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires)
+    if out_path:
+        Path(out_path).write_text(text)
+    emit(ctx, {"glyphs": [{"name": name,
+                           "bytes": [encode_row(r, not hires) for r in rows]}
+                          for name, rows in glyphs]},
+         text if not out_path else f"wrote {out_path}")

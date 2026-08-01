@@ -287,3 +287,60 @@ def test_format_bytes_basic_numbered_survives_petcat(tmp_path):
     listing = detokenize(tokenize(src, tmp_path / "d.prg", "2.0"), "2.0").lower()
     assert "data 0,1,2" in listing
     assert "atn" not in listing          # the uppercase-DATA failure mode
+
+
+# --- c64 charset encode (charset.py) ---
+
+def test_charset_multicolor_row_encodes_two_bits_per_pixel():
+    from c64lib.charset import encode_row, parse_charset
+    glyphs = parse_charset("name: g\n.123\n" + "....\n" * 7)
+    assert glyphs == [("g", [".123", "....", "....", "....",
+                             "....", "....", "....", "...."])]
+    # '.123' -> 00 01 10 11 -> 0b00011011 (multicolor-text pair order:
+    # 00=$D021, 01=$D022, 10=$D023, 11=cell color — hardware.md's table)
+    assert encode_row(".123") == 0b00011011
+
+
+def test_charset_hires_row_encodes_one_bit_per_pixel():
+    from c64lib.charset import encode_row, parse_charset
+    glyphs = parse_charset("name: g\n####....\n" + "........\n" * 7,
+                           multicolor=False)
+    assert glyphs[0][1][0] == "####...."
+    assert encode_row("####....", multicolor=False) == 0xF0
+
+
+def test_charset_bare_label_headers_comments_and_blanks():
+    from c64lib.charset import parse_charset
+    text = "# a comment\n\nsquid:\n" + "3333\n" * 8 + "\nname: bolt\n" + "1111\n" * 8
+    names = [n for n, _ in parse_charset(text)]
+    assert names == ["squid", "bolt"]     # file order IS screen-code order
+
+
+def test_charset_errors_name_the_glyph_and_line():
+    import pytest
+
+    from c64lib.charset import CharsetError, parse_charset
+    with pytest.raises(CharsetError, match=r"glyph 'g'.*has 7 rows"):
+        parse_charset("name: g\n" + "....\n" * 7)
+    with pytest.raises(CharsetError, match=r"line 2: 5 characters"):
+        parse_charset("name: g\n....5\n" + "....\n" * 7)
+    with pytest.raises(CharsetError, match=r"illegal legend"):
+        parse_charset("name: g\n..x.\n" + "....\n" * 7)
+    with pytest.raises(CharsetError, match="pixel row before any"):
+        parse_charset("....\n")
+    with pytest.raises(CharsetError, match="no glyphs"):
+        parse_charset("# empty\n")
+    with pytest.raises(CharsetError, match=r"duplicate glyph name 'g'"):
+        parse_charset("name: g\n" + "....\n" * 8 + "name: g\n" + "....\n" * 8)
+
+
+def test_charset_format_glyphs_emits_the_consumer_shape():
+    """chars.s copies with `cpx #(glyphs_end - glyphs)` — one leading label,
+    one end label, glyph data contiguous in authoring order."""
+    from c64lib.charset import format_glyphs, parse_charset
+    text = format_glyphs(parse_charset("name: g\n.123\n" + "....\n" * 7),
+                         first_code=64)
+    assert "glyphs:" in text and "glyphs_end:" in text
+    assert "; code 64: g" in text
+    assert "        .byte   %00011011    ; .123" in text
+    assert text.endswith("\n") and "c64 charset encode" in text.splitlines()[0]
