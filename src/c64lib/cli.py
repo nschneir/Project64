@@ -155,12 +155,37 @@ def _append_json_option(cmd: click.Command) -> None:
             callback=_set_json, help="Machine-readable JSON output."))
 
 
+def _set_session(ctx: click.Context, param: click.Parameter,
+                 value: str | None) -> str | None:
+    """Let -s/--session be given after the subcommand as well as before it."""
+    if value is not None:
+        root = ctx.find_root()
+        if root.obj is None:
+            root.obj = {"json": False, "session": None}
+        root.obj["session"] = value
+    return value
+
+
+def _append_session_option(cmd: click.Command) -> None:
+    """Give `cmd` a trailing -s/--session, unless either spelling is taken
+    (true for `main`, and for session start/ensure/stop where -s is the
+    --name alias — those keep their own meaning)."""
+    existing = {o for p in cmd.params for o in getattr(p, "opts", [])}
+    if "--session" in existing or "-s" in existing:
+        return
+    cmd.params.append(click.Option(
+        ["--session", "-s", "session_name_trailing"], default=None,
+        expose_value=False, callback=_set_session,
+        help="Target session name. Accepted here or before the subcommand."))
+
+
 class JsonAwareCommand(click.Command):
     """A command that also accepts the global --json in trailing position."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         _append_json_option(self)
+        _append_session_option(self)
 
 
 class JsonAwareGroup(click.Group):
@@ -174,6 +199,7 @@ class JsonAwareGroup(click.Group):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         _append_json_option(self)
+        _append_session_option(self)
 
 
 @click.group(cls=JsonAwareGroup)
@@ -183,7 +209,7 @@ class JsonAwareGroup(click.Group):
               help="Machine-readable JSON output. Accepted here or after the "
                    "subcommand (`c64 screen --json`).")
 @click.option("--session", "-s", "session_name", default=None,
-              help="Target session name. Must come before the subcommand.")
+              help="Target session name. Accepted here or after the subcommand.")
 @click.pass_context
 def main(ctx: click.Context, json_out: bool, session_name: str | None) -> None:
     """c64-tools: develop and debug Commodore 64 software on VICE."""

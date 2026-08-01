@@ -15,8 +15,12 @@ exposes the same operations; see the README.
     This is the intended interface for AI agents. Every command supports it,
     in either position: `c64 --json session list` and
     `c64 session list --json` are equivalent.
-  - `--session, -s NAME` — target a specific session by name. Must come
-    before the subcommand.
+  - `--session, -s NAME` — target a specific session by name. Every command
+    supports it, in either position: `c64 -s inv mem get $0400` and
+    `c64 mem get $0400 -s inv` are equivalent. One exception: on
+    `session start`, `session ensure`, and `session stop`, `-s` is the alias
+    of their own `--name` option, so there is no trailing `--session` there —
+    name the session with `--name` (or, for `stop`, positionally).
   - `--version` — print `c64 <version>` and exit. Must come before the
     subcommand.
   - `--help` — print usage and exit. Works on every command and group, but

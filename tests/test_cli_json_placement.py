@@ -67,3 +67,55 @@ def test_json_after_reg_group_used_as_a_leaf_command():
     assert result.exit_code == 0, result.output
     assert "No such option" not in result.output
     assert json.loads(result.output)["registers"]["PC"] == 0x0801
+
+
+def test_session_available_on_nested_group_commands():
+    basic = main.commands["basic"]
+    assert isinstance(basic, click.Group)
+    cmd = basic.commands["check"]
+    assert "--session" in {o for p in cmd.params for o in getattr(p, "opts", [])}
+
+
+def test_session_after_subcommand_targets_the_named_session():
+    """`c64 mem get basex 1 --session inv` used to die with Click's
+    'Did you mean --json?' — the dogfood's most-hit ergonomic trap."""
+    mon = Mock()
+    mon.memory_read.return_value = bytes([7])
+    fake = Mock()
+    fake.name, fake.model, fake.labels, fake.socket = "inv", "c64", None, None
+    fake.profile.screen_cols, fake.profile.screen_rows = 40, 25
+    fake.monitor.return_value.__enter__ = Mock(return_value=mon)
+    fake.monitor.return_value.__exit__ = Mock(return_value=False)
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["mem", "get", "$0400", "--session", "inv"])
+    assert r.exit_code == 0, r.output
+    S.attach.assert_called_once_with("inv")
+
+
+def test_dash_s_after_subcommand_works_too():
+    mon = Mock()
+    mon.memory_read.return_value = bytes([7])
+    fake = Mock()
+    fake.name, fake.model, fake.labels, fake.socket = "inv", "c64", None, None
+    fake.profile.screen_cols, fake.profile.screen_rows = 40, 25
+    fake.monitor.return_value.__enter__ = Mock(return_value=mon)
+    fake.monitor.return_value.__exit__ = Mock(return_value=False)
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["mem", "get", "$0400", "-s", "inv"])
+    assert r.exit_code == 0, r.output
+    S.attach.assert_called_once_with("inv")
+
+
+def test_session_commands_keep_their_own_dash_s_meaning():
+    """session start/ensure/stop already use -s as the --name alias; the
+    injected trailing --session must not clobber them (guard by opts)."""
+    session_grp = main.commands["session"]
+    # click types Group.commands as dict[str, Command]; `session` is a group.
+    assert isinstance(session_grp, click.Group)
+    for name in ("start", "ensure", "stop"):
+        cmd = session_grp.commands[name]
+        opts = {o for p in cmd.params for o in getattr(p, "opts", [])}
+        assert "-s" in opts                      # still the --name alias
+        assert "--session" not in opts           # not double-registered
