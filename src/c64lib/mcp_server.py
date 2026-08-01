@@ -37,6 +37,7 @@ from .machines import get_profile
 from .ops import (
     call_routine,
     clear_checkpoints,
+    disk_labels_path,
     find_bytes,
     key_hold,
     key_type,
@@ -105,7 +106,16 @@ def c64_session_start(model: str = "c64", name: str | None = None,
     .crt cartridge that is mapped at power-on and boots itself."""
     s = Session.launch(model=model, name=name, headless=True, warp=True,
                        disk8=disk, cart=cart)
-    return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port}
+    lbl = None
+    if cart:
+        c = Path(cart).with_suffix(".lbl")
+        lbl = c if c.exists() else None       # a cartridge owns the boot
+    elif disk:
+        lbl = disk_labels_path(disk)
+    if lbl is not None:
+        s.set_labels_path(str(lbl))
+    return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
+            "symbols": str(lbl) if lbl else None}
 
 
 @srv.tool()
@@ -741,7 +751,10 @@ def c64_disk_boot(image: str, session: str | None = None) -> dict:
             mon.autostart(p, run=True)
         finally:
             mon.resume()
-    return {"booted": str(p)}
+    lbl = disk_labels_path(Path(image))
+    if lbl is not None:
+        s.set_labels_path(str(lbl))
+    return {"booted": str(p), "symbols": str(lbl) if lbl else None}
 
 
 @srv.tool()

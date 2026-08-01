@@ -40,6 +40,7 @@ from .machines import get_profile
 from .ops import (
     call_routine,
     clear_checkpoints,
+    disk_labels_path,
     find_bytes,
     live_screen_base,
     machine_state,
@@ -268,7 +269,16 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     except (SessionError, DiskError, KeyError) as e:
         fail(ctx, str(e))
         return
-    emit(ctx, {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port},
+    lbl = None
+    if cart:
+        c = Path(cart).with_suffix(".lbl")
+        lbl = c if c.exists() else None       # a cartridge owns the boot
+    elif disk8:
+        lbl = disk_labels_path(disk8)
+    if lbl is not None:
+        s.set_labels_path(str(lbl))
+    emit(ctx, {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
+               "symbols": str(lbl) if lbl else None},
          f"started {s.model} session {s.name!r} (pid {s.pid}, monitor port {s.port})")
 
 
@@ -1432,7 +1442,12 @@ def disk_boot(ctx, image):
             mon.autostart(image.resolve(), run=True)
         finally:
             mon.resume()
-    emit(ctx, {"booted": str(image.resolve())}, f"booting {image}")
+    lbl = disk_labels_path(image)
+    if lbl is not None:
+        s.set_labels_path(str(lbl))
+    emit(ctx, {"booted": str(image.resolve()),
+               "symbols": str(lbl) if lbl else None},
+         f"booting {image}" + (f" (symbols: {lbl})" if lbl else ""))
 
 
 @disk.command("rename")

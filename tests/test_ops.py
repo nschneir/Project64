@@ -730,3 +730,36 @@ def test_idle_pc_range_starts_at_the_inloop_label():
     """The constant and the ROM label DB name one address; neither may drift."""
     from c64lib import romdoc
     assert romdoc.rom_labels("2.0")["INLOOP"] == ops.IDLE_PC_RANGE[0]
+
+
+def test_disk_labels_path_prefers_the_sibling_lbl(tmp_path):
+    from c64lib.ops import disk_labels_path
+    img = tmp_path / "game.d64"
+    img.write_bytes(b"x")
+    assert disk_labels_path(img) is None          # nothing there: silent
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al C:0824 .mainloop\n")
+    assert disk_labels_path(img) == lbl
+
+
+def test_disk_labels_path_falls_back_to_the_disk_build_convention(tmp_path):
+    """disk build writes IMAGE.<cbm-name>.lbl, not IMAGE.lbl; the autostarted
+    file is the FIRST directory entry, so its label file is the right one."""
+    from c64lib.ops import disk_labels_path
+    img = tmp_path / "game.d64"
+    img.write_bytes(b"x")
+    kept = tmp_path / "game.boot.lbl"
+    kept.write_text("al C:0810 .start\n")
+    listing = {"label": "g", "blocks_free": 660,
+               "files": [{"blocks": 1, "name": "boot", "type": "prg"}]}
+    with patch("c64lib.disk.list_files", return_value=listing):
+        assert disk_labels_path(img) == kept
+
+
+def test_disk_labels_path_is_silent_when_c1541_is_unusable(tmp_path):
+    from c64lib.disk import DiskError
+    from c64lib.ops import disk_labels_path
+    img = tmp_path / "game.d64"
+    img.write_bytes(b"x")
+    with patch("c64lib.disk.list_files", side_effect=DiskError("no c1541")):
+        assert disk_labels_path(img) is None

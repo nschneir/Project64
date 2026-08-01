@@ -78,6 +78,41 @@ def test_disk_boot(tmp_path):
     mon.resume.assert_called_once()
 
 
+def test_disk_boot_registers_a_sibling_label_file(tmp_path):
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    lbl = tmp_path / "t.lbl"
+    lbl.write_text("al C:0824 .mainloop\n")
+    fake = Mock()
+    fake.name, fake.model, fake.labels = "c64", "c64", None
+    mon = Mock()
+    fake.monitor.return_value.__enter__ = Mock(return_value=mon)
+    fake.monitor.return_value.__exit__ = Mock(return_value=False)
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "disk", "boot", str(img)])
+    assert r.exit_code == 0, r.output
+    fake.set_labels_path.assert_called_once_with(str(lbl))
+    assert json.loads(r.output)["symbols"] == str(lbl)
+
+
+def test_disk_boot_without_labels_is_silent(tmp_path):
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    fake = Mock()
+    fake.name, fake.model, fake.labels = "c64", "c64", None
+    mon = Mock()
+    fake.monitor.return_value.__enter__ = Mock(return_value=mon)
+    fake.monitor.return_value.__exit__ = Mock(return_value=False)
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.disk.list_files", side_effect=DiskError("no c1541")):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "disk", "boot", str(img)])
+    assert r.exit_code == 0, r.output
+    fake.set_labels_path.assert_not_called()
+    assert json.loads(r.output)["symbols"] is None
+
+
 @needs_c1541
 def test_cli_rename_and_rm(tmp_path):
     img = make_image(tmp_path)

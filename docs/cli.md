@@ -78,11 +78,17 @@ Boot a fresh emulated C64.
   `x64sc`) it starts minimized and never takes focus.
 - `--warp` — run at maximum speed (recommended for automation).
 - `--disk PATH` — attach a `.d64`/`.d71`/`.d81` image to drive 8 at boot.
+  Attaching only fills the drive — the machine still boots to BASIC;
+  `c64 disk boot IMAGE` (naming the image again) is what LOAD+RUNs it. The
+  image's label file is registered if one exists (same rule as
+  `c64 disk boot`).
 - `--cart PATH` — attach a `.crt` cartridge at power-on. The machine boots
-  straight into it; there is nothing to load afterwards.
+  straight into it; there is nothing to load afterwards. A sibling `.lbl` of
+  the cartridge's stem is registered as the session's symbols if it is there.
 
 Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
-JSON: `{"name", "model", "pid", "port"}`. Machine left running.
+JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
+file registered from `--disk`/`--cart`, or `null`. Machine left running.
 
 Starting a session also starts its monitor daemon — the process that owns
 the VICE monitor connection and holds run/stop state between commands.
@@ -770,7 +776,15 @@ JSON: `{"image", "name", "dest"}`.
 
 Attach an image to the running C64 and LOAD+RUN its first file.
 
-- `IMAGE` — the image file. JSON: `{"booted": PATH}`. Machine left running.
+- `IMAGE` — the image file. JSON: `{"booted": PATH, "symbols": PATH|null}`.
+  Machine left running.
+
+Symbols: a sibling `IMAGE.lbl` (same stem) is registered on the session, so
+`until`/`key hold --at` resolve the booted program's labels straight away —
+the same convention a `.crt` enjoys under `c64 run`. When there is no
+sibling, the `c64 disk build` convention is tried instead: the label file
+of the image's *first* directory entry (`IMAGE.<cbm-name>.lbl`), which is
+the file autostart runs. Silently skipped when neither exists.
 
 ### `c64 disk rename`
 
@@ -1365,9 +1379,9 @@ fills drive 8, so the runner then autostarts the image, which issues
 manifest in listed order. `autorun:` applies as usual, including its gate:
 `autorun: false` loads without running and the runner then waits for the load
 to finish before the first step, which matters more here than for a `.prg`
-(serial loading is seconds, not milliseconds). No symbols are available:
-`c64 disk build` keeps only the image, so a `.s` built onto a disk has no
-label file for `until`/`poke` steps to resolve against.
+(serial loading is seconds, not milliseconds). Symbols follow the same rule as
+the CLI: a sibling `.lbl` of the image's stem, else the label file `disk build`
+kept for the image's first entry, silently skipped when absent.
 
 JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails.
 

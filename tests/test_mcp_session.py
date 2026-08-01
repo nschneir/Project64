@@ -28,7 +28,9 @@ def test_session_start():
     with patch("c64lib.mcp_server.Session") as S:
         S.launch.return_value = s
         err, out = call_tool("c64_session_start", {"model": "c64"})
-    assert err is False and out["name"] == "c64" and out["port"] == 6502
+    assert err is False
+    assert out == {"name": "c64", "model": "c64", "pid": s.pid, "port": 6502,
+                   "symbols": None}
     S.launch.assert_called_once_with(model="c64", name=None, headless=True,
                                      warp=True, disk8=None, cart=None)
 

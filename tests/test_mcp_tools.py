@@ -281,7 +281,7 @@ def test_disk_boot(tmp_path):
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
         err, out = call_tool("c64_disk_boot", {"image": str(img)})
-    assert err is False and out == {"booted": str(img.resolve())}
+    assert err is False and out == {"booted": str(img.resolve()), "symbols": None}
     mon.autostart.assert_called_once_with(img.resolve(), run=True)
     mon.resume.assert_called_once()
 

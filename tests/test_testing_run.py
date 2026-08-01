@@ -579,6 +579,21 @@ def test_run_test_loads_cart_labels_when_present(tmp_path):
     assert mon.memory_read.call_args.args[0] == 0xC000   # symbol resolved
 
 
+def test_run_test_loads_disk_labels_when_present(tmp_path):
+    """A disk spec's symbols follow the same sibling/.lbl rule as the CLI."""
+    img = _d64(tmp_path / "game.d64")
+    (tmp_path / "game.lbl").write_text("al 00C000 .entry\n")
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(disk=str(img), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    assert mon.memory_read.call_args.args[0] == 0xC000
+
+
 def test_run_test_rejects_a_spec_with_both_cart_and_program(tmp_path):
     """load_test rejects the pair, but a hand-built spec skips that layer: the
     runner must refuse it too rather than silently ignoring `program`."""

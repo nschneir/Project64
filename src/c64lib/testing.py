@@ -24,6 +24,7 @@ from .ops import (
     MEM_COND_KEYS,
     MEM_OPS,
     call_routine,
+    disk_labels_path,
     live_screen_base,
     parse_ref,
     run_until,
@@ -651,6 +652,11 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
                 # issues LOAD"*",8,1 — the disk's first file, which is why
                 # `disk build` writes a manifest in listed order.
                 started = Path(disk_path).resolve()
+                # Same rule as `c64 disk boot`: a sibling .lbl, else the label
+                # file `disk build` kept for the image's first entry.
+                lblp = disk_labels_path(started)
+                if lblp is not None:
+                    labels = load_labels(lblp)
             elif spec.get("program"):
                 prg, lbl = _prepare(spec["program"], profile)
                 if lbl is not None and Path(lbl).exists():

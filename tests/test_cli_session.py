@@ -30,7 +30,8 @@ def test_session_start_json():
         r = CliRunner().invoke(main, ["--json", "session", "start", "--model", "c64"])
     assert r.exit_code == 0, r.output
     out = json.loads(r.output)
-    assert out["name"] == "c64" and out["port"] == 6502
+    assert out == {"name": "c64", "model": "c64", "pid": 1234, "port": 6502,
+                   "symbols": None}
     S.launch.assert_called_once_with(
         model="c64", name=None, headless=False, warp=False, disk8=None,
         cart=None
@@ -109,10 +110,43 @@ def test_session_start_dash_s_alias():
         S.launch.return_value = _fake_session(name="snake")
         r = CliRunner().invoke(main, ["--json", "session", "start", "-s", "snake"])
     assert r.exit_code == 0, r.output
+    assert json.loads(r.output) == {"name": "snake", "model": "c64", "pid": 1234,
+                                    "port": 6502, "symbols": None}
     S.launch.assert_called_once_with(
         model="c64", name="snake", headless=False, warp=False, disk8=None,
         cart=None
     )
+
+
+def test_session_start_with_disk_registers_its_labels(tmp_path):
+    img = tmp_path / "game.d64"
+    img.write_bytes(b"x")
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al C:0824 .mainloop\n")
+    s = Mock()
+    s.name, s.model, s.pid, s.port = "c64", "c64", 1, 6510
+    with patch("c64lib.cli.Session") as S:
+        S.launch.return_value = s
+        r = CliRunner().invoke(
+            main, ["--json", "session", "start", "--disk", str(img)])
+    assert r.exit_code == 0, r.output
+    s.set_labels_path.assert_called_once_with(str(lbl))
+    assert json.loads(r.output)["symbols"] == str(lbl)
+
+
+def test_session_start_with_cart_registers_its_sibling_lbl(tmp_path):
+    crt = tmp_path / "game.crt"
+    crt.write_bytes(b"x")
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al C:8009 .cart_main\n")
+    s = Mock()
+    s.name, s.model, s.pid, s.port = "c64", "c64", 1, 6510
+    with patch("c64lib.cli.Session") as S:
+        S.launch.return_value = s
+        r = CliRunner().invoke(
+            main, ["--json", "session", "start", "--cart", str(crt)])
+    assert r.exit_code == 0, r.output
+    s.set_labels_path.assert_called_once_with(str(lbl))
 
 
 def test_session_start_failure_is_json_error():

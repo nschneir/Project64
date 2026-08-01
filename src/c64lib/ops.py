@@ -10,6 +10,7 @@ import operator
 import re
 import time
 from collections import deque
+from pathlib import Path
 
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
@@ -190,6 +191,32 @@ def session_labels(s) -> dict[str, int]:
         except OSError:
             return {}
     return {}
+
+
+def disk_labels_path(image) -> Path | None:
+    """The label file a disk image implies, or None (silently).
+
+    A sibling `IMAGE.lbl` of the same stem wins — the convention `c64 run`
+    uses for a .crt. Failing that, the `c64 disk build` convention: the
+    image's FIRST directory entry is what autostart LOAD"*",8,1 runs, and
+    build keeps its labels as `IMAGE.<cbm-name>.lbl` beside the image.
+    Never raises: no c1541, an unreadable image, or an empty directory all
+    mean "no symbols", same as no label file at all.
+    """
+    img = Path(image)
+    lbl = img.with_suffix(".lbl")
+    if lbl.exists():
+        return lbl
+    from . import disk
+    try:
+        files = disk.list_files(img)["files"]
+    except (disk.DiskError, OSError, KeyError):
+        return None
+    if files:
+        cand = img.parent / f"{img.stem}.{files[0]['name']}.lbl"
+        if cand.exists():
+            return cand
+    return None
 
 
 def pc_symbol(labels: dict[str, int], regs: dict[str, int]) -> str | None:
