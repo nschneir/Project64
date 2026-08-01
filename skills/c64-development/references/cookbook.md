@@ -35,6 +35,7 @@ Assembly:
 - [IRQ wedge: run code 60×/second behind BASIC](#irq-wedge-run-code-60second-behind-basic)
 - [Sprite setup and movement](#sprite-setup-and-movement)
 - [Custom character set: copy the ROM charset to RAM and redefine glyphs](#custom-character-set-copy-the-rom-charset-to-ram-and-redefine-glyphs)
+- [Read the screen code you are moving into (collision by glyph)](#read-the-screen-code-you-are-moving-into-collision-by-glyph)
 
 ## BASIC recipes
 
@@ -1256,6 +1257,76 @@ Four more things this encodes:
   sitting plainly in the PNG. Assert with `c64 screen --codes` or
   `c64 mem read`, look with `c64 screen --png`, and prefer codes whose ROM
   glyph is distinctive for anything you want to eyeball as text.
+
+### Read the screen code you are moving into (collision by glyph)
+
+Every character-mode game needs "what is in the cell I am about to enter?".
+Read the target cell's screen code and dispatch on glyph ranges: unlike the
+VIC collision latches (`$D01E`/`$D01F` — see the hardware reference's
+gotchas), this is deterministic under a debugger, costs a handful of
+cycles, and names *which* object was hit, which is what scoring needs. The
+ranges below are this demo's allocation — a real game tests its own glyph
+codes (a custom charset makes them contiguous by construction).
+
+```asm
+; collide.s — screen-code readback: know WHAT the bolt is about to hit.
+; A bolt climbs column 20 from row 24; before each move it reads the
+; screen code of the cell above and dispatches on glyph ranges.
+PTR     = $fb                   ; zero-page pointer (see zero-page.md)
+HITCODE = $03f0                 ; test hook: the screen code that stopped us
+HITKIND = $03f1                 ; 1 = invader, 2 = shield, 0 = anything else
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  lda     #$93
+        jsr     $ffd2           ; clear the screen
+        lda     #1              ; an "invader" (glyph A) at row 5, column 20
+        sta     $0400 + 5*40 + 20
+        lda     #<($0400 + 24*40 + 20)
+        sta     PTR             ; bolt cell: row 24, column 20
+        lda     #>($0400 + 24*40 + 20)
+        sta     PTR+1
+step:   sec                     ; the cell above: PTR - 40
+        lda     PTR
+        sbc     #40
+        sta     PTR
+        bcs     read
+        dec     PTR+1
+read:   ldy     #0
+        lda     (PTR),y         ; what is in the cell we are moving into?
+        cmp     #$20            ; space: nothing there, fly on
+        beq     draw
+        sta     HITCODE         ; something — the code says exactly what
+        cmp     #27             ; 1-26: the letter glyphs play invaders here
+        bcs     shield
+        lda     #1
+        sta     HITKIND
+        rts                     ; back to BASIC (READY.)
+shield: cmp     #102            ; 102: the checkerboard, playing a shield
+        bne     other
+        lda     #2
+        sta     HITKIND
+        rts
+other:  lda     #0
+        sta     HITKIND
+        rts
+draw:   lda     #$2a            ; '*': leave a trail so the flight shows
+        sta     (PTR),y
+        jmp     step
+```
+
+The bolt flies up the column instantly (no pacing — pace with the jiffy
+clock in a real game, like the game-loop recipe), hits the `A` at row 5,
+and stops with `HITCODE`=1, `HITKIND`=1. Verify live:
+`c64 run collide.s`, then `c64 mem get $03f0 2` → `1 1`. A real game
+bounds the climb at row 0; here the hit always lands first.
 
 ## Verifying a recipe-based program
 

@@ -178,6 +178,14 @@ LIVE_RECIPES = [
         # and the patch landed on top of it at $3000 + 96*8
         {"assert": {"mem": "$3300", "equals": [60, 126, 219, 255, 255, 189, 126, 60]}},
     ]),
+    ("asm-screen-readback", "asm", "collide.s", [
+        # HITKIND ($03F1) is the done marker: it is stored after HITCODE,
+        # so a poll that lands between the two stores can't see it early
+        {"wait": {"mem": "$03F1", "equals": 1}},       # 1 = hit an invader
+        {"assert": {"mem": "$03F0", "equals": 1}},     # screen code of the 'A'
+        {"assert": {"mem": "@5,20", "equals": 1}},     # invader still there
+        {"assert": {"mem": "@6,20", "equals": 42}},    # bolt stopped under it
+    ]),
     ("basic-charset", "basic", "lowercase (business)", [
         {"wait": {"text": "HELLO FROM BUSINESS MODE"}},   # decoder is case-canonical
         {"assert": {"mem": "53272", "equals": 23}},        # $D018 readback

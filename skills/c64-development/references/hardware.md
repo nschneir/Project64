@@ -137,6 +137,10 @@ Priority and collision gotchas:
   accumulated *since your last read* — poll once per frame and treat the value
   that way. Collisions are also flagged **off-screen**, and the register can't
   reflect a new collision until the next frame's scan.
+  When scoring needs to know *which* object was hit, read the target cell's
+  screen code instead and dispatch on glyph ranges — the cookbook's
+  screen-code readback recipe; deterministic under a debugger, and immune
+  to the read-clears trap.
 - For **multicolor** sprites, only bit-pairs `10` and `11` collide; `00`/`01`
   count as transparent for collision.
 
