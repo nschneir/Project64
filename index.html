@@ -69,18 +69,18 @@
 
   /* PETSCII-framed panel */
   .panel{border:2px solid var(--p-dim);padding:clamp(14px,2.4vw,26px);margin:26px 0;position:relative;background:rgba(38,28,110,.35)}
-  .panel > .cap{position:absolute;top:-.75em;left:14px;background:var(--screen-2);padding:0 .5em;color:var(--p-bright);font-size:.82rem;letter-spacing:.18em}
+  .panel > .cap{position:absolute;top:-.75em;left:14px;background:var(--screen-2);padding:0 .5em;color:var(--p-bright);font-size:1rem;letter-spacing:.18em}
 
   /* header / boot */
   header{padding:8px 0 4px;min-height:210px}
-  #boot{white-space:pre-wrap;font-size:clamp(.82rem,2.4vw,1rem);color:var(--p);min-height:120px;margin:0 0 6px}
+  #boot{white-space:pre-wrap;font-size:1rem;color:var(--p);min-height:120px;margin:0 0 6px}
   .title{
     font-weight:700;line-height:.98;margin:.1em 0 0;
     font-size:clamp(2.1rem,9vw,5.2rem);letter-spacing:.02em;color:var(--p-bright);
     text-shadow:0 0 4px rgba(207,200,247,.6),0 0 22px rgba(138,124,224,.45);
   }
   .marklogo{display:block;width:clamp(180px,32vw,340px);margin:24px 0 10px}
-  .tag{margin:.5em 0 1.1em;max-width:60ch;color:var(--p);font-size:clamp(.95rem,2.6vw,1.15rem)}
+  .tag{margin:.5em 0 1.1em;max-width:60ch;color:var(--p);font-size:clamp(1rem,2.6vw,1.15rem)}
   .cursor{display:inline-block;width:.62em;height:1.05em;background:var(--p);vertical-align:-.16em;animation:blink 1.06s steps(1) infinite;box-shadow:var(--glow)}
   @keyframes blink{50%{opacity:0}}
 
@@ -91,6 +91,7 @@
   h2 .mk{color:var(--p-dim)}
   h3{color:var(--p-bright);letter-spacing:.06em;margin:1.1em 0 .3em;font-size:1rem}
   p{margin:.55em 0}
+  small{font-size:1rem}
   .lead{font-size:clamp(1rem,2.8vw,1.2rem)}
 
   ul.c64{list-style:none;padding:0;margin:.4em 0}
@@ -100,7 +101,7 @@
   /* buttons: authentic C64 reverse-video */
   .btns{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 2px}
   .btn{display:inline-block;padding:.55em 1.1em;border:2px solid var(--p);background:transparent;color:var(--p-bright);
-       font-family:var(--mono);font-size:.95rem;letter-spacing:.08em;cursor:pointer;text-shadow:var(--glow)}
+       font-family:var(--mono);font-size:1rem;letter-spacing:.08em;cursor:pointer;text-shadow:var(--glow)}
   .btn:hover,.btn:focus-visible{background:var(--p);color:var(--room);text-shadow:none;outline:none}
   .btn.primary{background:var(--p);color:var(--room);text-shadow:none}
   .btn.primary:hover,.btn.primary:focus-visible{background:var(--p-bright);border-color:var(--p-bright)}
@@ -126,8 +127,8 @@
     color:var(--accent);display:block;letter-spacing:.06em;margin-bottom:.2em;
     text-shadow:0 0 10px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 0 rgba(0,0,0,.5);
   }
-  .card small{color:var(--accent);opacity:.78;font-size:.82rem;letter-spacing:.04em;text-shadow:none}
-  .card p{font-size:.92rem;margin:.35em 0 0;color:var(--p-bright);text-shadow:0 1px 0 rgba(0,0,0,.35)}
+  .card small{color:var(--accent);opacity:.78;font-size:1rem;letter-spacing:.04em;text-shadow:none}
+  .card p{font-size:1rem;margin:.35em 0 0;color:var(--p-bright);text-shadow:0 1px 0 rgba(0,0,0,.35)}
   .c-red{--accent:var(--c64-red)}
   .c-orange{--accent:var(--c64-orange)}
   .c-yellow{--accent:var(--c64-yellow)}
@@ -137,16 +138,16 @@
 
   /* code blocks */
   .code{position:relative;border:1px solid var(--p-faint);background:#241c66;margin:12px 0}
-  .code pre{margin:0;padding:14px 46px 14px 16px;overflow-x:auto;font-size:.9rem;line-height:1.65;color:var(--p)}
+  .code pre{margin:0;padding:14px 46px 14px 16px;overflow-x:auto;font-size:1rem;line-height:1.65;color:var(--p)}
   .code .cm{color:var(--p-dim)}
   .code .pr{color:var(--p-bright)}
   .copy{position:absolute;top:8px;right:8px;border:1px solid var(--p-dim);background:var(--screen);color:var(--p);
-        font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;padding:3px 8px;cursor:pointer}
+        font-family:var(--mono);font-size:1rem;letter-spacing:.1em;padding:3px 8px;cursor:pointer}
   .copy:hover,.copy:focus-visible{background:var(--p);color:var(--room);outline:none}
 
   /* demos table */
   .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.92rem}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:1rem}
   th,td{border:1px solid var(--p-faint);padding:.5em .7em;text-align:left;vertical-align:middle}
   th{color:var(--p-bright);letter-spacing:.08em;font-weight:700;background:rgba(138,124,224,.08)}
   .ok{color:var(--p-bright)}
@@ -183,15 +184,15 @@
   }
   .lightbox .lbcap{
     max-width:70ch;margin:0;text-align:center;
-    color:var(--p-bright);font-size:.86rem;line-height:1.45;
+    color:var(--p-bright);font-size:1rem;line-height:1.45;
   }
   .lightbox .lbhint{
-    margin:0;color:var(--p-dim);font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;
+    margin:0;color:var(--p-dim);font-size:1rem;letter-spacing:.14em;text-transform:uppercase;
   }
   /* keep the page still while the panel is up */
   html.lb-open,html.lb-open body{overflow:hidden}
 
-  footer{margin:34px 0 8px;color:var(--p-dim);font-size:.86rem}
+  footer{margin:34px 0 8px;color:var(--p-dim);font-size:1rem}
   footer .links{display:flex;flex-wrap:wrap;gap:8px 22px;margin:.6em 0}
   .ready{color:var(--p-bright);margin-top:22px;font-size:1.05rem}
 
@@ -310,10 +311,10 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <table>
         <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>02</td><td>Bouncing ball (sprite)</td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>04</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>01</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/01-guess-the-number">Guess the number</a></td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>02</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/02-bouncing-ball">Bouncing ball (sprite)</a></td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>03</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/03-sieve-benchmark">Sieve benchmark</a></td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>04</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/04-debug-hunt">Debug hunt</a></td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td></tr>
         </tbody>
       </table>
       </div>
@@ -322,9 +323,9 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <table>
         <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
         <tbody>
-          <tr><td>Snake</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
           <tr>
-            <td>Invaders</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a></td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/invaders/evidence/title.png" title="Attract screen: the name in block graphics and the score advance table">
@@ -339,8 +340,8 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
               </div>
             </td>
           </tr>
-          <tr><td>Ms. Muncher (maze chase)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
-          <tr><td>La Galaxia (fixed shooter)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
       </div>
@@ -349,7 +350,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <table>
         <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
         <tbody>
-          <tr><td>1812 (bitmap + SID)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
       </div>
