@@ -1,9 +1,9 @@
-# Invaders — the dogfooded solution
+# Invaders
 
-A faithful Space Invaders in pure 6502 assembly — custom multicolor
-charset, hardware sprites, the authentic one-invader-per-tick march
-engine, three-voice SID, and an explicit audit-and-improve loop that
-ran until every spec bullet passed.
+A faithful take on the 1978 arcade original named in the prompt, in pure
+6502 assembly — custom multicolor charset, hardware sprites, the authentic
+one-invader-per-tick march engine, three-voice SID, and an explicit
+audit-and-improve loop that ran until every spec bullet passed.
 
 `PROMPT.md` started life as a detailed prompt written by a human; Claude
 helped draft it into its present shape, and a human edited the result. Every
@@ -73,7 +73,7 @@ every spec bullet marked pass, the deterministic evidence trail the
 prompt calls for, and finally an `invaders.d64` the user can autostart in
 stock VICE and play with A/D and space. The agent is expected to live in
 the debugger and to spend several review cycles closing the gap between
-"it runs" and "it's Space Invaders."
+"it runs" and "it's the arcade game."
 
 ## The bit worth reading
 

@@ -1,4 +1,4 @@
-# Ms. Muncher — the prompt
+# Ms. Muncher
 
 An arcade-faithful maze chase for the Commodore 64 — original name, cast,
 art, and music, recreating the arcade original's rules, timing, and
@@ -8,11 +8,10 @@ randomized scatter openings that defeat pattern play), a travelling bonus
 fruit, three animated intermission acts, and a three-voice SID score.
 
 `PROMPT.md` was drafted with Claude's help from detailed human direction,
-and a human edited the result. It is all this directory holds today — no
-code has been generated from it yet. When the prompt is run, the plan
-(`PLAN.md`), the sources, the fidelity audit, the regression spec, the
-evidence frames, and the packaged disk will land here, the way a finished
-run looks in [`demos/invaders/`](../invaders/).
+and a human edited the result. Beyond this README, it is all this directory
+holds today — no code has been generated from it yet. When the prompt is
+run, the plan (`PLAN.md`), the sources, the fidelity audit, the regression
+spec, the evidence frames, and the packaged disk will land here.
 
 **What a passing run shows.** An assembled program with a BASIC SYS stub
 and the full arcade loop — attract screen with a self-playing demo →

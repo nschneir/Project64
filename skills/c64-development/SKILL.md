@@ -183,9 +183,12 @@ Character graphics (screen RAM `$0400` + color RAM `$D800`) are fully
 observable through `c64 screen` — prefer them where text-level observation
 matters. The VIC-II's 8 hardware sprites are the idiomatic way to move
 things smoothly: registers, data layout, and the SID sound registers are in
-references/hardware.md, and working recipes are in the cookbook. Policy for
-how demos author sprite data, capture screenshots, and write graphics tests:
-`docs/graphics-and-sprites.md`. One hard rule: sprites are
+references/hardware.md, and working recipes are in the cookbook. In the
+Project64 repo, `docs/graphics-and-sprites.md` adds the house rules for demo
+programs — which graphics modes a demo may use, where evidence screenshots
+are committed, and what the test tier keeps. Read it if that file is
+present; everything needed to write and verify the code itself is here and
+in the cookbook. One hard rule: sprites are
 invisible to `c64 screen` text — inspect them with `c64 sprite status`
 (decoded registers), `c64 sprite show` (ASCII art), and `c64 sprite png`
 (exact rendered shape), and assert on registers and state bytes. Screen
@@ -418,6 +421,26 @@ Prove a change works, don't assume it. Either assert on output with
 `c64 test run mytest.yaml` (a `program` plus `wait`/`key`/`assert` steps —
 full format under `c64 test run` in docs/cli.md). Existing example
 programs can all be run as tests with `c64 test programs`.
+
+**Testing motion.** A moving sprite is asserted by sampling, not by a fixed
+coordinate: `until` a frame anchor, `sample` a register under a name, `until`
+again, then `assert … differs` (or `greater_than`/`less_than` when the
+program documents its direction) — the `sample`/`differs` steps are
+documented under `c64 test run` in docs/cli.md and worked out in
+`tests/programs/sprite-ball/test.yaml`. Test collision through the program's
+own state change (a lives byte decrementing), not by racing `$D01E`, whose
+latch clears on read. Anchor every sampled read on a `c64 until` stop at the
+main-loop label; never assert on a free-running frame count.
+
+**A BASIC program has no label to anchor on.** There are two substitutes,
+and both require the program to publish state. The first is a *saturating*
+summary byte — a bitmask of the events seen so far, or a high-water mark —
+that only ever moves one way, so `wait: { mem: "$fa", equals: 15 }` cannot
+race a value that has already gone past; prefer this in tests. The second is
+a store watchpoint on a byte the program pokes at the moment of interest
+(`c64 watch add '$FC' --store`, then `c64 wait --break`), which stops the
+machine *at* the event; prefer this for evidence capture and hand-driven
+sampling.
 
 A program with randomness cannot be pinned by a static test until it is
 seeded. `RND(-X)` reseeds deterministically (`30 x=rnd(-1)`), so the run is

@@ -105,9 +105,9 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
   score is public domain but an arrangement of it is not: reduce those
   themes for three voices yourself, as original work composed for this
   demo, rather than transcribing someone else's SID, MIDI, or sheet
-  arrangement. Push the SID as the Invaders demo does
-  (`demos/invaders/sound.s`) — real ADSR envelopes, mixed waveforms
-  (pulse with swept width, triangle, sawtooth, noise), and the filter.
+  arrangement. Push the SID to its full potential — real ADSR envelopes,
+  mixed waveforms (pulse with swept width, triangle, sawtooth, noise), and
+  the filter.
   The cannon is filtered noise with a downward cutoff sweep; the finale's
   bells are bright, fast decays. Drive the sequencer from a single raster
   IRQ (or the jiffy clock) at frame rate. **Shadow every SID write in

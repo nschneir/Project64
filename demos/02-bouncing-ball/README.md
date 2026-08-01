@@ -16,8 +16,6 @@ off different edges. Sprites don't appear in `c64 screen` text — the
 agent must verify through registers and PNGs (see
 [docs/graphics-and-sprites.md](../../docs/graphics-and-sprites.md)).
 
-`PROMPT.md` is all this directory holds. The program the agent writes and
-the screenshots it captures are the deliverable of the run, not files
-committed here. For one demo whose answer *is* kept in full — sources,
-plan, audit, evidence frames and a packaged disk — see
-[`demos/invaders/`](../invaders/).
+Beyond this README, `PROMPT.md` is all this directory holds. The program the
+agent writes and the screenshots it captures are the deliverable of the run,
+not files committed here.

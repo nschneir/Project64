@@ -25,9 +25,9 @@ Notes:
 - The VIC-II always reads through its own 16 KB bank (bank 0, $0000-$3FFF
   by default, selected via CIA2 $DD00) — it sees the char ROM at $1000
   even though the CPU doesn't.
-- The screen can be relocated by the VIC-II ($D018), but this toolset's
-  screen reader assumes the power-on `$0400` — don't relocate it (see
-  docs/graphics-and-sprites.md).
+- The screen can be relocated by the VIC-II ($D018, plus the VIC bank in
+  $DD00); `c64 screen` and `@row,col` follow both, so a relocated screen
+  still reads back correctly. Color RAM never moves — it stays at $D800.
 - `c64` (NTSC, 60 Hz) and `c64pal` (PAL, 50 Hz) share this entire map;
   only frame timing and CPU clock differ. A running program can tell them
   apart with `PEEK(678)` (0 = NTSC, 1 = PAL) — see zero-page.md.

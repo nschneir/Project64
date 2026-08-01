@@ -1,4 +1,4 @@
-# 1812 — the prompt
+# 1812
 
 A bitmap-graphics demo for the Commodore 64: randomized shapes — rotated
 triangles, stars and ellipses, filled through 8×8 dither masks — accumulating
@@ -23,9 +23,8 @@ every claim about it settled by registers and state bytes, with the
 screenshots kept as the record of what those bytes drew.
 
 `PROMPT.md` was drafted with Claude's help from detailed human direction, and a
-human edited the result. It is everything this directory holds today; no code
-has been generated from it yet. Running the prompt fills in the rest — the spec
-(`SPEC.md`), the plan (`PLAN.md`), the assembled sources, the regression test,
-the audit log (`AUDIT.md`), the evidence frames, and the packaged disk — the way
-a finished run looks in
-[`demos/invaders/`](../invaders/).
+human edited the result. Beyond this README, it is everything this directory
+holds today; no code has been generated from it yet. Running the prompt fills
+in the rest — the spec (`SPEC.md`), the plan (`PLAN.md`), the assembled
+sources, the regression test, the audit log (`AUDIT.md`), the evidence
+frames, and the packaged disk.

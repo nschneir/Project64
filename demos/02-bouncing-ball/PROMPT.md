@@ -18,3 +18,7 @@ multicolor on (`c64 mem read '$D01C' 1`), the position registers sampled
 a few frames apart to show motion and a reversal at a border, and two
 screenshots taken with `c64 screen --png` showing the ball bouncing off
 different edges.
+
+Work from this prompt and the skills alone: do not read any
+`demos/*/README.md` — those READMEs are documentation for human readers
+and can spoil the exercise.

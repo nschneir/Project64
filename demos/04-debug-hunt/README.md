@@ -27,7 +27,6 @@ classic encoding trap.
 The fixed program shows `SALES`, a full row of `=` drawn by the routine,
 DAY 1 through DAY 5 with their figures, and `TOTAL: 53`.
 
-`PROMPT.md` is all this directory holds. The fixed program and the evidence
-for each bug are the deliverable of the run, not files committed here. For
-one demo whose answer *is* kept in full — sources, plan, audit, evidence
-frames and a packaged disk — see [`demos/invaders/`](../invaders/).
+Beyond this README, `PROMPT.md` is all this directory holds. The fixed
+program and the evidence for each bug are the deliverable of the run, not
+files committed here.

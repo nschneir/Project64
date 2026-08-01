@@ -1,4 +1,4 @@
-# Snake — the prompt
+# Snake
 
 A complete arcade Snake for the Commodore 64 in 6502 assembly, written
 straight to screen memory and color RAM. The prompt calls for a title
@@ -23,11 +23,9 @@ stock VICE and play with W/A/S/D. Expect the agent to lean on the
 debugger (and the frame-stepping recipe in the cookbook) to get there.
 
 `PROMPT.md` was drafted with Claude's help from human direction, and a
-human edited the result. It is all this directory holds today. Snake passed
-an earlier C64 dogfood run as a lightweight test demo, where nothing was
-committed and the run itself was the deliverable; the prompt has since been
-promoted to a game demo that keeps its whole solution — plan, sources,
-audit, evidence frames, regression spec, and packaged disk. None of that
-exists yet, so the demo awaits a run under the new prompt. When it lands,
-this directory will look the way a finished run looks in
-[`demos/invaders/`](../invaders/).
+human edited the result. Beyond this README, it is all this directory holds
+today. Snake passed an earlier C64 dogfood run as a lightweight test demo,
+where nothing was committed and the run itself was the deliverable; the
+prompt has since been promoted to a game demo that keeps its whole solution
+— plan, sources, audit, evidence frames, regression spec, and packaged disk.
+None of that exists yet, so the demo awaits a run under the new prompt.

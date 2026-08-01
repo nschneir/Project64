@@ -28,3 +28,7 @@ routine), then prove the fixed version produces the intended screen.
 100 for i=1 to 5: print " day";i;":";v(i): next
 110 print: print "total:";v(1)+v(2)+v(3)+v(4)+v(5)
 ```
+
+Work from this prompt and the skills alone: do not read any
+`demos/*/README.md` — those READMEs are documentation for human readers
+and can spoil the exercise.

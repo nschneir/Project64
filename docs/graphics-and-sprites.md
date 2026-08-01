@@ -3,9 +3,13 @@
 Policy for C64 graphics in this toolset: what demos may use, how sprite and
 graphic data is authored, how graphical output is observed, and what
 automated tests may assert. Tutorials and register tables live in
-`skills/c64-development/references/hardware.md` and the cookbook; this file
-sets the rules. Facts cross-checked against the Commodore 64 Programmer's
-Reference Guide and Mapping the Commodore 64.
+`skills/c64-development/references/hardware.md` and the cookbook, and the
+techniques — authoring `.byte` rows, observing sprites, anchoring and
+sampling — live in `skills/c64-development/SKILL.md`. This file sets the
+rules instead: which modes demos may use, where evidence is committed, what
+is deferred. It is repo policy, and it deliberately does not travel with the
+skill. Facts cross-checked against the Commodore 64 Programmer's Reference
+Guide and Mapping the Commodore 64.
 
 ## 1. Scope
 

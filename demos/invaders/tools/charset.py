@@ -2,9 +2,9 @@
 """Convert the ASCII-art glyph sheet in charset.txt into ca65 .byte rows.
 
 The C64 has no charset equivalent of `c64 sprite encode`, so this demo brings
-its own converter (allowed by docs/superpowers/specs/graphics-and-sprites.md
-section 2). The committed artifact is the generated chars.inc, not the art —
-the art is kept because it is the only readable form of a multicolor glyph.
+its own converter (allowed by docs/graphics-and-sprites.md section 2). The
+committed artifact is the generated chars.inc, not the art — the art is kept
+because it is the only readable form of a multicolor glyph.
 
 Input format (charset.txt):
 

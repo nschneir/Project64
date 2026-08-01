@@ -1,4 +1,4 @@
-# La Galaxia — the prompt
+# La Galaxia
 
 A fixed-shooter for the Commodore 64, chasing the 1981 arcade original
 named in the prompt as closely as the hardware allows. The spec asks for
@@ -13,12 +13,11 @@ True to its name, every string the player sees is in Spanish — `PUNTOS`,
 `NAVES`, `ETAPA`, `¡PERFECTO!`, `JUEGO TERMINADO`.
 
 `PROMPT.md` came out of detailed human direction written up with Claude's
-help, then edited by hand. Today it is the only thing in this directory —
-nothing has been generated from it yet. A run will fill the rest in: the
-plan the prompt demands as its first step, the 6502 sources, the fidelity
-audit and its numbered iterations, the evidence PNGs, and the packaged
-disk, arriving here the way [`demos/invaders/`](../invaders/) looks now
-that its run is finished.
+help, then edited by hand. Beyond this README it is the only thing in this
+directory — nothing has been generated from it yet. A run will fill the rest
+in: the plan the prompt demands as its first step, the 6502 sources, the
+fidelity audit and its numbered iterations, the evidence PNGs, and the
+packaged disk.
 
 **What a passing run shows.** An assembled program with a BASIC SYS stub
 and the full arcade loop — title → entrance waves → dives → challenging
