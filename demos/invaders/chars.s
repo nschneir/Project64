@@ -3,7 +3,7 @@
 ; The character ROM is not in the CPU's address space by default: it hides
 ; behind the I/O registers at $D000.  Copying it out means banking I/O away
 ; ($01 bit 2 = 0) with interrupts off, then putting it back.  Copy all 2 KB,
-; then patch only screen codes 64-85 with the game's glyphs — every other
+; then patch only screen codes 64-86 with the game's glyphs — every other
 ; character (letters, digits, the reverse-space block the title uses) stays
 ; exactly as the ROM drew it, which is what keeps the HUD readable.
 
@@ -37,7 +37,7 @@ cibyte: lda     (PTR),y
         sta     $01             ; I/O back at $D000
         cli
 
-        ; patch the 22 custom glyphs over screen codes 64-85
+        ; patch the 23 custom glyphs over screen codes 64-86
         ldx     #0
 cipatch:
         lda     glyphs,x

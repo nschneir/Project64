@@ -1304,7 +1304,7 @@ read:   ldy     #0
         cmp     #$20            ; space: nothing there, fly on
         beq     draw
         sta     HITCODE         ; something — the code says exactly what
-        cmp     #27             ; 1-26: the letter glyphs play invaders here
+        cmp     #27             ; 0-26: @ and the letter glyphs play invaders here
         bcs     shield
         lda     #1
         sta     HITKIND

@@ -59,7 +59,9 @@ look right.
   authoring is first-class via `c64 sprite encode`, so a demo only needs
   its own `tools/` converter for input formats that command doesn't cover.
 - Custom charsets follow the same rule: `.byte` rows, 8 bytes per glyph,
-  commented with the glyph they draw.
+  commented with the glyph they draw. `c64 charset encode` emits exactly
+  this format from an ASCII sheet, the way `c64 sprite encode` does for
+  sprites, so charset authoring is ASCII-art-first too.
 - A demo may include a tiny generator/checker script in its own `tools/`
   directory (Python, stdlib only) when data is large or has invariants worth
   asserting — e.g. converting ASCII art in a text file into `.byte` rows.

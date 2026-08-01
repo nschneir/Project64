@@ -491,12 +491,15 @@ def profile_routine(session, addr: int, timeout: float = 30.0,
     with_irq=True, any interrupt handlers) land in the number, which is the
     frame-budget truth. By default the I flag is set on entry so the KERNAL
     IRQ cannot land inside the window (the flag's entry value is restored
-    afterwards). Perturbs CIA#2 timers A/B: they are left stopped on success,
-    but a timed-out profile leaves them running — the machine is running by
-    then, so they cannot be stopped safely. _CIA_START_SLACK is added back
-    because the timer only starts a few cycles into the window; with it the
-    count is exact against hand-computed routines (verified live in
-    tests/test_integration_profile.py).
+    afterwards, on success). Perturbs CIA#2 timers A/B: they are left stopped
+    on success, but a timed-out profile leaves them running — and leaves the I
+    flag as this function set it (masked, unless with_irq) — because the
+    machine is running by then, so neither can be undone safely. A timed-out
+    profile therefore leaves the jiffy clock frozen and the keyboard dead
+    until a `c64 reg set FL ...` clears I, or the session is restarted.
+    _CIA_START_SLACK is added back because the timer only starts a few cycles
+    into the window; with it the count is exact against hand-computed routines
+    (verified live in tests/test_integration_profile.py).
 
     Returns {"fired": bool, "cycles": int|None, "registers": regs-or-None,
     "trap": trap}; cycles/registers are None on timeout (checkpoint removed,

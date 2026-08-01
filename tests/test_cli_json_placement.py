@@ -108,6 +108,25 @@ def test_dash_s_after_subcommand_works_too():
     S.attach.assert_called_once_with("inv")
 
 
+def test_trailing_dash_s_wins_over_a_leading_one():
+    """Both positions accepted means both can be given at once. Click runs
+    main's callback first and the trailing callback overwrites it, so the
+    trailing spelling wins — pinned so the precedence is not accidental."""
+    mon = Mock()
+    mon.memory_read.return_value = bytes([7])
+    fake = Mock()
+    fake.name, fake.model, fake.labels, fake.socket = "b", "c64", None, None
+    fake.profile.screen_cols, fake.profile.screen_rows = 40, 25
+    fake.monitor.return_value.__enter__ = Mock(return_value=mon)
+    fake.monitor.return_value.__exit__ = Mock(return_value=False)
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["-s", "a", "mem", "get", "$0400",
+                                      "-s", "b"])
+    assert r.exit_code == 0, r.output
+    S.attach.assert_called_once_with("b")
+
+
 def test_session_commands_keep_their_own_dash_s_meaning():
     """session start/ensure/stop already use -s as the --name alias; the
     injected trailing --session must not clobber them (guard by opts)."""

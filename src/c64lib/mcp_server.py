@@ -43,6 +43,7 @@ from .ops import (
     key_type,
     live_screen_base,
     machine_state,
+    parse_byte_values,
     parse_number,
     parse_ref,
     pc_region,
@@ -243,7 +244,10 @@ def c64_mem_find(values: list[str], start: str = "$0000",
     s = _attach(session)
     labels = session_labels(s)
     begin = _ref(s, start, labels)
-    pattern = bytes(parse_number(v) for v in values)
+    # parse_byte_values, not a bare bytes(parse_number(...)) comprehension:
+    # lockstep with the CLI's `c64 mem find` — it splits whitespace inside a
+    # token, names the offending token, and range-checks 0-255.
+    pattern = parse_byte_values(values)
     with s.monitor() as mon:
         try:
             matches, truncated = find_bytes(mon, begin, length, pattern,

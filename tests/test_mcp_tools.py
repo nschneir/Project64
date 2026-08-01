@@ -308,6 +308,22 @@ def test_disk_boot(tmp_path):
     mon.resume.assert_called_once()
 
 
+def test_disk_boot_registers_a_sibling_label_file(tmp_path):
+    """CLI parity with test_cli_disk.test_disk_boot_registers_a_sibling_label_file:
+    a `t.lbl` beside `t.d64` is registered on the session and echoed as
+    `symbols`, so an MCP client gets symbol lookups without a second call."""
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    lbl = tmp_path / "t.lbl"
+    lbl.write_text("al C:0824 .mainloop\n")
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_disk_boot", {"image": str(img)})
+    assert err is False and out["symbols"] == str(lbl)
+    s.set_labels_path.assert_called_once_with(str(lbl))
+
+
 def test_rom_info_releases():
     s, mon = _fake_session()
     info = {"basic": "2.0", "kernal": "901465-22"}

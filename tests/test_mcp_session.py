@@ -123,6 +123,18 @@ def test_mem_find_tool():
     assert err is False and out["matches"] == [0x0400]
 
 
+def test_mem_find_names_the_bad_byte_token():
+    """Lockstep with `c64 mem find`: the MCP side parses through
+    ops.parse_byte_values, so a junk token is named rather than surfacing
+    a bare int() error that says nothing about WHICH value was wrong."""
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_mem_find",
+                             {"values": ["$2a", "nope"], "start": "$0400"})
+    assert err is True and "byte 1" in out["raw"] and "nope" in out["raw"]
+
+
 def test_status_tool():
     s, _ = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
