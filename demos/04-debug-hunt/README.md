@@ -10,9 +10,10 @@ without changing the program's design.
 
 **What a passing run shows** (spoilers — the answer key the prompt
 deliberately withholds). The agent hits all three layers, each proven
-from the running machine — `c64 basic check` flags layer 1 statically
-(rule E131), and finding a bug that way instead of by running does not
-clear a layer.
+from the running machine — `c64 basic check`, which the skill's loop runs
+before any BASIC reaches the machine rather than because the prompt asks
+for it, flags layer 1 statically (rule E131), and finding a bug that way
+instead of by running does not clear a layer.
 (1) The run dies immediately with `?BAD SUBSCRIPT` — `dim v(4)` is too
 small for `v(5)`.
 (2) The next run wedges at `sys 828`: the poked routine's `INX` was

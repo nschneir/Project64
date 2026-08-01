@@ -15,9 +15,10 @@ characters (with color RAM set) marking the edges it bounces off.
 **Prove it.** Let it run for a while, then show the evidence from the
 running machine: sprite 0 enabled (`c64 mem read '$D015' 1`) and
 multicolor on (`c64 mem read '$D01C' 1`), the position registers sampled
-a few frames apart to show motion and a reversal at a border, and two
-screenshots taken with `c64 screen --png` showing the ball bouncing off
-different edges.
+a few frames apart to show motion and a reversal at each of the four
+borders, the sprite's data pointer and its two shared multicolor colors
+read back from memory, and two screenshots taken with `c64 screen --png`
+showing the ball bouncing off different edges.
 
 Work from this prompt and the skills alone: do not read any
 `demos/*/README.md` — those READMEs are documentation for human readers

@@ -9,6 +9,10 @@ and background colors (POKE 53280 and 53281). Keep the source in a
 scratch directory of your choosing. Run it on an emulated C64, play one
 full round by feeding keyboard input, and show me the final screen.
 
+**Prove it.** Prove the border and background colors you chose from the
+machine itself rather than from the picture, and capture a screenshot
+that includes the border.
+
 Work from this prompt and the skills alone: do not read any
 `demos/*/README.md` — those READMEs are documentation for human readers
 and can spoil the exercise.
