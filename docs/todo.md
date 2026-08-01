@@ -55,26 +55,20 @@ history); only the process items below remain.
 
 ### Process and repo
 
-- [ ] **`superpowers:writing-plans` defaults to a gitignored directory.**
-      `.gitignore` ignores `docs/superpowers/`, but the skill's documented
-      save path is `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`, so a
-      plan written at the default location can never be committed. The
-      invaders run was told to put its plan in the demo directory and did
-      (`demos/invaders/PLAN.md`); the next agent will not be. Fix: a line in
-      `AGENTS.md` saying plans that are meant to survive go beside the work,
-      not under `docs/superpowers/`. Verify: inspection.
-- [ ] **`superpowers:writing-plans`' no-placeholders rule scales badly for
-      assembly.** "Every step must contain the actual content" plus "code
-      blocks required for code steps" means transcribing a 5.3 KB 6502
-      program into the plan before writing it — doubling the work and going
-      stale within the hour. What actually carried the invaders build was the
-      *interface* half of the plan: exact label names, the byte-level
-      variable table, the glyph-code allocation, the memory map, and one
-      verification command per task. Fix direction open, and it is a
-      Superpowers-side change rather than a repo one: distinguish "a plan for
-      an engineer you will never speak to" from "a plan you will execute
-      yourself next", and let the second lean on interfaces over bodies.
-      Verify: inspection.
+- [ ] **Record the ruling: plans need not transcribe code bodies.**
+      `superpowers:writing-plans`' no-placeholders rule ("every step must
+      contain the actual content", code blocks required for code steps) is
+      the *skill's* bar, not the maintainer's — read literally it would mean
+      transcribing a 5.3 KB 6502 program into a plan before writing it,
+      doubling the work and going stale within the hour. The maintainer has
+      ruled (2026-08-01) that this is not a requirement in this repo: what
+      carried the invaders build was the *interface* half of its plan —
+      exact label names, the byte-level variable table, the glyph-code
+      allocation, the memory map, and one verification command per task —
+      and that is the bar for a plan an agent executes itself. Remaining
+      action: one line in `AGENTS.md`, beside the plan-placement line the
+      item above calls for, so future planning agents don't over-transcribe
+      out of skill obedience. Verify: inspection.
 
 ## Deferred from the 2026-08-01 dogfood-fixes review
 
