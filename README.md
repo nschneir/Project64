@@ -81,7 +81,7 @@ takes `--json`, the `c64-tools-mcp` MCP server exposes the same operations,
 and debugging state (a breakpoint halt) persists across the agent's tool
 calls. See **[docs/agent-setup.md](docs/agent-setup.md)** for the two
 integration routes and step-by-step setup for Claude Code, OpenAI Codex,
-Cursor, Gemini CLI, and Google Antigravity.
+Cursor, Gemini CLI, Google Antigravity, and Crush.
 
 ## Demos — try it with your AI agent
 
@@ -97,6 +97,18 @@ To use one:
 2. Open a demo file and copy its prompt.
 3. Paste it into your agent and watch it write, run, and debug real C64
    software on the emulated machine.
+
+Every prompt has been validated by handing it to a real agent on a real
+emulated C64; only demo 07 is still awaiting its run. Demo 06 keeps the
+result: [`demos/invaders/`](demos/invaders/) has the sources an agent wrote,
+its [fidelity audit](demos/invaders/AUDIT.md), a regression test, and a
+runnable `invaders.d64` — `x64sc -ntsc demos/invaders/invaders.d64` and play
+it with A/D and space.
+
+<p align="center">
+  <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">
+  <img src="demos/invaders/evidence/formation.png" alt="Invaders wave 1 in play" width="300">
+</p>
 
 The reference example programs (with expected screen output, runnable as
 regression tests via `c64 test programs`) live in
