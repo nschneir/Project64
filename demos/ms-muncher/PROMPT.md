@@ -7,8 +7,10 @@ audit-and-improve loop that runs until every spec bullet passes.
 
 Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 skill, and docs/cli.md), build the closest recreation of the 1982 arcade
-maze chase that a Commodore 64 can express — pure 6502 assembly with a
-BASIC SYS stub. Everything for this demo lives in `demos/ms-muncher/`.
+*Ms. Pac-Man* that a Commodore 64 can express — pure 6502 assembly with a
+BASIC SYS stub. That name appears here so you know exactly which game's
+behavior to study, and nowhere else in this directory. Everything for
+this demo lives in `demos/ms-muncher/`.
 
 **This is an homage, not a port — and that distinction is a hard
 requirement.** The game is *Ms. Muncher*; the cast is Ms. Muncher and
@@ -17,7 +19,8 @@ glyph, sprite, and note is yours — original character art, original
 sprite art, an original three-voice SID score composed for this game.
 What you recreate from the 1982 arcade maze chase this honors is its
 *behavior*: the rules, the timing, the structure, the feel. Never its
-assets — no ripped graphics, no transcribed tunes, no arcade names.
+assets — no ripped graphics, no transcribed tunes, and no arcade names
+anywhere on screen or in any file but this one.
 
 **First, write the plan.** Before any code, turn this spec into
 `demos/ms-muncher/PLAN.md` — ordered, independently verifiable steps,
@@ -39,9 +42,11 @@ testing rules.)
 
 **The arcade spec — recreate each of these faithfully:**
 
-- **Mazes** — four distinct layouts rotating across boards, each with
-  its own color scheme in color RAM. Tunnels wrap the sides, and actors
-  crossing a tunnel slow down.
+- **Mazes** — four distinct layouts on the arcade's rotation: maze 1
+  for boards 1–2, maze 2 for boards 3–5, maze 3 for boards 6–9, maze 4
+  for boards 10–13, the last two alternating every four boards after
+  that — each with its own color scheme in color RAM. Tunnels wrap the
+  sides, and actors crossing a tunnel slow down.
 - **Dots and energizers** — dots and four energizers per maze, with the
   arcade's scoring: 10 for a dot, 50 for an energizer, and the
   200/400/800/1600 doubling chain for ghosts eaten within one
@@ -56,11 +61,15 @@ testing rules.)
   pattern play — exactly what separates this game from its predecessor.
   Ghosts reverse on a phase change, never reverse voluntarily, and
   cannot turn upward in the restricted cells. Cruise-elroy speeds the
-  direct pursuer up as the dots run out.
+  direct pursuer up as the dots run out. Eaten ghosts travel home as
+  eyes, revive in the house, and re-enter; ghosts leave the house on
+  the arcade's staggered per-ghost schedule, never all at once.
 - **Bonus fruit that travels** — the fruit enters through a tunnel,
   wanders the maze, laps the ghost house, and leaves by a tunnel. It is
   a moving sprite with a route, never a static fruit parked under the
-  house. Per-board fruit types and values.
+  house. Seven fruit across the boards with the arcade's value ladder
+  (100, 200, 500, 700, 1000, 2000, 5000); from board 8 on, each board's
+  fruit is a random pick from the set.
 - **Frightened time** — per-board "blue" durations that shrink as the
   boards advance, down to boards where energizers turn no one blue at
   all and only score.
@@ -71,8 +80,8 @@ testing rules.)
   fixed-point speed accumulators is the mechanism that made this work
   before — guidance, not mandate, but whatever you choose must hit those
   percentages measurably.
-- **Lives, progression, HUD** — three lives, an extra life at a
-  threshold you display, board advance on the last dot, a game over that
+- **Lives, progression, HUD** — three lives, an extra life at 10,000
+  points, board advance on the last dot, a game over that
   returns to attract mode, and SCORE / HI-SCORE / board / lives always
   on screen.
 - **Attract mode** — a title screen with the game's name drawn large in
@@ -84,8 +93,9 @@ testing rules.)
   early) that survives across games in the same session.
 
 **The three acts.** Between boards, at the arcade's authentic points in
-the sequence, play three animated intermission cut scenes, each with its
-own music:
+the sequence — after boards 2, 5, and 9, with the third act returning
+every fourth board thereafter — play three animated intermission cut
+scenes, each with its own music:
 
 1. **They meet** — a chase across the screen that ends with the two
    leads facing each other and a heart between them.
