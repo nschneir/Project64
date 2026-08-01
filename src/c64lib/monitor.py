@@ -88,7 +88,8 @@ class MonitorLike(Protocol):
         self, start: int, length: int, *, memspace: int = 0, bank: int = 0
     ) -> bytes: ...
     def memory_write(
-        self, start: int, data: bytes, *, memspace: int = 0, bank: int = 0
+        self, start: int, data: bytes, *, memspace: int = 0, bank: int = 0,
+        side_effects: bool = False,
     ) -> None: ...
     def resume(self) -> None: ...
     def release(self) -> None: ...
@@ -205,9 +206,12 @@ class MonitorClient:
         return parse_memory_get(self.request(Command.MEMORY_GET, body).body)
 
     def memory_write(
-        self, start: int, data: bytes, *, memspace: int = 0, bank: int = 0
+        self, start: int, data: bytes, *, memspace: int = 0, bank: int = 0,
+        side_effects: bool = False,
     ) -> None:
-        self.request(Command.MEMORY_SET, memory_set_body(start, data, memspace, bank))
+        self.request(Command.MEMORY_SET,
+                     memory_set_body(start, data, memspace, bank,
+                                     side_effects=side_effects))
 
     def resume(self) -> None:
         # Once running, any queued stop-state event (e.g. the unsolicited

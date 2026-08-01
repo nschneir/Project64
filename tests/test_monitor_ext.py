@@ -93,6 +93,21 @@ def test_reset_hard_flag():
     assert fake.received[0][1] == b"\x01"
 
 
+def test_memory_write_side_effects_flag_reaches_the_wire():
+    """The MEMORY_SET body's first byte is the side-effects flag; profile
+    needs it set so CIA timer-control pokes go through the chip model."""
+    handlers = {
+        Command.MEMORY_SET: lambda b, rid: [resp_frame(0x02, 0, rid, b"")],
+    }
+    fake = FakeVice(handlers)
+    with _client(fake) as c:
+        c.memory_write(0xDD0E, b"\x11", side_effects=True)
+        c.memory_write(0xDD0E, b"\x11")
+    bodies = [body for cmd, body in fake.received if cmd == Command.MEMORY_SET]
+    assert bodies[0][0] == 1        # side_effects on
+    assert bodies[1][0] == 0        # default unchanged
+
+
 def test_autostart_body():
     fake = FakeVice({Command.AUTOSTART: lambda b, rid: [resp_frame(0xDD, 0, rid)]})
     with _client(fake) as c:
