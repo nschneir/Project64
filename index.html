@@ -17,6 +17,15 @@
     --glow:0 0 2px rgba(138,124,224,.55), 0 0 10px rgba(138,124,224,.22);
     --mono:ui-monospace,"Cascadia Mono","Menlo","Consolas","Courier New",monospace;
     --maxw:1080px;
+
+    /* The VIC-II's own 16 colours (Pepto values). Only the five that hold
+       their contrast against the power-on blue are used, so the capability
+       cards read as a C64 screen rather than as a paint chart. */
+    --c64-cyan:#70a4b2;      /* 3  */
+    --c64-ltgreen:#9ad284;   /* 13 */
+    --c64-yellow:#b8c76f;    /* 7  */
+    --c64-ltgrey:#959595;    /* 15 */
+    --c64-white:#ffffff;     /* 1  */
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -93,13 +102,23 @@
   .btn.primary{background:var(--p);color:var(--room);text-shadow:none}
   .btn.primary:hover,.btn.primary:focus-visible{background:var(--p-bright);border-color:var(--p-bright)}
 
-  /* feature grid */
+  /* feature grid — each card carries one VIC-II colour on its edge and label */
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-top:8px}
-  .card{border:2px solid var(--p-faint);padding:14px 16px;background:rgba(34,25,100,.5);transition:border-color .15s,transform .15s}
-  .card:hover{border-color:var(--p);transform:translateY(-2px)}
-  .card b{color:var(--p-bright);display:block;letter-spacing:.06em;margin-bottom:.2em}
+  .card{
+    --accent:var(--p-bright);
+    border:2px solid var(--p-faint);border-left:5px solid var(--accent);
+    padding:14px 16px;background:rgba(34,25,100,.5);
+    transition:border-color .15s,transform .15s,box-shadow .15s;
+  }
+  .card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 0 14px -4px var(--accent)}
+  .card b{color:var(--accent);display:block;letter-spacing:.06em;margin-bottom:.2em;text-shadow:0 0 6px rgba(0,0,0,.55)}
   .card small{color:var(--p-dim);font-size:.82rem;letter-spacing:.04em}
-  .card p{font-size:.92rem;margin:.35em 0 0}
+  .card p{font-size:.92rem;margin:.35em 0 0;color:var(--p)}
+  .c-cyan{--accent:var(--c64-cyan)}
+  .c-green{--accent:var(--c64-ltgreen)}
+  .c-yellow{--accent:var(--c64-yellow)}
+  .c-grey{--accent:var(--c64-ltgrey)}
+  .c-white{--accent:var(--c64-white)}
 
   /* code blocks */
   .code{position:relative;border:1px solid var(--p-faint);background:#241c66;margin:12px 0}
@@ -110,23 +129,24 @@
         font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;padding:3px 8px;cursor:pointer}
   .copy:hover,.copy:focus-visible{background:var(--p);color:var(--room);outline:none}
 
-  /* tabs */
-  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0}
-  .tab{border:2px solid var(--p-faint);background:transparent;color:var(--p);font-family:var(--mono);
-       font-size:.85rem;letter-spacing:.06em;padding:.4em .8em;cursor:pointer;border-bottom:none;text-shadow:var(--glow)}
-  .tab[aria-selected="true"]{background:var(--p);color:var(--room);border-color:var(--p);text-shadow:none}
-  .tab:focus-visible{outline:none;border-color:var(--p-bright)}
-  .tabpanel{border:2px solid var(--p);padding:16px}
-  .tabpanel[hidden]{display:none}
-  .tabpanel ol{margin:.2em 0;padding-left:1.4em}
-  .tabpanel li{margin:.4em 0}
-
   /* demos table */
+  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
   table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.92rem}
-  th,td{border:1px solid var(--p-faint);padding:.5em .7em;text-align:left}
+  th,td{border:1px solid var(--p-faint);padding:.5em .7em;text-align:left;vertical-align:middle}
   th{color:var(--p-bright);letter-spacing:.08em;font-weight:700;background:rgba(138,124,224,.08)}
   .ok{color:var(--p-bright)}
   .no{color:var(--p-dim)}
+
+  /* screen grabs: keep the C64's pixels square rather than smoothed */
+  /* inline-block + nowrap (not flex): a table cell only widens for its
+     min-content, and a flex row happily squashes instead of asking for room */
+  td.shotcell{padding:.45em .55em}
+  .shots{white-space:nowrap;font-size:0}
+  .shot{display:inline-block;vertical-align:middle;margin-right:7px;line-height:0;border:1px solid var(--p-faint);background:#000;transition:border-color .15s,box-shadow .15s}
+  .shot:last-child{margin-right:0}
+  .shot:hover,.shot:focus-visible{background:#000;border-color:var(--c64-cyan);box-shadow:0 0 12px -3px var(--c64-cyan);outline:none}
+  .shot img{display:block;width:104px;height:auto;image-rendering:pixelated}
+  @media (max-width:560px){ .shot img{width:88px} }
 
   footer{margin:34px 0 8px;color:var(--p-dim);font-size:.86rem}
   footer .links{display:flex;flex-wrap:wrap;gap:8px 22px;margin:.6em 0}
@@ -185,15 +205,15 @@
     <section class="reveal" id="features">
       <h2><span class="mk">&#x2500;&#x2500;</span> CAPABILITIES <span class="mk">&#x2500;&#x2500;</span></h2>
       <div class="grid">
-        <div class="card"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot a C64 (NTSC or PAL) headless, in warp, with a disk attached.</p></div>
-        <div class="card"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
-        <div class="card"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
-        <div class="card"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
-        <div class="card"><b>&#x25B8; DISK</b><small>d64 / d71 / d81</small><p>Build a whole game disk from a manifest, copy files in and out, rename and scratch, read and write raw sectors, validate, attach and boot &mdash; via c1541.</p></div>
-        <div class="card"><b>&#x25B8; CARTRIDGES</b><small>crt / EasyFlash</small><p>Build 8K/16K/Ultimax and bank-switched EasyFlash carts, wrap a .prg, verify, boot, and debug banks live.</p></div>
-        <div class="card"><b>&#x25B8; ROM TOOLS</b><small>info / disasm</small><p>Identify the ROM set and disassemble live memory with symbol annotations.</p></div>
-        <div class="card"><b>&#x25B8; TEST RUNNER</b><small>declarative YAML</small><p>Boot, load, feed input, assert on screen / memory / registers. CI-ready.</p></div>
-        <div class="card"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>A 68-command CLI, 62 MCP tools, five skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
+        <div class="card c-cyan"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot a C64 (NTSC or PAL) headless, in warp, with a disk attached.</p></div>
+        <div class="card c-yellow"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
+        <div class="card c-green"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
+        <div class="card c-white"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
+        <div class="card c-cyan"><b>&#x25B8; DISK</b><small>d64 / d71 / d81</small><p>Build a whole game disk from a manifest, copy files in and out, rename and scratch, read and write raw sectors, validate, attach and boot &mdash; via c1541.</p></div>
+        <div class="card c-yellow"><b>&#x25B8; CARTRIDGES</b><small>crt / EasyFlash</small><p>Build 8K/16K/Ultimax and bank-switched EasyFlash carts, wrap a .prg, verify, boot, and debug banks live.</p></div>
+        <div class="card c-green"><b>&#x25B8; ROM TOOLS</b><small>info / disasm</small><p>Identify the ROM set and disassemble live memory with symbol annotations.</p></div>
+        <div class="card c-grey"><b>&#x25B8; TEST RUNNER</b><small>declarative YAML</small><p>Boot, load, feed input, assert on screen / memory / registers. CI-ready.</p></div>
+        <div class="card c-white"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>A 68-command CLI, 62 MCP tools, five skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
       </div>
     </section>
 
@@ -223,51 +243,25 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <h2><span class="mk">&#x2500;&#x2500;</span> USE WITH AN AI AGENT <span class="mk">&#x2500;&#x2500;</span></h2>
       <p><b>Any agent with a shell needs zero setup</b> &mdash; the CLI plus <code>--json</code>
       is the whole integration. For MCP-native clients, <code>c64-tools-mcp</code> exposes
-      the same operations. Pick your agent:</p>
+      the same session, build and debug operations over stdio, returning the same
+      structured data. CLI and MCP share sessions, so an agent can mix them freely.</p>
 
-      <div class="tabs" role="tablist" aria-label="AI agent setup">
-        <button class="tab" role="tab" id="t-claude" aria-controls="p-claude" aria-selected="true">Claude Code</button>
-        <button class="tab" role="tab" id="t-codex" aria-controls="p-codex" aria-selected="false">Codex</button>
-        <button class="tab" role="tab" id="t-cursor" aria-controls="p-cursor" aria-selected="false">Cursor</button>
-        <button class="tab" role="tab" id="t-gemini" aria-controls="p-gemini" aria-selected="false">Gemini CLI</button>
-        <button class="tab" role="tab" id="t-anti" aria-controls="p-anti" aria-selected="false">Antigravity</button>
+      <p>That MCP config is one block, and most agents take it verbatim:</p>
+      <div class="code">
+        <button class="copy" type="button">COPY</button>
+<pre>{
+  <span class="pr">"mcpServers"</span>: {
+    <span class="pr">"c64-tools"</span>: { <span class="pr">"command"</span>: "c64-tools-mcp" }
+  }
+}</pre>
       </div>
 
-      <div class="tabpanel" role="tabpanel" id="p-claude" aria-labelledby="t-claude">
-        <ol>
-          <li>Install the skills: <code>mkdir -p .claude/skills &amp;&amp; cp -R skills/* .claude/skills/</code></li>
-          <li>Optional MCP: <code>claude mcp add c64-tools -- c64-tools-mcp</code></li>
-          <li>Ask for what you want &mdash; e.g. paste a prompt from <code>demos/</code>.</li>
-        </ol>
-        <p><small>No CLAUDE.md edits needed &mdash; installed skills load on demand.</small></p>
-      </div>
-      <div class="tabpanel" role="tabpanel" id="p-codex" aria-labelledby="t-codex" hidden>
-        <ol>
-          <li>Add the MCP: <code>codex mcp add c64-tools -- c64-tools-mcp</code></li>
-          <li>In <code>AGENTS.md</code>: &ldquo;For C64 work, first read skills/c64-development/SKILL.md and docs/cli.md.&rdquo;</li>
-          <li>Paste a prompt from <code>demos/</code>.</li>
-        </ol>
-      </div>
-      <div class="tabpanel" role="tabpanel" id="p-cursor" aria-labelledby="t-cursor" hidden>
-        <ol>
-          <li>Add the standard <code>mcpServers</code> block to <code>.cursor/mcp.json</code>.</li>
-          <li>Add a rule (<code>.cursor/rules/c64.mdc</code>) pointing at skills/c64-development/SKILL.md.</li>
-          <li>Paste a prompt from <code>demos/</code>.</li>
-        </ol>
-      </div>
-      <div class="tabpanel" role="tabpanel" id="p-gemini" aria-labelledby="t-gemini" hidden>
-        <ol>
-          <li>Add the <code>mcpServers</code> block to <code>.gemini/settings.json</code>.</li>
-          <li>Add the read-the-skill one-liner to <code>GEMINI.md</code>.</li>
-          <li>Paste a prompt from <code>demos/</code>.</li>
-        </ol>
-      </div>
-      <div class="tabpanel" role="tabpanel" id="p-anti" aria-labelledby="t-anti" hidden>
-        <ol>
-          <li>MCP store &rarr; Manage MCP Servers &rarr; View raw config &rarr; add the <code>mcpServers</code> block.</li>
-          <li>Add the read-the-skill one-liner to <code>AGENTS.md</code>.</li>
-          <li>Paste a prompt from <code>demos/</code>.</li>
-        </ol>
+      <p>Per-agent steps &mdash; <b>Claude Code, OpenAI Codex, Cursor, Gemini CLI,
+      Google Antigravity</b> and <b>Crush</b>, plus the handful of offline commands
+      that stay CLI-only &mdash; live in one place, kept current with the agents
+      themselves:</p>
+      <div class="btns">
+        <a class="btn primary" href="https://github.com/nschneir/Project64/blob/main/docs/agent-setup.md">AGENT SETUP GUIDE &#x25B8;</a>
       </div>
     </section>
 
@@ -277,20 +271,44 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       arcade-faithful Invaders in assembly with sprites and three-voice SID
       sound, and a bitmap-graphics demo painted to the 1812 Overture. Each
       gets validated by handing it to a real agent and confirming the result
-      &mdash; <b>01&ndash;05 have passed a real C64 run; the two directory-sized
-      demos are awaiting theirs.</b></p>
+      &mdash; <b>01&ndash;06 have passed a real C64 run; only 07 is awaiting
+      its own.</b></p>
+      <div class="tscroll">
       <table>
-        <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th></tr></thead>
+        <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
         <tbody>
-          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>02</td><td>Bouncing ball (sprite)</td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>04</td><td>Snake</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>05</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>06</td><td>Invaders</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td></tr>
-          <tr><td>07</td><td>1812 (bitmap + SID)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td></tr>
+          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
+          <tr><td>02</td><td>Bouncing ball (sprite)</td><td>BASIC</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
+          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
+          <tr><td>04</td><td>Snake</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
+          <tr><td>05</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
+          <tr>
+            <td>06</td><td>Invaders</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
+            <td class="shotcell">
+              <div class="shots">
+                <a class="shot" href="demos/invaders/evidence/title.png" title="Attract screen: the name in block graphics and the score advance table">
+                  <img src="demos/invaders/evidence/title.png" width="640" height="400" loading="lazy" decoding="async" alt="Invaders attract screen: INVADERS in large block letters above a score advance table">
+                </a>
+                <a class="shot" href="demos/invaders/evidence/formation.png" title="Wave 1: 5 x 11 invaders in three classes over four bunkers">
+                  <img src="demos/invaders/evidence/formation.png" width="640" height="400" loading="lazy" decoding="async" alt="Wave 1 in play: five rows of eleven invaders in cyan, green and red above four green bunkers and the laser base">
+                </a>
+                <a class="shot" href="demos/invaders/evidence/ufo.png" title="The mystery UFO crossing, with the bunkers already eroding">
+                  <img src="demos/invaders/evidence/ufo.png" width="640" height="400" loading="lazy" decoding="async" alt="The red mystery saucer crossing the top of the screen while the bunkers show bomb damage">
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr><td>07</td><td>1812 (bitmap + SID)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
+      </div>
+      <p><small>Demo 06 ships its whole solution beside the prompt &mdash; sources, the
+      three-iteration
+      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">fidelity audit</a>,
+      a regression test, and a runnable
+      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/invaders.d64">invaders.d64</a>
+      for stock VICE. Those three frames were captured from the running machine, stopped
+      at its frame anchor.</small></p>
     </section>
 
     <div class="rule" aria-hidden="true">&#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;</div>
@@ -304,6 +322,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <div class="links">
         <a href="https://github.com/nschneir/Project64">&#x25B8; GitHub</a>
         <a href="https://github.com/nschneir/Project64/blob/main/docs/cli.md">&#x25B8; CLI reference</a>
+        <a href="https://github.com/nschneir/Project64/blob/main/docs/agent-setup.md">&#x25B8; Agent setup</a>
         <a href="https://github.com/nschneir/Project64/tree/main/demos">&#x25B8; Demos</a>
         <a href="https://github.com/nschneir/Project64/blob/main/LICENSE">&#x25B8; License</a>
       </div>
@@ -353,28 +372,6 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       else { setTimeout(showHero, 260); }
     })();
   }
-
-  // Tabs
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
-  function select(tab){
-    tabs.forEach(function(t){
-      var sel = t === tab;
-      t.setAttribute("aria-selected", sel ? "true" : "false");
-      t.tabIndex = sel ? 0 : -1;
-      document.getElementById(t.getAttribute("aria-controls")).hidden = !sel;
-    });
-  }
-  tabs.forEach(function(t,idx){
-    t.tabIndex = idx === 0 ? 0 : -1;
-    t.addEventListener("click", function(){ select(t); });
-    t.addEventListener("keydown", function(e){
-      var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-      if(!d) return;
-      e.preventDefault();
-      var n = (idx + d + tabs.length) % tabs.length;
-      tabs[n].focus(); select(tabs[n]);
-    });
-  });
 
   // Copy buttons
   document.querySelectorAll(".copy").forEach(function(btn){
