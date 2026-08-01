@@ -85,23 +85,27 @@ Cursor, Gemini CLI, Google Antigravity, and Crush.
 
 ## Demos — try it with your AI agent
 
-[`demos/`](demos/) is a set of ready-to-paste prompts, graded from a first
-BASIC program through a sprite bouncing ball and a machine-level debug hunt
-up to the flagships: a full arcade Snake in 6502 assembly (title screen,
-levels, SID sound, high score), an arcade-faithful Invaders with sprites,
-three-voice sound, waves, and a packaged disk image, and a bitmap-graphics
-demo that paints rotating shapes to a SID arrangement of the 1812 Overture.
-To use one:
+[`demos/`](demos/) is a set of ready-to-run prompts in three tiers. The
+**test demos** are graded exercises, from a first BASIC program through a
+sprite bouncing ball and a sieve benchmark to a machine-level debug hunt.
+The **game demos** are complete builds with their own fidelity bars: an
+arcade Snake in 6502 assembly with held-key steering and rising levels; an
+arcade-faithful Invaders with sprites, three-voice sound, waves, and a
+packaged disk image; a maze chase with animated cut scenes; and a fixed
+shooter with a multiplexed 40-enemy formation. **Miscellaneous cool stuff**
+is everything else worth building — today, a bitmap-graphics demo that
+paints rotating shapes to a SID arrangement of the 1812 Overture. Set up
+your agent (one section up — or use any shell agent with no setup), give it
+a demo's `PROMPT.md`, and watch it write, run, and debug real C64 software
+on the emulated machine.
 
-1. Set up your agent (one section up — or use any shell agent with no setup).
-2. Open a demo file and copy its prompt.
-3. Paste it into your agent and watch it write, run, and debug real C64
-   software on the emulated machine.
-
-Every prompt has been validated by handing it to a real agent on a real
-emulated C64; only demo 07 is still awaiting its run. Demo 06 keeps the
-result: [`demos/invaders/`](demos/invaders/) has the sources an agent wrote,
-its [fidelity audit](demos/invaders/AUDIT.md), a regression test, and a
+A prompt's status flips only when a real agent run passes on the emulated
+machine: the test demos and Invaders have passed theirs; Snake passed as a
+test demo and is awaiting a run under its promoted game-demo prompt; 1812,
+Ms. Muncher, and La Galaxia are still awaiting a first run. Every demo
+outside the test tier keeps the result —
+[`demos/invaders/`](demos/invaders/) has the sources an agent wrote, its
+[fidelity audit](demos/invaders/AUDIT.md), a regression test, and a
 runnable `invaders.d64` — `x64sc -ntsc demos/invaders/invaders.d64` and play
 it with A/D and space.
 

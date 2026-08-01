@@ -163,6 +163,34 @@
   .shot img{display:block;width:104px;height:auto;image-rendering:pixelated}
   @media (max-width:560px){ .shot img{width:88px} }
 
+  /* lightbox: the same screen grabs, full size, on top of the page.
+     Built lazily by the script; the anchors still work without JS. */
+  .lightbox{
+    position:fixed;inset:0;z-index:60;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    padding:clamp(14px,4vw,40px);
+    background:rgba(8,6,26,.9);
+    cursor:zoom-out;opacity:0;transition:opacity .18s ease;
+  }
+  .lightbox[hidden]{display:none}
+  .lightbox.in{opacity:1}
+  .lightbox:focus{outline:none}
+  .lightbox img{
+    display:block;max-width:90vw;max-height:78vh;width:auto;height:auto;
+    image-rendering:pixelated;background:#000;
+    border:2px solid var(--p-dim);
+    box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 0 60px -10px rgba(138,124,224,.5);
+  }
+  .lightbox .lbcap{
+    max-width:70ch;margin:0;text-align:center;
+    color:var(--p-bright);font-size:.86rem;line-height:1.45;
+  }
+  .lightbox .lbhint{
+    margin:0;color:var(--p-dim);font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;
+  }
+  /* keep the page still while the panel is up */
+  html.lb-open,html.lb-open body{overflow:hidden}
+
   footer{margin:34px 0 8px;color:var(--p-dim);font-size:.86rem}
   footer .links{display:flex;flex-wrap:wrap;gap:8px 22px;margin:.6em 0}
   .ready{color:var(--p-bright);margin-top:22px;font-size:1.05rem}
@@ -268,23 +296,35 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
 
     <section class="reveal" id="demos">
       <h2><span class="mk">&#x2500;&#x2500;</span> DEMOS: TRY IT! <span class="mk">&#x2500;&#x2500;</span></h2>
-      <p>Ready-to-paste prompts, graded from a first BASIC program up to an
-      arcade-faithful Invaders in assembly with sprites and three-voice SID
-      sound, and a bitmap-graphics demo painted to the 1812 Overture. Each
-      gets validated by handing it to a real agent and confirming the result
-      &mdash; <b>01&ndash;06 have passed a real C64 run; only 07 is awaiting
-      its own.</b></p>
+      <p>Ready-to-run prompts in three sets: graded <b>test demos</b> that walk
+      the toolset from a first BASIC program to a full debugger hunt,
+      <b>game demos</b> &mdash; complete builds with sprites, custom
+      charsets, and three-voice SID sound &mdash; and <b>miscellaneous cool
+      stuff</b> that isn't a game. Each gets validated by handing it
+      to a real agent and confirming the result &mdash; <b>the test demos and
+      Invaders have passed a real C64 run; Snake passed as a test demo and is
+      awaiting a run under its promoted game-demo prompt; 1812,
+      Ms.&nbsp;Muncher, and La&nbsp;Galaxia are awaiting their first.</b></p>
+      <p><b>Test demos</b> &mdash; graded; start at 01 if you're new:</p>
       <div class="tscroll">
       <table>
-        <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
+        <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
-          <tr><td>02</td><td>Bouncing ball (sprite)</td><td>BASIC</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
-          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
-          <tr><td>04</td><td>Snake</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
-          <tr><td>05</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td><td class="no">&mdash;</td></tr>
+          <tr><td>01</td><td>Guess the number</td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>02</td><td>Bouncing ball (sprite)</td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>03</td><td>Sieve benchmark</td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>04</td><td>Debug hunt</td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p><b>Game demos</b>:</p>
+      <div class="tscroll">
+      <table>
+        <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
+        <tbody>
+          <tr><td>Snake</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
           <tr>
-            <td>06</td><td>Invaders</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
+            <td>Invaders</td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/invaders/evidence/title.png" title="Attract screen: the name in block graphics and the score advance table">
@@ -299,16 +339,29 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
               </div>
             </td>
           </tr>
-          <tr><td>07</td><td>1812 (bitmap + SID)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td>Ms. Muncher (maze chase)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td>La Galaxia (fixed shooter)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
       </div>
-      <p><small>Demo 06 ships its whole solution beside the prompt &mdash; sources, the
+      <p><b>Miscellaneous cool stuff</b> &mdash; not a game:</p>
+      <div class="tscroll">
+      <table>
+        <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
+        <tbody>
+          <tr><td>1812 (bitmap + SID)</td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p><small>Every demo outside the test tier (the game demos and the
+      miscellaneous builds) ships its whole solution beside its prompt &mdash;
+      sources, plan, fidelity audit, regression test, evidence frames, and a
+      runnable .d64 for stock VICE. Invaders' finished run shows the shape: the
       three-iteration
-      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">fidelity audit</a>,
-      a regression test, and a runnable
-      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/invaders.d64">invaders.d64</a>
-      for stock VICE. Those three frames were captured from the running machine, stopped
+      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">fidelity audit</a>
+      and a runnable
+      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/invaders.d64">invaders.d64</a>.
+      Those three frames were captured from the running machine, stopped
       at its frame anchor.</small></p>
     </section>
 
@@ -384,6 +437,87 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       }).catch(function(){ btn.textContent = "✘"; });
     });
   });
+
+  // Lightbox for the demo screen grabs. Without JS the .shot anchors just
+  // open the PNG, which is the fallback we keep.
+  (function(){
+    var shots = document.querySelectorAll("a.shot");
+    if(!shots.length) return;
+
+    var lb = null, lbImg = null, lbCap = null, lastFocus = null, hideTimer = null;
+
+    function build(){
+      lb = document.createElement("div");
+      lb.className = "lightbox";
+      lb.hidden = true;
+      lb.setAttribute("role", "dialog");
+      lb.setAttribute("aria-modal", "true");
+      lb.tabIndex = -1;
+
+      lbImg = document.createElement("img");
+      lbImg.decoding = "async";
+
+      lbCap = document.createElement("p");
+      lbCap.className = "lbcap";
+
+      var hint = document.createElement("p");
+      hint.className = "lbhint";
+      hint.textContent = "click anywhere to close";
+
+      lb.appendChild(lbImg);
+      lb.appendChild(lbCap);
+      lb.appendChild(hint);
+      lb.addEventListener("click", close);
+      document.body.appendChild(lb);
+    }
+
+    function onKey(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); }
+      else if(e.key === "Tab"){ e.preventDefault(); lb.focus(); }
+    }
+
+    function open(a){
+      if(!lb) build();
+      if(hideTimer){ clearTimeout(hideTimer); hideTimer = null; }
+
+      var thumb = a.querySelector("img");
+      var alt = thumb ? thumb.getAttribute("alt") : "";
+      var cap = a.getAttribute("title") || alt || "";
+
+      lbImg.src = a.getAttribute("href");   // full size, not the thumbnail's src
+      lbImg.alt = alt || cap;
+      lbCap.textContent = cap;
+      lb.setAttribute("aria-label", cap || alt || "screen grab");
+
+      lastFocus = a;
+      lb.hidden = false;
+      document.documentElement.classList.add("lb-open");
+      document.addEventListener("keydown", onKey);
+      requestAnimationFrame(function(){ lb.classList.add("in"); });
+      lb.focus();
+    }
+
+    function close(){
+      if(!lb || lb.hidden) return;
+      lb.classList.remove("in");
+      document.removeEventListener("keydown", onKey);
+      document.documentElement.classList.remove("lb-open");
+      hideTimer = setTimeout(function(){
+        lb.hidden = true;
+        lbImg.removeAttribute("src");
+        hideTimer = null;
+      }, reduce ? 0 : 200);
+      if(lastFocus){ lastFocus.focus(); lastFocus = null; }
+    }
+
+    shots.forEach(function(a){
+      a.addEventListener("click", function(e){
+        if(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        e.preventDefault();
+        open(a);
+      });
+    });
+  })();
 })();
 </script>
 </body>
