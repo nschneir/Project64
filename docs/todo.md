@@ -45,33 +45,6 @@ the function/test names are the durable anchors.
 
 ## Standing backlog (pre-cartridge)
 
-- [ ] **Dogfood the two remaining C64 demo prompts.** `demos/README.md:12-18`:
-      demos 01-05 are ✅ dogfooded; 06-07 are 🔲 "awaiting C64 dogfood".
-      01-06 were ported from the PET edition, where each passed a real
-      dogfooding run; 07 (1812) was written for the C64 and has never been
-      agent-run. Done = an agent given only this toolset builds and verifies
-      the demo on a real VICE session, then the row's status flips.
-      Demo 02 passed first try (2026-07-27); its solution graduated to
-      `tests/programs/bouncing-ball/` and the friction it turned up is the
-      0.7.0 section of the changelog.
-      Demo 03 passed first try (2026-07-27): BASIC 933 jiffies vs 9.2 for
-      the asm sieve, both `168 PRIMES, LARGEST 997`, ~101x. Its friction is
-      the Unreleased section of the changelog; the solution has not
-      graduated to `tests/programs/` yet.
-      Demo 04 passed (2026-07-27): a ~700-line asm Snake with a custom
-      charset, title/play/game-over state machine, `$CB` steering, SID
-      blip/crash and a session-persistent high score, all proven live. It
-      found two real defects (the ca65 phony-target dep parse and the
-      `@row,col` re-resolve) plus the doc gaps in the Unreleased changelog
-      section; the solution has not graduated to `tests/programs/` yet.
-      Demo 05 passed (2026-07-28): all three layers found from the machine —
-      `?BAD SUBSCRIPT ERROR IN 30`, then the `sys 828` wedge proven by
-      sampling PC (pinned at `$0340`/`$0343`), `c64 rom disasm 828` showing
-      `$0343 ea nop` where `inx` belongs, and a `c64 step` trace with X frozen
-      at 0, then the PETSCII-vs-screen-code title read out of `$0400`. Fixed
-      and re-proven with a passing `c64 test run` spec. It found no product
-      defects; the six observability gaps it did find are closed in the
-      Unreleased section of the changelog.
 - [ ] **Charset/bitmap PNG conversion — blocked on demo-07 evidence.**
       `c64 sprite from-png` (`sprite_from_png` in `src/c64lib/cli.py`, via
       `sprites.sprite_from_image`) handles 24×21 sprites only; charset and
