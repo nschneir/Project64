@@ -18,14 +18,17 @@
     --mono:ui-monospace,"Cascadia Mono","Menlo","Consolas","Courier New",monospace;
     --maxw:1080px;
 
-    /* The VIC-II's own 16 colours (Pepto values). Only the five that hold
-       their contrast against the power-on blue are used, so the capability
-       cards read as a C64 screen rather than as a paint chart. */
-    --c64-cyan:#70a4b2;      /* 3  */
-    --c64-ltgreen:#9ad284;   /* 13 */
-    --c64-yellow:#b8c76f;    /* 7  */
-    --c64-ltgrey:#959595;    /* 15 */
-    --c64-white:#ffffff;     /* 1  */
+    /* Sampled from img/logo.png and brought back up to full brightness —
+       the photo is warm and underexposed, so the raw pixels read brown.
+       Hues are the ones actually in that image: the six Commodore rainbow
+       stripes on the 1541 badge, and the green and lavender of the
+       Project 64 title art on the screen. */
+    --c64-red:#ff4b3b;       /* badge stripe 1   hue  10 */
+    --c64-orange:#ff8f2e;    /* badge stripe 2   hue  24 */
+    --c64-yellow:#ffd42e;    /* badge stripe 3   hue  50 */
+    --c64-green:#5fdd7a;     /* the title's "P"  hue 125 */
+    --c64-cyan:#5bc8ff;      /* the title's letters  hue 200 */
+    --c64-purple:#b98bff;    /* the title's "64" hue 264 */
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -102,23 +105,35 @@
   .btn.primary{background:var(--p);color:var(--room);text-shadow:none}
   .btn.primary:hover,.btn.primary:focus-visible{background:var(--p-bright);border-color:var(--p-bright)}
 
-  /* feature grid — each card carries one VIC-II colour on its edge and label */
+  /* feature grid — the cards run the Commodore rainbow, one stripe each.
+     The colour is carried by the edge, the label, the sub-label and a wash
+     of the card itself; only the body copy stays neutral so it reads. */
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-top:8px}
   .card{
     --accent:var(--p-bright);
-    border:2px solid var(--p-faint);border-left:5px solid var(--accent);
-    padding:14px 16px;background:rgba(34,25,100,.5);
+    border:2px solid var(--p-faint);border-left:7px solid var(--accent);
+    padding:14px 16px;
+    background:rgba(34,25,100,.5);
+    background:color-mix(in srgb, var(--accent) 13%, rgba(30,22,92,.78));
     transition:border-color .15s,transform .15s,box-shadow .15s;
   }
-  .card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 0 14px -4px var(--accent)}
-  .card b{color:var(--accent);display:block;letter-spacing:.06em;margin-bottom:.2em;text-shadow:0 0 6px rgba(0,0,0,.55)}
-  .card small{color:var(--p-dim);font-size:.82rem;letter-spacing:.04em}
-  .card p{font-size:.92rem;margin:.35em 0 0;color:var(--p)}
-  .c-cyan{--accent:var(--c64-cyan)}
-  .c-green{--accent:var(--c64-ltgreen)}
+  .card:hover{
+    border-color:var(--accent);transform:translateY(-2px);
+    box-shadow:0 0 20px -5px var(--accent);
+    background:color-mix(in srgb, var(--accent) 22%, rgba(30,22,92,.78));
+  }
+  .card b{
+    color:var(--accent);display:block;letter-spacing:.06em;margin-bottom:.2em;
+    text-shadow:0 0 10px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 0 rgba(0,0,0,.5);
+  }
+  .card small{color:var(--accent);opacity:.78;font-size:.82rem;letter-spacing:.04em;text-shadow:none}
+  .card p{font-size:.92rem;margin:.35em 0 0;color:var(--p-bright);text-shadow:0 1px 0 rgba(0,0,0,.35)}
+  .c-red{--accent:var(--c64-red)}
+  .c-orange{--accent:var(--c64-orange)}
   .c-yellow{--accent:var(--c64-yellow)}
-  .c-grey{--accent:var(--c64-ltgrey)}
-  .c-white{--accent:var(--c64-white)}
+  .c-green{--accent:var(--c64-green)}
+  .c-cyan{--accent:var(--c64-cyan)}
+  .c-purple{--accent:var(--c64-purple)}
 
   /* code blocks */
   .code{position:relative;border:1px solid var(--p-faint);background:#241c66;margin:12px 0}
@@ -205,15 +220,15 @@
     <section class="reveal" id="features">
       <h2><span class="mk">&#x2500;&#x2500;</span> CAPABILITIES <span class="mk">&#x2500;&#x2500;</span></h2>
       <div class="grid">
-        <div class="card c-cyan"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot a C64 (NTSC or PAL) headless, in warp, with a disk attached.</p></div>
-        <div class="card c-yellow"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
-        <div class="card c-green"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
-        <div class="card c-white"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
+        <div class="card c-red"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot a C64 (NTSC or PAL) headless, in warp, with a disk attached.</p></div>
+        <div class="card c-orange"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
+        <div class="card c-yellow"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
+        <div class="card c-green"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
         <div class="card c-cyan"><b>&#x25B8; DISK</b><small>d64 / d71 / d81</small><p>Build a whole game disk from a manifest, copy files in and out, rename and scratch, read and write raw sectors, validate, attach and boot &mdash; via c1541.</p></div>
-        <div class="card c-yellow"><b>&#x25B8; CARTRIDGES</b><small>crt / EasyFlash</small><p>Build 8K/16K/Ultimax and bank-switched EasyFlash carts, wrap a .prg, verify, boot, and debug banks live.</p></div>
-        <div class="card c-green"><b>&#x25B8; ROM TOOLS</b><small>info / disasm</small><p>Identify the ROM set and disassemble live memory with symbol annotations.</p></div>
-        <div class="card c-grey"><b>&#x25B8; TEST RUNNER</b><small>declarative YAML</small><p>Boot, load, feed input, assert on screen / memory / registers. CI-ready.</p></div>
-        <div class="card c-white"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>A 68-command CLI, 62 MCP tools, five skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
+        <div class="card c-purple"><b>&#x25B8; CARTRIDGES</b><small>crt / EasyFlash</small><p>Build 8K/16K/Ultimax and bank-switched EasyFlash carts, wrap a .prg, verify, boot, and debug banks live.</p></div>
+        <div class="card c-red"><b>&#x25B8; ROM TOOLS</b><small>info / disasm</small><p>Identify the ROM set and disassemble live memory with symbol annotations.</p></div>
+        <div class="card c-orange"><b>&#x25B8; TEST RUNNER</b><small>declarative YAML</small><p>Boot, load, feed input, assert on screen / memory / registers. CI-ready.</p></div>
+        <div class="card c-yellow"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>A 68-command CLI, 62 MCP tools, five skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
       </div>
     </section>
 
@@ -241,25 +256,11 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
 
     <section class="reveal" id="agents">
       <h2><span class="mk">&#x2500;&#x2500;</span> USE WITH AN AI AGENT <span class="mk">&#x2500;&#x2500;</span></h2>
-      <p><b>Any agent with a shell needs zero setup</b> &mdash; the CLI plus <code>--json</code>
-      is the whole integration. For MCP-native clients, <code>c64-tools-mcp</code> exposes
-      the same session, build and debug operations over stdio, returning the same
-      structured data. CLI and MCP share sessions, so an agent can mix them freely.</p>
-
-      <p>That MCP config is one block, and most agents take it verbatim:</p>
-      <div class="code">
-        <button class="copy" type="button">COPY</button>
-<pre>{
-  <span class="pr">"mcpServers"</span>: {
-    <span class="pr">"c64-tools"</span>: { <span class="pr">"command"</span>: "c64-tools-mcp" }
-  }
-}</pre>
-      </div>
-
-      <p>Per-agent steps &mdash; <b>Claude Code, OpenAI Codex, Cursor, Gemini CLI,
-      Google Antigravity</b> and <b>Crush</b>, plus the handful of offline commands
-      that stay CLI-only &mdash; live in one place, kept current with the agents
-      themselves:</p>
+      <p class="lead"><b>Any agent with a shell needs zero setup</b> &mdash; the CLI plus
+      <code>--json</code> is the whole integration, and MCP-native clients can add
+      <code>c64-tools-mcp</code>, which shares the same sessions. Step-by-step setup for
+      Claude Code, OpenAI Codex, Cursor, Gemini CLI, Google Antigravity and Crush is in
+      the guide.</p>
       <div class="btns">
         <a class="btn primary" href="https://github.com/nschneir/Project64/blob/main/docs/agent-setup.md">AGENT SETUP GUIDE &#x25B8;</a>
       </div>
