@@ -701,6 +701,10 @@ def test_profile_routine_counts_cycles_via_the_cia_cascade():
                if c.args[0] == "FL"]
     assert ("FL", 0x24) in fl_sets                  # masked on entry
     assert fl_sets[-1] == ("FL", 0x20)              # I bit restored after
+    # ...and the REPORTED registers agree with the machine: the trap snapshot
+    # still carried the I bit profile set, so reporting it raw would make
+    # `profile --json` disagree with a `reg get` issued one command later.
+    assert out["registers"]["FL"] == 0x20
 
 
 def test_profile_routine_with_irq_leaves_the_flags_alone():
@@ -708,7 +712,7 @@ def test_profile_routine_with_irq_leaves_the_flags_alone():
     s, mon = _fake_session()
     mon.registers.side_effect = [
         {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
-        {"SP": 0xFB, "FL": 0x20, "PC": 0x0400},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},   # routine did its own SEI
     ]
     mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
     mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
@@ -716,6 +720,9 @@ def test_profile_routine_with_irq_leaves_the_flags_alone():
     out = profile_routine(s, 0xC000, with_irq=True)
     assert out["cycles"] == 507
     assert all(c.args[0] != "FL" for c in mon.set_register.call_args_list)
+    # nothing restored, so the reported FL is the trap snapshot verbatim —
+    # the routine's own I bit is the caller's result, not profile's bookkeeping
+    assert out["registers"]["FL"] == 0x24
 
 
 def test_profile_routine_cascades_timer_b_for_long_routines():

@@ -494,7 +494,9 @@ instruction through its own RTS.
 
 Counts are wall cycles: badline DMA steals are included, which is the
 frame-budget truth (blank the screen — `$D011` bit 4 — if you want the
-bare instruction cost). Perturbs CIA#2 timers A/B; they are left stopped.
+bare instruction cost). Perturbs CIA#2 timers A/B: they are left stopped on
+success, but a run that times out leaves them running — the machine is
+running by then, so they cannot be stopped safely.
 The machine ends STOPPED at the trap, like `c64 call`. Sessions started
 before this verb existed need a `c64 session stop`/`start` once (the old
 daemon predates a monitor argument profile uses).

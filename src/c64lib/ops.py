@@ -491,10 +491,12 @@ def profile_routine(session, addr: int, timeout: float = 30.0,
     with_irq=True, any interrupt handlers) land in the number, which is the
     frame-budget truth. By default the I flag is set on entry so the KERNAL
     IRQ cannot land inside the window (the flag's entry value is restored
-    afterwards). Perturbs CIA#2 timers A/B; they are left stopped.
-    _CIA_START_SLACK is added back because the timer only starts a few
-    cycles into the window; with it the count is exact against hand-computed
-    routines (verified live in tests/test_integration_profile.py).
+    afterwards). Perturbs CIA#2 timers A/B: they are left stopped on success,
+    but a timed-out profile leaves them running — the machine is running by
+    then, so they cannot be stopped safely. _CIA_START_SLACK is added back
+    because the timer only starts a few cycles into the window; with it the
+    count is exact against hand-computed routines (verified live in
+    tests/test_integration_profile.py).
 
     Returns {"fired": bool, "cycles": int|None, "registers": regs-or-None,
     "trap": trap}; cycles/registers are None on timeout (checkpoint removed,
@@ -540,7 +542,12 @@ def profile_routine(session, addr: int, timeout: float = 30.0,
         mon.memory_write(_CIA2_CRA, b"\x00", side_effects=True)
         mon.memory_write(_CIA2_CRB, b"\x00", side_effects=True)
         if not with_irq:
-            mon.set_register("FL", (out["FL"] & ~FLAG_I) | (fl & FLAG_I))
+            # The reported registers must match the machine a caller will go
+            # on to read: restore the entry I bit in BOTH, or `profile --json`
+            # would report I=1 while a following `reg get` shows I=0.
+            restored = (out["FL"] & ~FLAG_I) | (fl & FLAG_I)
+            mon.set_register("FL", restored)
+            out["FL"] = restored
         mon.checkpoint_delete(ck.number)
         ta_v = ta[0] | (ta[1] << 8)
         tb_v = tb[0] | (tb[1] << 8)
