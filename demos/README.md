@@ -45,7 +45,6 @@ promoted to keep everything a game demo keeps, so it is awaiting a run under
 that promoted prompt. 1812, Ms. Muncher, and La Galaxia are still waiting
 for their first run of any kind. The Invaders run is written up in
 [invaders/AUDIT.md](invaders/AUDIT.md).
-Graphics and sprite expectations follow docs/superpowers/specs/graphics-and-sprites.md.
 
 **Where the work goes.** Every demo is a directory holding its prompt in
 `PROMPT.md` and a `README.md` describing it — the prompt is named `PROMPT.md`,
@@ -65,9 +64,3 @@ toolset (the other prompts will fill in the same way when their runs land).
 </p>
 <p align="center"><sub>The Invaders run's output: the attract screen, wave 1, and the mystery UFO
 — captured from the running machine, stopped at its frame anchor.</sub></p>
-
-Reference example programs with expected output (runnable as regression tests
-via `c64 test programs`) live in `tests/programs/` — solutions that come out
-of these demos particularly well can graduate there, which is the way a
-single-file demo's program becomes durable. `tests/programs/bouncing-ball/`
-came out of demo 02 this way.

@@ -1,5 +1,10 @@
 # Invaders — the dogfooded solution
 
+A faithful Space Invaders in pure 6502 assembly — custom multicolor
+charset, hardware sprites, the authentic one-invader-per-tick march
+engine, three-voice SID, and an explicit audit-and-improve loop that
+ran until every spec bullet passed.
+
 `PROMPT.md` started life as a detailed prompt written by a human; Claude
 helped draft it into its present shape, and a human edited the result. Every
 other file here — the sources, the plan they were built from, the fidelity
@@ -54,6 +59,21 @@ firing.
 | `evidence/` | the screenshots that proof protocol captures, one per claim |
 | `invaders.d64` | the packaged disk image, autostartable in stock VICE |
 | `invaders.prg` | the assembled program `c64 package` writes beside the image |
+
+## What a passing run shows
+
+An assembled program with a BASIC SYS stub and the full arcade loop —
+attract screen → waves → game over → attract — plus the
+one-invader-per-tick march engine (so the speed-up is emergent),
+sprite-based base/shot/UFO over a custom-charset multicolor formation,
+eroding shields, three bomb types, the UFO shot-count secret, and rich
+three-voice SID sound (real ADSR, mixed waveforms, filtered effects) with
+a heartbeat that audibly quickens; then a written fidelity audit with
+every spec bullet marked pass, the deterministic evidence trail the
+prompt calls for, and finally an `invaders.d64` the user can autostart in
+stock VICE and play with A/D and space. The agent is expected to live in
+the debugger and to spend several review cycles closing the gap between
+"it runs" and "it's Space Invaders."
 
 ## The bit worth reading
 

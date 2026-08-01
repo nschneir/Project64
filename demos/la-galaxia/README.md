@@ -20,6 +20,19 @@ audit and its numbered iterations, the evidence PNGs, and the packaged
 disk, arriving here the way [`demos/invaders/`](../invaders/) looks now
 that its run is finished.
 
+**What a passing run shows.** An assembled program with a BASIC SYS stub
+and the full arcade loop — title → entrance waves → dives → challenging
+stage → game over → title — with the 40-enemy formation settled in
+character RAM and every diver handed to a raster-IRQ multiplexer that
+never overflows, five scripted entrances off trajectory LUTs, a tractor
+beam that takes your fighter and a mid-flight rescue that gives you two,
+transforming enemies, the no-fire challenging stages with their 10,000
+point PERFECT bonus, and three-voice SID with music that ducks under the
+effects; then a fidelity audit in `AUDIT.md` with every claim marked pass
+and the iterations that got it there, the evidence trail the prompt calls
+for captured from the stopped machine, and a `la-galaxia.d64` the user
+can autostart in stock VICE.
+
 ## The hidden keys
 
 The prompt specifies a stage select, undocumented in-game and active on

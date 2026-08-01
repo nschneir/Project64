@@ -1,9 +1,5 @@
 # 1812 — random shapes painted to the Overture
 
-A bitmap-graphics demo in 6502 assembly: randomized shapes accumulating
-on a black canvas, spawned in time with a three-voice SID arrangement of
-Tchaikovsky's *1812 Overture* (1880, public domain).
-
 Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 skill, and docs/cli.md), build a Commodore 64 graphics demo in pure 6502
 assembly that paints randomized shapes onto a bitmap canvas in time with
@@ -58,7 +54,7 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
   debugging the binary you think you are) instead of guessing from
   source. `superpowers:systematic-debugging` for the surrounding
   discipline.
-- `docs/superpowers/specs/graphics-and-sprites.md` — **policy, not a
+- `docs/graphics-and-sprites.md` — **policy, not a
   tutorial**: how graphic data is authored (commented `.byte` rows in the
   source, no binary blobs), what tests may assert (memory and registers,
   never PNG pixels), and the `evidence/` screenshot convention. Bitmap
@@ -80,8 +76,8 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
   runtime (see the evidence list).
 - **Shapes.** Each spawn picks, from the RNG: shape type, size, screen
   position, rotation angle, fill pattern, and colors. The vocabulary
-  needs at least: triangle, rectangle, pentagon/hexagon, five-pointed
-  star, and an ellipse. Rotation is real geometry — a 256-step angle,
+  needs at least: triangle, rectangle, ovals, circles, pentagon/hexagon, five-pointed
+  star, and an ellipse. Additional shapes are welcome. Rotation is real geometry — a 256-step angle,
   sin/cos tables in `RODATA`, 8.8 fixed-point vertex transform, then a
   scanline polygon fill. The star is concave, so the fill must be
   even-odd correct, not "convex only". Rotation must be *visible*: a
@@ -131,7 +127,7 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
   the seed at a documented address a test can write *before* the run
   starts: reproducibility you cannot set is reproducibility you cannot
   check. (`$D41B`, SID voice 3's oscillator, is the classic hardware RNG,
-  but it costs you a voice — if you use it, say why in the spec.)
+  but it costs you a voice — if you use it, geneate a pool of random numbers before starting the music.)
 
 **Performance rules.** Multicolor bitmap plotting is expensive: fill
 whole bytes (four pixels) along a span with masked edges rather than
@@ -190,7 +186,7 @@ late showing the early pixels still lit while the total lit-pixel count
 only rose (count it off a `c64 mem read` dump of the bitmap, not by eye).
 Keep the pictures: every visual claim above is captured as a named PNG
 under `demos/1812/evidence/` per
-`docs/superpowers/specs/graphics-and-sprites.md`
+`docs/graphics-and-sprites.md`
 (`c64 screen --png … --scale 2 --border`), taken while the machine is
 *stopped* at a `c64 until` label — never staged, never drawn by hand —
 and committed with the demo rather than deleted after the run. The set
@@ -207,15 +203,3 @@ stock VICE can run it: `c64 package` your source into
 and report the exact run command `c64 package` prints
 (`x64sc -ntsc 1812.d64` — the video-standard flag keeps the timing you
 tested, and on this demo the timing is the whole point).
-
-**What success looks like:** `demos/1812/` containing `SPEC.md`,
-`PLAN.md`, the assembled 6502 source with its BASIC SYS stub,
-`test.yaml`, `AUDIT.md`, an `evidence/` directory, and a bootable
-`1812.d64`. On screen: a black field that fills up over a few minutes
-with rotated, dithered, overlapping shapes whose color and character
-change as the arrangement moves from hymn to battle to cannon to finale —
-never cleared, never repainted, the whole picture a record of the piece.
-This demo is the toolset's graphics stress test: bitmap mode, a real
-rotating polygon rasterizer, a color budget used on purpose, and three
-voices of SID — every claim about it settled by registers and state
-bytes, with the screenshots kept as the record of what those bytes drew.

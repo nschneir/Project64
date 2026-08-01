@@ -5,6 +5,11 @@ once in 6502 assembly. Each run prints the prime count, the largest prime,
 and its own elapsed time from the jiffy clock (`TI`), and the demo ends with
 the measured speedup of the assembly version over the BASIC one.
 
+**What a passing run shows.** The BASIC run ends with `168 PRIMES,
+LARGEST 997` (or equivalent wording) plus a time; the assembly version
+produces the same count dramatically faster; and the agent verifies both
+from the screen output of the running program rather than assuming.
+
 `PROMPT.md` is all this directory holds. The two programs the agent writes
 and the timings it reads off the running machine are the deliverable of the
 run, not files committed here. For one demo whose answer *is* kept in full

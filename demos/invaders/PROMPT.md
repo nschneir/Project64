@@ -1,10 +1,5 @@
 # Invaders — the 1978 arcade game, recreated
 
-A faithful Space Invaders in pure 6502 assembly — custom multicolor
-charset, hardware sprites, the authentic one-invader-per-tick march
-engine, three-voice SID, and an explicit audit-and-improve loop that
-runs until every spec bullet passes.
-
 Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 skill, and docs/cli.md), build the closest recreation of the 1978 arcade
 Space Invaders that a Commodore 64 can express — pure 6502 assembly with
@@ -21,7 +16,7 @@ invaders, shields, and HUD (drawn at $0400 with color RAM at $D800 —
 design your own invader glyphs rather than settling for stock PETSCII),
 and use **hardware sprites** for the smooth movers: the laser base, the
 player shot, and the mystery UFO
-(docs/superpowers/specs/graphics-and-sprites.md has the authoring and testing rules).
+(docs/graphics-and-sprites.md has the authoring and testing rules).
 The keyboard replaces the arcade controls: A/D held down move the laser
 base, space fires.
 
@@ -115,7 +110,7 @@ flavours in flight; the UFO sprite crossing (with $D015 showing which
 sprites are live); your SID shadow bytes captured mid-heartbeat; wave 2
 starting lower than wave 1; a game over; and a second game whose
 HI-SCORE is the first game's final score. Collect the screenshots as
-evidence PNGs per docs/superpowers/specs/graphics-and-sprites.md.
+evidence PNGs per docs/graphics-and-sprites.md.
 
 **Ship it.** When everything passes, package the game so anyone with
 stock VICE can play it: `c64 package` your source into
@@ -125,16 +120,3 @@ and tell the user the exact run command `c64 package` prints
 (`x64sc -ntsc invaders.d64` — the video-standard flag keeps the timing
 you tested). On a real keyboard, the $CB scan then gives them exactly
 the held-key controls you tested.
-
-**What success looks like:** an assembled program with a BASIC SYS stub
-and the full arcade loop — attract screen → waves → game over → attract —
-plus the one-invader-per-tick march engine (so the speed-up is emergent),
-sprite-based base/shot/UFO over a custom-charset multicolor formation,
-eroding shields, three bomb types, the UFO shot-count secret, and rich
-three-voice SID sound (real ADSR, mixed waveforms, filtered effects) with
-a heartbeat that audibly quickens; then a written fidelity audit with every spec
-bullet marked pass, the deterministic evidence trail above, and finally an
-`invaders.d64` the user can autostart in stock VICE and play with A/D and
-space. Expect the agent to live in the debugger and to spend several
-review cycles closing the gap between "it runs" and "it's Space
-Invaders."

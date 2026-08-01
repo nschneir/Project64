@@ -1,10 +1,5 @@
 # Ms. Muncher — the 1982 maze chase, recreated
 
-An arcade-faithful maze chase in pure 6502 assembly — custom multicolor
-charset, six hardware sprites, the real per-ghost targeting rules,
-three animated cut scenes, three-voice SID, and an explicit
-audit-and-improve loop that runs until every spec bullet passes.
-
 Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 skill, and docs/cli.md), build the closest recreation of the 1982 arcade
 *Ms. Pac-Man* that a Commodore 64 can express — pure 6502 assembly with a
@@ -37,7 +32,7 @@ Six sprites of the VIC-II's eight, so no multiplexing is needed. They
 carry real animation: Ms. Muncher's mouth cycling with her direction,
 and her bow; each ghost's own body and eye direction, its frightened
 state, and the eyes-only state that floats home.
-(docs/superpowers/specs/graphics-and-sprites.md has the authoring and
+(docs/graphics-and-sprites.md has the authoring and
 testing rules.)
 
 **The arcade spec — recreate each of these faithfully:**
@@ -166,7 +161,7 @@ yourself) for held steering, `c64 key type` for buffered presses, and
 step the game with `c64 until` on your per-tick label, reading the
 screen and registers between frames. Collect evidence PNGs into
 `demos/ms-muncher/evidence/` per
-docs/superpowers/specs/graphics-and-sprites.md: the title screen; each of
+docs/graphics-and-sprites.md: the title screen; each of
 the four mazes; ghosts in scatter, in chase, frightened, and reduced to
 eyes; the fruit mid-lap; each of the three acts (reached with the hidden
 keys); a death; a game over; the high-score entry; and SID shadow bytes
@@ -182,15 +177,5 @@ lands beside it), and tell the user the exact run command `c64 package`
 prints — including the video-standard flag, so they get the timing you
 tested.
 
-**What success looks like:** an assembled program with a BASIC SYS stub
-and the full arcade loop — attract screen with a self-playing demo →
-boards → acts → game over → high-score entry → attract — with four
-rotating mazes on an original multicolor charset, six sprites carrying
-Ms. Muncher, the four named ghosts and a travelling fruit,
-per-personality targeting with randomized scatter openings so no pattern
-survives, the speed classes reproduced continuously, three real animated
-cut scenes, and three-voice SID music and effects; then a fidelity audit
-in `AUDIT.md` with every spec bullet marked pass, the deterministic
-evidence trail above, and an `ms-muncher.d64` the user can autostart in
-stock VICE. Nothing here is borrowed but the rules — and the rules are
-borrowed exactly.
+Nothing here is borrowed but the rules — and the rules are borrowed
+exactly.

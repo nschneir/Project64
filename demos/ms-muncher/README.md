@@ -14,6 +14,18 @@ code has been generated from it yet. When the prompt is run, the plan
 evidence frames, and the packaged disk will land here, the way a finished
 run looks in [`demos/invaders/`](../invaders/).
 
+**What a passing run shows.** An assembled program with a BASIC SYS stub
+and the full arcade loop — attract screen with a self-playing demo →
+boards → acts → game over → high-score entry → attract — with four
+rotating mazes on an original multicolor charset, six sprites carrying
+Ms. Muncher, the four named ghosts and a travelling fruit,
+per-personality targeting with randomized scatter openings so no pattern
+survives, the speed classes reproduced continuously, three real animated
+cut scenes, and three-voice SID music and effects; then a fidelity audit
+in `AUDIT.md` with every spec bullet marked pass, the deterministic
+evidence trail the prompt calls for, and an `ms-muncher.d64` the user can
+autostart in stock VICE.
+
 ## The hidden keys
 
 The prompt specifies three undocumented keys, active on the title screen

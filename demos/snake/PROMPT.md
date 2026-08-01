@@ -1,10 +1,5 @@
 # Snake — a complete arcade game in 6502 assembly
 
-An arcade Snake written straight to screen memory and color RAM: title
-screen, playfield, held-key steering, SID effects, rising levels, and a
-high score that survives the session. It runs the assembler-and-debugger
-workflow end to end.
-
 Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 skill, and docs/cli.md), build a complete arcade-style Snake game for a
 Commodore 64 in 6502 assembly, working directly with screen memory at
@@ -23,7 +18,7 @@ game should look vivid, not monochrome: write color RAM ($D800) alongside
 every character you draw, and give the title, border, snake, food, and HUD
 their own distinct colors. Use a custom character set to give the snake,
 food, and other elements a more realistic look
-(docs/superpowers/specs/graphics-and-sprites.md has the authoring and
+(docs/graphics-and-sprites.md has the authoring and
 testing rules). I want the whole arcade experience, not just a moving
 snake:
 
@@ -79,7 +74,7 @@ matrix codes, `c64 key type` sends buffered presses, and stepping the main
 loop (`c64 until` on your per-move label) advances an exact number of
 frames so you can read the screen between them. Collect evidence PNGs into
 `demos/snake/evidence/` per
-docs/superpowers/specs/graphics-and-sprites.md, each captured from the
+docs/graphics-and-sprites.md, each captured from the
 stopped machine: the title screen; the playfield mid-game with the snake
 grown and food on the board; a level change (the speed-up and the new
 snake color); a game over showing the final score; a second game whose
@@ -96,15 +91,3 @@ with `--title "SNAKE"` (the `.prg` lands beside it), and tell the user the
 exact run command `c64 package` prints — including the video-standard
 flag, so they get the timing you tested. On a real keyboard, the $CB scan
 then gives them exactly the held-key steering you tested.
-
-**What success looks like:** an assembled program with a BASIC SYS stub
-and a real game state machine (title → play → game over → play again),
-$CB held-key steering, a custom charset and deliberate color across the
-title, border, snake, food and HUD, SID sound effects with shadowed
-registers, and a jiffy-paced main loop that quickens per level; then an
-audit in `AUDIT.md` with every spec bullet marked pass, the deterministic
-evidence trail above — including a second run whose game-over screen shows
-the surviving high score — a `test.yaml` that passes under `c64 test run`,
-and a `snake.d64` the user can autostart in stock VICE and play with
-W/A/S/D. Expect the agent to lean on the debugger (and the frame-stepping
-recipe in the cookbook) to get there.

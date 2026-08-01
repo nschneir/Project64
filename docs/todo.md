@@ -242,7 +242,7 @@ ships beside its sources.
       `c64 sprite from-png` (`sprite_from_png` in `src/c64lib/cli.py`, via
       `sprites.sprite_from_image`) handles 24×21 sprites only; charset and
       bitmap conversion is the one bullet still open in §6 of
-      `docs/superpowers/specs/graphics-and-sprites.md` (the pixel-assertion
+      `docs/graphics-and-sprites.md` (the pixel-assertion
       bullet beside it was ruled out 2026-07-30). What blocks it is a
       target-format decision — 8×8 charset cells versus a full 320×200
       hires / 160×200 multicolor bitmap plus screen and color RAM — and the

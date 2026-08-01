@@ -85,29 +85,42 @@ Cursor, Gemini CLI, Google Antigravity, and Crush.
 
 ## Demos — try it with your AI agent
 
-[`demos/`](demos/) is a set of ready-to-run prompts in three tiers. The
-**test demos** are graded exercises, from a first BASIC program through a
-sprite bouncing ball and a sieve benchmark to a machine-level debug hunt.
-The **game demos** are complete builds with their own fidelity bars: an
-arcade Snake in 6502 assembly with held-key steering and rising levels; an
-arcade-faithful Invaders with sprites, three-voice sound, waves, and a
-packaged disk image; a maze chase with animated cut scenes; and a fixed
-shooter with a multiplexed 40-enemy formation. **Miscellaneous cool stuff**
-is everything else worth building — today, a bitmap-graphics demo that
-paints rotating shapes to a SID arrangement of the 1812 Overture. Set up
-your agent (one section up — or use any shell agent with no setup), give it
-a demo's `PROMPT.md`, and watch it write, run, and debug real C64 software
-on the emulated machine.
+[`demos/`](demos/) is a set of ready-to-run prompts in three tiers.
+[Setup your agent](docs/agent-setup.md), give it a demo's `PROMPT.md`, and
+watch it write, run, and debug real C64 software on the emulated machine.
 
-A prompt's status flips only when a real agent run passes on the emulated
-machine: the test demos and Invaders have passed theirs; Snake passed as a
-test demo and is awaiting a run under its promoted game-demo prompt; 1812,
-Ms. Muncher, and La Galaxia are still awaiting a first run. Every demo
-outside the test tier keeps the result —
-[`demos/invaders/`](demos/invaders/) has the sources an agent wrote, its
-[fidelity audit](demos/invaders/AUDIT.md), a regression test, and a
-runnable `invaders.d64` — `x64sc -ntsc demos/invaders/invaders.d64` and play
-it with A/D and space.
+**Test demos** — graded exercises; start at 01 if you're new:
+
+| # | Demo | Language | Status |
+|---|------|----------|--------|
+| 01 | [Guess the number](demos/01-guess-the-number/) | BASIC | ✅ dogfooded |
+| 02 | [Bouncing ball (sprite)](demos/02-bouncing-ball/) | BASIC | ✅ dogfooded |
+| 03 | [Sieve benchmark](demos/03-sieve-benchmark/) | BASIC + asm | ✅ dogfooded |
+| 04 | [Debug hunt](demos/04-debug-hunt/) | BASIC + debugger | ✅ dogfooded |
+
+**Game demos** — complete builds with sprites, custom charsets, and
+three-voice SID sound:
+
+| Demo | Language | Status |
+|------|----------|--------|
+| [Snake](demos/snake/) | 6502 assembly | 🔲 awaiting dogfood |
+| [Invaders](demos/invaders/) | 6502 assembly | ✅ dogfooded |
+| [Ms. Muncher](demos/ms-muncher/) | 6502 assembly | 🔲 awaiting dogfood |
+| [La Galaxia](demos/la-galaxia/) | 6502 assembly | 🔲 awaiting dogfood |
+
+**Miscellaneous cool stuff**:
+
+| Demo | Language | Status |
+|------|----------|--------|
+| [1812](demos/1812/) | 6502 assembly | 🔲 awaiting dogfood |
+
+A status flips to ✅ only when a real agent run passes on the emulated
+machine ([`demos/`](demos/#readme) has the fine print). Every demo outside
+the test tier keeps its whole solution — [`demos/invaders/`](demos/invaders/)
+has the sources an agent wrote, its
+[fidelity audit](demos/invaders/AUDIT.md), a regression test, and a runnable
+`invaders.d64` — `x64sc -ntsc demos/invaders/invaders.d64` and play it with
+A/D and space.
 
 <p align="center">
   <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">

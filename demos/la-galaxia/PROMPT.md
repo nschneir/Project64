@@ -1,12 +1,5 @@
 # La Galaxia — the 1981 arcade fixed-shooter, recreated
 
-A forty-enemy formation shooter in pure 6502 assembly — a hybrid engine
-that parks settled aliens in character RAM and hands each diver a
-multiplexed hardware sprite, five scripted entrance waves off trajectory
-lookup tables, the tractor beam that steals your fighter and the rescue
-that doubles it, three-voice SID, and an audit-and-improve loop that runs
-until every claim in this document passes.
-
 Using the c64 CLI (see skills/c64-development/SKILL.md, the 6502-assembly
 skill, and docs/cli.md), build the closest recreation of the 1981
 Midway/Namco arcade game *Galaga* that a Commodore 64 can express — pure
@@ -543,7 +536,7 @@ sample it while the machine is stopped.
 **Required evidence.** Capture each checkpoint with `c64 screen --png
 demos/la-galaxia/evidence/<name>.png --scale 2` while the machine is
 **stopped** — a screenshot taken while it runs is a race — per
-docs/superpowers/specs/graphics-and-sprites.md. These PNGs are committed
+docs/graphics-and-sprites.md. These PNGs are committed
 with the demo.
 
 | File | What it must prove |
@@ -587,18 +580,5 @@ with `--title "LA GALAXIA"` (the `.prg` lands beside it), and report the
 exact run command `c64 package` prints — including the video-standard
 flag, so the player gets the timing the evidence was captured under.
 
----
-
-**What success looks like:** an assembled program with a BASIC SYS stub
-and the full arcade loop — title → entrance waves → dives → challenging
-stage → game over → title — with the 40-enemy formation settled in
-character RAM and every diver handed to a raster-IRQ multiplexer that
-never overflows, five scripted entrances off trajectory LUTs, a tractor
-beam that takes your fighter and a mid-flight rescue that gives you two,
-transforming enemies, the no-fire challenging stages with their 10,000
-point PERFECT bonus, and three-voice SID with music that ducks under the
-effects; then a fidelity audit in `AUDIT.md` with every claim marked pass
-and the iterations that got it there, the evidence trail above captured
-from the stopped machine, and a `la-galaxia.d64` the user can autostart
-in stock VICE. Nothing here is borrowed but the rules — and the rules are
-borrowed exactly.
+Nothing here is borrowed but the rules — and the rules are borrowed
+exactly.
