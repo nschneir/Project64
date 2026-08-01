@@ -457,8 +457,9 @@ def mem_read(ctx, addr, length, decimal, as_):
     line names it ("# text column: screen codes"). By default the gloss
     follows the *live* screen (relocation included), so screen RAM reads as
     screen codes instead of ASCII gibberish; --as overrides it anywhere.
-    JSON output always includes "hex", "bytes" (a decimal int array), and
-    "text_encoding". Does not disturb run/stop state.
+    JSON output always includes "hex", "bytes" and "values" (the same
+    decimal int array under both keys, so `mem get`-shaped scripts work
+    here too), and "text_encoding". Does not disturb run/stop state.
     """
     s = attach(ctx)
     start = resolve_ref(ctx, session_labels(s), addr, session=s)
@@ -473,7 +474,8 @@ def mem_read(ctx, addr, length, decimal, as_):
     label = GUTTER_LABELS[encoding] + (" (VIC state unreadable)" if degraded
                                        else "")
     emit(ctx, {"addr": start, "length": len(data), "hex": data.hex(),
-               "bytes": list(data), "text_encoding": encoding},
+               "bytes": list(data), "values": list(data),
+               "text_encoding": encoding},
          _decdump(start, data) if decimal
          else _hexdump(start, data, encoding, label))
 
@@ -546,7 +548,7 @@ def mem_get(ctx, addr, length):
             data = mon.memory_read(start, n)
         finally:
             mon.release()
-    emit(ctx, {"addr": start, "values": list(data)},
+    emit(ctx, {"addr": start, "values": list(data), "bytes": list(data)},
          " ".join(str(b) for b in data))
 
 

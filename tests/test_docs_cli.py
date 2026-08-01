@@ -47,6 +47,17 @@ def test_disk_build_documents_its_labels_key_and_lbl_side_effect():
     assert ".lbl" in section, "the `.lbl` files build writes are undocumented"
 
 
+def test_mem_get_and_mem_read_document_the_shared_byte_keys():
+    """Both payloads carry both `values` and `bytes` since the dogfood filed
+    the one-key-each mismatch as a silent KeyError trap."""
+    text = DOC.read_text()
+    # `_section` runs to the next `---`, and `mem read`'s block contains the
+    # `mem get` entry — cut at it, or `mem get`'s `values` answers for both.
+    read = _section(text, "### `c64 mem read`").split("### `c64 mem get`")[0]
+    assert '"bytes"' in _section(text, "### `c64 mem get`")
+    assert '"values"' in read
+
+
 def test_disk_validate_documents_its_damage_findings():
     """`validate` is the one verb where a DOS status line is a finding about
     the image rather than a failed operation, so it reports rather than

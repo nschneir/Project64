@@ -242,8 +242,9 @@ building in spare RAM), `--as petscii` suits keyboard-buffer and
 CHROUT-bound bytes, and `--as ascii` restores the old unconditional gloss.
 `c64 screen --codes` remains the purpose-built view of the whole screen.
 
-JSON: `{"addr", "length", "hex", "bytes", "text_encoding"}` (`hex` is the
-bytes hex-encoded; `"bytes"` is always present as a decimal int array;
+JSON: `{"addr", "length", "hex", "bytes", "values", "text_encoding"}` (`hex`
+is the bytes hex-encoded; `"bytes"` and `"values"` are the same decimal int
+array — `values` mirrors `mem get`'s key so a script can use either;
 `"text_encoding"` is the resolved gloss — `screen`, `petscii`, or `ascii`).
 Machine state preserved.
 
@@ -253,7 +254,9 @@ Machine state preserved.
 
 Print LENGTH (default 1) byte values at ADDR in decimal — bare,
 space-separated, pipe-friendly (`[ $(c64 mem get score) -gt 0 ]`). JSON:
-`{"addr": N, "values": [ints]}`. ADDR takes everything the rest of the CLI
+`{"addr": N, "values": [ints], "bytes": [ints]}` — the two arrays are
+identical; `bytes` mirrors `mem read`'s key so a script written against
+either command works against both. ADDR takes everything the rest of the CLI
 does — `$hex`/`0x`/decimal, a symbol from the loaded label file,
 `symbol+offset`, or a screen cell `@row,col`. Does not disturb run/stop
 state. (MCP note:

@@ -90,6 +90,8 @@ def test_mem_read_includes_bytes():
         S.attach.return_value = s
         err, out = call_tool("c64_mem_read", {"addr": "$0400", "length": 2})
     assert err is False and out["bytes"] == [42, 0] and out["hex"] == "2a00"
+    # CLI lockstep: `values` mirrors `bytes` so `mem get`-shaped code works
+    assert out["values"] == out["bytes"]
 
 
 def test_mem_read_reports_the_resolved_text_encoding():

@@ -203,7 +203,8 @@ def c64_mem_read(addr: str, length: int = 256, session: str | None = None,
                  encoding: str = "auto") -> dict:
     """Read emulated memory. addr accepts $hex, 0xhex, decimal, or a symbol
     from the loaded label file. Returns hex-encoded bytes plus "bytes" as a
-    decimal int array. "text_encoding" names how these bytes decode to text:
+    decimal int array, mirrored under "values" (the CLI `mem get` key).
+    "text_encoding" names how these bytes decode to text:
     encoding="auto" resolves to "screen" when the range is on the live screen
     (screen RAM holds screen codes, not ASCII) and "ascii" otherwise; pass
     "screen", "petscii", or "ascii" to say so yourself."""
@@ -217,7 +218,8 @@ def c64_mem_read(addr: str, length: int = 256, session: str | None = None,
         finally:
             mon.release()
     return {"addr": a, "length": len(data), "hex": data.hex(),
-            "bytes": list(data), "text_encoding": resolved}
+            "bytes": list(data), "values": list(data),
+            "text_encoding": resolved}
 
 
 @srv.tool()

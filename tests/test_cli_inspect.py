@@ -331,7 +331,21 @@ def test_mem_get_json_values():
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "mem", "get", "$0400", "3"])
-    assert json.loads(r.output) == {"addr": 0x0400, "values": [1, 2, 3]}
+    assert json.loads(r.output) == {
+        "addr": 0x0400, "values": [1, 2, 3], "bytes": [1, 2, 3]}
+
+
+def test_mem_read_and_mem_get_share_byte_array_keys():
+    """A script written against either command's key works against both —
+    the dogfood filed the silent KeyError as a tool bug."""
+    fake, mon = _fake()
+    mon.memory_read.return_value = bytes([42])
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        rd = CliRunner().invoke(
+            main, ["--json", "mem", "read", "$0400", "1", "--as", "ascii"])
+    out = json.loads(rd.output)
+    assert out["values"] == out["bytes"] == [42]
 
 
 def test_mem_find_pattern():
