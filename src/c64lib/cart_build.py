@@ -459,6 +459,21 @@ _ML_START = """\
         jmp     ${load_addr:04X}
 """
 
+# Regions the launcher cannot copy into, beyond the cart window itself. The
+# launcher runs with the banking the KERNAL reset left in place and never
+# touches $01: BASIC ROM and the KERNAL stay mapped and $D000-$DFFF is I/O.
+# A copy into a ROM shadow lands in RAM the jump reads back as ROM; a copy
+# into $D000 pokes the VIC/SID/CIA registers live. The window overlap is
+# checked separately, first, because its message names the cart type.
+_WRAP_NO_COPY = (
+    (0xA000, 0xBFFF, "sits under the BASIC ROM, which the launcher never "
+                     "banks out — the copy would land beneath the "
+                     "interpreter and the jump would read ROM back"),
+    (0xD000, 0xDFFF, "is the I/O area — the copy's writes would poke the "
+                     "VIC/SID/CIA registers live instead of filling RAM"),
+    (0xE000, 0xFFFF, "sits under the KERNAL ROM the launcher runs through"),
+)
+
 # What the launcher itself costs, so the fit check can reserve it before any
 # tool runs. Measured with ca65/ld65 against the 8k wrap config: 89 bytes for
 # the BASIC variant, 64 for ML. The reservation is rounded up to leave room
@@ -582,9 +597,20 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
                 "The launcher's copy would land beneath ROM and the jump would "
                 "read ROM back, so the cartridge would boot into the wrapped "
                 "image's own bytes. Relocate the program below "
-                f"${ROML_START:04X} or to $C000 or above ($A000-$BFFF sits "
-                "under the BASIC ROM, which the launcher never banks out), or "
-                "write it as cart-native code and build it without --wrap")
+                f"${ROML_START:04X} or into $C000-$CFFF ($A000-$BFFF sits under "
+                "the BASIC ROM, $D000-$DFFF is I/O, and $E000-$FFFF sits under "
+                "the KERNAL), or write it as cart-native code and build it "
+                "without --wrap")
+
+        for lo, hi, why in _WRAP_NO_COPY:
+            if load_addr <= hi and prog_end > lo:
+                raise CartError(
+                    f"{source}: the program occupies ${load_addr:04X}-"
+                    f"${prog_end - 1:04X}, and ${lo:04X}-${hi:04X} {why}. "
+                    "The cartridge would build, pass cart_verify, and boot "
+                    f"dead. Relocate the program below ${ROML_START:04X} or "
+                    "into $C000-$CFFF, or write it as cart-native code and "
+                    "build it without --wrap")
 
         budget = ct.image_bytes
         if len(body) + LAUNCHER_BYTES > budget:

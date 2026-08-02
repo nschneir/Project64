@@ -632,8 +632,12 @@ cartridge maps ROM over `$8000-$BFFF`, which covers the BASIC interpreter at
 `10 SYS` stub the standard `.s` layout emits — must be wrapped as `8k`.
 A program that loads into the mapped window itself — `$8000-$9FFF` for `8k`,
 `$8000-$BFFF` for `16k` — is rejected for the same reason: the launcher's copy
-would land under cart ROM and the jump would read the ROM back. Relocate it
-(below `$8000`, or at `$C000` or above), or write it as cart-native code.
+would land under cart ROM and the jump would read the ROM back. So are the
+other regions the launcher cannot copy into: `$A000-$BFFF` (under the BASIC
+ROM, which the launcher never banks out), `$D000-$DFFF` (I/O — the copy would
+poke the VIC/SID/CIA registers live), and `$E000-$FFFF` (under the KERNAL the
+launcher runs through). Relocate it (below `$8000`, or into `$C000-$CFFF`), or
+write it as cart-native code.
 Wrapping into `ultimax` is rejected outright: the launcher chains through the
 KERNAL, and an Ultimax cartridge replaces it. Multi-bank EasyFlash images come
 from `c64 cart build`, not from here.

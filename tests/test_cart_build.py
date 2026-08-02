@@ -260,6 +260,55 @@ def test_wrap_accepts_a_program_above_the_cart_window(tmp_path, monkeypatch):
         wrap_prg(prg, cart_type="16k", title="HI")
 
 
+def test_wrap_rejects_a_program_under_the_basic_rom(tmp_path):
+    """An 8k window ends at $9FFF, but $A000-$BFFF is no better a target: the
+    launcher never banks BASIC out, so the copy lands beneath the interpreter
+    and the jump reads ROM back — the same silent dead cart as the window
+    overlap, one page higher."""
+    prg = tmp_path / "brom.prg"
+    prg.write_bytes(bytes([0x00, 0xA0]) + b"\xA9\x01" * 8)
+    with pytest.raises(CartError, match="BASIC ROM"):
+        wrap_prg(prg, cart_type="8k", title="BROM")
+
+
+def test_a_16k_wrap_at_a000_names_the_window_not_basic(tmp_path):
+    """For a 16k cart $A000 is inside the mapped window itself, and the window
+    message — which names the cart type and both relocation directions — is
+    the more specific diagnosis, so that guard must stay first."""
+    prg = tmp_path / "a0.prg"
+    prg.write_bytes(bytes([0x00, 0xA0]) + b"\xA9\x01" * 8)
+    with pytest.raises(CartError, match="cartridge window"):
+        wrap_prg(prg, cart_type="16k", title="A0")
+
+
+@pytest.mark.parametrize("cart_type", ["8k", "16k"])
+def test_wrap_rejects_a_program_over_the_io_area(tmp_path, cart_type):
+    """$D000-$DFFF is I/O the whole time the launcher runs: the copy would
+    poke the VIC/SID/CIA registers live instead of filling RAM."""
+    prg = tmp_path / "io.prg"
+    prg.write_bytes(bytes([0x00, 0xD0]) + b"\xA9\x01" * 8)
+    with pytest.raises(CartError, match="I/O"):
+        wrap_prg(prg, cart_type=cart_type, title="IO")
+
+
+@pytest.mark.parametrize("cart_type", ["8k", "16k"])
+def test_wrap_rejects_a_program_under_the_kernal(tmp_path, cart_type):
+    prg = tmp_path / "kern.prg"
+    prg.write_bytes(bytes([0x00, 0xE0]) + b"\xA9\x01" * 8)
+    with pytest.raises(CartError, match="KERNAL"):
+        wrap_prg(prg, cart_type=cart_type, title="KERN")
+
+
+def test_wrap_rejects_a_tail_that_crosses_into_io(tmp_path):
+    """The overlap is a range, not a start address: a program at $CF00 whose
+    tail crosses $D000 is rejected for the bytes that would hit the
+    registers, exactly like the window-spill case below $8000."""
+    prg = tmp_path / "iospill.prg"
+    prg.write_bytes(bytes([0x00, 0xCF]) + b"\x00" * 0x200)   # $CF00-$D0FF
+    with pytest.raises(CartError, match="I/O"):
+        wrap_prg(prg, cart_type="8k", title="IOSPILL")
+
+
 def test_wrap_rejects_a_truncated_prg(tmp_path):
     prg = tmp_path / "t.prg"
     prg.write_bytes(b"\x01")
@@ -504,9 +553,14 @@ def test_an_oversized_basic_program_is_not_pointed_at_16k(tmp_path):
 
 
 def test_an_oversized_machine_code_program_still_gets_the_16k_hint(tmp_path):
-    """ML-kind never touches the BASIC ROM, so 16k is a genuine retry for it."""
+    """ML-kind never touches the BASIC ROM, so 16k is a genuine retry for it.
+
+    Loaded at $2000, not $C000: 9K from $C000 runs past $CFFF into the I/O
+    area, which the no-copy guard rejects first — and rightly, since 16k
+    would not save that program either.
+    """
     prg = tmp_path / "m.prg"
-    prg.write_bytes(bytes([0x00, 0xC0]) + b"\xA9\x01" + b"\x00" * 9000)
+    prg.write_bytes(bytes([0x00, 0x20]) + b"\xA9\x01" + b"\x00" * 9000)
     with pytest.raises(CartError, match="--cart-type 16k"):
         wrap_prg(prg, cart_type="8k", title="M")
 

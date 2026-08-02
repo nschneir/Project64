@@ -79,8 +79,13 @@ standard `.s` layout emits — must be `8k`: a 16K cartridge maps ROM over
 `--cart-type 16k` is *rejected* for it rather than being a way to fit more.
 Only a machine-language wrap (one entered with a `JMP`) can use the 16K window.
 Wrapping into `ultimax` is rejected outright for the same reason: the launcher
-calls the KERNAL, and an Ultimax cartridge replaces it. The kind is decided by
-sniffing the image's own bytes, never the file extension.
+calls the KERNAL, and an Ultimax cartridge replaces it.
+The launcher also refuses load addresses it cannot copy to: the mapped window
+itself, `$A000-$BFFF` (under the BASIC ROM), `$D000-$DFFF` (I/O), and
+`$E000-$FFFF` (under the KERNAL) — a machine-language wrap must load below
+`$8000` or in `$C000-$CFFF`.
+The kind is decided by sniffing the image's own bytes, never the file
+extension.
 
 ## Memory modes
 
