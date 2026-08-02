@@ -295,16 +295,19 @@ def test_cli_block_write_rejects_a_poke_past_the_end(tmp_path):
     assert r.exit_code != 0 and "runs past the end" in r.output
 
 
-def test_cli_block_write_reports_a_bad_byte_token(tmp_path):
+def test_cli_block_write_names_the_bad_token_by_index(tmp_path):
     """The ValueError arm: a token that is not a number fails before any
-    c1541 call, as a message naming the token — not a traceback."""
+    c1541 call, as a message rather than a traceback — and parse_byte_values
+    names WHICH token was bad and what forms are legal, the way mem write and
+    mem find do, not Python's positionless "invalid literal for int()"."""
     img = tmp_path / "t.d64"
     img.write_bytes(b"x")
     r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
                                   "1", "0", "$de", "zz"])
     assert r.exit_code != 0
     assert isinstance(r.exception, SystemExit)      # a message, not a traceback
-    assert "zz" in json.loads(r.output)["error"]
+    assert json.loads(r.output)["error"] == \
+        "byte 1 is 'zz', not a number ($hex/0x/decimal)"
 
 
 def test_cli_block_write_reports_an_out_of_range_byte(tmp_path):
@@ -337,20 +340,6 @@ def test_cli_block_write_accepts_a_whitespace_joined_byte_list(tmp_path):
     CliRunner().invoke(main, ["disk", "block", "read", str(img), "1", "0",
                               "-o", str(out)])
     assert out.read_bytes()[4:7] == bytes([0xDE, 0xAD, 0xBE])
-
-
-def test_cli_block_write_names_the_bad_token_by_index(tmp_path):
-    """parse_byte_values names WHICH token was bad and what forms are legal,
-    the way mem write and mem find do — not Python's positionless
-    "invalid literal for int()"."""
-    img = tmp_path / "t.d64"
-    img.write_bytes(b"x")
-    r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
-                                  "1", "0", "$de", "zz"])
-    assert r.exit_code != 0
-    assert isinstance(r.exception, SystemExit)      # a message, not a traceback
-    assert json.loads(r.output)["error"] == \
-        "byte 1 is 'zz', not a number ($hex/0x/decimal)"
 
 
 def test_cli_validate_reports_a_disk_error(tmp_path):
