@@ -72,7 +72,7 @@ boot code can live in a shared `.inc`.
 `--wrap` forces the launcher path for a `.s` that would otherwise be treated as
 cart-native. `.bas` and `.prg` inputs are always wrapped.
 
-**Wrapping has two hard limits, both from the memory map.** A wrapped program
+**Wrapping has three hard limits, all from the memory map.** A wrapped program
 that BASIC has to start — a tokenized `.bas`, or the `10 SYS 2061` stub the
 standard `.s` layout emits — must be `8k`: a 16K cartridge maps ROM over
 `$8000-$BFFF`, which covers the BASIC interpreter the launcher chains into, so

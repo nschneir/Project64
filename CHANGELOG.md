@@ -38,6 +38,18 @@ mapping (`51 + 8*R`), the `.include` resolution contract (now build-tested),
 routine-level unit testing with `c64 call`, the misleading-`until` diagnosis
 row, and a live-tested screen-code-readback collision recipe.
 
+Three cartridge follow-ups changed shipped behavior. `wrap_prg` now refuses
+the load ranges its launcher cannot copy to — `$A000-$BFFF` (under the BASIC
+ROM), `$D000-$DFFF` (I/O) and `$E000-$FFFF` (under the KERNAL) — so a
+machine-language wrap must land below `$8000` or in `$C000-$CFFF`; images
+that used to build, pass `cart_verify` and boot dead are now rejected with
+the relocation named. Every EasyFlash window carries a BSS area in RAM, so
+`.segment "BSS"` links in a banked cart: `$0A00-$7FFF` for the lo and hi
+windows, `$0A00-$0FFF` for the Ultimax boot window, overlapping between banks
+by construction. And a non-cart program's ZEROPAGE area starts at `$0002`
+rather than `$0000`, off the 6510 port registers at `$00`/`$01` — ZEROPAGE
+symbols link two bytes higher than they used to.
+
 ## [0.9.0] — 2026-07-31
 
 Closed out the test-health and observability backlog from dogfooding demo
