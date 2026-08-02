@@ -503,7 +503,10 @@ def profile_routine(session, addr: int, timeout: float = 30.0,
 
     Returns {"fired": bool, "cycles": int|None, "registers": regs-or-None,
     "trap": trap}; cycles/registers are None on timeout (checkpoint removed,
-    machine left running), exactly like call_routine.
+    machine left running), exactly like call_routine. Raises RuntimeError if
+    the timers read back untouched — a raw count of 0, which no routine can
+    cost — instead of reporting the start slack as a measurement; the machine
+    is left stopped at the trap, as on success.
     """
     deadline = time.monotonic() + timeout
     with session.monitor() as mon:
@@ -554,10 +557,21 @@ def profile_routine(session, addr: int, timeout: float = 30.0,
         mon.checkpoint_delete(ck.number)
         ta_v = ta[0] | (ta[1] << 8)
         tb_v = tb[0] | (tb[1] << 8)
-        cycles = ((0xFFFF - tb_v) * 0x10000 + (0xFFFF - ta_v)
-                  + _CIA_START_SLACK)
-        return {"fired": True, "cycles": cycles, "registers": out,
-                "trap": trap}
+        raw = (0xFFFF - tb_v) * 0x10000 + (0xFFFF - ta_v)
+        if raw == 0:
+            # No routine costs 0 raw cycles (a bare RTS is 6), so both timers
+            # reading back $FFFF means the pokes above never reached the chip
+            # model. Adding the slack would report "cycles": 3 — a silent
+            # wrong number. Raised after cleanup: the machine is stopped at
+            # the trap with the timers stopped, exactly as on success.
+            raise RuntimeError(
+                "measured 0 raw cycles, which no routine can cost (a bare "
+                "RTS is 6): the CIA#2 timer pokes never reached the chip "
+                "model — I/O may be banked out (writes to $DD04-$DD0F "
+                "landing in RAM underneath; check $01), or the emulator "
+                "dropped the side-effect writes")
+        return {"fired": True, "cycles": raw + _CIA_START_SLACK,
+                "registers": out, "trap": trap}
 
 
 def run_until(session, addr: int, timeout: float = 30.0, count: int = 1) -> dict:

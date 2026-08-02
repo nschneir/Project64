@@ -756,6 +756,33 @@ def test_profile_routine_timeout_leaves_the_machine_running():
     mon.resume.assert_called()          # machine left running on timeout
 
 
+def test_profile_routine_rejects_an_impossible_zero_count():
+    """Both timers reading back $FFFF is a raw count of 0, which no routine
+    can cost (a bare RTS is 6 cycles): the CIA pokes never reached the chip
+    model. _CIA_START_SLACK would dress that up as "cycles": 3 — a silent
+    wrong number — so it must be an error naming the likely cause."""
+    from c64lib.ops import profile_routine
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},    # entry snapshot
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},    # stopped at the trap
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = [bytes([0xFF, 0xFF]),   # TA untouched
+                                   bytes([0xFF, 0xFF])]   # TB untouched
+    with pytest.raises(RuntimeError, match="chip model"):
+        profile_routine(s, 0xC000)
+    # The guard fires after cleanup: timers stopped, checkpoint deleted, and
+    # the entry I bit restored, exactly as on success.
+    writes = {c.args[0]: c.args[1] for c in mon.memory_write.call_args_list}
+    assert writes[0xDD0E] == b"\x00" and writes[0xDD0F] == b"\x00"
+    mon.checkpoint_delete.assert_called_once_with(7)
+    fl_sets = [c.args for c in mon.set_register.call_args_list
+               if c.args[0] == "FL"]
+    assert fl_sets[-1] == ("FL", 0x20)
+
+
 def _idle_session(pcs):
     """A session whose registers() walks `pcs` and then repeats the last."""
     s, mon = _fake_session()

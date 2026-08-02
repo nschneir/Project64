@@ -494,7 +494,15 @@ instruction through its own RTS.
 
 Counts are wall cycles: badline DMA steals are included, which is the
 frame-budget truth (blank the screen — `$D011` bit 4 — if you want the
-bare instruction cost). Perturbs CIA#2 timers A/B: they are left stopped on
+bare instruction cost).
+
+A run whose timers read back untouched — a raw count of 0, which no real
+routine can cost — is reported as an error naming the likely cause (the CIA
+pokes never reached the chip model, e.g. I/O banked out), never as a
+too-small cycle count; the machine is left stopped at the trap, as on
+success.
+
+Perturbs CIA#2 timers A/B: they are left stopped on
 success, but a run that times out leaves them running — the machine is
 running by then, so they cannot be stopped safely. The same goes for the I
 flag: a timed-out profile leaves it as profile set it (masked, unless

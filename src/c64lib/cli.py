@@ -1267,7 +1267,12 @@ def profile_cmd(ctx, ref, with_irq, timeout):
     s = attach(ctx)
     labels = session_labels(s)
     addr = resolve_ref(ctx, labels, ref, session=s)
-    out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+    try:
+        out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+    except RuntimeError as e:
+        fail(ctx, f"profile {format_addr(labels, addr)}: {e}",
+             extra={"machine": "stopped"})
+        return
     if not out["fired"]:
         fail(ctx, f"profile {format_addr(labels, addr)}: never returned in "
                   f"{timeout}s — machine left running (runaway routine? "

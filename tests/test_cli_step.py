@@ -235,3 +235,18 @@ def test_profile_timeout_is_a_clean_failure():
         r = CliRunner().invoke(main, ["profile", "$C000"])
     assert r.exit_code == 1
     assert "never returned" in r.output
+
+
+def test_profile_impossible_zero_count_is_a_clean_failure():
+    """profile_routine raises RuntimeError when the timers never moved; the
+    CLI must turn that into a message, not a traceback."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine",
+               side_effect=RuntimeError(
+                   "measured 0 raw cycles ... never reached the chip model")), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["profile", "$C000"])
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)      # fail(), not a traceback
+    assert "chip model" in r.output
