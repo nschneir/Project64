@@ -1,0 +1,229 @@
+name: 1812
+machine: c64
+program: 1812.s
+timeout: 120
+
+# Registers, state bytes and screen memory only — never PNG pixels
+# (docs/graphics-and-sprites.md section 4).  The pictures live in evidence/
+# and are for human review; everything asserted here is a byte.
+#
+# ORDER MATTERS.  Every `call:` step is a fake JSR that ends at a trap
+# address, which throws away the PC the demo was running at — so once this
+# file starts unit-testing routines, the demo cannot be resumed.  All the
+# timeline assertions therefore come first, and the routine-level tests are
+# the last thing in the file.
+
+steps:
+  # ======================================================================
+  # 1. the graphics mode (SPEC.md 2.1)
+  # ======================================================================
+  # $D011 bit 7 is the raster MSB, $D016's top three bits and $D018's bit 0
+  # are unused and read as 1, and the colour registers are 4 bits wide — so
+  # every one of these needs its mask.
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: "$D011", mask: { and: "$7f", equals: ["$3b"] } }   # bitmap + DEN + 25 rows
+  - assert: { mem: "$D016", mask: { and: "$1f", equals: ["$18"] } }   # multicolour + 40 cols
+  - assert: { mem: "$D018", mask: { and: "$fe", equals: ["$18"] } }   # screen $0400, bitmap $2000
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }       # black border
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }       # black background
+  - assert: { mem: "$0400", equals: ["$bc", "$bc"] }                  # section 0 palette: 11 / 12
+  - assert: { mem: "$D800", mask: { and: "$0f", equals: ["$0f"] } }   # ...and 15 in colour RAM
+
+  # ======================================================================
+  # 2. the canvas starts black, and the multiply tables are built
+  # ======================================================================
+  # Sampled at the entry to the very first drawshape, so nothing has painted
+  # yet.  A handful of spread-out addresses, since a YAML assert cannot count
+  # 8000 bytes — tools/litcount.py does that in the evidence run.
+  - until:  { ref: drawshape, count: 1 }
+  - assert: { mem: "$2000", equals: [0, 0, 0, 0, 0, 0, 0, 0] }
+  - assert: { mem: "$2F00", equals: [0, 0, 0, 0, 0, 0, 0, 0] }
+  - assert: { mem: "$3E00", equals: [0, 0, 0, 0, 0, 0, 0, 0] }
+  - assert: { mem: shapes,  equals: [0, 0] }
+  - assert: { mem: section, equals: 0 }
+  # qsgen's quarter squares: f(x) = floor(x*x/4) = 0 0 1 2 4 6 9 12 16 20 25 30
+  - assert: { mem: "$C000", equals: [0, 0, 1, 2, 4, 6, 9, 12, 16, 20, 25, 30] }
+  - assert: { mem: "$C200", equals: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+  - assert: { mem: "$C1FE", equals: ["$01"] }        # f(510) = 65025 = $FE01,
+  - assert: { mem: "$C3FE", equals: ["$fe"] }        # the largest entry
+
+  # ======================================================================
+  # 3. the sections progress on their frame budgets (SPEC.md 6.4)
+  # ======================================================================
+  # 2400 / 1500 / 2100 / 1800 / 2400 frames.  `secchange` fires on the
+  # advance itself, so stopping there N times lands on the Nth change.
+  - until:  { ref: secchange, count: 1 }
+  - assert: { mem: frames, equals: [96, 9] }          # 2400
+  - until:  { ref: secchange, count: 1 }
+  - assert: { mem: section, equals: 1 }
+  - assert: { mem: frames, equals: [60, 15] }         # 3900
+  # The live palette bytes, NOT a screen cell: a section change deliberately
+  # does not repaint anything (SPEC.md 3).  A cell only takes the new palette
+  # when a shape of the new section actually covers it, so asserting on
+  # $0400 here would be asserting the opposite of the design.
+  - assert: { mem: palscr, equals: ["$62"] }          # the Marseillaise palette
+  - assert: { mem: palcol, equals: ["$01"] }
+  - until:  { ref: secchange, count: 1 }
+  - assert: { mem: section, equals: 2 }
+  - assert: { mem: frames, equals: [112, 23] }        # 6000
+
+  # ---- shapes only ever accumulate ---------------------------------------
+  # `greater_than` against a sample, never an equality: the counter climbs and
+  # a poll can step over any exact value.
+  - sample: { mem: shapes, as: s0 }
+  - until:  { ref: seqtick, count: 600 }
+  - assert: { mem: shapes, greater_than: s0 }
+  - assert: { mem: dropped, equals: 0 }
+
+  # ======================================================================
+  # 4. the cannon
+  # ======================================================================
+  - until:  { ref: cannonfire, count: 1 }
+  - assert: { mem: section, equals: 3 }
+  - until:  { ref: seqtick, count: 1 }
+  - assert: { mem: flash, between: { min: 1, max: 6 } }
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [1] } }   # the flash,
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [1] } }   # border included
+  # Voice 3 is gated noise through the low-pass filter.  The SID is
+  # write-only, so this shadow block is the only evidence sound happened.
+  - assert: { mem: "sidshadow+18", mask: { and: "$81", equals: ["$81"] } }
+  - assert: { mem: "sidshadow+23", mask: { and: "$04", equals: ["$04"] } }
+  - assert: { mem: "sidshadow+24", equals: ["$1f"] }
+  - until:  { ref: seqtick, count: 8 }
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }   # and back to black
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }
+
+  # ---- sixteen shots, then the finale ------------------------------------
+  - until:  { ref: secchange, count: 1 }
+  - assert: { mem: section, equals: 3 }
+  - assert: { mem: cannons, equals: 16 }
+  - assert: { mem: frames,  equals: [120, 30] }       # 7800
+  - until:  { ref: seqtick, count: 60 }
+  - assert: { mem: section, equals: 4 }
+  - assert: { mem: palscr, equals: ["$67"] }          # the finale palette: 6 / 7
+  - assert: { mem: palcol, equals: ["$01"] }
+  # the bells: voice 3 is a ring-modulated triangle
+  - assert: { mem: "sidshadow+18", mask: { and: "$14", equals: ["$14"] } }
+
+  # ======================================================================
+  # 5. the end: the whole vocabulary used, nothing dropped
+  # ======================================================================
+  - until:  { ref: secchange, count: 1 }
+  - assert: { mem: section,  equals: 4 }
+  - assert: { mem: frames,   equals: [216, 39] }      # 10200
+  - assert: { mem: typeseen, equals: ["$ff", "$03"] } # all ten shape types
+  - assert: { mem: patseen,  equals: ["$ff"] }        # all eight dither patterns
+  - assert: { mem: dropped,  equals: 0 }              # the shape budget fits
+  - assert: { mem: maxcross, between: { min: 1, max: 8 } }  # the crossing ceiling held
+  - assert: { mem: "shapes+1", between: { min: 2, max: 255 } }  # >= 512 shapes drawn
+
+  # ---- the hold ----------------------------------------------------------
+  # `painting` is the observable that says nothing is being drawn: the main
+  # loop never enters drawshape once the section reaches 5.  (The stronger
+  # claim — that `shapes` is byte-for-byte unchanged 120 frames later — needs
+  # comparing two samples, which the runner cannot express, so the evidence
+  # run makes it instead and prints both values.)
+  - until:  { ref: seqtick, count: 4 }
+  - assert: { mem: section, equals: 5 }
+  - assert: { mem: painting, equals: 0 }
+  - assert: { mem: "sidshadow+24", mask: { and: "$0f", equals: [0] } }  # silence
+  - until:  { ref: seqtick, count: 120 }
+  - assert: { mem: section,  equals: 5 }
+  - assert: { mem: painting, equals: 0 }
+
+  # ---- and a key restarts it with a fresh seed ---------------------------
+  # `poke` + `until` is the held-key protocol: the KERNAL's keyboard scan puts
+  # 64 back into $CB every tick, so the matrix code has to be re-poked at the
+  # anchor rather than written once.
+  - until:  { ref: mainloop, count: 1 }
+  - poke:   { addr: "$CB", values: [60] }             # SPACE
+  - until:  { ref: mainloop, count: 1 }
+  - poke:   { addr: "$CB", values: [60] }
+  - until:  { ref: shapedone, count: 1 }
+  - assert: { mem: section, equals: 0 }
+  - assert: { mem: cannons, equals: 0 }
+  - assert: { mem: dropped, equals: 0 }
+  # The restart is the one place the whole screen IS repainted, because it
+  # calls setpal rather than loadpal — a new run starts from a clean canvas.
+  - assert: { mem: palscr, equals: ["$bc"] }          # back to the hymn palette
+  - assert: { mem: "$0400", equals: ["$bc", "$bc", "$bc", "$bc"] }
+
+  # ======================================================================
+  # 6. routine-level unit tests — LAST, because `call` ends the demo's run
+  # ======================================================================
+  # smul, at the four sign quadrants and the extreme
+  - poke:   { addr: MULA, values: [100] }
+  - poke:   { addr: MULB, values: [100] }
+  - call:   { routine: smul }
+  - assert: { mem: MULR, equals: ["$10", "$27"] }     # 10000
+  - poke:   { addr: MULA, values: ["$9c"] }           # -100
+  - poke:   { addr: MULB, values: [100] }
+  - call:   { routine: smul }
+  - assert: { mem: MULR, equals: ["$f0", "$d8"] }     # -10000
+  - poke:   { addr: MULA, values: [127] }
+  - poke:   { addr: MULB, values: [127] }
+  - call:   { routine: smul }
+  - assert: { mem: MULR, equals: ["$01", "$3f"] }     # 16129
+  # umul, unsigned and full range — this is what rndlt scales with
+  - poke:   { addr: MULA, values: [255] }
+  - poke:   { addr: MULB, values: [200] }
+  - call:   { routine: umul }
+  - assert: { mem: MULR, equals: ["$38", "$c7"] }     # 51000; the high byte is
+                                                      # 199, so rndlt(200) tops
+                                                      # out at 199 as it must
+
+  # ---- the vertex transform ---------------------------------------------
+  # At angle 0 a size-64 square spans x 57..102 and y 55..144: the x half-
+  # width is half the y half-width because a multicolour pixel is two screen
+  # pixels wide.  At angle 32 (45 degrees) the same square must read as a
+  # diamond, with a vertex straight above the centre.
+  - poke:   { addr: sh_type,  values: [1] }
+  - poke:   { addr: sh_size,  values: [64] }
+  - poke:   { addr: sh_angle, values: [0] }
+  - poke:   { addr: sh_cx,    values: [80] }
+  - poke:   { addr: sh_cy,    values: [100] }
+  - call:   { routine: xform }
+  - assert: { mem: nvert, equals: 4 }
+  - assert: { mem: vxl, equals: [57, 102, 102, 57] }
+  - assert: { mem: vyl, equals: [55, 55, 144, 144] }
+  - poke:   { addr: sh_angle, values: [32] }
+  - call:   { routine: xform }
+  - assert: { mem: vxl, equals: [80, 111, 80, 48] }
+  - assert: { mem: vyl, equals: [36, 100, 163, 100] }
+
+  # ---- buildedges drops the horizontal edges -----------------------------
+  - poke:   { addr: sh_angle, values: [0] }
+  - call:   { routine: xform }
+  - call:   { routine: buildedges }
+  - assert: { mem: nedge,  equals: 2 }       # 4 sides, 2 of them horizontal
+  - assert: { mem: syminl, equals: [55, 0] }
+  - assert: { mem: symaxl, equals: [144, 0] }
+
+  # ---- spanfill paints bytes, and stamps only the cells it covers --------
+  # The canvas is dirty by now, so zero the bytes under test first.
+  # Row 1, pixels 1..6: cell 0 keeps pixels 1-3 ($3F), cell 1 keeps 0-2
+  # ($FC), cell 2 is untouched.
+  - poke:   { addr: "$2001", values: [0] }
+  - poke:   { addr: "$2009", values: [0] }
+  - poke:   { addr: "$2011", values: [0] }
+  - poke:   { addr: stampcr, values: ["$ff"] }
+  - poke:   { addr: sh_pat, values: [0] }
+  - poke:   { addr: sh_ink, values: [3] }
+  - poke:   { addr: spy,  values: [1] }
+  - poke:   { addr: spxa, values: [1] }
+  - poke:   { addr: spxb, values: [7] }
+  - call:   { routine: spanfill }
+  - assert: { mem: "$2001", equals: ["$3f"] }
+  - assert: { mem: "$2009", equals: ["$fc"] }
+  - assert: { mem: "$2011", equals: [0] }
+  # the 50% checker on two adjacent rows, ink 1 (%01): $44 then $11
+  - poke:   { addr: "$2002", values: [0, 0] }
+  - poke:   { addr: sh_pat, values: [1] }
+  - poke:   { addr: sh_ink, values: [1] }
+  - poke:   { addr: spxa, values: [0] }
+  - poke:   { addr: spxb, values: [8] }
+  - poke:   { addr: spy,  values: [2] }
+  - call:   { routine: spanfill }
+  - poke:   { addr: spy,  values: [3] }
+  - call:   { routine: spanfill }
+  - assert: { mem: "$2002", equals: ["$44", "$11"] }
