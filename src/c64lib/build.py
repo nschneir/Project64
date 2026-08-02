@@ -40,9 +40,14 @@ def _find_tool(name: str, env_var: str) -> str:
 
 
 def linker_config(basic_start: int) -> str:
+    # ZP starts at $0002: $0000/$0001 are the 6510's on-chip port registers,
+    # and ld65 hands out the area from its start — at $0000 the first two
+    # ZEROPAGE bytes an author declares land on the data direction register
+    # and the banking port, and writing the port re-banks the machine under
+    # the running code. Matches cart_build._ZP.
     return f"""\
 MEMORY {{
-    ZP:     start = $0000, size = $0100;
+    ZP:     start = $0002, size = $00FE;
     HEADER: file = %O, start = $0000, size = $0002;
     MAIN:   file = %O, start = ${basic_start:04X}, size = $97FF;
 }}

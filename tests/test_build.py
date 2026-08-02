@@ -15,6 +15,17 @@ def test_linker_config_contents():
         assert seg in cfg
 
 
+def test_zeropage_starts_above_the_6510_port():
+    """$0000/$0001 are the 6510's on-chip port registers, and ld65 hands out
+    the ZP area from its start — so at $0000 the first two ZEROPAGE bytes an
+    author declares land on the data direction register and the banking port,
+    and writing the second re-banks the machine under the running code.
+    Matches the cart configs (cart_build._ZP)."""
+    cfg = linker_config(0x0801)
+    assert "ZP:     start = $0002, size = $00FE;" in cfg
+    assert "start = $0000, size = $0100" not in cfg
+
+
 def _stub_tool(dir: Path, name: str, body: str) -> Path:
     p = dir / name
     p.write_text("#!/usr/bin/env python3\n" + body)
