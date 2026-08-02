@@ -248,13 +248,16 @@ def test_a_9000_byte_program_wraps_into_the_full_16k_window(tmp_path):
 
     A 16K wrap gets one contiguous $8000-$BFFF area: binding the launcher to
     ROML only would cap it at 8K and make that hint a lie.
+
+    Loaded at $2000, not $C000: the only copyable space at $C000 is the 4K
+    below the I/O area, so no 9000-byte program can start there.
     """
     prg = tmp_path / "big.prg"
     body = bytes(range(256)) * 35 + bytes(40)       # 9000 bytes, not $FF-heavy
     assert len(body) == 9000
-    prg.write_bytes(bytes([0x00, 0xC0]) + body)     # loads at $C000 -> ml path
+    prg.write_bytes(bytes([0x00, 0x20]) + body)     # loads at $2000 -> ml path
     res = wrap_prg(prg, cart_type="16k", title="BIG16")
-    assert res["kind"] == "ml" and res["load_addr"] == 0xC000
+    assert res["kind"] == "ml" and res["load_addr"] == 0x2000
     assert cart_verify(res["crt"]) == []
     assert Path(res["bin"]).stat().st_size == 0x4000
     assert body in Path(res["bin"]).read_bytes()
@@ -447,9 +450,13 @@ def test_the_launcher_fits_its_reserved_budget(tmp_path):
 
 @needs_build
 def test_a_program_in_the_old_rejection_band_now_wraps(tmp_path):
-    """8000 bytes was rejected by the round 256-byte estimate and fits."""
+    """8000 bytes was rejected by the round 256-byte estimate and fits.
+
+    Loaded at $2000: 8000 bytes from $C000 would run into the I/O area, which
+    the launcher cannot copy through whatever the size estimate says.
+    """
     prg = tmp_path / "band.prg"
-    prg.write_bytes(bytes([0x00, 0xC0]) + bytes(range(256)) * 31 + bytes(64))
+    prg.write_bytes(bytes([0x00, 0x20]) + bytes(range(256)) * 31 + bytes(64))
     assert prg.stat().st_size == 8002
     res = wrap_prg(prg, cart_type="8k", title="BAND")
     assert cart_verify(res["crt"]) == []
