@@ -22,21 +22,28 @@ a 101-step regression spec, seven evidence frames and `snake.d64`. This
 changelog itself was cut from 843 lines to something a person can actually
 skim.
 
-Out of that dogfood: `c64 profile REF` reports hardware cycle counts for one
-routine (CIA#2 cascade, IRQs masked by default, `--with-irq`), with the MCP
-twin `c64_profile`; and `c64 charset encode` turns ASCII art into charset
-`.byte` rows (multicolor `.123`, hires `.#`), retiring the invaders demo's
-local converter. `-s/--session` is now accepted after the subcommand, like
-`--json`. Disk boots register symbols — `c64 disk boot`,
-`c64 session start --disk/--cart`, and disk test specs pick up a sibling
-`.lbl` (or `disk build`'s first-entry label), silently skipped when absent.
-`mem get`/`mem read` JSON payloads now both carry `values` and `bytes`, and
-`c64 mem write` names a bad byte token instead of dumping a traceback and
-accepts one whitespace-separated byte string; bad LENGTH/COUNT/VALUE args
-across the CLI fail cleanly too. Newly documented: the sprite-Y ↔ text-row
-mapping (`51 + 8*R`), the `.include` resolution contract (now build-tested),
-routine-level unit testing with `c64 call`, the misleading-`until` diagnosis
-row, and a live-tested screen-code-readback collision recipe.
+Out of that dogfood: `c64 profile REF` reports hardware cycle counts for
+one routine (CIA#2 cascade, IRQs masked by default, `--with-irq`), with the
+MCP twin `c64_profile` — and it refuses an impossible measurement,
+reporting an error when the timers read back untouched (a raw count of 0,
+which no routine can cost, and which the start slack used to dress up as
+`"cycles": 3`), with the machine left stopped at the trap as on success;
+and `c64 charset encode` turns ASCII art into charset `.byte` rows
+(multicolor `.123`, hires `.#`), retiring the invaders demo's local
+converter. `-s/--session` is now accepted after the subcommand, like
+`--json`. Disk boots register symbols — `c64 disk boot`, `c64 session start
+--disk/--cart`, and disk test specs pick up a sibling `.lbl` (or `disk
+build`'s first-entry label), silently skipped when absent. `mem get`/`mem
+read` JSON payloads now both carry `values` and `bytes`, and `c64 mem
+write` names a bad byte token instead of dumping a traceback and accepts
+one whitespace-separated byte string — and so do `c64 disk block write`'s
+VALUES, which take those same tokens as separate arguments or as one
+whitespace-joined string (what an unquoted zsh variable expands to), naming
+a bad value by its position; bad LENGTH/COUNT/VALUE args across the CLI
+fail cleanly too. Newly documented: the sprite-Y ↔ text-row mapping (`51 +
+8*R`), the `.include` resolution contract (now build-tested), routine-level
+unit testing with `c64 call`, the misleading-`until` diagnosis row, and a
+live-tested screen-code-readback collision recipe.
 
 Three cartridge follow-ups changed shipped behavior. `wrap_prg` now refuses
 the load ranges its launcher cannot copy to — `$A000-$BFFF` (under the BASIC

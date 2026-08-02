@@ -502,13 +502,12 @@ pokes never reached the chip model, e.g. I/O banked out), never as a
 too-small cycle count; the machine is left stopped at the trap, as on
 success.
 
-Perturbs CIA#2 timers A/B: they are left stopped on
-success, but a run that times out leaves them running — the machine is
-running by then, so they cannot be stopped safely. The same goes for the I
-flag: a timed-out profile leaves it as profile set it (masked, unless
-`--with-irq`), so the jiffy clock stays frozen and the keyboard stays dead
-until you clear it — `c64 reg set FL ...` with the I bit off, or a session
-restart, recovers.
+Perturbs CIA#2 timers A/B: they are left stopped on success, but a run
+that times out leaves them running — the machine is running by then, so
+they cannot be stopped safely. The same goes for the I flag: a timed-out
+profile leaves it as profile set it (masked, unless `--with-irq`), so the
+jiffy clock stays frozen and the keyboard stays dead until you clear it —
+`c64 reg set FL ...` with the I bit off, or a session restart, recovers.
 The machine ends STOPPED at the trap, like `c64 call`. Sessions started
 before this verb existed need a `c64 session stop`/`start` once (the old
 daemon predates a monitor argument profile uses).
