@@ -22,7 +22,6 @@ from .disasm import disassemble
 from .disk import (
     BLOCK_SIZE,
     DiskError,
-    block_bytes,
     block_poke,
     block_read,
     block_write_file,
@@ -1612,7 +1611,7 @@ def disk_block_write(ctx, image, track, sector, values, src, offset):
             block_write_file(image, track, sector, src)
             written, where = BLOCK_SIZE, "whole sector"
         else:
-            data = block_bytes(parse_number(v) for v in values)
+            data = parse_byte_values(values)
             block_poke(image, track, sector, offset, data)
             written, where = len(data), f"offset {offset}"
     except (DiskError, ValueError) as e:

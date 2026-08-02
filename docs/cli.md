@@ -886,9 +886,10 @@ Write a sector, wholesale or in part.
 - `--from FILE` — replace the whole sector from a file of exactly 256 bytes.
 - `VALUES…` with `--offset N` — poke bytes at an offset, leaving the rest of
   the sector alone (`$hex`/`0x`/decimal, the same tokens `c64 mem write`
-  takes). `--offset` belongs to this form only; giving it with `--from` is
-  refused rather than ignored, since a whole-sector write has nothing to
-  offset.
+  takes: separate arguments or a single whitespace-separated string, which
+  is what a shell variable expands to; a bad value is named by position).
+  `--offset` belongs to this form only; giving it with `--from` is refused
+  rather than ignored, since a whole-sector write has nothing to offset.
 
 ```
 c64 disk block write game.d64 1 0 --from sector.bin

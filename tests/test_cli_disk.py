@@ -309,7 +309,7 @@ def test_cli_block_write_reports_a_bad_byte_token(tmp_path):
 
 def test_cli_block_write_reports_an_out_of_range_byte(tmp_path):
     """Same arm, other half: 300 is not a byte. The CLI routes VALUES through
-    block_bytes, so the message names the offending value and its position
+    parse_byte_values, so the message names the offending value and its position
     rather than repeating Python's positionless "bytes must be in range(0,
     256)"."""
     img = tmp_path / "t.d64"
@@ -320,6 +320,37 @@ def test_cli_block_write_reports_an_out_of_range_byte(tmp_path):
     assert isinstance(r.exception, SystemExit)
     err = json.loads(r.output)["error"]
     assert err == "byte 1 is 300, out of range for a byte (0-255)", err
+
+
+@needs_c1541
+def test_cli_block_write_accepts_a_whitespace_joined_byte_list(tmp_path):
+    """A shell variable holding "$de $ad $be" reaches the CLI as ONE argument
+    (zsh does not word-split unquoted expansions). mem write learned to split
+    such a token, and this command's own help promises "the same tokens
+    `c64 mem write` takes" — so it must split too, not die in parse_number."""
+    img = make_image(tmp_path)
+    r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
+                                  "1", "0", "$de $ad $be", "--offset", "4"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output)["written"] == 3
+    out = tmp_path / "back.bin"
+    CliRunner().invoke(main, ["disk", "block", "read", str(img), "1", "0",
+                              "-o", str(out)])
+    assert out.read_bytes()[4:7] == bytes([0xDE, 0xAD, 0xBE])
+
+
+def test_cli_block_write_names_the_bad_token_by_index(tmp_path):
+    """parse_byte_values names WHICH token was bad and what forms are legal,
+    the way mem write and mem find do — not Python's positionless
+    "invalid literal for int()"."""
+    img = tmp_path / "t.d64"
+    img.write_bytes(b"x")
+    r = CliRunner().invoke(main, ["--json", "disk", "block", "write", str(img),
+                                  "1", "0", "$de", "zz"])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)      # a message, not a traceback
+    assert json.loads(r.output)["error"] == \
+        "byte 1 is 'zz', not a number ($hex/0x/decimal)"
 
 
 def test_cli_validate_reports_a_disk_error(tmp_path):
