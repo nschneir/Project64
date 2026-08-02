@@ -683,7 +683,7 @@ def test_the_launcher_budget_is_a_measured_number():
     have had. test_the_launcher_fits_its_reserved_budget assembles both
     variants and fails if 128 stops being enough.
     """
-    assert LAUNCHER_BYTES == 128           # measured: 102 (basic), 76 (ml)
+    assert LAUNCHER_BYTES == 128           # measured: 102 (basic), 77 (ml)
     band = 8000                            # rejected at 256, accepted at 128
     assert band + 256 > 8192 >= band + LAUNCHER_BYTES
 

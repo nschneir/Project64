@@ -475,8 +475,8 @@ _WRAP_NO_COPY = (
 )
 
 # What the launcher itself costs, so the fit check can reserve it before any
-# tool runs. Measured with ca65/ld65 against the 8k wrap config: 89 bytes for
-# the BASIC variant, 64 for ML. The reservation is rounded up to leave room
+# tool runs. Measured with ca65/ld65 against the 8k wrap config: 102 bytes for
+# the BASIC variant, 77 for ML. The reservation is rounded up to leave room
 # for edits to the stub; test_the_launcher_fits_its_reserved_budget assembles
 # both variants and fails if this stops being true.
 LAUNCHER_BYTES = 128

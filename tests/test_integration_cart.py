@@ -319,12 +319,18 @@ def test_cart_inc_assembles_into_a_banked_easyflash(tmp_path):
 @needs_build
 def test_ef_bank_bss_links_into_ram(tmp_path):
     """`.segment "BSS"` must link in every EasyFlash window — including the
-    boot window — resolve to RAM at $0A00, and cost no image bytes."""
+    boot window — resolve to RAM at $0A00, cost no image bytes, and in the
+    boot window stop at the Ultimax RAM ceiling of $0FFF.
+    """
     m = write_banked_game(tmp_path)
+    # $0600 of BSS fills $0A00-$0FFF exactly, so this build links only while
+    # the boot window's RAM area is that big — the address of `bootflag`
+    # alone cannot say, since it sits at the area's start whatever the size.
     (tmp_path / "boot.s").write_text(
         '.include "cart.inc"\n'
         '.segment "BSS"\n'
         'bootflag: .res 1\n'
+        'bootfill: .res $05FF\n'
     )
     (tmp_path / "far.s").write_text("""\
 .include "cart.inc"
@@ -345,6 +351,20 @@ shout:  inc calls
     labels = load_labels(res["labels"])
     assert 0x0A00 <= labels["b01lo_calls"] < 0x8000
     assert 0x0A00 <= labels["b00hi_bootflag"] < 0x1000    # Ultimax boot ceiling
+    # The other side of the ceiling: one byte past $0FFF must not link. A boot
+    # window handed the 16K-mode RAM size ($0A00-$7FFF) would take it, and the
+    # BSS would resolve into ROM the Ultimax boot window cannot write.
+    from c64lib.build import BuildError
+    over = tmp_path / "over"
+    over.mkdir()
+    m_over = write_banked_game(over)
+    (over / "boot.s").write_text(
+        '.include "cart.inc"\n'
+        '.segment "BSS"\n'
+        'bootflag: .res $0601\n'
+    )
+    with pytest.raises(BuildError, match="overflows memory area 'RAM'"):
+        build_easyflash(m_over)
 
 
 @needs_build
