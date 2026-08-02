@@ -103,7 +103,7 @@ three-voice SID sound:
 
 | Demo | Language | Status |
 |------|----------|--------|
-| [Snake](demos/snake/) | 6502 assembly | 🔲 awaiting dogfood |
+| [Snake](demos/snake/) | 6502 assembly | ✅ dogfooded |
 | [Invaders](demos/invaders/) | 6502 assembly | ✅ dogfooded |
 | [Ms. Muncher](demos/ms-muncher/) | 6502 assembly | 🔲 awaiting dogfood |
 | [La Galaxia](demos/la-galaxia/) | 6502 assembly | 🔲 awaiting dogfood |
@@ -117,14 +117,19 @@ three-voice SID sound:
 A status flips to ✅ only when a real agent run passes on the emulated
 machine ([`demos/`](demos/#readme) has the fine print). Every demo outside
 the test tier keeps its whole solution — [`demos/invaders/`](demos/invaders/)
-has the sources an agent wrote, its
-[fidelity audit](demos/invaders/AUDIT.md), a regression test, and a runnable
-`invaders.d64` — `x64sc -ntsc demos/invaders/invaders.d64` and play it with
-A/D and space.
+and [`demos/snake/`](demos/snake/) each have the sources an agent wrote, a
+[fidelity](demos/invaders/AUDIT.md) [audit](demos/snake/AUDIT.md), a
+regression test, and a runnable disk: `x64sc -ntsc demos/invaders/invaders.d64`
+and play it with A/D and space, or `x64sc -ntsc demos/snake/snake.d64` and
+play it with W/A/S/D.
 
 <p align="center">
   <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">
   <img src="demos/invaders/evidence/formation.png" alt="Invaders wave 1 in play" width="300">
+</p>
+<p align="center">
+  <img src="demos/snake/evidence/title.png" alt="Snake title screen" width="300">
+  <img src="demos/snake/evidence/levelup.png" alt="Snake at level 2, recoloured" width="300">
 </p>
 
 The reference example programs (with expected screen output, runnable as

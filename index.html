@@ -302,9 +302,8 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <b>game demos</b> &mdash; complete builds with sprites, custom
       charsets, and three-voice SID sound &mdash; and <b>miscellaneous cool
       stuff</b> that isn't a game. Each gets validated by handing it
-      to a real agent and confirming the result &mdash; <b>the test demos and
-      Invaders have passed a real C64 run; Snake passed as a test demo and is
-      awaiting a run under its promoted game-demo prompt; 1812,
+      to a real agent and confirming the result &mdash; <b>the test demos,
+      Invaders and Snake have passed a real C64 run; 1812,
       Ms.&nbsp;Muncher, and La&nbsp;Galaxia are awaiting their first.</b></p>
       <p><b>Test demos</b> &mdash; graded; start at 01 if you're new:</p>
       <div class="tscroll">
@@ -323,7 +322,22 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <table>
         <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
         <tbody>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a></td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
+            <td class="shotcell">
+              <div class="shots">
+                <a class="shot" href="demos/snake/evidence/title.png" title="Title screen: SNAKE in block graphics, one colour per letter">
+                  <img src="demos/snake/evidence/title.png" width="640" height="400" loading="lazy" decoding="async" alt="Snake title screen: SNAKE in large block letters in five colours, a green snake reaching for a red apple, and PRESS ANY KEY TO PLAY">
+                </a>
+                <a class="shot" href="demos/snake/evidence/levelup.png" title="Level 2: the snake has sped up and been recoloured">
+                  <img src="demos/snake/evidence/levelup.png" width="640" height="400" loading="lazy" decoding="async" alt="Snake at level 2: a light green snake curled inside a light blue double-line border, a red apple ahead of it, SCORE 0050 and LEVEL 2 on the status line">
+                </a>
+                <a class="shot" href="demos/snake/evidence/gameover.png" title="Game over, with the score standing as the new high score">
+                  <img src="demos/snake/evidence/gameover.png" width="640" height="400" loading="lazy" decoding="async" alt="Snake game over: a panel over the playfield with GAME OVER on a red reverse-video bar, the final score, the high score, and PRESS SPACE TO PLAY AGAIN">
+                </a>
+              </div>
+            </td>
+          </tr>
           <tr>
             <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a></td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
             <td class="shotcell">
@@ -357,12 +371,14 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <p><small>Every demo outside the test tier (the game demos and the
       miscellaneous builds) ships its whole solution beside its prompt &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
-      runnable .d64 for stock VICE. Invaders' finished run shows the shape: the
-      three-iteration
-      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">fidelity audit</a>
-      and a runnable
-      <a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/invaders.d64">invaders.d64</a>.
-      Those three frames were captured from the running machine, stopped
+      runnable .d64 for stock VICE. The two finished runs show the shape &mdash;
+      each has a three-iteration fidelity audit
+      (<a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">Invaders</a>,
+      <a href="https://github.com/nschneir/Project64/blob/main/demos/snake/AUDIT.md">Snake</a>)
+      and a runnable disk
+      (<a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/invaders.d64">invaders.d64</a>,
+      <a href="https://github.com/nschneir/Project64/blob/main/demos/snake/snake.d64">snake.d64</a>).
+      Every frame above was captured from the running machine, stopped
       at its frame anchor.</small></p>
     </section>
 

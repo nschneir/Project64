@@ -16,8 +16,11 @@ floating-point package, and the IEC serial and tape KERNAL internals.
 Dogfooded demo 06 (Invaders), which now ships its whole solution — sources,
 a fidelity audit, a regression test and a runnable `.d64` — and closed the
 twelve CLI, skill and cookbook gaps it found (only its process items are
-still open in `docs/todo.md`). This changelog itself was cut from 843 lines
-to something a person can actually skim.
+still open in `docs/todo.md`). Dogfooded Snake under its promoted game-demo
+prompt: `demos/snake/` now ships the same way, with a three-iteration audit,
+a 101-step regression spec, seven evidence frames and `snake.d64`. This
+changelog itself was cut from 843 lines to something a person can actually
+skim.
 
 Out of that dogfood: `c64 profile REF` reports hardware cycle counts for one
 routine (CIA#2 cascade, IRQs masked by default, `--with-irq`), with the MCP

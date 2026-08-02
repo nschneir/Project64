@@ -1,0 +1,160 @@
+name: snake
+machine: c64
+program: snake.s
+timeout: 30
+steps:
+  # ---- the attract screen -------------------------------------------------
+  - wait:   { text: "PRESS ANY KEY TO PLAY" }
+  - assert: { text: "W A S D TO STEER" }
+  - assert: { text: "HIGH SCORE 0000" }
+  - assert: { text: "6502 ASSEMBLY ON A REAL EMULATED C64" }
+  - assert: { mem: gstate, equals: 0 }
+  # SNAKE in solid blocks: the S's top bar is four reverse-spaces (code 160)
+  # at row 3, and its second row is one block under the left edge.
+  - assert: { mem: "@3,8",  equals: [160, 160, 160, 160] }
+  - assert: { mem: "@4,8",  equals: [160, 32, 32, 32] }
+  - assert: { mem: "@7,28", equals: [160, 160, 160, 160] }   # the E's foot
+
+  # ---- graphics mode ------------------------------------------------------
+  # $D018 = $1C (screen $0400 + charset $3000); bit 0 is unused and reads 1.
+  - assert: { mem: "$D018", mask: { and: "$fe", equals: ["$1c"] } }
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }   # black paper
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [6] } }   # blue frame
+  # the charset really is the patched RAM copy, not the ROM one: the apple is
+  # screen code 123, so its 8 bytes live at $3000 + 123*8 = $33D8
+  - assert: { mem: "$33D8", equals: [16, 22, 126, 255, 223, 255, 126, 60] }
+
+  # ---- start a game.  Pinning `seed` first makes every apple below
+  # ---- deterministic; the game seeds it from the jiffy clock otherwise.
+  # Anchor on the tick first.  `until` stops AT mainloop, before the $CB read
+  # at the top of it, so a key poked while the machine is still running gets
+  # consumed by the tick already in flight instead of the one being asked for.
+  - until:  { ref: mainloop, count: 1 }
+  - poke:   { addr: seed, values: [42] }
+  - poke:   { addr: "$CB", values: [60] }         # SPACE, as a held key
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: gstate, equals: 1 }
+  - assert: { text: "SCORE 0000" }
+  - assert: { text: "LEVEL 1" }
+  - assert: { text: "HI 0000" }
+
+  # ---- the playfield ------------------------------------------------------
+  # Border glyphs: 112 horizontal, 113 vertical, 114-117 the four corners.
+  - assert: { mem: "@1,0",   equals: [114, 112, 112] }
+  - assert: { mem: "@1,39",  equals: [115] }
+  - assert: { mem: "@24,0",  equals: [116, 112, 112] }
+  - assert: { mem: "@24,39", equals: [117] }
+  - assert: { mem: "@12,0",  equals: [113] }
+  - assert: { mem: "@12,39", equals: [113] }
+  # the snake: two body segments (122) and a head facing right (121)
+  - assert: { mem: "@12,8", equals: [122, 122, 121] }
+  - assert: { mem: snlen,  equals: 3 }
+  - assert: { mem: hrow,   equals: [12, 10] }     # hrow, hcol
+  - assert: { mem: curdir, equals: 3 }            # heading right
+  - assert: { mem: speed,  equals: 12 }           # jiffies per move at level 1
+  # colour RAM is 4 bits wide, so the high nybble reads back as 1s
+  - assert: { mem: "$D800+488", mask: { and: "$0f", equals: [5] } }   # snake green
+  - assert: { mem: "$D800+40",  mask: { and: "$0f", equals: [14] } }  # border blue
+
+  # ---- the first apple, dealt by the game's own LFSR from seed 42 ----------
+  - assert: { mem: foodr, equals: [23, 26] }
+  - assert: { mem: "@23,26", equals: [123] }
+  - assert: { mem: "$D800+946", mask: { and: "$0f", equals: [2] } }   # apple red
+
+  # ---- steering: held W/A/S/D matrix codes at $CB, one move per tick -------
+  - poke:   { addr: "$CB", values: [18] }         # D
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: hcol, equals: 11 }
+  - poke:   { addr: "$CB", values: [10] }         # A — a direct reversal...
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: hcol, equals: 12 }             # ...is refused; it kept going
+  - assert: { mem: curdir, equals: 3 }
+
+  # ---- eat: the head runs the rest of the way to (23,26) ------------------
+  - poke:   { addr: "$CB", values: [18] }
+  - until:  { ref: mainloop, count: 14 }          # columns 12 -> 26
+  - assert: { mem: hcol, equals: 26 }
+  - poke:   { addr: "$CB", values: [13] }         # S
+  - until:  { ref: mainloop, count: 11 }          # rows 12 -> 23, onto the apple
+  - assert: { mem: hrow, equals: 23 }
+  - assert: { mem: scdig, equals: [0, 0, 1, 0] }  # 10 points at level 1
+  - assert: { text: "SCORE 0010" }
+  - assert: { mem: eaten, equals: 1 }
+  - assert: { mem: grow,  equals: 3 }             # three segments owed
+  - assert: { mem: "@23,26", equals: [119] }      # head facing down
+  # The SID blip, shadowed in RAM.  By the time the tick is back at the anchor
+  # the blip's 6 jiffies are up and pace has gated it off, so what stands here
+  # is the voice sfxeat programmed with its gate released: frequency $0040,
+  # attack/decay $09, triangle without gate.  Nothing else writes those.
+  - assert: { mem: "sidshadow+1",  equals: ["$40"] }
+  - assert: { mem: "sidshadow+5",  equals: ["$09"] }
+  - assert: { mem: "sidshadow+4",  equals: ["$10"] }
+  - assert: { mem: "sidshadow+24", equals: [15] }
+  # a fresh apple appeared somewhere else, on an empty cell
+  - assert: { mem: foodr, equals: [22, 11] }
+  - assert: { mem: "@22,11", equals: [123] }
+
+  # ---- growth: the tail stops moving while growth is owed ------------------
+  # Row 23 is the last interior row, so the turn has to come first — carrying
+  # straight on down would walk into the bottom border.
+  - poke:   { addr: "$CB", values: [10] }         # A, back along row 23
+  - until:  { ref: mainloop, count: 3 }
+  - assert: { mem: snlen, equals: 6 }             # three segments longer
+  - assert: { mem: grow,  equals: 0 }
+  - assert: { mem: gstate, equals: 1 }
+
+  # ---- levels: the fifth pickup speeds the snake up and recolours it -------
+  # Only the pickup COUNTER is forced, to save routing three more apples; the
+  # level-up itself is the game's, off its own eat path.
+  - poke:   { addr: eaten, values: [4] }
+  - until:  { ref: mainloop, count: 12 }          # columns 23 -> 11
+  - assert: { mem: hcol, equals: 11 }
+  - poke:   { addr: "$CB", values: [9] }          # W, up onto (22,11)
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: level,    equals: 2 }
+  - assert: { mem: speed,    equals: 10 }         # was 12
+  - assert: { mem: snakecol, equals: 13 }         # was 5
+  - assert: { text: "LEVEL 2" }
+  - assert: { text: "SCORE 0020" }
+  # recolor walked the whole ring, so the TAIL is the new colour too — the
+  # snake is six long, head at (22,11) and tail at (23,15) = offset 935
+  - assert: { mem: "@23,15", equals: [122] }
+  - assert: { mem: "$D800+935", mask: { and: "$0f", equals: [13] } }
+  - assert: { mem: "sidshadow+11", equals: ["$11"] }   # voice 2: the level blip
+
+  # ---- death on the border ------------------------------------------------
+  # `mainloop` is the tick in every state, so it survives the fatal move and
+  # stays a usable anchor — the death path does not have to be broken on.
+  - poke:   { addr: "$CB", values: [9] }          # W, up to row 2
+  - until:  { ref: mainloop, count: 20 }
+  - assert: { mem: hrow, equals: 2 }
+  - assert: { mem: gstate, equals: 1 }
+  - until:  { ref: mainloop, count: 1 }           # into the top border
+  - assert: { mem: gstate, equals: 2 }
+  - assert: { text: "PRESS SPACE TO PLAY AGAIN" }
+  # GAME OVER is a reverse-video bar, so its screen codes carry bit 7:
+  # G A M E <space> O V E R = 7 1 13 5 32 15 22 5 18, each + 128
+  - assert: { mem: "@10,15", equals: [135, 129, 141, 133, 160, 143, 150, 133, 146] }
+  - assert: { text: "NEW HIGH SCORE" }
+  - assert: { mem: hidig, equals: [0, 0, 2, 0] }  # the score carried across
+  - assert: { mem: newhi, equals: 1 }
+  # the crash: voice 3, noise waveform, gated on
+  - assert: { mem: "sidshadow+18", equals: ["$81"] }
+
+  # ---- a second game: the high score survives, the score does not ----------
+  - poke:   { addr: "$CB", values: [60] }         # SPACE plays again
+  - until:  { ref: mainloop, count: 1 }
+  - assert: { mem: gstate, equals: 1 }
+  - assert: { mem: scdig, equals: [0, 0, 0, 0] }
+  - assert: { mem: hidig, equals: [0, 0, 2, 0] }
+  - assert: { mem: level, equals: 1 }
+  - assert: { mem: snlen, equals: 3 }
+  - assert: { text: "SCORE 0000" }
+  - assert: { text: "HI 0020" }
+
+  # ---- routine level: the blip's gate, proved without racing the clock ----
+  # This goes LAST on purpose.  `call` hijacks the running program — a fake
+  # JSR whose RTS lands on a trap address — so the game does not survive
+  # being called into, and every step that needs it alive has to come first.
+  - call:   { routine: sfxeat }
+  - assert: { mem: "sidshadow+4", equals: ["$11"] }   # triangle + gate ON
