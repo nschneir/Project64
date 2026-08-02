@@ -9,8 +9,11 @@ from c64lib.cart_build import (
     _EF_JT_SIZE,
     _EF_LO_BODY,
     CBM80_BYTES,
+    EF_BOOT_RAM_SIZE,
     EF_JUMPTABLE,
     EF_MODE_16K,
+    EF_RAM_SIZE,
+    EF_RAM_START,
     EF_RESIDENT,
     LAUNCHER_BYTES,
     VECTORS_SIZE,
@@ -417,7 +420,7 @@ def test_boot_window_maps_rom_at_e000_and_the_reset_vectors():
     assert "start = $FFFA, size = $0006" in cfg
 
 
-def test_boot_window_declares_no_ram_area_for_the_resident_block():
+def test_boot_window_declares_no_area_for_the_resident_block():
     """cart.inc assembles the trampoline absolute at $0900 with `.org`, because
     every bank includes it and only this window could have linked a
     load = ROM, run = RAM segment. A RESIDENT area here would advertise a bound
@@ -434,6 +437,28 @@ def test_plain_hi_window_is_a000():
     cfg = ef_window_config("hi")
     assert "start = $A000, size = $2000" in cfg
     assert "$FFFA" not in cfg
+
+
+def test_every_ef_window_gives_bss_a_ram_home():
+    """Banks are linked independently, so each window's config needs its own
+    BSS -> RAM mapping; without one `.segment "BSS"` is a hard ld65 error in
+    an EasyFlash bank. RAM starts at $0A00, one page above the resident block
+    at $0900, because ld65 cannot express a hole and BSS must not grow into
+    it. Every bank's BSS overlaps every other bank's — bank-local scratch
+    unless authors coordinate addresses themselves."""
+    assert EF_RAM_START == EF_RESIDENT + 0x0100
+    for cfg in (ef_window_config("lo"), ef_window_config("hi"),
+                ef_window_config("hi", boot=True)):
+        assert "BSS:" in cfg
+        assert "load = RAM" in cfg
+        assert "type = bss" in cfg
+    assert f"start = ${EF_RAM_START:04X}, size = ${EF_RAM_SIZE:04X}" \
+        in ef_window_config("lo")
+    assert f"start = ${EF_RAM_START:04X}, size = ${EF_RAM_SIZE:04X}" \
+        in ef_window_config("hi")
+    # The boot window runs in Ultimax mode, where RAM stops at $0FFF.
+    assert f"start = ${EF_RAM_START:04X}, size = ${EF_BOOT_RAM_SIZE:04X}" \
+        in ef_window_config("hi", boot=True)
 
 
 def test_ef_boot_stub_vectors_at_the_reset_entry():

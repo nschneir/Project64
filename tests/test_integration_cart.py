@@ -317,6 +317,36 @@ def test_cart_inc_assembles_into_a_banked_easyflash(tmp_path):
 
 
 @needs_build
+def test_ef_bank_bss_links_into_ram(tmp_path):
+    """`.segment "BSS"` must link in every EasyFlash window — including the
+    boot window — resolve to RAM at $0A00, and cost no image bytes."""
+    m = write_banked_game(tmp_path)
+    (tmp_path / "boot.s").write_text(
+        '.include "cart.inc"\n'
+        '.segment "BSS"\n'
+        'bootflag: .res 1\n'
+    )
+    (tmp_path / "far.s").write_text("""\
+.include "cart.inc"
+.segment "JUMPTAB"
+        ef_entry shout
+.segment "BSS"
+calls:  .res 2
+.segment "CODE"
+shout:  inc calls
+        lda #$41                        ; 'A' — proof bank 1 executed
+        sta $0505
+        rts
+""")
+    res = build_easyflash(m)
+    assert cart_verify(res["crt"]) == []
+    assert Path(res["bin"]).stat().st_size == 1_048_576
+    from c64lib.symbols import load_labels
+    labels = load_labels(res["labels"])
+    assert 0x0A00 <= labels["b01lo_calls"] < 0x8000
+
+
+@needs_build
 def test_the_window_report_is_keyed_like_the_merged_labels(tmp_path):
     """`windows` and the label prefixes name the same thing the same way: a
     report saying `0hi` beside a symbol called `b00hi_boot` reads as two

@@ -243,9 +243,13 @@ Two consequences to remember:
   window's copy is ever executed. That is the price of the scheme, and it is
   paid in ROM you were not using.
 
-EasyFlash window configs have **no `BSS` segment** — put mutable state at fixed
-absolute addresses instead, and remember that until the cart leaves Ultimax
-mode only `$0000-$0FFF` exists.
+EasyFlash window configs map `BSS` to RAM at `$0A00`, one page above the
+resident block at `$0900`. Banks are linked independently, so every bank's BSS
+starts at `$0A00` and **overlaps every other bank's** — treat it as bank-local
+scratch, or coordinate fixed addresses across banks yourself. The boot window
+gets `$0A00-$0FFF` only (Ultimax-mode RAM stops at `$0FFF`); the other windows
+get `$0A00-$7FFF`. Until the cart leaves Ultimax mode only `$0000-$0FFF`
+exists, whatever the config says.
 
 ## Pitfalls
 

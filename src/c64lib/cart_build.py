@@ -69,10 +69,10 @@ _SEG_COMMON = """\
     BSS:      load = RAM,  type = bss, optional = yes, define = yes;"""
 
 
-def _ram_area(size: int) -> str:
+def _ram_area(size: int, start: int = RAM_START) -> str:
     """A RAM memory area for BSS. No `file` attribute: it is address space
     only and must never contribute bytes to the ROM image."""
-    return f"    RAM:  start = ${RAM_START:04X}, size = ${size:04X}, define = yes;"
+    return f"    RAM:  start = ${start:04X}, size = ${size:04X}, define = yes;"
 
 
 def cart_linker_config(cart_type: str) -> str:
@@ -705,6 +705,17 @@ _EF_CODE_EXT = ".s"
 _EF_JT_SIZE = 0x0100                        # the reserved page at $9F00
 _EF_LO_BODY = EF_JUMPTABLE - ROML_START     # $8000-$9EFF, the author's part
 
+# RAM for a bank's BSS. The resident block owns $0900-$09FF (cart.inc caps it
+# at 256 bytes), so BSS starts one page up at $0A00; $0800-$08FF is left out
+# deliberately — ld65 cannot express a hole, and a RAM area starting at $0800
+# would let BSS grow into the resident block. Banks are linked independently,
+# so every bank's BSS starts here and overlaps every other bank's: bank-local
+# scratch, unless authors coordinate addresses across banks themselves.
+EF_RAM_START = EF_RESIDENT + 0x0100          # $0A00
+EF_RAM_SIZE = ROML_START - EF_RAM_START      # $0A00-$7FFF, 16K-mode RAM
+# The boot window runs in Ultimax mode, where RAM stops at $0FFF.
+EF_BOOT_RAM_SIZE = 0x1000 - EF_RAM_START     # $0A00-$0FFF
+
 
 def ef_window_config(window: str, boot: bool = False) -> str:
     """ld65 config for one EasyFlash window.
@@ -713,18 +724,25 @@ def ef_window_config(window: str, boot: bool = False) -> str:
     are linked independently, so a fixed table is the only stable way for one
     bank to call into another.
 
-    The boot window has no RAM area, on purpose. $E000 stops existing the moment
-    the cart leaves Ultimax mode, so the code that switches modes must already be
-    running from somewhere else — but cart.inc assembles that resident block
-    absolute at $0900 with `.org` rather than as a load = ROM, run = RAM segment,
-    because every bank includes cart.inc and only this window would have the RAM
-    area to link it against. The linker therefore never sees the resident block,
-    and a memory area here would advertise a bound it does not enforce; the real
-    cap is 256 bytes, enforced in cart.inc by the copy loop's 8-bit counter.
+    Every window maps BSS to a RAM area at $0A00 — one page above the resident
+    block at $0900, because ld65 cannot express a hole and BSS must not grow
+    into it. Banks are linked independently, so every bank's BSS starts at the
+    same address and overlaps every other bank's: treat it as bank-local
+    scratch, or coordinate fixed addresses across banks by hand. The lo/hi
+    windows run in 16K mode and get $0A00-$7FFF; the boot window runs in
+    Ultimax mode, where RAM stops at $0FFF, so it gets $0A00-$0FFF only.
 
-    $0900 is where it runs: in Ultimax mode only $0000-$0FFF is RAM, RAMTAS
-    clears $0002-$0101 and $0200-$03FF (its size probe writes $0900 but restores
-    it), and CINT clears the screen at $0400-$07FF. All measured.
+    The resident block itself stays out of the linker's sight on purpose:
+    cart.inc assembles it absolute at $0900 with `.org` rather than as a
+    load = ROM, run = RAM segment, because every bank includes cart.inc and
+    only the boot window could link such a segment. A RESIDENT memory area
+    here would advertise a bound it does not enforce; the real cap is 256
+    bytes, enforced in cart.inc by the copy loop's 8-bit counter.
+
+    $0900 is where the resident block runs: in Ultimax mode only $0000-$0FFF
+    is RAM, RAMTAS clears $0002-$0101 and $0200-$03FF (its size probe writes
+    $0900 but restores it), and CINT clears the screen at $0400-$07FF. All
+    measured.
     """
     if window not in EF_WINDOWS:
         raise CartError(f"window must be 'lo' or 'hi', not {window!r}")
@@ -732,6 +750,7 @@ def ef_window_config(window: str, boot: bool = False) -> str:
         return (
             "MEMORY {\n"
             f"{_ZP}\n"
+            f"{_ram_area(EF_RAM_SIZE, EF_RAM_START)}\n"
             f"    ROM:  file = %O, start = ${ROML_START:04X}, size = $1F00, "
             "fill = yes, fillval = $FF;\n"
             f"    JT:   file = %O, start = ${EF_JUMPTABLE:04X}, size = $0100, "
@@ -743,12 +762,14 @@ def ef_window_config(window: str, boot: bool = False) -> str:
             "    RODATA:   load = ROM, type = ro, optional = yes;\n"
             "    DATA:     load = ROM, type = ro, optional = yes;\n"
             "    JUMPTAB:  load = JT,  type = ro, optional = yes;\n"
+            "    BSS:      load = RAM, type = bss, optional = yes, define = yes;\n"
             "}\n"
         )
     if not boot:
         return (
             "MEMORY {\n"
             f"{_ZP}\n"
+            f"{_ram_area(EF_RAM_SIZE, EF_RAM_START)}\n"
             f"    ROM:  file = %O, start = ${ROMH_START:04X}, size = $2000, "
             "fill = yes, fillval = $FF;\n"
             "}\n"
@@ -757,11 +778,13 @@ def ef_window_config(window: str, boot: bool = False) -> str:
             "    CODE:     load = ROM, type = ro;\n"
             "    RODATA:   load = ROM, type = ro, optional = yes;\n"
             "    DATA:     load = ROM, type = ro, optional = yes;\n"
+            "    BSS:      load = RAM, type = bss, optional = yes, define = yes;\n"
             "}\n"
         )
     return (
         "MEMORY {\n"
         f"{_ZP}\n"
+        f"{_ram_area(EF_BOOT_RAM_SIZE, EF_RAM_START)}\n"
         f"    ROM:  file = %O, start = ${ULTIMAX_START:04X}, size = $1FFA, "
         "fill = yes, fillval = $FF;\n"
         f"    VEC:  file = %O, start = ${VECTORS_ADDR:04X}, "
@@ -773,6 +796,7 @@ def ef_window_config(window: str, boot: bool = False) -> str:
         "    CODE:     load = ROM, type = ro;\n"
         "    RODATA:   load = ROM, type = ro, optional = yes;\n"
         "    VECTORS:  load = VEC, type = ro;\n"
+        "    BSS:      load = RAM, type = bss, optional = yes, define = yes;\n"
         "}\n"
     )
 
