@@ -63,6 +63,77 @@ the function/test names are the durable anchors.
       naming the likely cause, not a measurement. Verify:
       `tests/test_ops.py -k profile`.
 
+## From the 2026-08-01 Snake dogfood
+
+Six items the Snake run hit (`demos/snake/`, audit in `demos/snake/AUDIT.md`).
+None blocked the run; each cost a debug cycle that the docs or the CLI could
+have saved.
+
+- [ ] **`c64 key hold --frames 0` reports a timeout and blames a checkpoint
+      that was never armed.** `key_hold` (`src/c64lib/ops.py:645`) loops
+      `for i in range(frames)` and returns the initial `{"registers": None}`
+      when `frames` is 0; `cli.key_hold` (`src/c64lib/cli.py:1995`) reads that
+      as a timeout and fails with "only 0/0 frame(s) reached … machine left
+      RUNNING, checkpoint removed" — but nothing ran, nothing was set, and
+      nothing was removed. A computed hold length of zero is ordinary in a
+      scripted protocol (`demos/snake/tools/evidence.sh` guards every call in
+      shell for exactly this). Fix direction: make 0 a no-op that returns
+      `{"frames": 0, "requested": 0}` with the machine untouched, or reject it
+      at the click layer saying so. Verify: `tests/test_cli_key.py`,
+      `tests/test_ops.py -k hold`.
+- [ ] **`@row,col` has no colour-RAM twin.** The cell reference resolves to
+      screen RAM only (`src/c64lib/ops.py`, the `@` branch of the address
+      parser), so asserting the *colour* of a cell means hand-computing
+      `$D800 + row*40 + col`. `docs/graphics-and-sprites.md` §3 makes colour
+      RAM ground truth for assertions and the demos write it alongside every
+      character, so this is the common case, not an edge one — Snake's
+      `test.yaml` and `tools/evidence.sh` both do the arithmetic by hand, and
+      a stale constant produced a false FAIL mid-run. Fix direction open: a
+      `@@row,col` form, or `--color` on `mem read`/`mem get`, resolving
+      through the same relocation-aware path. Verify: `tests/test_ops.py -k
+      addr`, `tests/test_cli_mem.py`, and the YAML `mem:` step.
+- [ ] **Colour RAM's 4-bit readback is undocumented where the VIC-II
+      registers' is.** `skills/c64-development/SKILL.md` warns about it twice
+      — the "Common pitfalls" bullet and the diagnosis table row — and both
+      name only `$D020`/`$D021`. `$D800-$DBE7` behaves identically: a cell
+      written 13 reads back `$FD`. `docs/graphics-and-sprites.md` §3 lists
+      colour RAM as assertion ground truth with no caveat, and §4's example
+      asserts show no mask. Fix: extend both pitfall entries to name colour
+      RAM, and add a masked colour-RAM assert to §4's allowed shapes. Verify:
+      `tests/test_docs_skills.py`, plus a live write-then-read.
+- [ ] **The cookbook's "the move that ends the game can never be driven by
+      `key hold`" is true only for a play-loop anchor.** The claim sits under
+      the held-key recipe in `references/cookbook.md` and is stated
+      absolutely. It holds when the anchor label lives inside the play loop —
+      but not when the tick is shared: Snake's `mainloop` runs in title, play
+      and game-over alike, so `key hold d --at mainloop --frames 1` drives the
+      fatal move and comes back stopped with the game-over screen already
+      drawn. Fix: qualify the claim, and recommend the shared-tick shape,
+      which makes every state drivable from one anchor and one `until`.
+      Verify: `tests/test_docs_cookbook.py`.
+- [ ] **`c64 call` and `c64 profile` don't say the interrupted program is
+      unrecoverable.** `docs/cli.md` says the machine "ends **STOPPED** at
+      the trap" for both, which reads as ordinary stopped state — but the
+      synthetic return address means the program that was running is gone,
+      not paused. A `call:` step in the middle of a YAML spec therefore kills
+      every step after it: in Snake's spec the next `until` timed out with the
+      machine back at `READY.`. Fix: say it plainly in `### c64 call`,
+      `### c64 profile`, and the `call:` line under `### c64 test run`, with
+      the rule — put `call:` steps last, or in a spec of their own. Verify:
+      `tests/test_docs_cli.py`.
+- [ ] **Reverse-video text is invisible to `wait --text`, and custom glyphs at
+      128+ make reverse video unusable at all.** Two joined facts a game meets
+      together, and neither is written down. `c64 screen` decodes reverse
+      space to a block, so `wait --text "GAME OVER"` cannot match a
+      reverse-video heading (Snake asserts its nine screen codes instead).
+      And screen codes 129-154 are reverse A-Z, so a charset that patches
+      there — as the cookbook's custom-character-set recipe does at 96/97,
+      and as Snake first did at 128-139 — makes reverse-video text draw game
+      objects. Snake moved its glyphs to 112-123 for that reason. Fix: one
+      line in the SKILL's custom-charset pitfall (which already covers codes
+      32/96/224 decoding blank) and one in the cookbook recipe. Verify:
+      `tests/test_docs_skills.py`, `tests/test_docs_cookbook.py`.
+
 ## Standing backlog (pre-cartridge)
 
 - [ ] **Charset/bitmap PNG conversion — blocked on demo-07 evidence.**

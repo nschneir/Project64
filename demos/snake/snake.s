@@ -190,9 +190,10 @@ pacen:  dec     pcnt
         bne     paceo
         rts
 
-        ; vars.s comes first: ca65 resolves a forward reference to an
-        ; absolute address, but `sta sidshadow,x` has to know the symbol to
-        ; pick zp,x versus abs,x, and an unresolved one is an error there.
+        ; Order is a readability choice, not a requirement: ca65 resolves
+        ; forward references across includes, so vars.s could sit last.  Each
+        ; included file opens with its own `.segment`, which IS a requirement
+        ; — the active segment carries across an include boundary.
         .include "vars.s"
         .include "screen.s"
         .include "chars.s"
