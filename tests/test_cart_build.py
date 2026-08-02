@@ -312,6 +312,22 @@ def test_wrap_rejects_a_tail_that_crosses_into_io(tmp_path):
         wrap_prg(prg, cart_type="8k", title="IOSPILL")
 
 
+def test_wrap_accepts_a_tail_that_stops_one_byte_short_of_io(tmp_path,
+                                                             monkeypatch):
+    """The I/O range starts *at* $D000: a program whose last byte is $CFFF
+    ends where the registers begin and pokes none of them. Loosening the
+    overlap test from `prog_end > lo` to `>=` would reject it, so the
+    accepting side of that boundary is pinned too. Checked without the
+    toolchain so this is about the validation, not the build."""
+    monkeypatch.setattr(build_mod.shutil, "which", lambda _name: None)
+    monkeypatch.delenv("C64_TOOLS_CA65", raising=False)
+    monkeypatch.delenv("C64_TOOLS_LD65", raising=False)
+    prg = tmp_path / "edge.prg"
+    prg.write_bytes(bytes([0xF0, 0xCF]) + b"\xA9\x01" * 8)   # $CFF0-$CFFF
+    with pytest.raises(BuildError):          # got past validation, to the tools
+        wrap_prg(prg, cart_type="8k", title="EDGE")
+
+
 def test_wrap_rejects_a_truncated_prg(tmp_path):
     prg = tmp_path / "t.prg"
     prg.write_bytes(b"\x01")
@@ -643,14 +659,21 @@ def test_the_wrap_path_only_builds_8k_and_16k(tmp_path):
 
 
 def test_the_16k_hint_is_withheld_when_16k_would_not_fit_either(tmp_path):
-    """Pointing a 20 KB program at 16k just produces the same error again."""
+    """Pointing a 20 KB program at 16k just produces the same error again.
+
+    Loaded at $2000, not $C000: 20000 bytes from $C000 run into the I/O area,
+    and that guard fires before the size check — the end-to-end half would
+    then pass on the wrong error.
+    """
     assert "--cart-type 16k" in _too_big_hint("8k", "ml", 9000)
     assert "--cart-type 16k" not in _too_big_hint("8k", "ml", 20000)
     assert "native or EasyFlash" in _too_big_hint("8k", "ml", 20000)
     prg = tmp_path / "huge.prg"
-    prg.write_bytes(bytes([0x00, 0xC0]) + b"\x00" * 20000)
+    prg.write_bytes(bytes([0x00, 0x20]) + b"\x00" * 20000)
     with pytest.raises(CartError) as excinfo:
         wrap_prg(prg, cart_type="8k", title="HUGE")
+    assert "does not fit" in str(excinfo.value)          # the size error...
+    assert "native or EasyFlash" in str(excinfo.value)    # ...and its hint
     assert "--cart-type 16k" not in str(excinfo.value)
 
 

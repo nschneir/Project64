@@ -344,6 +344,7 @@ shout:  inc calls
     from c64lib.symbols import load_labels
     labels = load_labels(res["labels"])
     assert 0x0A00 <= labels["b01lo_calls"] < 0x8000
+    assert 0x0A00 <= labels["b00hi_bootflag"] < 0x1000    # Ultimax boot ceiling
 
 
 @needs_build
