@@ -6,7 +6,7 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
-## [Unreleased]
+## [0.9.5] — 2026-08-03
 
 Removed the pyright CI workflow — type checks are a local, pre-commit gate
 again rather than a CI job that could go red on unrelated dependency churn.
