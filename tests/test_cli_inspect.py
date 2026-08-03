@@ -335,6 +335,19 @@ def test_mem_get_json_values():
         "addr": 0x0400, "values": [1, 2, 3], "bytes": [1, 2, 3]}
 
 
+def test_mem_get_color_cell_resolves_to_d800():
+    """`mem get @@row,col` lands on the colour matrix regardless of where
+    the screen sits — the arithmetic Snake's evidence.sh did by hand."""
+    fake, mon = _fake()
+    mon.memory_read.return_value = bytes([0xFD])      # 13 + open-bus nybble
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.live_screen_base", return_value=0xC400):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["mem", "get", "@@5,0"])
+    assert r.exit_code == 0, r.output
+    mon.memory_read.assert_called_once_with(0xD800 + 5 * 40, 1)
+
+
 def test_mem_read_and_mem_get_share_byte_array_keys():
     """A script written against either command's key works against both —
     the dogfood filed the silent KeyError as a tool bug."""

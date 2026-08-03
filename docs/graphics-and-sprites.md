@@ -82,7 +82,8 @@ Two channels, used for different things:
   on the read value), `$D020/$D021` (colors), and the demo's own state
   bytes. This is what tests assert. Screen reads are relocation-aware:
   `c64 screen` and `@row,col` follow `$DD00`/`$D018` to wherever the
-  VIC-II put the screen; color RAM stays `$D800`.
+  VIC-II put the screen; color RAM stays `$D800`, and `@@row,col` addresses
+  it directly (same row/col, fixed base).
 - **`c64 sprite` is the sprite inspector.** `sprite status` decodes the
   registers into a table, `sprite show` renders a shape as ASCII art, and
   `sprite png` renders the exact shape with live colors — use these to

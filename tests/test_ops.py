@@ -84,6 +84,32 @@ def test_parse_ref_rowcol_out_of_range():
         parse_ref({}, "@0,40", screen_base=0x0400, screen_width=40)
 
 
+def test_parse_ref_color_rowcol():
+    """@@row,col is the colour-RAM twin of @row,col: the same row/col math,
+    but a fixed $D800 base — $DD00/$D018 relocate the screen, never the
+    colour matrix."""
+    from c64lib.ops import COLOR_RAM_BASE
+    assert COLOR_RAM_BASE == 0xD800
+    assert parse_ref({}, "@@0,0",
+                     screen_base=0x0400, screen_width=40) == 0xD800
+    assert parse_ref({}, "@@23,18",
+                     screen_base=0x0400, screen_width=40) == 0xD800 + 23*40 + 18
+    # A relocated screen moves @row,col and must NOT move @@row,col.
+    assert parse_ref({}, "@@5,0",
+                     screen_base=0xC400, screen_width=40) == 0xD800 + 5*40
+
+
+def test_parse_ref_color_rowcol_shares_the_guards():
+    with pytest.raises(ValueError, match="row 25"):
+        parse_ref({}, "@@25,0", screen_base=0x0400, screen_width=40)
+    with pytest.raises(ValueError, match="col 40"):
+        parse_ref({}, "@@0,40", screen_base=0x0400, screen_width=40)
+    with pytest.raises(ValueError, match="geometry"):
+        parse_ref({}, "@@1,2")
+    with pytest.raises(ValueError, match="expected @row,col"):
+        parse_ref({}, "@@nonsense", screen_base=0x0400, screen_width=40)
+
+
 def test_wait_for_text_fires_and_times_out():
     s, mon = _fake_session()
     with patch("c64lib.ops.read_screen_text", side_effect=["A", "B READY."]):

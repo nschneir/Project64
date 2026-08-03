@@ -106,6 +106,12 @@ def parse_byte_values(tokens) -> bytes:
     return bytes(out)
 
 
+#: Colour RAM is hardwired at $D800 on every C64: the VIC bank ($DD00) and
+#: $D018 relocate the screen, never the colour matrix. Reads are 4-bit —
+#: the high nybble is open bus — so comparisons must mask with $0F.
+COLOR_RAM_BASE = 0xD800
+
+
 def parse_ref(labels: dict[str, int], ref, *, screen_base: int | None = None,
               screen_width: int | None = None) -> int:
     """Address forms: $hex / 0xhex / decimal / symbol, plus:
@@ -115,23 +121,31 @@ def parse_ref(labels: dict[str, int], ref, *, screen_base: int | None = None,
       as a number, so hyphenated symbol names still resolve whole.
     - `@row,col` — a screen cell, resolved against the session's screen
       geometry (callers pass it from the machine profile).
+    - `@@row,col` — the same cell in colour RAM. The base is the hardwired
+      $D800 (the screen relocates; the colour matrix does not). Colour RAM
+      reads back 4-bit — mask comparisons with $0F.
     """
     r = str(ref).strip()
     if r.startswith("@"):
+        color = r.startswith("@@")
+        body = r[2:] if color else r[1:]
         if screen_base is None or screen_width is None:
             raise ValueError(
                 f"{r!r}: @row,col needs a session's screen geometry — use it "
                 "where a running session provides the model")
         try:
-            row_s, col_s = r[1:].split(",", 1)
+            row_s, col_s = body.split(",", 1)
             row, col = parse_number(row_s), parse_number(col_s)
         except ValueError:
-            raise ValueError(f"{r!r}: expected @row,col, e.g. @23,18") from None
+            raise ValueError(
+                f"{r!r}: expected @row,col (screen RAM) or @@row,col "
+                "(colour RAM), e.g. @23,18") from None
         if not 0 <= row <= 24:
             raise ValueError(f"{r!r}: row {row} outside 0-24")
         if not 0 <= col < screen_width:
             raise ValueError(f"{r!r}: col {col} outside 0-{screen_width - 1}")
-        return screen_base + row * screen_width + col
+        base = COLOR_RAM_BASE if color else screen_base
+        return base + row * screen_width + col
     base_err: KeyError | None = None
     for sign, sep in ((1, "+"), (-1, "-")):
         if sep in r[1:]:

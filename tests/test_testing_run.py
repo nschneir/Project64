@@ -250,6 +250,31 @@ def test_wait_mem_screen_cell_reresolves_each_poll():
     assert result.steps[0].detail.startswith("mem $04c8")
 
 
+def test_assert_mem_color_cell_reads_colour_ram():
+    """`@@row,col` in a mem step lands on $D800+offset even with the screen
+    relocated, so specs stop hand-computing colour addresses — the stale
+    constant that produced Snake's false FAIL. The mask handles the 4-bit
+    readback ($FD & $0F == 13)."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    s.profile.screen_cols = 40
+    s.profile.screen_addr = 0x0400
+    seen = []
+
+    def read(addr, n):
+        seen.append(addr)
+        return bytes([0xFD] * n)
+
+    mon.memory_read.side_effect = read
+    spec = _spec(steps=[{"assert": {"mem": "@@5,0",
+                                    "mask": {"and": "$0f", "equals": [13]}}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.live_screen_base", return_value=0xC400):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True
+    assert 0xD800 + 5 * 40 in seen
+
+
 def test_wait_mem_timeout_reports_last_value():
     s, mon = _fake_session()
     launch = Mock(return_value=s)
