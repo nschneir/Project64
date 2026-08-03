@@ -470,6 +470,11 @@ real `JSR` (fake return address on the stack, so the routine's own `RTS`
 ends the call at a trap address). The machine ends **STOPPED** at the
 trap.
 
+Stopped is not paused: the fake return address replaced the program's own
+control flow, so **the program that was running is gone** — `c64 continue`
+resumes from the trap, not from wherever the program was. Treat a call as
+the end of that program run; reload (or `c64 run`) to play on.
+
 - `REF` — the routine's address or symbol (must end in `RTS`).
 - `--a N`, `--x N`, `--y N` — register values on entry (`$hex`/decimal).
 - `--timeout SECS` (default `30`).
@@ -513,9 +518,10 @@ they cannot be stopped safely. The same goes for the I flag: a timed-out
 profile leaves it as profile set it (masked, unless `--with-irq`), so the
 jiffy clock stays frozen and the keyboard stays dead until you clear it —
 `c64 reg set FL ...` with the I bit off, or a session restart, recovers.
-The machine ends STOPPED at the trap, like `c64 call`. Sessions started
-before this verb existed need a `c64 session stop`/`start` once (the old
-daemon predates a monitor argument profile uses).
+The machine ends STOPPED at the trap, like `c64 call` — and as with `call`,
+the interrupted program is gone, not paused (see `c64 call`). Sessions
+started before this verb existed need a `c64 session stop`/`start` once
+(the old daemon predates a monitor argument profile uses).
 
 JSON: `{"called", "cycles", "irq_masked", "registers", "trap"}`.
 
@@ -1385,7 +1391,12 @@ steps:
   - poke:   { addr: "$CB", values: [18] }   # write bytes (state-preserving)
   - call:   { routine: add_score, a: 5 }    # JSR one routine in isolation
                                             #   (unit test: poke inputs
-                                            #   first, assert results after)
+                                            #   first, assert results after).
+                                            #   A call DISCARDS the running
+                                            #   program's PC: any until/wait
+                                            #   after it runs against a dead
+                                            #   program. Put call: steps
+                                            #   last, or in their own spec
   - assert: { text: "READY." }              # substring on screen now
   - assert: { screen: "READY." }            # `screen` is an accepted alias for
                                             #   `text` — in `wait` too
