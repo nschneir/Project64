@@ -555,11 +555,20 @@ and steering silently does nothing. (Sampling `$CB` again *during* the
 pacing loop is fine and makes a human-held key just as responsive — ignore
 64 there rather than latching it.)
 
-**The move that ends the game can never be driven by `key hold`.** On the
-fatal move the program leaves `mainloop` for good, so the hold's wait for
-the anchor times out and (per its documented timeout behavior) leaves the
-machine running with the checkpoint pulled — past the crash you wanted to
-inspect. Break on the death path and supply that one key yourself:
+**With a play-loop anchor, the move that ends the game cannot be driven by
+`key hold`.** When the anchor label executes only while playing, the fatal
+move leaves it for good: the hold's wait times out and (per its documented
+timeout behavior) leaves the machine running with the checkpoint pulled —
+past the crash you wanted to inspect. Two shapes avoid that:
+
+**Prefer a shared tick.** Anchor on a label that runs every frame in every
+state — title, play, game over. Then `key hold d --at mainloop --frames 1`
+drives the fatal move too and comes back stopped with the game-over screen
+already drawn: every state is drivable from one anchor and one `until`.
+(Snake's `mainloop` is this shape.)
+
+**With a play-loop anchor, break on the death path** and supply that one
+key yourself:
 
 ```bash
 c64 break add died         # the label the collision check jumps to
