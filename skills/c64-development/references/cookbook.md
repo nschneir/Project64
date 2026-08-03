@@ -722,11 +722,11 @@ Three caveats, all about `until` firing at the wrong time or not at all:
   ```
 - **`--count N` is a frame count only because this loop is frame-paced.**
   The pace loop waits on the jiffy clock, so `mainloop` runs at a fixed
-  rate (this one paces 6 jiffies per pass). A main loop that free-runs — draining a work queue, spinning on
-  a flag — arrives at its label as fast as it loops, and `--count 600`
-  returns in emulated microseconds having measured nothing. Anchor on
-  something executed exactly once per frame; if the main loop spins,
-  anchor on the IRQ handler instead.
+  rate (this one paces 6 jiffies per pass). A main loop that free-runs
+  — draining a work queue, spinning on a flag — arrives at its label as
+  fast as it loops, and `--count 600` returns in emulated microseconds
+  having measured nothing. Anchor on something executed exactly once per
+  frame; if the main loop spins, anchor on the IRQ handler instead.
 
 ### Cheap pseudo-random byte (8-bit Galois LFSR)
 
