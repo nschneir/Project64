@@ -1932,7 +1932,8 @@ def test_programs(ctx, directory):
     """
     program_dirs = sorted(d for d in directory.iterdir() if (d / "expect.txt").exists())
     if not program_dirs:
-        fail(ctx, f"no example programs found in {directory}")
+        fail(ctx, f"no example programs found in {directory}",
+             extra={"passed": False, "tests": []})
         return
     results = []
     for d in program_dirs:

@@ -1503,4 +1503,7 @@ raise for a slow program.
 
 - `DIRECTORY` (default `tests/programs`).
 
-JSON: `{"passed", "tests": [...]}`. Exit 1 if any program fails.
+JSON: `{"passed", "tests": [...]}`. Exit 1 if any program fails. A spec-level
+error — one program's spec failing to load, or no example programs in
+`DIRECTORY` at all — emits the same `{"error", "passed": false, "tests": []}`
+envelope `test run` does, so `tests` is always present here too.

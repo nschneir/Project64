@@ -544,7 +544,7 @@ def test_unknown_sample_name_fails_actionably():
     assert "no sample named" in result.steps[0].detail
 
 
-@pytest.mark.parametrize("cmp_key", ["differs", "greater_than", "less_than"])
+@pytest.mark.parametrize("cmp_key", ["differs", "greater_than", "less_than", "unchanged"])
 def test_assert_mem_between_with_a_sample_key_is_judged_not_crashed(cmp_key):
     """An assert step naming both `between` and a sample comparison used to
     size its read from `between` and then judge it with the sample branch,

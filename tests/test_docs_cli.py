@@ -79,6 +79,20 @@ def test_mem_read_documents_its_text_column_gloss():
     assert "text_encoding" in section, "the JSON key is undocumented"
 
 
+def test_test_run_documents_the_always_present_tests_envelope():
+    """A spec-level error emits `{"error", "passed": false, "tests": []}` rather
+    than dropping `tests` — 1812's harness crashed on the missing key. A promise
+    a harness codes against has to be written down, not just implemented."""
+    # These two entries end the file, so there is no trailing `---` for
+    # `_section` to cut on: slice between the headings by hand, or the sibling
+    # command's envelope answers for `test run`.
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert '"tests": []' in section, "the spec-error envelope is undocumented"
+    assert "always present" in section, \
+        "the docs never promise `tests` is present whether or not the test ran"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

@@ -78,6 +78,17 @@ def test_test_programs_empty_dir_fails(tmp_path):
     assert r.exit_code == 1 and "no example programs" in r.output
 
 
+def test_test_programs_empty_dir_json_keeps_the_envelope(tmp_path):
+    """The no-programs-found exit is a spec-level error like any other, so it
+    owes a parsing harness the same {passed, tests} envelope — reading
+    `out["tests"]` must not raise KeyError just because nothing ran."""
+    r = CliRunner().invoke(main, ["--json", "test", "programs", str(tmp_path)])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["tests"] == [] and out["passed"] is False
+    assert "no example programs" in out["error"]
+
+
 def test_spec_error_json_keeps_the_envelope(tmp_path):
     """A spec-level failure must still emit the {passed, tests} envelope —
     1812's harness crashed on the missing 'tests' key instead of reporting
@@ -89,3 +100,17 @@ def test_spec_error_json_keeps_the_envelope(tmp_path):
     out = json.loads(r.output)
     assert out["tests"] == [] and out["passed"] is False
     assert out["error"]
+
+
+def test_programs_per_program_spec_error_json_keeps_the_envelope(tmp_path):
+    """`test programs` bails on the first program whose spec will not load —
+    here a directory with an `expect.txt` but no program file, rejected before
+    any session launch. That early return owes the envelope too."""
+    d = tmp_path / "alpha"
+    d.mkdir()
+    (d / "expect.txt").write_text("X\n")          # qualifies as a program dir...
+    r = CliRunner().invoke(main, ["--json", "test", "programs", str(tmp_path)])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["tests"] == [] and out["passed"] is False
+    assert "alpha" in out["error"]

@@ -190,6 +190,7 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$2F14", "equals": "$05"}},   # left cell, masked
         {"assert": {"mem": "$2F1C", "equals": "$55"}},   # a middle cell, whole
         {"assert": {"mem": "$2FEC", "equals": "$50"}},   # right cell, masked
+        # row 12: below where BASIC's READY. prints into this same RAM after the rts
         {"assert": {"mem": "$05E2", "equals": "$16"}},   # palette: row 12 cell 2
         {"assert": {"mem": "$D9E2", "mask": {"and": "$0f", "equals": [2]}}},
     ]),
