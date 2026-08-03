@@ -137,38 +137,3 @@ demo would find. None blocked the run.
       direction: extend the skill's "Where runtime data lives" section. Verify:
       doc-only.
 
-**Answered, no work needed**
-
-- [ ] **`docs/graphics-and-sprites.md` §6 asks whether charset/bitmap PNG
-      conversion is needed, deferred pending "the first real consumer (the
-      1812 bitmap demo)". It is not.** The demo never wanted a PNG-to-bitmap
-      converter: every shape is generated geometry and every table is emitted
-      by `tools/gentables.py` as commented `.byte` rows, which is what the
-      authoring policy asks for anyway. What it *did* want was the opposite
-      direction — reading the finished bitmap back to count lit pixels and
-      checksum the canvas — and `c64 mem read --json` piped into a 60-line
-      stdlib script (`demos/1812/tools/litcount.py`) covered it completely.
-      Fix direction: close the §6 item as "not needed, consumer arrived and
-      did not want it", and note the readback pattern instead.
-
-## Standing backlog (pre-cartridge)
-
-- [ ] **Charset/bitmap PNG conversion — blocked on demo-07 evidence.**
-      `c64 sprite from-png` (`sprite_from_png` in `src/c64lib/cli.py`, via
-      `sprites.sprite_from_image`) handles 24×21 sprites only; charset and
-      bitmap conversion is the one bullet still open in §6 of
-      `docs/graphics-and-sprites.md` (the pixel-assertion
-      bullet beside it was ruled out 2026-07-30). What blocks it is a
-      target-format decision — 8×8 charset cells versus a full 320×200
-      hires / 160×200 multicolor bitmap plus screen and color RAM — and the
-      two imply different outputs and different verification. Don't rule it
-      from first principles: demo 07 (`demos/1812/PROMPT.md`, multicolor
-      bitmap, still the one 🔲 row in `demos/README.md`) is the first real
-      consumer, so the decision waits on it. Fix direction: when that run
-      completes, re-scope this item from what it actually needed out of a
-      PNG — and close it if it needed nothing. Verify: inspection.
-      Narrowed 2026-08-01 by the invaders dogfood: the charset gap that run
-      hit was ASCII art, not image input; it was split out and has since
-      landed as `c64 charset encode`. This item is now about *image*
-      conversion only.
-
