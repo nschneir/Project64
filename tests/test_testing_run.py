@@ -508,6 +508,32 @@ def test_greater_and_less_than_samples():
     assert result.steps[1].ok is True and result.steps[2].ok is False
 
 
+def test_sample_then_assert_unchanged():
+    """Sample-vs-sample equality: 'shapes is unchanged 120 frames into the
+    hold' was 1812's real claim, faked with a proxy byte until now."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.memory_read.return_value = b"\x07"
+    spec = _spec(steps=[{"sample": {"mem": "$1000", "as": "n0"}},
+                        {"assert": {"mem": "$1000", "unchanged": "n0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True, [st.detail for st in result.steps]
+    assert "sample n0" in result.steps[1].detail
+
+
+def test_assert_unchanged_fails_when_the_value_moved():
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.memory_read.side_effect = [b"\x07", b"\x08"]
+    spec = _spec(steps=[{"sample": {"mem": "$1000", "as": "n0"}},
+                        {"assert": {"mem": "$1000", "unchanged": "n0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=launch)
+    assert result.passed is False
+    assert "not ==" in result.steps[1].detail
+
+
 def test_unknown_sample_name_fails_actionably():
     s, mon = _fake_session()
     mon.memory_read.side_effect = [bytes([10])]

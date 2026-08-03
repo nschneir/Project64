@@ -567,9 +567,10 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             ok = lo <= val <= hi
             return ok, (f"mem ${addr:04x} = {val} in [{lo}, {hi}]" if ok
                         else f"mem ${addr:04x} = {val} not in [{lo}, {hi}]")
-        if any(k in arg for k in ("differs", "greater_than", "less_than")):
-            cmp_key = next(k for k in ("differs", "greater_than", "less_than")
-                           if k in arg)
+        if any(k in arg for k in ("differs", "greater_than", "less_than",
+                                  "unchanged")):
+            cmp_key = next(k for k in ("differs", "greater_than",
+                                       "less_than", "unchanged") if k in arg)
             name = str(arg[cmp_key])
             if name not in captures:
                 # still before the read, so an unknown name costs no monitor trip
@@ -579,8 +580,10 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             val = _read(1)[0]
             ok = {"differs": val != ref_val,
                   "greater_than": val > ref_val,
-                  "less_than": val < ref_val}[cmp_key]
-            op = {"differs": "!=", "greater_than": ">", "less_than": "<"}[cmp_key]
+                  "less_than": val < ref_val,
+                  "unchanged": val == ref_val}[cmp_key]
+            op = {"differs": "!=", "greater_than": ">", "less_than": "<",
+                  "unchanged": "=="}[cmp_key]
             return ok, (f"mem ${addr:04x} = {val} {op} sample {name}={ref_val}"
                         if ok else
                         f"mem ${addr:04x} = {val} not {op} sample {name}={ref_val}")

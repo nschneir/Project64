@@ -120,8 +120,10 @@ Two channels, used for different things:
 
 - Motion is tested by sampling: `until` a frame anchor, `sample` a
   register under a name, `until` again, `assert ... differs` (or
-  `greater_than`/`less_than` when the demo documents direction) — the
-  runner supports this natively; see `c64 test run` in docs/cli.md and
+  `greater_than`/`less_than` when the demo documents direction, or
+  `unchanged` for the opposite claim — a hold or pause state where the
+  counter must **not** move) — the runner supports this natively; see
+  `c64 test run` in docs/cli.md and
   `tests/programs/sprite-ball/test.yaml` for the worked example. Collision
   behavior is tested through the demo's own state change (lives byte
   decremented), not by trying to force `$D01E` timing.

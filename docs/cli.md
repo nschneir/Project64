@@ -1425,6 +1425,9 @@ steps:
   - assert: { mem: "$D000", greater_than: x0 }   # differs / greater_than /
   - assert: { mem: "ballx", less_than: x0 }      # less_than (plain bytes —
                                             #   wraparound is yours to handle)
+  - assert: { mem: "$D000", unchanged: x0 } # equality against a sample:
+                                            #   "this byte did NOT change"
+                                            #   (holds, pauses, game over)
 ```
 
 Step kinds: `wait` (poll until true or timeout — fails the test on
