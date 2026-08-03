@@ -106,6 +106,22 @@ def test_mem_symbol_roundtrip_live(session, tmp_path):
     assert json.loads(r.output)["hex"] == "2a"
 
 
+def test_color_ram_readback_is_4_bit(session):
+    """The doc claim, measured: a colour cell written 13 survives only in
+    the low nybble — the high nybble is open bus, so unmasked equality
+    against colour RAM is a coin flip, not an assertion."""
+    cell = 0xD800 + 5 * 40
+    with session.monitor() as mon:
+        try:
+            mon.memory_write(cell, bytes([13]), side_effects=True)
+            got = mon.memory_read(cell, 1)[0]
+        finally:
+            mon.release()
+    assert got & 0x0F == 13
+    # Deliberately no assertion on the high nybble's value: it is open bus
+    # and varies — that variability is exactly why the mask is mandatory.
+
+
 HOT_LOOP = """\
         .segment "LOADADDR"
         .word   $0801

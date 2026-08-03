@@ -79,8 +79,9 @@ Two channels, used for different things:
   `assert: {mem: ...}`) against: `$D015` (enable bits), `$D000/$D001` pairs
   + `$D010` MSB (positions), sprite pointers at `$07F8+n`, `$D01E/$D01F`
   (collision latches — note: reading clears them, so read once and assert
-  on the read value), `$D020/$D021` (colors), and the demo's own state
-  bytes. This is what tests assert. Screen reads are relocation-aware:
+  on the read value), `$D020/$D021` (colors), colour RAM at `$D800`
+  (**4-bit readback — compare masked**, `and: "$0f"`), and the demo's own
+  state bytes. This is what tests assert. Screen reads are relocation-aware:
   `c64 screen` and `@row,col` follow `$DD00`/`$D018` to wherever the
   VIC-II put the screen; color RAM stays `$D800`, and `@@row,col` addresses
   it directly (same row/col, fixed base).
@@ -108,6 +109,9 @@ Two channels, used for different things:
   - assert: { mem: "$D015", equals: 3 }        # sprites 0+1 enabled
   - assert: { mem: "$07F8", equals: 128 }      # sprite 0 data at $2000
   - assert: { mem: "score", equals: 0 }        # via label
+  - assert: { mem: "@@3,7", mask: { and: "$0f", equals: [7] } }
+                                               # a cell's colour: colour RAM
+                                               #   reads back 4-bit, mask it
   - wait:   { text: "GAME OVER" }              # HUD line in screen RAM
   ```
 
