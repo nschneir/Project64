@@ -213,6 +213,22 @@ that grows into its own data region as you add code: check that the end
 address (`load_addr + len - 2`) still lands below wherever you placed the
 data, every time the code grows.
 
+**BSS consumes address space even though it ships no bytes.** `.res`
+storage is allocated right after DATA, so the "check the end address"
+rule above must count BSS too: a program with a bitmap at `$2000` or a
+charset at `$3000` can grow until BSS silently overlaps it — the demo
+paints over its own variables with no build error and no crash, just
+wrong pixels. Make the linker enforce the ceiling with a deferred
+assertion next to the BSS variables:
+
+    .import __BSS_LOAD__, __BSS_SIZE__
+    .assert (__BSS_LOAD__ + __BSS_SIZE__) <= $2000, error, "BSS ran into the bitmap"
+
+(`__BSS_LOAD__`/`__BSS_SIZE__` exist because the linker config declares
+BSS with `define = yes`.) The assertion is evaluated at link time, when
+the addresses are real; it fired twice during the 1812 demo's build and
+is the reason that demo works.
+
 **Getting a linked-in segment there.** A `.prg` is a *flat* binary — file
 bytes map straight onto consecutive addresses starting at the load
 address. That's no trouble for a hand-picked address you poke into
