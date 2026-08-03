@@ -185,6 +185,14 @@ LIVE_RECIPES = [
         # and the patch landed on top of it at $3000 + 96*8
         {"assert": {"mem": "$3300", "equals": [60, 126, 219, 255, 255, 189, 126, 60]}},
     ]),
+    ("asm-bitmap-span", "asm", "bitmapspan.s", [
+        {"wait": {"mem": "$03F0", "equals": "$2a"}},
+        {"assert": {"mem": "$2F14", "equals": "$05"}},   # left cell, masked
+        {"assert": {"mem": "$2F1C", "equals": "$55"}},   # a middle cell, whole
+        {"assert": {"mem": "$2FEC", "equals": "$50"}},   # right cell, masked
+        {"assert": {"mem": "$05E2", "equals": "$16"}},   # palette: row 12 cell 2
+        {"assert": {"mem": "$D9E2", "mask": {"and": "$0f", "equals": [2]}}},
+    ]),
     ("asm-screen-readback", "asm", "collide.s", [
         # HITKIND ($03F1) is the done marker: it is stored after HITCODE,
         # so a poll that lands between the two stores can't see it early
