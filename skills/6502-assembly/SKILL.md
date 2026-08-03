@@ -235,7 +235,17 @@ right after `MAIN`'s last real byte.
 
 `c64 run FILE.s` registers the labels, so you can `c64 break add start`, then
 `c64 wait --break`, `c64 reg`, `c64 step`, and `c64 mem read` your data by
-symbol. Disassemble live memory (with your labels and ROM labels) via
+symbol.
+
+**Equates are not labels and never reach the label file.** `MULA = $24`
+exists only inside the assembler: `ld65 -Ln` writes labels, so
+`c64 mem write MULA 5` fails with "unknown symbol" while every `label:`
+in the same file resolves. Export what a test or debug session needs to
+name — `.exportzp MULA` for a zero-page equate, `.export` otherwise — and
+it appears in the `.lbl` like any label. This bites every hardware equate
+and every zero-page alias a test wants to poke.
+
+Disassemble live memory (with your labels and ROM labels) via
 `c64 rom disasm start 32`. Test one routine in isolation with
 `c64 call ROUTINE` (fake JSR; stops at its RTS). For symptom-driven
 procedures — corruption hunts, clobber audits, deterministic
