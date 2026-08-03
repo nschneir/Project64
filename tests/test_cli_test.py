@@ -76,3 +76,16 @@ def test_test_run_bad_yaml_fails(tmp_path):
 def test_test_programs_empty_dir_fails(tmp_path):
     r = CliRunner().invoke(main, ["test", "programs", str(tmp_path)])
     assert r.exit_code == 1 and "no example programs" in r.output
+
+
+def test_spec_error_json_keeps_the_envelope(tmp_path):
+    """A spec-level failure must still emit the {passed, tests} envelope —
+    1812's harness crashed on the missing 'tests' key instead of reporting
+    the actual error."""
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("name: x\nsteps:\n  - bogus: 1\n")   # unknown step kind
+    r = CliRunner().invoke(main, ["--json", "test", "run", str(bad)])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["tests"] == [] and out["passed"] is False
+    assert out["error"]

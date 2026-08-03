@@ -1478,7 +1478,12 @@ to finish before the first step, which matters more here than for a `.prg`
 the CLI: a sibling `.lbl` of the image's stem, else the label file `disk build`
 kept for the image's first entry, silently skipped when absent.
 
-JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails.
+JSON: `{"passed", "tests": [<report>]}`. Exit 1 if the test fails. A
+spec-level error — a malformed spec, a missing program, a build or session
+failure — emits the same envelope with an added message and no results:
+`{"error", "passed": false, "tests": []}`. So `tests` is always present, and
+a harness can read the payload the same way whether the test ran or the spec
+never loaded.
 
 ### `c64 test programs`
 

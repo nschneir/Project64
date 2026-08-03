@@ -1915,7 +1915,7 @@ def test_run(ctx, yaml_file):
         spec = load_test(yaml_file)
         result = run_test(spec)
     except (TestError, KeyError, BasicError, BuildError, SessionError) as e:
-        fail(ctx, str(e))
+        fail(ctx, str(e), extra={"passed": False, "tests": []})
         return
     _emit_test_results(ctx, [result])
 
@@ -1939,7 +1939,7 @@ def test_programs(ctx, directory):
         try:
             results.append(run_test(program_test(d)))
         except (TestError, KeyError, BasicError, BuildError, SessionError) as e:
-            fail(ctx, f"{d.name}: {e}")
+            fail(ctx, f"{d.name}: {e}", extra={"passed": False, "tests": []})
             return
     _emit_test_results(ctx, results)
 
