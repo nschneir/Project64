@@ -584,6 +584,21 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             return ok, (f"mem ${addr:04x} = {val} {op} sample {name}={ref_val}"
                         if ok else
                         f"mem ${addr:04x} = {val} not {op} sample {name}={ref_val}")
+        scalar = [k for k in ("not_equals", "above", "at_least", "below",
+                              "at_most") if k in arg]
+        if scalar:
+            op = MEM_COND_KEYS[scalar[0]]
+            want = _num(arg[scalar[0]])
+            val = _read(1)[0]
+            ok = MEM_OPS[op](val, want)
+            return ok, (f"mem ${addr:04x} = {val} {op} {want}" if ok else
+                        f"mem ${addr:04x} = {val}, wanted {op} {want}")
+        if "equals" not in arg:
+            raise TestError(
+                "assert mem step needs a comparison — one of equals/"
+                "equals_text/equals_any/mask/between/differs/greater_than/"
+                "less_than/unchanged/not_equals/above/at_least/below/"
+                f"at_most: {arg}")
         want_b = _bytes(arg["equals"])
         data = _read(len(want_b))
         ok = data == want_b
@@ -686,8 +701,14 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
         captures: dict[str, int] = {}
         for i, step in enumerate(spec["steps"], start=1):
             kind = next(iter(step))
-            ok, detail = _do_step(session, kind, step[kind], spec["timeout"],
-                                  labels=labels, captures=captures)
+            try:
+                ok, detail = _do_step(session, kind, step[kind],
+                                      spec["timeout"], labels=labels,
+                                      captures=captures)
+            except TestError as e:
+                # Only TestError: the runner's unknown-symbol KeyError already
+                # says which symbol and where to look, and keeps its own path.
+                raise TestError(f"step {i} ({kind}): {e}") from None
             steps.append(StepResult(index=i, kind=kind, ok=ok, detail=detail))
             if not ok:
                 passed = False

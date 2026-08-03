@@ -1383,7 +1383,8 @@ steps:
   - wait:   { mem: "$fb", at_least: 20 }    # counter passes a value —
                                             #   equals/not_equals/above/
                                             #   at_least/below/at_most, one
-                                            #   per step. Waits POLL, so a
+                                            #   per step — assert: takes
+                                            #   the same six. Waits POLL, so a
                                             #   counter can step over an
                                             #   exact value: use at_least
                                             #   for anything that climbs

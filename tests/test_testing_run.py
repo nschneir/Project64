@@ -415,6 +415,34 @@ def test_assert_mem_between_hex_bounds():
     assert _assert_step(bytes([0x35]), arg).passed is True
 
 
+def test_assert_mem_takes_the_wait_word_comparisons():
+    """The docs show equals/not_equals/above/at_least/below/at_most in a
+    wait: example that reads as if it applies to assert: too — 1812 used
+    at_least in an assert and got a bare KeyError 'equals'."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    mon.memory_read.return_value = b"\x30"                # 48
+    spec = _spec(steps=[{"assert": {"mem": "$1000", "at_least": 40}},
+                        {"assert": {"mem": "$1000", "at_most": 48}},
+                        {"assert": {"mem": "$1000", "above": 47}},
+                        {"assert": {"mem": "$1000", "below": 49}},
+                        {"assert": {"mem": "$1000", "not_equals": 0}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=launch)
+    assert result.passed is True, [st.detail for st in result.steps]
+
+
+def test_assert_mem_missing_comparison_names_the_step():
+    """The failure names the step number, the kind, and the comparison
+    menu — not a bare KeyError 'equals'."""
+    s, mon = _fake_session()
+    launch = Mock(return_value=s)
+    spec = _spec(steps=[{"assert": {"mem": "$1000"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         pytest.raises(TestError, match=r"step 1 \(assert\).*at_least"):
+        run_test(spec, launch=launch)
+
+
 def test_call_step_resolves_symbol_and_passes_registers(tmp_path):
     s, mon = _fake_session()
     launch = Mock(return_value=s)
