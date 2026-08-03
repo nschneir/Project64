@@ -435,8 +435,9 @@ programs can all be run as tests with `c64 test programs`.
 **Testing motion.** A moving sprite is asserted by sampling, not by a fixed
 coordinate: `until` a frame anchor, `sample` a register under a name, `until`
 again, then `assert … differs` (or `greater_than`/`less_than` when the
-program documents its direction) — the `sample`/`differs` steps are
-documented under `c64 test run` in docs/cli.md and worked out in
+program documents its direction, or `unchanged` for the opposite claim — a
+hold or pause state where the byte must **not** move) — the `sample`/`differs`
+steps are documented under `c64 test run` in docs/cli.md and worked out in
 `tests/programs/sprite-ball/test.yaml`. Test collision through the program's
 own state change (a lives byte decrementing), not by racing `$D01E`, whose
 latch clears on read. Anchor every sampled read on a `c64 until` stop at the

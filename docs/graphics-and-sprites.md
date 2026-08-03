@@ -125,10 +125,10 @@ Two channels, used for different things:
   `greater_than`/`less_than` when the demo documents direction, or
   `unchanged` for the opposite claim — a hold or pause state where the
   counter must **not** move) — the runner supports this natively; see
-  `c64 test run` in docs/cli.md and
-  `tests/programs/sprite-ball/test.yaml` for the worked example. Collision
-  behavior is tested through the demo's own state change (lives byte
-  decremented), not by trying to force `$D01E` timing.
+  `c64 test run` in docs/cli.md and `tests/programs/sprite-ball/test.yaml`
+  for the worked example. Collision behavior is tested through the demo's
+  own state change (lives byte decremented), not by trying to force
+  `$D01E` timing.
 - Determinism rules: run under `--warp --headless`; anchor every sampled
   read on a `c64 until` stop at the demo's main-loop label; never assert
   on free-running frame counts.

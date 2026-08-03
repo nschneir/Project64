@@ -216,7 +216,7 @@ data, every time the code grows.
 **BSS consumes address space even though it ships no bytes.** `.res`
 storage is allocated right after DATA, so the "check the end address"
 rule above must count BSS too: a program with a bitmap at `$2000` or a
-charset at `$3000` can grow until BSS silently overlaps it — the demo
+charset at `$3000` can grow until BSS silently overlaps it — the program
 paints over its own variables with no build error and no crash, just
 wrong pixels. Make the linker enforce the ceiling with a deferred
 assertion next to the BSS variables:

@@ -15,12 +15,12 @@ Closed out the ROM label database with its final tranche: `basic2.lbl` grew
 floating-point package, and the IEC serial and tape KERNAL internals.
 Dogfooded demo 06 (Invaders), which now ships its whole solution — sources,
 a fidelity audit, a regression test and a runnable `.d64` — and closed the
-twelve CLI, skill and cookbook gaps it found (only its process items are
-still open in `docs/todo.md`). Dogfooded Snake under its promoted game-demo
-prompt: `demos/snake/` now ships the same way, with a three-iteration audit,
-a 101-step regression spec, seven evidence frames and `snake.d64`. This
-changelog itself was cut from 843 lines to something a person can actually
-skim.
+twelve CLI, skill and cookbook gaps it found (its process items were tracked
+in `docs/todo.md` and have since landed). Dogfooded Snake under its promoted
+game-demo prompt: `demos/snake/` now ships the same way, with a
+three-iteration audit, a 101-step regression spec, seven evidence frames and
+`snake.d64`. This changelog itself was cut from 843 lines to something a
+person can actually skim.
 
 Out of that dogfood: `c64 profile REF` reports hardware cycle counts for
 one routine (CIA#2 cascade, IRQs masked by default, `--with-irq`), with the
@@ -63,6 +63,25 @@ windows, `$0A00-$0FFF` for the Ultimax boot window, overlapping between banks
 by construction. And a non-cart program's ZEROPAGE area starts at `$0002`
 rather than `$0000`, off the 6510 port registers at `$00`/`$01` — ZEROPAGE
 symbols link two bytes higher than they used to.
+
+Out of the 1812 dogfood's items: `assert:` mem steps now take the same six
+word comparisons as `wait:` (`equals`/`not_equals`/`above`/`at_least`/
+`below`/`at_most`), a step with no comparison fails naming the step and the
+whole comparison menu instead of a bare `KeyError`, and `unchanged: NAME`
+asserts sample-vs-sample equality — "this byte did NOT change", the
+hold/pause/game-over claim. `c64 test run --json` and `c64 test programs
+--json` keep the `{"passed", "tests"}` envelope on spec-level errors, so a
+parsing harness reports the failure instead of crashing on a missing key.
+The cookbook gained two live-tested recipes — signed 8×8→16 multiply by
+quarter squares (512-entry tables built at startup from their own first
+difference) and multicolor bitmap from zero (mode bits, clear, one masked
+span) — and its LFSR range-trick paragraph now tells the truth:
+reject-and-retry yields 1 to N−1 (0 is unreachable), is positionally biased
+and slow at small bounds, so scale with `(rnd * bound) >> 8` instead. Newly
+documented: equates need `.export`/`.exportzp` to reach the label file, BSS
+consumes address space after DATA (guard the ceiling with a deferred linker
+`.assert`), and `until --count N` is a frame count only when the anchor
+label is frame-paced.
 
 ## [0.9.0] — 2026-07-31
 
