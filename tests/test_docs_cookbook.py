@@ -141,6 +141,13 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$03F0", "equals": 21}},
         {"assert": {"mem": "$03F1", "equals": 178}},
     ]),
+    ("asm-qsmul", "asm", "qsmul.s", [
+        # $03F3 is stored last, so it is the done marker
+        {"wait": {"mem": "$03F3", "equals": "$fe"}},
+        {"assert": {"mem": "$03F0", "equals": 144}},   # 12 * 12
+        {"assert": {"mem": "$03F1", "equals": 0}},
+        {"assert": {"mem": "$03F2", "equals": "$d4"}},  # -300 = $FED4
+    ]),
     ("asm-plotaddr", "asm", "plot.s", [
         # row 10 * 40 + col 20 = 420 -> $0400 + $1A4; '*' is screen code 42
         {"wait": {"mem": "$05A4", "equals": 42}},

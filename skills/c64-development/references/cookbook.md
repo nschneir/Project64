@@ -28,6 +28,7 @@ Assembly:
 - [Sound: a beep from machine code](#sound-a-beep-from-machine-code)
 - [Frame stepping: inspect a game loop one frame at a time](#frame-stepping-inspect-a-game-loop-one-frame-at-a-time)
 - [Cheap pseudo-random byte (8-bit Galois LFSR)](#cheap-pseudo-random-byte-8-bit-galois-lfsr)
+- [Signed multiply: quarter squares, tables built at startup](#signed-multiply-quarter-squares-tables-built-at-startup)
 - [Point a pointer at screen row/column (plotaddr)](#point-a-pointer-at-screen-rowcolumn-plotaddr)
 - [Static text without CHROUT (poke screen codes)](#static-text-without-chrout-poke-screen-codes)
 - [Print a number as decimal digits](#print-a-number-as-decimal-digits)
@@ -774,6 +775,185 @@ reject-and-retry — `retry: jsr random / cmp #40 / bcs retry` — for an
 unbiased 0-39. Branch back to the `jsr`, never into `random` itself:
 entering the routine without a `jsr` means its `rts` pops *your* caller's
 return address and control unwinds one level too far.
+
+### Signed multiply: quarter squares, tables built at startup
+
+Geometry, physics, scaling — anything beyond shifts needs a signed
+8×8→16 multiply, and the 6502 has none. The classic shift-add loop costs
+~330 cycles; quarter squares does it in ~141 (both measured with
+`c64 profile` in the 1812 demo, which calls this four times per vertex):
+`a*b = f(a+b) - f(a-b)` where `f(x) = floor(x*x/4)` — exactly, for
+integers — so a multiply becomes two table lookups and a 16-bit subtract.
+
+The 512-entry tables are **generated at startup, into RAM the program
+never ships**: `f` is accumulated from its own first difference
+(`f(x+1) - f(x) = floor((x+1)/2)`, which steps up on every odd index), so
+the generator needs no multiply either, and building into `$C000-$C3FF` —
+the 4 KB BASIC never touches — costs the `.prg` nothing. Accumulating `f`
+directly keeps everything in 16 bits (`x*x` would overflow at `x = 256`;
+`f(511) = 65280` does not).
+
+```asm
+; qsmul.s — signed 8x8 -> 16 multiply by quarter squares.
+; Builds f(x) = floor(x*x/4) for x = 0..511 at startup, then computes
+; 12 * 12 = 144 and -3 * 100 = -300 into $03F0-$03F3 as proof.
+QSL = $C000             ; 512 low bytes of f
+QSH = $C200             ; 512 high bytes of f
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  jsr     qsgen           ; build the tables once
+        lda     #12
+        sta     MULA
+        sta     MULB
+        jsr     smul            ; 12 * 12
+        lda     MULR
+        sta     $03f0           ; 144
+        lda     MULR+1
+        sta     $03f1           ; 0
+        lda     #<-3
+        sta     MULA
+        lda     #100
+        sta     MULB
+        jsr     smul            ; -3 * 100 = -300 = $FED4
+        lda     MULR
+        sta     $03f2           ; $D4
+        lda     MULR+1
+        sta     $03f3           ; $FE — stored last: the done marker
+        rts
+
+; umul — UNSIGNED 8x8 -> 16.  in: MULA, MULB.  out: MULR/MULR+1.
+; a+b reaches 510 for two full-range bytes, so the tables carry 512
+; entries and the sum's carry selects the upper half; |a-b| never
+; exceeds 255, so the subtrahend always comes from the lower half.
+umul:   lda     MULA
+        clc
+        adc     MULB
+        tax
+        bcc     umlo
+        lda     QSL+256,x
+        sta     MULR
+        lda     QSH+256,x
+        sta     MULR+1
+        jmp     umd
+umlo:   lda     QSL,x
+        sta     MULR
+        lda     QSH,x
+        sta     MULR+1
+umd:    lda     MULA            ; minus f(|a - b|); f is even
+        sec
+        sbc     MULB
+        bcs     :+
+        eor     #$ff
+        clc
+        adc     #1
+:       tax
+        lda     MULR
+        sec
+        sbc     QSL,x
+        sta     MULR
+        lda     MULR+1
+        sbc     QSH,x
+        sta     MULR+1
+        rts
+
+; smul — SIGNED, by magnitudes through umul plus one sign fixup.
+smul:   lda     MULA
+        bpl     smpa
+        eor     #$ff
+        clc
+        adc     #1
+        ldx     #1
+        stx     smsgn
+        jmp     sma2
+smpa:   ldx     #0
+        stx     smsgn
+sma2:   sta     MULA
+        lda     MULB
+        bpl     smpb
+        eor     #$ff
+        clc
+        adc     #1
+        sta     MULB
+        lda     smsgn
+        eor     #1
+        sta     smsgn
+        jmp     smgo
+smpb:   sta     MULB
+smgo:   jsr     umul
+        lda     smsgn
+        beq     smdone
+        lda     #0              ; negate the 16-bit product
+        sec
+        sbc     MULR
+        sta     MULR
+        lda     #0
+        sbc     MULR+1
+        sta     MULR+1
+smdone: rts
+
+; qsgen — build both 512-entry tables by first difference: no multiply.
+qsgen:  lda     #0
+        sta     flo
+        sta     fhi
+        sta     dlt
+        sta     qspg
+        lda     #<QSL
+        sta     qs1+1
+        lda     #>QSL
+        sta     qs1+2
+        lda     #<QSH
+        sta     qs2+1
+        lda     #>QSH
+        sta     qs2+2
+        ldx     #0
+qsl:    lda     flo
+qs1:    sta     $ffff,x         ; self-modified: QSL, then QSL+256
+        lda     fhi
+qs2:    sta     $ffff,x         ; self-modified: QSH, then QSH+256
+        txa                     ; index parity == X parity (256 is even)
+        and     #1
+        beq     qsev
+        inc     dlt
+qsev:   lda     flo
+        clc
+        adc     dlt
+        sta     flo
+        bcc     :+
+        inc     fhi
+:       inx
+        bne     qsl
+        inc     qs1+2
+        inc     qs2+2
+        inc     qspg
+        lda     qspg
+        cmp     #2
+        bne     qsl
+        rts
+
+        .segment "BSS"
+MULA:   .res 1
+MULB:   .res 1
+MULR:   .res 2
+smsgn:  .res 1
+flo:    .res 1
+fhi:    .res 1
+dlt:    .res 1
+qspg:   .res 1
+```
+
+The full signed range works, `-128 * -128` included: magnitudes reach 128,
+so `a+b` peaks at 256 and the carry path indexes the upper table half.
+`smul` leaves `MULA`/`MULB` holding their magnitudes — reload them per
+call. The worked production version (zero-page operands, `c64 profile`
+numbers in the comments) is `demos/1812/raster.s`.
 
 ### Point a pointer at screen row/column (plotaddr)
 
