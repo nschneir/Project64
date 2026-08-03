@@ -374,11 +374,13 @@ source of bugs:
   instead) — and codes **129-154 are reverse A-Z**, so a charset that
   patches 128+ turns every reverse-video line into game glyphs. Park custom
   glyphs outside 128-154 (112-123 is a proven run).
-- **Reading back a VIC-II color register — or a colour-RAM cell — and
+- **Reading back a VIC-II color register — or a color-RAM cell — and
   comparing to the value you poked.** `$D020`/`$D021` are 4-bit; the high
-  nybble reads as 1s, so `POKE 53280,0` reads back as `$F0`. Colour RAM
-  (`$D800-$DBE7`) behaves the same way: a cell written 13 reads back `$FD`.
-  Mask with `AND $0F` (`mask: { and: "$0f", equals: [0] }` in a YAML test).
+  nybble reads as 1s, so `POKE 53280,0` reads back as `$F0`. Color RAM
+  (`$D800-$DBE7`) is 4-bit too, but its high nybble is open bus and varies
+  (a cell written 13 read back `$FD` in one session, `$0D` in another) — so
+  an unmasked compare can even pass by luck and prove nothing. Mask with
+  `AND $0F` (`mask: { and: "$0f", equals: [0] }` in a YAML test).
 
 ## When something goes wrong — diagnosis table
 
@@ -400,7 +402,7 @@ reproduction, use the `6502-debugging` skill.)
 | The machine stops somewhere you set no breakpoint | A stale watchpoint. `c64 break list` (it lists watchpoints too); `c64 break clear` does NOT remove them — use `c64 watch clear`. |
 | `c64 wait --mem '$FB=20'` never fires on a counter | Waits poll, so a counter can step over 20 between polls. Use an inequality: `c64 wait --mem '$FB>=20'`. |
 | Program vanished after `c64 run` | Autostart resets the machine first — that's normal; reload anything else you need. |
-| A color register or colour-RAM assert fails with `f0 != 00` (or `fd != 0d`) | VIC-II color registers AND colour RAM (`$D800-$DBE7`) are 4-bit — the high nybble is junk on readback. Mask with `and: "$0f"`. |
+| A color register or color-RAM assert fails with `f0 != 00` (or `fd != 0d`) | VIC-II color registers AND color RAM (`$D800-$DBE7`) are 4-bit — the high nybble is junk on readback. Mask with `and: "$0f"`. |
 | Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). Then inspect the image itself from the host — `c64 disk ls`, `c64 disk validate`, `c64 disk block read IMAGE 18 0` for the BAM. |
 | A file the program LOADs isn't on the disk | `c64 disk ls IMAGE` — CBM names are written lowercase (they display uppercase on the C64) and max out at 16 chars, so they rarely match the host filename. Put it there with `c64 disk put`, or list it in a `*.disk.yaml` and rebuild with `c64 disk build`. |
 

@@ -45,6 +45,13 @@ fail cleanly too. Newly documented: the sprite-Y ↔ text-row mapping (`51 +
 unit testing with `c64 call`, the misleading-`until` diagnosis row, and a
 live-tested screen-code-readback collision recipe.
 
+Out of the Snake dogfood's tool items: `c64 key hold --frames 0` is now a
+validated no-op (exit 0, machine untouched) instead of a fabricated
+timeout — over the CLI and MCP alike — and `@@row,col` resolves a cell's
+color-RAM address (fixed `$D800` base; reads are 4-bit, so compare masked
+with `$0F`) everywhere addresses are accepted: mem commands, waits and
+watches, YAML `mem:` steps, and the MCP tools.
+
 Three cartridge follow-ups changed shipped behavior. `wrap_prg` now refuses
 the load ranges its launcher cannot copy to — `$A000-$BFFF` (under the BASIC
 ROM), `$D000-$DFFF` (I/O) and `$E000-$FFFF` (under the KERNAL) — so a

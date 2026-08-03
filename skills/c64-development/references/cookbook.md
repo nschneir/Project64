@@ -1268,11 +1268,12 @@ Five more things this encodes:
   glyph is distinctive for anything you want to eyeball as text.
 - **Stay out of 128-154.** Screen codes 128+ are the reverse-video set —
   129-154 is reverse A-Z — so glyphs parked there turn reverse-video
-  headings into game objects. This recipe's 96/97 are safe; a game needing
-  a contiguous run has one at 112-123 (Snake's choice, after learning this
-  at 128-139). Reverse text is also invisible to `wait --text` — `c64
-  screen` decodes reverse space as a block — so assert reverse-video
-  headings by screen code, not text.
+  headings into game objects. This recipe's 96/97 are safe from this trap
+  (96's blank-decode, above, still applies); a game needing a contiguous
+  run has one at 112-123 (Snake's choice, after learning this at 128-139).
+  Reverse text is also invisible to `wait --text` — `c64 screen` decodes
+  reverse space as a block — so assert reverse-video headings by screen
+  code, not text.
 
 ### Read the screen code you are moving into (collision by glyph)
 

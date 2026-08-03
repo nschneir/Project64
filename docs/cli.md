@@ -35,8 +35,8 @@ exposes the same operations; see the README.
   **screen cell** `@row,col`
   (e.g. `@23,18`), resolved against the machine's LIVE screen base
   (relocation-aware; 40×25, $0400 at power-on).
-  `@@row,col` is the same cell in **colour RAM** — hardwired at `$D800`
-  (the screen relocates; the colour matrix does not). Colour RAM reads back
+  `@@row,col` is the same cell in **color RAM** — hardwired at `$D800`
+  (the screen relocates; the color matrix does not). Color RAM reads back
   4-bit, so compare masked (`& $0F`; `mask: { and: "$0f", ... }` in YAML).
 - **Exit codes.** `0` on success; `1` on error, on a `c64 wait` timeout, or on
   a failing `c64 test`; `2` on CLI misuse (Click's usage errors — an unknown
@@ -222,8 +222,9 @@ deterministic first frame, stop at the anchor first (`c64 until REF`).
   computed hold length of zero needs no shell guard.
 - `--timeout SECS` (default `30`) — per-frame wait limit.
 
-JSON: `{"registers", "pc_symbol", "stopped": true, "frames"}`. On a frame
-timeout: exit 1, machine left running, checkpoint removed.
+JSON: `{"registers", "pc_symbol", "stopped": true, "frames"}`. With
+`--frames 0`: `{"frames": 0, "requested": 0, "machine": "untouched"}`. On a
+frame timeout: exit 1, machine left running, checkpoint removed.
 
 ---
 
@@ -1402,9 +1403,9 @@ steps:
                                             #   `text` — in `wait` too
   - assert: { mem: "@12,20", equals: 81 }   # screen cell row 12, col 20
   - assert: { mem: "@@12,20", mask: { and: "$0f", equals: [13] } }
-                                            # the cell's COLOUR ($D800
+                                            # the cell's COLOR ($D800
                                             #   matrix); masked because
-                                            #   colour RAM reads back 4-bit
+                                            #   color RAM reads back 4-bit
   - assert: { mem: "$0400", equals_text: "HELLO" }  # screen RAM as text
   - assert: { mem: "$1000", equals: [1, 2, 3] }     # exact bytes
   - assert: { mem: "@3,7", equals_any: [[81], [98]] }  # any alternative
@@ -1442,7 +1443,7 @@ change of verb.
 A `poke` right before an `until` is the held-key protocol (`c64 key
 hold` as steps). Step addresses accept everything the CLI does —
 `$hex`/`0xhex`/decimal, symbols from the built program's label file,
-`symbol+offset`, `@row,col`, and `@@row,col` (colour RAM).
+`symbol+offset`, `@row,col`, and `@@row,col` (color RAM).
 
 **Cartridge tests.** A spec sets `cart:` **or** `program:`, never both —
 setting both is an error, because a cartridge boots itself and there is
