@@ -336,7 +336,7 @@ def test_mem_get_json_values():
 
 
 def test_mem_get_color_cell_resolves_to_d800():
-    """`mem get @@row,col` lands on the colour matrix regardless of where
+    """`mem get @@row,col` lands on the color matrix regardless of where
     the screen sits — the arithmetic Snake's evidence.sh did by hand."""
     fake, mon = _fake()
     mon.memory_read.return_value = bytes([0xFD])      # 13 + open-bus nybble

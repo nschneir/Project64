@@ -250,9 +250,9 @@ def test_wait_mem_screen_cell_reresolves_each_poll():
     assert result.steps[0].detail.startswith("mem $04c8")
 
 
-def test_assert_mem_color_cell_reads_colour_ram():
+def test_assert_mem_color_cell_reads_color_ram():
     """`@@row,col` in a mem step lands on $D800+offset even with the screen
-    relocated, so specs stop hand-computing colour addresses — the stale
+    relocated, so specs stop hand-computing color addresses — the stale
     constant that produced Snake's false FAIL. The mask handles the 4-bit
     readback ($FD & $0F == 13)."""
     s, mon = _fake_session()

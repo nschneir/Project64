@@ -1,7 +1,7 @@
 # The manifest is the cart source: `cart:` accepts an .ef.yaml and builds the
 # multi-bank image, so nothing is autostarted and there is no READY. prompt.
 #
-# $D020 is asserted through a mask: VIC-II colour registers are 4 bits wide
+# $D020 is asserted through a mask: VIC-II color registers are 4 bits wide
 # and the unused high nybble reads back set, so `sta $D020` with #$05 reads as
 # $F5, not 5.
 #

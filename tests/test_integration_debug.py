@@ -107,9 +107,9 @@ def test_mem_symbol_roundtrip_live(session, tmp_path):
 
 
 def test_color_ram_readback_is_4_bit(session):
-    """The doc claim, measured: a colour cell written 13 survives only in
+    """The doc claim, measured: a color cell written 13 survives only in
     the low nybble — the high nybble is open bus, so unmasked equality
-    against colour RAM is a coin flip, not an assertion."""
+    against color RAM is a coin flip, not an assertion."""
     cell = 0xD800 + 5 * 40
     with session.monitor() as mon:
         try:

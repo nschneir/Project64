@@ -93,7 +93,7 @@ def test_save_screenshot_png_scale(tmp_path):
     w, h = save_screenshot_png(mon, out, scale=3)
     assert (w, h) == (6, 6)
     img = Image.open(out).convert("RGB")
-    # nearest-neighbour: whole 3x3 cell keeps the source pixel colour
+    # nearest-neighbour: whole 3x3 cell keeps the source pixel color
     assert img.getpixel((3, 0)) == (0, 255, 0)
     assert img.getpixel((5, 2)) == (0, 255, 0)
     assert img.getpixel((2, 2)) == (0, 0, 0)

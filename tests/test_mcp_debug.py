@@ -135,6 +135,20 @@ def test_key_hold_zero_frames_is_a_no_op_not_a_timeout():
     mon.memory_write.assert_not_called()
 
 
+def test_key_hold_negative_frames_is_an_error():
+    """`frames < 0` is the one hold length that is neither work nor a
+    no-op: it must come back as an error naming `frames`, with nothing
+    poked — not as a silent success like `frames=0`."""
+    s, mon = _fake()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": -1})
+    assert err is True
+    assert "frames" in out["raw"]
+    mon.memory_write.assert_not_called()
+
+
 def test_wait_break_timeout_reports_running():
     s, _ = _fake()
     with patch("c64lib.mcp_server.Session") as S, \

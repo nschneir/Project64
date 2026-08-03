@@ -93,6 +93,21 @@ def test_key_hold_zero_frames_is_a_no_op_not_a_timeout():
     assert "timeout" not in r.output
 
 
+def test_key_hold_negative_frames_fails_before_touching_the_machine():
+    """A negative hold length is a caller bug, not a no-op: the op refuses
+    it before poking anything, and the CLI reports it as a clean failure
+    naming `frames`. (Written `--frames=-1` because click reads a bare
+    `-1` as an option, not as a value.)"""
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["key", "hold", "d",
+                                      "--at", "$0819", "--frames=-1"])
+    assert r.exit_code == 1, r.output
+    assert "frames" in r.output and "Traceback" not in r.output
+    mon.memory_write.assert_not_called()
+
+
 def test_check_clean_program_exits_zero(tmp_path):
     src = tmp_path / "ok.bas"
     src.write_text('10 print "hi"\n20 goto 10\n')

@@ -85,9 +85,9 @@ def test_parse_ref_rowcol_out_of_range():
 
 
 def test_parse_ref_color_rowcol():
-    """@@row,col is the colour-RAM twin of @row,col: the same row/col math,
+    """@@row,col is the color-RAM twin of @row,col: the same row/col math,
     but a fixed $D800 base — $DD00/$D018 relocate the screen, never the
-    colour matrix."""
+    color matrix."""
     from c64lib.ops import COLOR_RAM_BASE
     assert COLOR_RAM_BASE == 0xD800
     assert parse_ref({}, "@@0,0",
