@@ -368,7 +368,12 @@ source of bugs:
   sitting plainly in `--png`. Assert with `c64 screen --codes` or
   `c64 mem read`, look with `c64 screen --png`, and keep anything you want to
   eyeball as text off those three codes. The cookbook's custom-character-set
-  recipe has the install sequence.
+  recipe has the install sequence. Reverse video doubles both traps:
+  `c64 screen` decodes reverse space as a block, so `wait --text` never
+  matches a reverse-video heading (assert its screen codes with `--codes`
+  instead) — and codes **129-154 are reverse A-Z**, so a charset that
+  patches 128+ turns every reverse-video line into game glyphs. Park custom
+  glyphs outside 128-154 (112-123 is a proven run).
 - **Reading back a VIC-II color register and comparing to the value you
   poked.** `$D020`/`$D021` are 4-bit; the high nybble reads as 1s, so
   `POKE 53280,0` reads back as `$F0`. Mask with `AND $0F`

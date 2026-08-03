@@ -1246,7 +1246,7 @@ together `$1C`. **It does not read back as `$1C`**: the unused bit 0 reads
 as 1, so `c64 mem read '$D018'` returns `$1D` — the same readback trap the
 4-bit color registers have. Compare against `$1D`, or mask with `and $FE`.
 
-Four more things this encodes:
+Five more things this encodes:
 
 - **Where the charset can live.** The VIC-II sees only one 16 KB bank at a
   time, bank 0 (`$0000-$3FFF`) at power-on — a charset outside it is
@@ -1266,6 +1266,13 @@ Four more things this encodes:
   sitting plainly in the PNG. Assert with `c64 screen --codes` or
   `c64 mem read`, look with `c64 screen --png`, and prefer codes whose ROM
   glyph is distinctive for anything you want to eyeball as text.
+- **Stay out of 128-154.** Screen codes 128+ are the reverse-video set —
+  129-154 is reverse A-Z — so glyphs parked there turn reverse-video
+  headings into game objects. This recipe's 96/97 are safe; a game needing
+  a contiguous run has one at 112-123 (Snake's choice, after learning this
+  at 128-139). Reverse text is also invisible to `wait --text` — `c64
+  screen` decodes reverse space as a block — so assert reverse-video
+  headings by screen code, not text.
 
 ### Read the screen code you are moving into (collision by glyph)
 
