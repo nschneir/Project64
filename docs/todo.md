@@ -1,9 +1,8 @@
 # TODO
 
-Open items carried out of recent reviews and dogfood runs plus the standing
-project backlog. Items are deleted as they land — what was
-actually done is recorded in `CHANGELOG.md` and in git history, so this file
-stays a list of work still open.
+Open items carried out of recent reviews and dogfood runs. Items are deleted
+as they land — what was actually done is recorded in `CHANGELOG.md` and in git
+history, so this file stays a list of work still open.
 
 Every item is written to stand on its own — anchor, what's wrong now, the fix
 direction if one was ruled, and how to verify. The process ledgers that
