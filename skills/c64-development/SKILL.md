@@ -440,7 +440,10 @@ documented under `c64 test run` in docs/cli.md and worked out in
 `tests/programs/sprite-ball/test.yaml`. Test collision through the program's
 own state change (a lives byte decrementing), not by racing `$D01E`, whose
 latch clears on read. Anchor every sampled read on a `c64 until` stop at the
-main-loop label; never assert on a free-running frame count.
+main-loop label; never assert on a free-running frame count. The anchor
+must itself be frame-paced: a main loop that spins (draining a work queue
+rather than waiting on the jiffy) makes `until --count N` a loop count,
+not a frame count — anchor those programs on the IRQ handler instead.
 
 **A BASIC program has no label to anchor on.** There are two substitutes,
 and both require the program to publish state. The first is a *saturating*

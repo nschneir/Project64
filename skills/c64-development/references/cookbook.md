@@ -699,7 +699,7 @@ c64 continue                  # back to real time
 No in-program stepping scaffolding (gate flags, poke-to-advance loops) is
 needed — the debugger provides deterministic stepping from outside.
 
-Two caveats, both about `until` firing at the wrong time or not at all:
+Three caveats, all about `until` firing at the wrong time or not at all:
 
 - **`c64 until` can only fire while the program still visits the label.**
   If play can branch away (death, menu, pause), the wait times out — and on
@@ -719,6 +719,13 @@ Two caveats, both about `until` firing at the wrong time or not at all:
   c64 key type " "           # runs, hits mainloop, stops there by itself
   c64 mem read FRAMES 1      # frame 1, deterministically
   ```
+- **`--count N` is a frame count only because this loop is frame-paced.**
+  The pace loop waits on the jiffy clock, so `mainloop` runs once per
+  frame. A main loop that free-runs — draining a work queue, spinning on
+  a flag — arrives at its label as fast as it loops, and `--count 600`
+  returns in emulated microseconds having measured nothing. Anchor on
+  something executed exactly once per frame; if the main loop spins,
+  anchor on the IRQ handler instead.
 
 ### Cheap pseudo-random byte (8-bit Galois LFSR)
 
