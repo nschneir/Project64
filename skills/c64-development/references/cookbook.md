@@ -777,11 +777,25 @@ nofb:   sta     seed
 seed:   .byte   1
 ```
 
-Range tricks, applied after `jsr random`: `and #$1f` for 0-31, or
-reject-and-retry — `retry: jsr random / cmp #40 / bcs retry` — for an
-unbiased 0-39. Branch back to the `jsr`, never into `random` itself:
-entering the routine without a `jsr` means its `rts` pops *your* caller's
-return address and control unwinds one level too far.
+Range tricks, applied after `jsr random`: `and #$1f` masks to 0-31
+(powers of two only). Reject-and-retry — `retry: jsr random / cmp #40 /
+bcs retry` — returns **1-39, not 0-39**: the LFSR's state is never zero
+(zero is the fixed point the seeding guards against) and `random` returns
+the state, so 0 is unreachable — a game picking a column with it never
+uses column 0. For small bounds it is also positionally biased and slow:
+consecutive outputs of a right-shifting LFSR differ by one shift, so they
+are not independent draws — rejecting until one falls under a small bound
+almost always stops on the same freshly-shifted bit pattern (in the 1812
+demo, two of eight dither patterns never appeared across an 889-shape
+run) — and it costs 256/bound draws on average (85 for a bound of 3).
+Prefer **scaling**: `v = (rnd * bound) >> 8` — one draw, reading the
+freshly shifted-in high bits, uniform to within one part in
+floor(256/bound). The product's high byte IS the value; the multiply is
+the quarter-squares recipe below, and `demos/1812/spawn.s`'s `rndlt` is
+the two-instruction worked version. Branch back to the `jsr`, never into
+`random` itself: entering the routine without a `jsr` means its `rts`
+pops *your* caller's return address and control unwinds one level too
+far.
 
 ### Signed multiply: quarter squares, tables built at startup
 
