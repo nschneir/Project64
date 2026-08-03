@@ -120,6 +120,21 @@ def test_until_timeout_error_is_loud():
     assert "left RUNNING" in out["raw"] and "branch away" in out["raw"]
 
 
+def test_key_hold_zero_frames_is_a_no_op_not_a_timeout():
+    """`frames=0` must reach the caller as an honest no-op, the same as it
+    does over the CLI: nothing is poked, no checkpoint is armed, so the
+    fake "timeout: only 0/0 frame(s) … checkpoint removed" error the
+    registers-is-None check used to raise is a lie about the machine."""
+    s, mon = _fake()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 0})
+    assert err is False, out
+    assert out == {"frames": 0, "requested": 0, "machine": "untouched"}
+    mon.memory_write.assert_not_called()
+
+
 def test_wait_break_timeout_reports_running():
     s, _ = _fake()
     with patch("c64lib.mcp_server.Session") as S, \

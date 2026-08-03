@@ -722,11 +722,18 @@ def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
     """Hold KEY down for N game ticks by re-poking its matrix code into
     $CB before each one, running to the frame anchor `at` (label or
     address executed once per tick) between pokes; the machine ends
-    STOPPED there. KEY is one character or 'space'."""
+    STOPPED there. KEY is one character or 'space'. frames=0 is a
+    validated no-op: the machine is untouched and the result is
+    {"frames": 0, "requested": 0, "machine": "untouched"}."""
     s = _attach(session)
     labels = session_labels(s)
     addr = _ref(s, at, labels)
     out = key_hold(s, key, addr, frames=frames, timeout=timeout)
+    if out["requested"] == 0:
+        # Nothing poked, nothing armed, nothing to time out — the same
+        # honest no-op the CLI reports, not the registers-is-None timeout
+        # below (which would blame a checkpoint that never existed).
+        return {"frames": 0, "requested": 0, "machine": "untouched"}
     if out["registers"] is None:
         raise RuntimeError(
             f"timeout: only {out['frames']}/{frames} frame(s) reached "
