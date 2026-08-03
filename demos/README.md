@@ -47,8 +47,9 @@ screenshots, and the artefact the prompt tells the agent to build, so
 `invaders/invaders.d64`, `snake/snake.d64` and `1812/1812.d64` run in stock
 VICE without a checkout of this toolset. Ms. Muncher and La Galaxia are
 prompt-only so far; their directories fill in the same way once built.
-The two game builds are written up in
-[invaders/AUDIT.md](invaders/AUDIT.md) and [snake/AUDIT.md](snake/AUDIT.md).
+The three finished builds are written up in
+[invaders/AUDIT.md](invaders/AUDIT.md), [snake/AUDIT.md](snake/AUDIT.md), and
+[1812/AUDIT.md](1812/AUDIT.md).
 
 <p align="center">
   <img src="invaders/evidence/title.png" alt="Invaders attract screen" width="260">

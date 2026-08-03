@@ -22,8 +22,13 @@ TIERS = {
 }
 
 _MD_ROW = re.compile(r"^\|.*?\[[^\]]+\]\(([^)]+)\)")
+_MD_SEP = re.compile(r"^\|[\s:|-]+$")
 # The tables say what each demo *is*; they carry no status of any kind.
 _RETIRED = re.compile(r"✅|🔲|dogfood", re.I)
+
+
+def _md_cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
 def _md_roster(text: str, section: str | None = None) -> dict[str, str]:
@@ -31,32 +36,56 @@ def _md_roster(text: str, section: str | None = None) -> dict[str, str]:
 
     Rows are table lines whose first link points into demos/; the tier is
     whichever tier marker (a `## ` heading or a bold lead-in) came last.
+    Every table must declare a Description column by name, and each row's
+    description is read at that column's index — not from the last cell,
+    which would still pass if the column were dropped.
     """
     if section is not None:
-        idx = text.index(section)
+        idx = text.find(section)
+        assert idx != -1, f"markdown surface lost its {section!r} heading"
         end = text.find("\n## ", idx + 1)
         text = text[idx:end if end != -1 else len(text)]
     roster: dict[str, str] = {}
     tier = None
+    desc_col: int | None = None
     for line in text.splitlines():
         for key, title in TIERS.items():
             if line.startswith(("#", "**")) and title in line:
                 tier = key
+        if not line.startswith("|"):
+            continue
         m = _MD_ROW.match(line)
         if not m:
+            if _MD_SEP.match(line):
+                continue
+            # a header row: it names the columns, Description among them
+            header = _md_cells(line)
+            assert "Description" in header, \
+                f"demo table header without a Description column: {header}"
+            desc_col = header.index("Description")
             continue
         slug = m.group(1).removeprefix("demos/").split("/")[0]
         assert tier is not None, f"demo row before any tier marker: {line!r}"
-        description = line.strip().strip("|").split("|")[-1].strip()
-        assert description, f"demo row without a description: {line!r}"
+        assert desc_col is not None, f"demo row before any table header: {line!r}"
+        cells = _md_cells(line)
+        assert len(cells) > desc_col, f"demo row has no description cell: {line!r}"
+        assert cells[desc_col], f"demo row without a description: {line!r}"
         roster[slug] = tier
     return roster
 
 
 def _html_roster(text: str) -> dict[str, str]:
-    """slug -> tier from the site's demos section."""
-    idx = text.index('id="demos"')
-    section = text[idx:text.index("</section>", idx)]
+    """slug -> tier from the site's demos section.
+
+    Each table declares its columns in a `<thead>`; the description is read
+    at the index of the `<th>Description</th>` cell, so dropping the column
+    fails here rather than sliding the check onto a neighbouring cell.
+    """
+    idx = text.find('id="demos"')
+    assert idx != -1, "index.html lost its id=\"demos\" section"
+    end = text.find("</section>", idx)
+    assert end != -1, "index.html's demos section is unterminated"
+    section = text[idx:end]
     markers = []
     for key, title in TIERS.items():
         m = re.search(rf"<b>{re.escape(title)}</b>", section)
@@ -64,18 +93,28 @@ def _html_roster(text: str) -> dict[str, str]:
         markers.append((m.start(), key))
     markers.sort()
     roster: dict[str, str] = {}
-    for row in re.finditer(r"<tr>.*?</tr>", section, re.S):
-        link = re.search(r"tree/main/demos/([A-Za-z0-9-]+)", row.group(0))
-        if not link:
-            continue
-        tier = [key for pos, key in markers if row.start() > pos][-1]
-        # cells run demo, language, description — the leading number column
-        # in the test-demos table shifts them all right by one
-        cells = re.findall(r"<td[^>]*>(.*?)</td>", row.group(0), re.S)
-        at = next(i for i, c in enumerate(cells) if "tree/main/demos/" in c)
-        assert len(cells) > at + 2, f"demo row has no description cell: {row.group(0)!r}"
-        assert cells[at + 2].strip(), f"demo row without a description: {row.group(0)!r}"
-        roster[link.group(1)] = tier
+    for table in re.finditer(r"<table[^>]*>.*?</table>", section, re.S):
+        head = re.search(r"<thead>.*?</thead>", table.group(0), re.S)
+        assert head, f"demos table without a <thead>: {table.group(0)[:80]!r}"
+        header = [
+            re.sub(r"<[^>]+>", "", c).strip()
+            for c in re.findall(r"<th[^>]*>(.*?)</th>", head.group(0), re.S)
+        ]
+        assert "Description" in header, \
+            f"demos table header without a Description column: {header}"
+        desc_col = header.index("Description")
+        for row in re.finditer(r"<tr>.*?</tr>", table.group(0), re.S):
+            link = re.search(r"tree/main/demos/([A-Za-z0-9-]+)", row.group(0))
+            if not link:
+                continue
+            at = table.start() + row.start()
+            tier = [key for pos, key in markers if at > pos][-1]
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row.group(0), re.S)
+            assert len(cells) > desc_col, \
+                f"demo row has no description cell: {row.group(0)!r}"
+            assert cells[desc_col].strip(), \
+                f"demo row without a description: {row.group(0)!r}"
+            roster[link.group(1)] = tier
     return roster
 
 
@@ -95,7 +134,11 @@ def test_no_status_column_or_dogfood_framing():
         text = path.read_text()
         if path is README:
             # the repo's own release-status heading is not a demo status
-            text = text[text.index("## Demos"):text.index("## Sharing")]
+            start, end = text.find("## Demos"), text.find("## Sharing")
+            assert start != -1 and end != -1, \
+                "README.md lost its '## Demos' or '## Sharing' heading — " \
+                "retarget the scoping this guard reads"
+            text = text[start:end]
         assert not _RETIRED.search(text), \
             f"{path} still carries demo status / dogfood framing"
 

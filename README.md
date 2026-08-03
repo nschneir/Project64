@@ -114,12 +114,13 @@ three-voice SID sound:
 |------|----------|-------------|
 | [1812](demos/1812/) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID |
 
-Every demo outside the test tier keeps its whole solution — [`demos/invaders/`](demos/invaders/)
+Every demo outside the test tier keeps its whole solution once it has been
+built — [`demos/invaders/`](demos/invaders/)
 and [`demos/snake/`](demos/snake/) each have the sources an agent wrote, a
 [fidelity](demos/invaders/AUDIT.md) [audit](demos/snake/AUDIT.md), a
 regression test, and a runnable disk: `x64sc -ntsc demos/invaders/invaders.d64`
 and play it with A/D and space, or `x64sc -ntsc demos/snake/snake.d64` and
-play it with W/A/S/D.
+play it with W/A/S/D. Ms. Muncher and La Galaxia are prompt-only so far.
 
 <p align="center">
   <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">

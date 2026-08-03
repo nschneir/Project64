@@ -360,14 +360,31 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       <table>
         <thead><tr><th>Demo</th><th>Language</th><th>Description</th><th>Screens</th></tr></thead>
         <tbody>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a></td><td>6502 assembly</td><td>Shapes painted to Tchaikovsky's <i>1812 Overture</i> &mdash; bitmap mode, a rotating polygon rasterizer, three-voice SID</td><td class="no">&mdash;</td></tr>
+          <tr>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a></td><td>6502 assembly</td><td>Shapes painted to Tchaikovsky's <i>1812 Overture</i> &mdash; bitmap mode, a rotating polygon rasterizer, three-voice SID</td>
+            <td class="shotcell">
+              <div class="shots">
+                <a class="shot" href="demos/1812/evidence/sec1.png" title="The canvas at the end of the Marseillaise">
+                  <img src="demos/1812/evidence/sec1.png" width="1040" height="526" loading="lazy" decoding="async" alt="The 1812 canvas at the end of the Marseillaise: large blue and red polygons over dithered blue, red and white fills">
+                </a>
+                <a class="shot" href="demos/1812/evidence/cannon.png" title="A cannon shot flashing the screen and border white">
+                  <img src="demos/1812/evidence/cannon.png" width="1040" height="526" loading="lazy" decoding="async" alt="A cannon shot in the 1812 canvas: the border flashed white around a bitmap of red, orange, yellow and blue dithered shapes">
+                </a>
+                <a class="shot" href="demos/1812/evidence/final.png" title="The finished canvas, held after the finale">
+                  <img src="demos/1812/evidence/final.png" width="1040" height="526" loading="lazy" decoding="async" alt="The finished 1812 canvas: blue, yellow, brown and white shapes layered over the whole bitmap, a blue star among them">
+                </a>
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
       </div>
       <p><small>Every demo outside the test tier (the game demos and the
-      miscellaneous builds) ships its whole solution beside its prompt &mdash;
+      miscellaneous builds) ships its whole solution beside its prompt once it
+      has been built &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
-      runnable .d64 for stock VICE. Invaders and Snake show the shape &mdash;
+      runnable .d64 for stock VICE; Ms. Muncher and La Galaxia are prompt-only
+      so far. Invaders and Snake show the shape &mdash;
       each has a three-iteration fidelity audit
       (<a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">Invaders</a>,
       <a href="https://github.com/nschneir/Project64/blob/main/demos/snake/AUDIT.md">Snake</a>)
