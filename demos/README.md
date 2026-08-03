@@ -10,41 +10,31 @@ Commodore 64 software on the emulated machine.
 Graded exercises that put the toolset through its paces — start at 01 if
 you're new:
 
-| # | Demo | Language | Shows off | Status |
-|---|------|----------|-----------|--------|
-| 01 | [Guess the number](01-guess-the-number/PROMPT.md) | BASIC | The write→run→verify loop | ✅ dogfooded |
-| 02 | [Bouncing beach ball](02-bouncing-ball/PROMPT.md) | BASIC | Multicolor sprites from BASIC | ✅ dogfooded |
-| 03 | [Sieve benchmark](03-sieve-benchmark/PROMPT.md) | BASIC + asm | Timing, iteration, the asm speedup | ✅ dogfooded |
-| 04 | [Debug hunt](04-debug-hunt/PROMPT.md) | BASIC + debugger | Breakpoints, stepping, memory inspection | ✅ dogfooded |
+| # | Demo | Language | Description |
+|---|------|----------|-------------|
+| 01 | [Guess the number](01-guess-the-number/PROMPT.md) | BASIC | A number game played through to a win — the write→run→verify loop end to end |
+| 02 | [Bouncing beach ball](02-bouncing-ball/PROMPT.md) | BASIC | A multicolor hardware sprite bounced off all four borders, proved from the VIC-II registers rather than screen text |
+| 03 | [Sieve benchmark](03-sieve-benchmark/PROMPT.md) | BASIC + asm | The sieve of Eratosthenes written twice and timed off the jiffy clock — the asm speedup, then a second optimizing pass |
+| 04 | [Debug hunt](04-debug-hunt/PROMPT.md) | BASIC + debugger | A dashboard broken in three layers, found with breakpoints, stepping, and memory inspection |
 
 ## Game demos
 
 Full games, each with its own fidelity bar and evidence protocol:
 
-| Demo | Language | Shows off | Status |
-|------|----------|-----------|--------|
-| [Snake](snake/PROMPT.md) | 6502 assembly | Assembler + debugger workflow, $CB input, SID sound | ✅ dogfooded |
-| [Invaders](invaders/PROMPT.md) | 6502 assembly | Arcade-fidelity spec, sprites + charset, 3-voice SID, review loop, packaging | ✅ dogfooded |
-| [Ms. Muncher](ms-muncher/PROMPT.md) | 6502 assembly | Maze-chase ghost AI, six sprites, animated cut scenes, 3-voice SID | 🔲 awaiting C64 dogfood |
-| [La Galaxia](la-galaxia/PROMPT.md) | 6502 assembly | Sprite multiplexing, formation flights and dive patterns, the capture/dual-fighter mechanic | 🔲 awaiting C64 dogfood |
+| Demo | Language | Description |
+|------|----------|-------------|
+| [Snake](snake/PROMPT.md) | 6502 assembly | Arcade Snake on a custom hires charset — the assembler + debugger workflow, `$CB` held-key steering, SID sound, nine speeding-up levels |
+| [Invaders](invaders/PROMPT.md) | 6502 assembly | The 1978 arcade original to an arcade-fidelity spec — sprites and custom charset, the one-invader-per-tick march, 3-voice SID, review loop, packaging |
+| [Ms. Muncher](ms-muncher/PROMPT.md) | 6502 assembly | A maze chase with four rotating mazes — per-ghost targeting AI, six sprites, animated cut scenes, 3-voice SID |
+| [La Galaxia](la-galaxia/PROMPT.md) | 6502 assembly | A fixed shooter with sprite multiplexing — formation flights and dive patterns, the capture/dual-fighter mechanic, Spanish throughout |
 
 ## Miscellaneous cool stuff
 
 Audiovisual builds that aren't games:
 
-| Demo | Language | Shows off | Status |
-|------|----------|-----------|--------|
-| [1812](1812/PROMPT.md) | 6502 assembly | Spec→plan→build, bitmap mode, rotating polygon rasterizer, 3-voice SID | 🔲 awaiting C64 dogfood |
-
-**What ✅ means.** An agent given only this toolset built and verified the
-demo on a real emulated C64. A prompt's status flips only when such a run
-passes here — the test demos and Invaders were ported from the PET edition
-of this project and have each now had their own C64 run. Snake had passed an
-earlier run as a test demo under a lighter prompt; it has now had a second
-one under the promoted game-demo prompt, which keeps the whole solution.
-1812, Ms. Muncher, and La Galaxia are still waiting for their first run of
-any kind. The two game runs are written up in
-[invaders/AUDIT.md](invaders/AUDIT.md) and [snake/AUDIT.md](snake/AUDIT.md).
+| Demo | Language | Description |
+|------|----------|-------------|
+| [1812](1812/PROMPT.md) | 6502 assembly | Randomised shapes painted to Tchaikovsky's *1812 Overture* — spec→plan→build, bitmap mode, a rotating polygon rasterizer, 3-voice SID |
 
 **Where the work goes.** Every demo is a directory holding its prompt in
 `PROMPT.md` and a `README.md` describing it — the prompt is named `PROMPT.md`,
@@ -54,9 +44,11 @@ writes the program wherever it likes, proves it on a live session, and
 nothing is committed — the run itself is the deliverable. Every demo outside
 the test tier keeps everything: sources, plan, audit, `evidence/`
 screenshots, and the artefact the prompt tells the agent to build, so
-`invaders/invaders.d64` and `snake/snake.d64` run in stock VICE without a
-checkout of this toolset (the other prompts will fill in the same way when
-their runs land).
+`invaders/invaders.d64`, `snake/snake.d64` and `1812/1812.d64` run in stock
+VICE without a checkout of this toolset. Ms. Muncher and La Galaxia are
+prompt-only so far; their directories fill in the same way once built.
+The two game builds are written up in
+[invaders/AUDIT.md](invaders/AUDIT.md) and [snake/AUDIT.md](snake/AUDIT.md).
 
 <p align="center">
   <img src="invaders/evidence/title.png" alt="Invaders attract screen" width="260">

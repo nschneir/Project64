@@ -150,7 +150,6 @@
   table{width:100%;border-collapse:collapse;margin:10px 0;font-size:1rem}
   th,td{border:1px solid var(--p-faint);padding:.5em .7em;text-align:left;vertical-align:middle}
   th{color:var(--p-bright);letter-spacing:.08em;font-weight:700;background:rgba(138,124,224,.08)}
-  .ok{color:var(--p-bright)}
   .no{color:var(--p-dim)}
 
   /* screen grabs: keep the C64's pixels square rather than smoothed */
@@ -301,29 +300,26 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       the toolset from a first BASIC program to a full debugger hunt,
       <b>game demos</b> &mdash; complete builds with sprites, custom
       charsets, and three-voice SID sound &mdash; and <b>miscellaneous cool
-      stuff</b> that isn't a game. Each gets validated by handing it
-      to a real agent and confirming the result &mdash; <b>the test demos,
-      Invaders and Snake have passed a real C64 run; 1812,
-      Ms.&nbsp;Muncher, and La&nbsp;Galaxia are awaiting their first.</b></p>
+      stuff</b> that isn't a game.</p>
       <p><b>Test demos</b> &mdash; graded; start at 01 if you're new:</p>
       <div class="tscroll">
       <table>
-        <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Status</th></tr></thead>
+        <thead><tr><th>#</th><th>Demo</th><th>Language</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td>01</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/01-guess-the-number">Guess the number</a></td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>02</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/02-bouncing-ball">Bouncing ball (sprite)</a></td><td>BASIC</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>03</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/03-sieve-benchmark">Sieve benchmark</a></td><td>BASIC + asm</td><td class="ok">[x] dogfooded</td></tr>
-          <tr><td>04</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/04-debug-hunt">Debug hunt</a></td><td>BASIC + debugger</td><td class="ok">[x] dogfooded</td></tr>
+          <tr><td>01</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/01-guess-the-number">Guess the number</a></td><td>BASIC</td><td>A number game played to a win &mdash; the write&rarr;run&rarr;verify loop</td></tr>
+          <tr><td>02</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/02-bouncing-ball">Bouncing ball (sprite)</a></td><td>BASIC</td><td>A multicolor sprite bounced off all four borders, proved from the VIC-II registers</td></tr>
+          <tr><td>03</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/03-sieve-benchmark">Sieve benchmark</a></td><td>BASIC + asm</td><td>The sieve written twice and timed off the jiffy clock &mdash; the asm speedup, then optimized</td></tr>
+          <tr><td>04</td><td><a href="https://github.com/nschneir/Project64/tree/main/demos/04-debug-hunt">Debug hunt</a></td><td>BASIC + debugger</td><td>A dashboard broken in three layers, found with breakpoints and stepping</td></tr>
         </tbody>
       </table>
       </div>
       <p><b>Game demos</b>:</p>
       <div class="tscroll">
       <table>
-        <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
+        <thead><tr><th>Demo</th><th>Language</th><th>Description</th><th>Screens</th></tr></thead>
         <tbody>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a></td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a></td><td>6502 assembly</td><td>Arcade Snake on a custom hires charset &mdash; <code>$CB</code> held-key steering, SID sound, nine speeding-up levels</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/snake/evidence/title.png" title="Title screen: SNAKE in block graphics, one colour per letter">
@@ -339,7 +335,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a></td><td>6502 assembly</td><td class="ok">[x] dogfooded</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a></td><td>6502 assembly</td><td>The 1978 arcade original &mdash; sprites and custom charset, the one-invader-per-tick march, three-voice SID</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/invaders/evidence/title.png" title="Attract screen: the name in block graphics and the score advance table">
@@ -354,24 +350,24 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
               </div>
             </td>
           </tr>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a></td><td>6502 assembly</td><td>A fixed shooter &mdash; sprite multiplexing, dive patterns, the capture/dual-fighter mechanic</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
       </div>
       <p><b>Miscellaneous cool stuff</b>:</p>
       <div class="tscroll">
       <table>
-        <thead><tr><th>Demo</th><th>Language</th><th>Status</th><th>Screens</th></tr></thead>
+        <thead><tr><th>Demo</th><th>Language</th><th>Description</th><th>Screens</th></tr></thead>
         <tbody>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a></td><td>6502 assembly</td><td class="no">[ ] awaiting dogfood</td><td class="no">&mdash;</td></tr>
+          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a></td><td>6502 assembly</td><td>Shapes painted to Tchaikovsky's <i>1812 Overture</i> &mdash; bitmap mode, a rotating polygon rasterizer, three-voice SID</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
       </div>
       <p><small>Every demo outside the test tier (the game demos and the
       miscellaneous builds) ships its whole solution beside its prompt &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
-      runnable .d64 for stock VICE. The two finished runs show the shape &mdash;
+      runnable .d64 for stock VICE. Invaders and Snake show the shape &mdash;
       each has a three-iteration fidelity audit
       (<a href="https://github.com/nschneir/Project64/blob/main/demos/invaders/AUDIT.md">Invaders</a>,
       <a href="https://github.com/nschneir/Project64/blob/main/demos/snake/AUDIT.md">Snake</a>)

@@ -91,32 +91,30 @@ watch it write, run, and debug real C64 software on the emulated machine.
 
 **Test demos** — graded exercises; start at 01 if you're new:
 
-| # | Demo | Language | Status |
-|---|------|----------|--------|
-| 01 | [Guess the number](demos/01-guess-the-number/) | BASIC | ✅ dogfooded |
-| 02 | [Bouncing ball (sprite)](demos/02-bouncing-ball/) | BASIC | ✅ dogfooded |
-| 03 | [Sieve benchmark](demos/03-sieve-benchmark/) | BASIC + asm | ✅ dogfooded |
-| 04 | [Debug hunt](demos/04-debug-hunt/) | BASIC + debugger | ✅ dogfooded |
+| # | Demo | Language | Description |
+|---|------|----------|-------------|
+| 01 | [Guess the number](demos/01-guess-the-number/) | BASIC | A number game played to a win — the write→run→verify loop |
+| 02 | [Bouncing ball (sprite)](demos/02-bouncing-ball/) | BASIC | A multicolor sprite bounced off all four borders, proved from the VIC-II registers |
+| 03 | [Sieve benchmark](demos/03-sieve-benchmark/) | BASIC + asm | The sieve written twice and timed off the jiffy clock — the asm speedup, then optimized |
+| 04 | [Debug hunt](demos/04-debug-hunt/) | BASIC + debugger | A dashboard broken in three layers, found with breakpoints and stepping |
 
 **Game demos** — complete builds with sprites, custom charsets, and
 three-voice SID sound:
 
-| Demo | Language | Status |
-|------|----------|--------|
-| [Snake](demos/snake/) | 6502 assembly | ✅ dogfooded |
-| [Invaders](demos/invaders/) | 6502 assembly | ✅ dogfooded |
-| [Ms. Muncher](demos/ms-muncher/) | 6502 assembly | 🔲 awaiting dogfood |
-| [La Galaxia](demos/la-galaxia/) | 6502 assembly | 🔲 awaiting dogfood |
+| Demo | Language | Description |
+|------|----------|-------------|
+| [Snake](demos/snake/) | 6502 assembly | Arcade Snake on a custom hires charset — `$CB` held-key steering, SID sound, nine speeding-up levels |
+| [Invaders](demos/invaders/) | 6502 assembly | The 1978 arcade original — sprites and custom charset, the one-invader-per-tick march, 3-voice SID |
+| [Ms. Muncher](demos/ms-muncher/) | 6502 assembly | A maze chase — four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes |
+| [La Galaxia](demos/la-galaxia/) | 6502 assembly | A fixed shooter — sprite multiplexing, dive patterns, the capture/dual-fighter mechanic |
 
 **Miscellaneous cool stuff**:
 
-| Demo | Language | Status |
-|------|----------|--------|
-| [1812](demos/1812/) | 6502 assembly | 🔲 awaiting dogfood |
+| Demo | Language | Description |
+|------|----------|-------------|
+| [1812](demos/1812/) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID |
 
-A status flips to ✅ only when a real agent run passes on the emulated
-machine ([`demos/`](demos/#readme) has the fine print). Every demo outside
-the test tier keeps its whole solution — [`demos/invaders/`](demos/invaders/)
+Every demo outside the test tier keeps its whole solution — [`demos/invaders/`](demos/invaders/)
 and [`demos/snake/`](demos/snake/) each have the sources an agent wrote, a
 [fidelity](demos/invaders/AUDIT.md) [audit](demos/snake/AUDIT.md), a
 regression test, and a runnable disk: `x64sc -ntsc demos/invaders/invaders.d64`
