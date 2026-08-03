@@ -75,6 +75,24 @@ def test_key_type_rejects_unmappable_text():
     mon.keyboard_feed.assert_not_called()
 
 
+def test_key_hold_zero_frames_is_a_no_op_not_a_timeout():
+    """`--frames 0` used to fail with "timeout: only 0/0 frame(s) …
+    checkpoint removed" — but nothing ran, nothing was armed, and nothing
+    was removed. It reports the machine untouched instead."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.ops_key_hold",
+               return_value={"frames": 0, "requested": 0,
+                             "registers": None}), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "key", "hold", "d",
+                                      "--at", "$0819", "--frames", "0"])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out == {"frames": 0, "requested": 0, "machine": "untouched"}
+    assert "timeout" not in r.output
+
+
 def test_check_clean_program_exits_zero(tmp_path):
     src = tmp_path / "ok.bas"
     src.write_text('10 print "hi"\n20 goto 10\n')

@@ -671,7 +671,9 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
 
     Returns {"frames": done, "requested": frames, "registers": regs};
     registers is None if a frame timed out (machine left RUNNING, same
-    contract as run_until)."""
+    contract as run_until). frames=0 is a validated no-op: the machine is
+    untouched and the result is {"frames": 0, "requested": 0, "registers":
+    None}. frames < 0 raises ValueError."""
     k = " " if key.lower() == "space" else key
     if len(k) != 1:
         raise ValueError(f"key must be one character or 'space', got {key!r}")
@@ -679,6 +681,14 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
         code = bytes([MATRIX_CODES[k.lower()]])
     except KeyError:
         raise ValueError(f"no matrix code for key {key!r}") from None
+    if frames < 0:
+        raise ValueError(f"frames must be >= 0, got {frames}")
+    if frames == 0:
+        # A computed hold length of 0 is ordinary in a scripted protocol.
+        # Nothing is poked, nothing armed, nothing to time out — the caller
+        # gets requested == frames == 0, distinct from a timeout, where
+        # frames < requested and registers is None.
+        return {"frames": 0, "requested": 0, "registers": None}
     out = {"registers": None}
     for i in range(frames):
         with session.monitor() as mon:

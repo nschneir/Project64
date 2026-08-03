@@ -1995,6 +1995,10 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
     except ValueError as e:
         fail(ctx, str(e))
         return
+    if out["requested"] == 0:
+        emit(ctx, {"frames": 0, "requested": 0, "machine": "untouched"},
+             "0 frames requested — nothing held; machine untouched")
+        return
     if out["registers"] is None:
         fail(ctx, f"timeout: only {out['frames']}/{frames} frame(s) reached "
                   f"{format_addr(labels, addr)} — machine left RUNNING, "

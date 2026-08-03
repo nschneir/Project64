@@ -215,6 +215,8 @@ deterministic first frame, stop at the anchor first (`c64 until REF`).
 - `--at REF` (required) — the frame anchor: a label or address executed once
   per game tick (your main-loop label).
 - `--frames N` (default `1`) — how many ticks to hold the key across.
+  `--frames 0` is a validated no-op (exit 0, machine untouched) — a
+  computed hold length of zero needs no shell guard.
 - `--timeout SECS` (default `30`) — per-frame wait limit.
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "frames"}`. On a frame

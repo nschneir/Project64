@@ -437,6 +437,37 @@ def test_key_hold_timeout_reports_progress():
     assert out["registers"] is None
 
 
+def test_key_hold_zero_frames_is_a_no_op():
+    """A computed hold length of 0 is ordinary in a scripted protocol
+    (Snake's evidence.sh guarded every call in shell for exactly this). It
+    must succeed without touching the machine — no poke, no run_until — and
+    without inventing a timeout about a checkpoint that was never armed."""
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    with patch("c64lib.ops.run_until") as ru:
+        out = key_hold(s, "d", 0x0819, frames=0)
+    assert out == {"frames": 0, "requested": 0, "registers": None}
+    ru.assert_not_called()
+    mon.memory_write.assert_not_called()
+
+
+def test_key_hold_zero_frames_still_validates_the_key():
+    """The no-op validates before returning: a bad key with --frames 0 is
+    the same error it is with --frames 1, not a silent success."""
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    with pytest.raises(ValueError, match="no matrix code"):
+        key_hold(s, "~", 0x1000, frames=0)
+
+
+def test_key_hold_rejects_negative_frames():
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    with pytest.raises(ValueError, match="frames"):
+        key_hold(s, "d", 0x0819, frames=-1)
+    mon.memory_write.assert_not_called()
+
+
 def test_session_labels_unreadable_file_returns_empty(tmp_path):
     from c64lib.ops import session_labels
     s = Mock()
