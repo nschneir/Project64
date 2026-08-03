@@ -164,6 +164,15 @@ Two channels, used for different things:
   demo-02/04 evidence): across a sprite demo and a full arcade game,
   register+state assertions never proved insufficient. Reopen only if a
   future demo actually blocks on pixel assertions.
-- **Charset/bitmap PNG conversion** is still open — `c64 sprite from-png`
-  handles 24×21 sprites only. The decision waits on the first real
-  consumer (the 1812 bitmap demo); tracked in docs/todo.md.
+- **Charset/bitmap PNG conversion is closed as not needed** (2026-08-02, on
+  demo-07 evidence): the first real consumer — the 1812 bitmap demo —
+  never wanted a PNG-to-bitmap converter. Every shape is generated
+  geometry, and every table ships as commented `.byte` rows emitted by a
+  generator script (`demos/1812/tools/gentables.py`), which is what the
+  authoring policy (§2) asks for anyway. What a bitmap demo *does* need is
+  the opposite direction — reading the finished bitmap back to count lit
+  pixels and checksum the canvas — and `c64 mem read --json` piped into a
+  small stdlib script covers that completely (worked example:
+  `demos/1812/tools/litcount.py`). `c64 sprite from-png` (24×21 sprites)
+  is unaffected. Reopen only if a demo arrives with source imagery it must
+  convert, and re-scope from what that demo actually needs.
