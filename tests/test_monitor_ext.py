@@ -128,3 +128,13 @@ def test_resource_get_string_and_int():
     with _client(fake) as c:
         assert c.resource_get("BasicName") == "basic-4.bin"
         assert c.resource_get("Drive8Type") == 1541
+
+
+def test_resource_set_string_and_int_bodies():
+    fake = FakeVice({Command.RESOURCE_SET: lambda b, rid: [resp_frame(0x52, 0, rid)]})
+    with _client(fake) as c:
+        c.resource_set("SoundRecordDeviceName", "wav")
+        c.resource_set("Speed", 90)
+    bodies = [body for cmd, body in fake.received if cmd == Command.RESOURCE_SET]
+    assert bodies[0] == bytes([0, 21]) + b"SoundRecordDeviceName" + bytes([3]) + b"wav"
+    assert bodies[1] == bytes([1, 5]) + b"Speed" + bytes([4]) + (90).to_bytes(4, "little")

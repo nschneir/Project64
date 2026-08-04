@@ -13,6 +13,7 @@ from c64lib.protocol import (
     memory_set_body,
     parse_display_get,
     parse_memory_get,
+    resource_set_body,
 )
 
 
@@ -52,6 +53,26 @@ def test_parse_display_get_full_keeps_border():
 def test_memory_set_body():
     body = memory_set_body(0x0400, b"\xde\xad")
     assert body == bytes([0x00, 0x00, 0x04, 0x01, 0x04, 0x00, 0x00, 0x00]) + b"\xde\xad"
+
+
+def test_resource_set_body_string():
+    # value-type 0 = string, then name-length, name, value-length, value
+    body = resource_set_body("SoundRecordDeviceName", "wav")
+    assert body == bytes([0, 21]) + b"SoundRecordDeviceName" + bytes([3]) + b"wav"
+
+
+def test_resource_set_body_empty_string_sends_a_nul():
+    """VICE rejects a zero-length value outright (INVALID_LENGTH) but reads
+    the value as a C string, so one NUL byte is how you clear a resource —
+    and clearing SoundRecordDeviceName is how recording is stopped."""
+    body = resource_set_body("SoundRecordDeviceName", "")
+    assert body == bytes([0, 21]) + b"SoundRecordDeviceName" + bytes([1]) + b"\x00"
+
+
+def test_resource_set_body_int():
+    # value-type 1 = int; the value is little-endian in a fixed 4-byte field
+    body = resource_set_body("Speed", 90)
+    assert body == bytes([1, 5]) + b"Speed" + bytes([4]) + b"\x5a\x00\x00\x00"
 
 
 def _resp_frame(rtype, err, rid, body):

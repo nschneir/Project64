@@ -41,6 +41,7 @@ from .protocol import (
     parse_resource,
     registers_set_body,
     resource_get_body,
+    resource_set_body,
 )
 
 
@@ -102,6 +103,7 @@ class MonitorLike(Protocol):
     def vice_info(self) -> str: ...
     def quit(self) -> None: ...
     def resource_get(self, name: str) -> str | int: ...
+    def resource_set(self, name: str, value: str | int) -> None: ...
     def autostart(self, path: str | Path, run: bool = True) -> None: ...
     def checkpoint_set(
         self, start: int, end: int | None = None, *,
@@ -274,6 +276,9 @@ class MonitorClient:
         return parse_resource(
             self.request(Command.RESOURCE_GET, resource_get_body(name)).body
         )
+
+    def resource_set(self, name: str, value: str | int) -> None:
+        self.request(Command.RESOURCE_SET, resource_set_body(name, value))
 
     def autostart(self, path, run: bool = True) -> None:
         """Load-and-optionally-RUN a program file via VICE's autostart.

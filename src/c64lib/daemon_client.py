@@ -134,6 +134,9 @@ class DaemonMonitorClient:
     def resource_get(self, name: str) -> str | int:
         return self._call("resource_get", name)
 
+    def resource_set(self, name: str, value: str | int) -> None:
+        self._call("resource_set", name, value)
+
     def autostart(self, path: str | Path, run: bool = True) -> None:
         self._call("autostart", str(path), run=run)
 

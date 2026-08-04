@@ -164,6 +164,7 @@ def test_direct_monitorclient_release_aliases_resume():
     ("vice_info", (), "vice_info"),
     ("checkpoint_toggle", (1, False), "checkpoint_toggle"),
     ("condition_set", (1, "A == 0"), "condition_set"),
+    ("resource_set", ("Speed", 90), "resource_set"),
 ])
 def test_passthrough_methods(served, method, args, monattr):
     c, mon, _ = served

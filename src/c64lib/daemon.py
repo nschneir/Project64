@@ -30,8 +30,8 @@ STOPPED = "stopped"
 ALLOWED = frozenset({
     "ping", "memory_read", "memory_write", "resume", "release", "registers",
     "set_register", "reset", "keyboard_feed", "display", "palette",
-    "vice_info", "quit", "resource_get", "autostart", "checkpoint_set",
-    "checkpoint_delete", "checkpoint_toggle", "checkpoint_list",
+    "vice_info", "quit", "resource_get", "resource_set", "autostart",
+    "checkpoint_set", "checkpoint_delete", "checkpoint_toggle", "checkpoint_list",
     "condition_set", "step", "finish", "wait_for_stop", "status", "run_until",
 })
 
