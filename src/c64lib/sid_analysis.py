@@ -107,6 +107,14 @@ FFT_HOP = 512
 SPECTROGRAM_MAX_HZ = 8000.0
 #: dB below the loudest bin that maps to the bottom of the ramp.
 SPECTROGRAM_RANGE_DB = 80.0
+#: Floor under the loudest bin that normalization is measured against, in the
+#: STFT's own magnitude dB (not dBFS). Silence has no loudest bin worth scaling
+#: to: without this, a recording of digital silence would normalize against
+#: itself and fill the image with the *top* ramp stop, so the one failure this
+#: tool exists to catch — a warped capture writing a silent WAV — would render
+#: as the signature of loud broadband noise. A 16-bit signal at one LSB still
+#: peaks near -42 dB here, so only degenerate silence ever reaches this floor.
+SPECTROGRAM_FLOOR_DB = -60.0
 #: Fixed ramp stops, so two spectrograms are comparable by eye: black at the
 #: floor, through violet/magenta/orange, to near-white at the peak.
 SPECTROGRAM_RAMP = (
@@ -367,6 +375,11 @@ def render_spectrogram(wav_path: str | Path, png_path: str | Path) -> None:
     ``SPECTROGRAM_RANGE_DB``, which makes a quiet capture readable at the cost
     of absolute levels — read those off ``wav_metrics`` instead.
 
+    That relative scaling stops at ``SPECTROGRAM_FLOOR_DB``, so a silent
+    recording renders black rather than normalizing its own noise floor up into
+    a solid bright field. An agent reading this PNG has to be able to tell
+    silence from noise, and silence is the failure most worth catching.
+
     A recording shorter than one window is zero-padded to one rather than
     refused: a single column is still a truthful picture of what was captured.
     """
@@ -383,7 +396,7 @@ def render_spectrogram(wav_path: str | Path, png_path: str | Path) -> None:
     top_bin = min(decibels.shape[1],
                   math.ceil(SPECTROGRAM_MAX_HZ * FFT_WINDOW / audio.rate) + 1)
     decibels = decibels[:, :top_bin]
-    peak = float(decibels.max())
+    peak = max(float(decibels.max()), SPECTROGRAM_FLOOR_DB)
     normalized = np.clip((decibels - (peak - SPECTROGRAM_RANGE_DB)) / SPECTROGRAM_RANGE_DB, 0, 1)
 
     # Transpose to (frequency, time), then flip so low frequencies sit at the

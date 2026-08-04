@@ -412,16 +412,28 @@ def _colors(path):
 
 
 def _dominant(colors, channel):
-    """Pixels whose colour is clearly led by one channel — the voice bars.
+    """Pixels whose colour is clearly led by one channel.
 
     Grid lines, background and label text are all neutral greys, so they never
     qualify; this isolates "how much of the image is voice N's colour" without
     the test having to know the exact pinned RGB triples.
+
+    NB this counts the legend swatches too — the legend paints all three voice
+    colours on every render, so a bare "is there red?" assertion would pass
+    with no bars drawn at all. Callers must measure against the all-rest
+    baseline from ``_voice_colour_counts``, never against zero.
     """
     return sum(count for color, count in colors.items()
                if color[channel] > 128
                and all(color[channel] - color[other] > 64
                        for other in range(3) if other != channel))
+
+
+def _voice_colour_counts(png, events):
+    """``(red, green, blue)`` pixel counts for a roll drawn from ``events``."""
+    render_piano_roll(events, png, PAL_FPS)
+    colors = _colors(png)
+    return tuple(_dominant(colors, channel) for channel in range(3))
 
 
 def test_render_piano_roll_writes_a_png_of_at_least_the_minimum_size(tmp_path):
@@ -433,17 +445,41 @@ def test_render_piano_roll_writes_a_png_of_at_least_the_minimum_size(tmp_path):
         assert img.format == "PNG"
 
 
-def test_render_piano_roll_draws_a_distinct_color_per_voice(tmp_path):
+def test_render_piano_roll_colors_voice_1_red_2_green_3_blue(tmp_path):
+    """The pinned voice->colour mapping, measured on bars rather than chrome.
+
+    The legend paints all three voice colours on every render, so presence of a
+    colour proves nothing. Each voice is rendered alone at the same pitch and
+    frame span — which makes the image geometry, and therefore the legend,
+    byte-identical to the all-rest baseline — and scored as the *increase* over
+    that baseline. The `== baseline` assertions on the other two channels are
+    what make swapping voice 2 and voice 3 fail.
+    """
+    span = 40
+    baseline = _voice_colour_counts(tmp_path / "rest.png", [_note(1, "rest", 0, span)])
+    assert all(count > 0 for count in baseline), "legend should paint all three colours"
+
+    for voice, channel in ((1, 0), (2, 1), (3, 2)):
+        counts = _voice_colour_counts(tmp_path / f"voice{voice}.png",
+                                      [_note(voice, "C4", 0, span)])
+        for other in range(3):
+            if other == channel:
+                assert counts[other] > baseline[other] * 10, (
+                    f"voice {voice} should add a large bar in channel {channel}"
+                )
+            else:
+                assert counts[other] == baseline[other], (
+                    f"voice {voice} painted channel {other}, which belongs to another voice"
+                )
+
+
+def test_render_piano_roll_draws_at_least_two_colors_for_two_voices(tmp_path):
+    """The brief's smoke check: a two-voice roll is not monochrome."""
     png = tmp_path / "piano-roll.png"
-    render_piano_roll(
-        [_note(1, "A4", 0, 40), _note(2, "C4", 0, 40), _note(3, "E5", 0, 40)],
-        png, PAL_FPS,
-    )
+    render_piano_roll([_note(1, "A4", 0, 40), _note(2, "C4", 0, 40)], png, PAL_FPS)
     colors = _colors(png)
     background, _ = max(colors.items(), key=lambda item: item[1])
     assert len(set(colors) - {background}) >= 2
-    red, green, blue = (_dominant(colors, c) for c in range(3))
-    assert red > 0 and green > 0 and blue > 0
 
 
 def test_render_piano_roll_draws_gates_as_bars_and_leaves_rests_empty(tmp_path):
@@ -613,6 +649,37 @@ def test_render_spectrogram_places_a_tone_at_its_frequency(tmp_path):
 
     assert _brightest_row_fraction(low) == pytest.approx(1 - 1000 / 8000, abs=0.05)
     assert _brightest_row_fraction(high) == pytest.approx(1 - 6000 / 8000, abs=0.05)
+
+
+def test_render_spectrogram_renders_a_silent_recording_dark(tmp_path):
+    """Silence must not normalize against itself into a solid bright field.
+
+    A warped capture writes a silent (or zero-frame) WAV — the one failure this
+    tooling exists to catch. Rendering it as the visual signature of loud
+    broadband noise would tell an agent the exact opposite of the truth.
+    """
+    for name, samples in (("silence", np.zeros(RATE)), ("zero-frame", np.zeros(0))):
+        png = tmp_path / f"{name}.png"
+        render_spectrogram(_write_wav(tmp_path / f"{name}.wav", samples), png)
+        with Image.open(png) as img:
+            luminance = np.asarray(img.convert("L"), dtype=float)
+        assert luminance.max() < 32, f"{name} rendered bright (max {luminance.max():.0f})"
+
+
+def test_render_spectrogram_still_normalizes_a_quiet_recording(tmp_path):
+    """The silence floor must not flatten a real but quiet signal.
+
+    One LSB of 16-bit headroom is still a signal; only degenerate silence may
+    reach the floor.
+    """
+    quiet = tmp_path / "quiet.png"
+    render_spectrogram(
+        _write_wav(tmp_path / "quiet.wav", _tone(1.0, hz=1000.0, amplitude=2 / 32768)),
+        quiet,
+    )
+    assert _brightest_row_fraction(quiet) == pytest.approx(1 - 1000 / 8000, abs=0.05)
+    with Image.open(quiet) as img:
+        assert np.asarray(img.convert("L"), dtype=float).max() > 200
 
 
 def test_render_spectrogram_handles_a_wav_shorter_than_one_window(tmp_path):
