@@ -238,8 +238,16 @@ every WAV finding with the roll before naming a cause.
   rather than elapsed ones. Pin real time — any full capture does — whenever
   the timeline matters. The warning is one-sided, so its *absence* proves
   nothing: a warped session that sampled slowly (loaded host) never trips it
-  while dropping most frames. The reported `fps` is the check that does — at
-  real time it lands near the machine's frame rate.
+  while dropping most frames.
+- **`sample_rate_hz` is wall clock, not the frame rate above.** It counts
+  samples per second of real time, and it neither equals nor approaches the
+  machine's 50/60 fps: the emulator advances only between round trips, so a
+  pinned log measures ~21 samples/s from a 60 Hz machine (200 samples over
+  ~9 s) while still covering every emulated frame. Read it one-sidedly —
+  above the machine's frame rate, nothing sampled at real time, because
+  nothing samples more often than once per frame; below it, the number says
+  nothing, since the pinned rate is set by host latency. The separation is
+  wide enough to be useful anyway: ~21/s pinned against ~442/s warped.
 
 Related: `references/hardware.md` for the SID register, ADSR and note
 tables; `references/cookbook.md` for working sound recipes; and, in the

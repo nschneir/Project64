@@ -679,13 +679,45 @@ def test_sid_log_reports_the_sampling_rate_it_measured(tmp_path):
     """The warning is a one-sided test — it proves the machine outran real
     time, never that it did not, so a warped session sampled slowly (loaded
     host, busy daemon) drops most of its frames silently. The measured rate
-    is returned so a caller that pinned real time can assert the other half
-    rather than read a missing warning as a guarantee."""
+    is returned so a caller can apply the falsifying half itself.
+
+    It is samples per second of wall clock, NOT emulated frames per second:
+    the emulator only advances between round trips, so a pinned log measures
+    ~21/s from a 60 Hz machine. Nothing should ever assert it equals the
+    machine's frame rate."""
     m = FakeMachine(_states(4), delay=0.02)
     detail = sid_log_detail(_machine_session(m), 4, str(tmp_path / "sid.jsonl"))
     assert detail["warning"] is None                 # slow: nothing to flag
-    assert detail["fps"] == pytest.approx(detail["frames"] / detail["seconds"])
-    assert 20 < detail["fps"] < 60                   # ~50/s at 20 ms a frame
+    assert detail["sample_rate_hz"] == pytest.approx(
+        detail["frames"] / detail["seconds"])
+    assert 20 < detail["sample_rate_hz"] < 60        # ~50/s at 20 ms a frame
+
+
+def test_sid_log_times_the_loop_not_the_connection(tmp_path):
+    """`seconds` and the rate cover the sampling loop alone. Folding the
+    session's open/close into them would drag a short log's rate down
+    against the same ceiling a long log is judged by."""
+    m = FakeMachine(_states(2), delay=0.01)
+    s = _machine_session(m)
+    slow_open = s.monitor.return_value.__enter__
+
+    def dawdle():
+        time.sleep(0.2)              # a session that takes its time opening
+        return slow_open()
+
+    s.monitor.return_value.__enter__ = Mock(side_effect=dawdle)
+    detail = sid_log_detail(s, 2, str(tmp_path / "sid.jsonl"))
+    assert detail["seconds"] < 0.1   # ~0.02 s of loop, not 0.22 s of session
+
+
+def test_sid_log_never_reports_a_non_finite_rate(tmp_path):
+    """A float infinity is not JSON — `json.dumps` spells it `Infinity` —
+    and this dict is both `c64 --json audio sidlog` and an MCP result."""
+    with patch("c64lib.audio.time.monotonic", return_value=1.0):
+        detail = sid_log_detail(_machine_session(FakeMachine(_states(2))), 2,
+                                str(tmp_path / "sid.jsonl"))
+    assert detail["sample_rate_hz"] is None
+    json.dumps(detail, allow_nan=False)          # raises on a bare Infinity
 
 
 def test_sid_log_keeps_the_frames_it_got_when_it_runs_out_of_time(tmp_path):
@@ -754,7 +786,7 @@ def test_mcp_sid_log(tmp_path):
          patch("c64lib.mcp_server.sid_log_detail",
                return_value={"path": "/tmp/s.jsonl", "frames": 50,
                              "requested": 50, "seconds": 1.0,
-                             "warning": None}) as log:
+                             "sample_rate_hz": 50.0, "warning": None}) as log:
         S.attach.return_value = s
         err, out = call_tool("c64_sid_log", {"frames": 50,
                                              "path": "/tmp/s.jsonl"})
@@ -768,6 +800,7 @@ def test_cli_audio_sidlog_reports_the_count_and_the_warning():
          patch("c64lib.cli.sid_log_detail",
                return_value={"path": "/tmp/s.jsonl", "frames": 40,
                              "requested": 50, "seconds": 0.1,
+                             "sample_rate_hz": 400.0,
                              "warning": "timed out after 40 of 50 frames"}):
         S.attach.return_value = s
         r = CliRunner().invoke(main, ["audio", "sidlog", "50", "/tmp/s.jsonl"])

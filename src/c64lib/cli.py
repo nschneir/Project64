@@ -2329,8 +2329,11 @@ def audio_sidlog(ctx, frames, path):
     a full capture) every frame lands; on a warped session the log comes
     back far faster but a frame can slip past between records, and it says
     so on stderr. That check is one-sided — a warped session that sampled
-    slowly stays quiet — so no warning is not proof of an exact timeline.
-    Pin real time for that; `fps` reports the rate actually measured.
+    slowly stays quiet — so no warning is not proof of an exact timeline;
+    pinning real time is. `sample_rate_hz` reports samples per wall-clock
+    second, which is not the machine's frame rate (a pinned log measures
+    ~21/s from a 60 Hz machine, a warped one ~442/s): above the frame rate
+    it proves the session was not at real time, below it proves nothing.
     """
     s = attach(ctx)
     try:

@@ -386,7 +386,8 @@ def sid_log(session, frames: int, jsonl_path, timeout: float | None = None) -> i
 def sid_log_detail(session, frames: int, jsonl_path,
                    timeout: float | None = None) -> dict:
     """`sid_log` with its measurements: `{path, frames, requested, seconds,
-    fps, warning}`, where `warning` is None or a line the caller must show.
+    sample_rate_hz, warning}`, where `warning` is None or a line the caller
+    must show.
 
     The file is one JSONL `FrameRecord` per frame — `{"frame": n, "regs":
     [25 ints]}`, `regs[0]` being `$D400` — and nothing else. No header, no
@@ -404,10 +405,26 @@ def sid_log_detail(session, frames: int, jsonl_path,
     is a one-sided test: it fires when sampling *outran* real time, which
     only a warped session can do. It cannot fire for a warped session that
     sampled slowly — a loaded host, a busy daemon — where the machine still
-    ran ~9.7x and most frames went unrecorded. Only pinning real time makes
-    the timeline exact, so `fps` (the measured sampling rate, frames per
-    wall-clock second) is returned for a caller that pinned: assert it is
-    near the machine's frame rate and the log is confirmed, not assumed.
+    ran ~9.7x and most frames went unrecorded. Pinning real time is what
+    makes the timeline exact; no measurement here can substitute for it.
+
+    `sample_rate_hz` is samples per second of **wall clock**, which is not
+    the machine's frame rate and is not supposed to equal it. The emulator
+    advances only while resumed, so a pinned 200-frame log is 200 emulated
+    frames — 3.3 seconds of emulated time on the NTSC machine measured —
+    spread over the 9.1 seconds of wall clock it took: ~22 samples/s from a
+    ~60 Hz machine, and no contradiction between them. That is how "200
+    samples over 202 elapsed frames" and "~22 samples/s" are both true of
+    the same log, and it is why `sample_rate_hz > frame rate` is the only
+    inference
+    it supports: above the frame rate the machine cannot have been at real
+    time (nothing samples more often than once per frame), while anything
+    below is inconclusive. The pinned figure is host-dependent — round-trip
+    latency sets it, not the emulator — so there is no fixed value to
+    assert; the useful separation is the size of the gap (~21/s pinned
+    against ~442/s warped, measured on one idle host). A caller that knows
+    the machine model can apply a tighter ceiling than this module's fixed
+    60 Hz — 50 on a PAL machine — but only ever as a falsifier.
 
     The machine is left RUNNING, with exactly one resume after the final
     sample and no round trip after that: the log's last record is the last
@@ -421,10 +438,13 @@ def sid_log_detail(session, frames: int, jsonl_path,
     path = _abs(jsonl_path)
     budget = (float(timeout) if timeout is not None
               else max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET))
-    started = time.monotonic()
     with session.monitor() as mon:
+        # Timed inside the connection: opening and closing it is session
+        # overhead, and folding that into the rate would drag short logs down
+        # against the same ceiling a long one is judged by.
+        started = time.monotonic()
         samples = _sample_frames(mon, frames, budget)
-    seconds = time.monotonic() - started
+        seconds = time.monotonic() - started
     if not samples:
         # Reachable only when the deadline had already passed at loop entry:
         # both loops run at least one iteration otherwise. A machine that
@@ -437,12 +457,19 @@ def sid_log_detail(session, frames: int, jsonl_path,
     Path(path).write_text("".join(
         json.dumps({"frame": n, "regs": list(regs)}, separators=(",", ":")) + "\n"
         for n, regs in enumerate(samples)))
-    rate = len(samples) / seconds if seconds > 0 else float("inf")
+    measured = seconds > 0
+    rate = len(samples) / seconds if measured else float("inf")
     warning = _sid_log_warning(len(samples), frames, rate)
     if warning is not None:
         print(f"c64: {warning}", file=sys.stderr)
     return {"path": path, "frames": len(samples), "requested": frames,
-            "seconds": seconds, "fps": rate, "warning": warning}
+            "seconds": seconds,
+            # None, never an infinity: this dict is `c64 --json audio sidlog`
+            # and the MCP result, and `json.dumps` spells a float infinity
+            # `Infinity`, which is not JSON. Reachable only if the whole log
+            # fit inside the clock's resolution.
+            "sample_rate_hz": rate if measured else None,
+            "warning": warning}
 
 
 def _sample_frames(mon, frames: int, timeout: float) -> list[bytes]:

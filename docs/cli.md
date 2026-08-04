@@ -1392,14 +1392,26 @@ A missing warning is not proof of an exact timeline. The check is one-sided:
 it catches a session that sampled *faster* than real time, which only a
 warped one can do, but a warped session that sampled slowly — loaded host,
 busy daemon — stays under the threshold while the machine still runs ~9.7x
-and most frames go unrecorded. Pin real time and the question does not
-arise; `fps` is there to check it did.
+and most frames go unrecorded. Pinning real time is what settles it; no
+measurement here substitutes for that.
 
-JSON: `{"path", "frames", "requested", "seconds", "fps", "warning"}` —
-`frames` is what landed, `requested` what was asked for (they differ when
-the sampling budget ran out), `fps` the measured sampling rate in frames per
-wall-clock second (compare it against the machine's frame rate after
-pinning), and `warning` is null or the line to show the user.
+`sample_rate_hz` is samples per second of **wall clock**, and it is neither
+the machine's frame rate nor expected to match it. The emulator advances
+only while resumed, so those 100 pinned frames — 100 emulated frames, about
+1.7 seconds of emulated time — arrive over the ~5 seconds of wall clock
+noted above: roughly 21 samples/s from a 60 Hz machine. So the only
+inference the number supports is the one-sided one: above the machine's
+frame rate it cannot have been at real time, since nothing samples more
+often than once per frame, and anything below is inconclusive. What the
+pinned rate actually equals is host-dependent (round-trip latency sets it),
+so there is no figure to assert — the useful signal is the size of the gap,
+~21/s pinned against ~442/s warped on one idle host.
+
+JSON: `{"path", "frames", "requested", "seconds", "sample_rate_hz",
+"warning"}` — `frames` is what landed, `requested` what was asked for (they
+differ when the sampling budget ran out), `seconds` and `sample_rate_hz`
+cover the sampling loop alone (not opening the session), and `warning` is
+null or the line to show the user.
 
 ---
 
