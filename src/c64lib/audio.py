@@ -386,7 +386,7 @@ def sid_log(session, frames: int, jsonl_path, timeout: float | None = None) -> i
 def sid_log_detail(session, frames: int, jsonl_path,
                    timeout: float | None = None) -> dict:
     """`sid_log` with its measurements: `{path, frames, requested, seconds,
-    warning}`, where `warning` is None or a line the caller must show.
+    fps, warning}`, where `warning` is None or a line the caller must show.
 
     The file is one JSONL `FrameRecord` per frame — `{"frame": n, "regs":
     [25 ints]}`, `regs[0]` being `$D400` — and nothing else. No header, no
@@ -400,8 +400,20 @@ def sid_log_detail(session, frames: int, jsonl_path,
     which is what the warning is for — a compressed timeline must not pass
     for an exact one.
 
-    The machine is left RUNNING: samples only exist while it runs, and every
-    binary-monitor command halts it.
+    **A `None` warning is not evidence of an exact timeline.** The warning
+    is a one-sided test: it fires when sampling *outran* real time, which
+    only a warped session can do. It cannot fire for a warped session that
+    sampled slowly — a loaded host, a busy daemon — where the machine still
+    ran ~9.7x and most frames went unrecorded. Only pinning real time makes
+    the timeline exact, so `fps` (the measured sampling rate, frames per
+    wall-clock second) is returned for a caller that pinned: assert it is
+    near the machine's frame rate and the log is confirmed, not assumed.
+
+    The machine is left RUNNING, with exactly one resume after the final
+    sample and no round trip after that: the log's last record is the last
+    frame this function is accountable for, and the machine free-runs from
+    there. Samples only exist while it runs, and every binary-monitor
+    command halts it.
     """
     frames = int(frames)
     if frames < 1:
@@ -411,31 +423,37 @@ def sid_log_detail(session, frames: int, jsonl_path,
               else max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET))
     started = time.monotonic()
     with session.monitor() as mon:
-        try:
-            samples = _sample_frames(mon, frames, budget)
-        finally:
-            mon.resume()
+        samples = _sample_frames(mon, frames, budget)
     seconds = time.monotonic() - started
     if not samples:
+        # Reachable only when the deadline had already passed at loop entry:
+        # both loops run at least one iteration otherwise. A machine that
+        # cannot advance does NOT land here — a checkpoint-parked one hands
+        # back a resume immediately and fills a full log with identical
+        # frames instead (which the rate warning then blames on warp).
         raise AudioError(
-            f"sampled no SID frames in {seconds:.1f}s: the machine never "
-            f"advanced a frame — it may be parked at a checkpoint, or VICE "
-            f"may be gone")
+            f"sampled no SID frames: the {budget:g}s budget was already spent "
+            f"when sampling began — `timeout` must be positive")
     Path(path).write_text("".join(
         json.dumps({"frame": n, "regs": list(regs)}, separators=(",", ":")) + "\n"
         for n, regs in enumerate(samples)))
-    warning = _sid_log_warning(len(samples), frames, seconds)
+    rate = len(samples) / seconds if seconds > 0 else float("inf")
+    warning = _sid_log_warning(len(samples), frames, rate)
     if warning is not None:
         print(f"c64: {warning}", file=sys.stderr)
     return {"path": path, "frames": len(samples), "requested": frames,
-            "seconds": seconds, "warning": warning}
+            "seconds": seconds, "fps": rate, "warning": warning}
 
 
 def _sample_frames(mon, frames: int, timeout: float) -> list[bytes]:
     """Daemon-side loop when there is a daemon, client-side when there is
     not — `ops.run_until`'s shape, for `ops.run_until`'s reason: a per-frame
     RPC costs about 0.5 s, which would make a 50-frame log take half a
-    minute. A pre-sid_log daemon answers ValueError; take the local loop."""
+    minute. A pre-sid_log daemon answers ValueError; take the local loop.
+
+    Each branch leaves the machine running on its own, so the caller adds no
+    resume of its own: a second one would cost a round trip and let two more
+    unlogged frames pass after the final record."""
     if isinstance(mon, DaemonMonitorClient):
         try:
             return mon.sid_log(frames, timeout)
@@ -452,26 +470,34 @@ def _sample_frames_client(mon, frames: int, timeout: float) -> list[bytes]:
     is the frame boundary."""
     deadline = time.monotonic() + timeout
     out: list[bytes] = []
-    while len(out) < frames and time.monotonic() < deadline:
-        mon.resume()
-        out.append(mon.memory_read(SID_BASE, SID_REGISTERS))
+    try:
+        while len(out) < frames and time.monotonic() < deadline:
+            mon.resume()
+            out.append(mon.memory_read(SID_BASE, SID_REGISTERS))
+    finally:
+        mon.resume()      # left running, exactly as the daemon loop leaves it
     return out
 
 
-def _sid_log_warning(written: int, requested: int, seconds: float) -> str | None:
+def _sid_log_warning(written: int, requested: int, rate: float) -> str | None:
     """The one thing the JSONL cannot say for itself: that its frame numbers
-    may not be the machine's."""
+    may not be the machine's.
+
+    One-sided by design (a sampling rate can prove the machine outran real
+    time, never that it did not) — `sid_log_detail` returns the rate for the
+    caller who needs the other half.
+    """
     if written < requested:
         return (f"sid log timed out after {written} of {requested} frames; "
                 f"raise the timeout, or check that the machine is running")
-    rate = written / seconds if seconds > 0 else float("inf")
     if rate <= REALTIME_MAX_FPS * WARP_RATE_MARGIN:
         return None
     return (f"sampled {rate:.0f} frames/s, faster than real time (a machine "
             f"at 1x runs at most {REALTIME_MAX_FPS:g} frames/s): this session "
             f"is warped, where an emulated frame is about as short as one "
             f"sampling round trip, so a frame can be dropped between records "
-            f"(1 in 200 measured on an idle host, more under load) and the "
+            f"(200 samples covered 202 elapsed frames when measured on an "
+            f"idle host, and more slip under load) and the "
             f"log's frame numbers count captured frames, not elapsed ones. "
             f"Pin real time first (c64lib.audio.pin_realtime, `c64 audio "
             f"record --start`, or a capture through c64_audio_capture): at 1x "

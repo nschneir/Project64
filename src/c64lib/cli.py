@@ -2328,7 +2328,9 @@ def audio_sidlog(ctx, frames, path):
     It does not change the emulator's speed. Inside a pinned recording (or
     a full capture) every frame lands; on a warped session the log comes
     back far faster but a frame can slip past between records, and it says
-    so on stderr.
+    so on stderr. That check is one-sided — a warped session that sampled
+    slowly stays quiet — so no warning is not proof of an exact timeline.
+    Pin real time for that; `fps` reports the rate actually measured.
     """
     s = attach(ctx)
     try:

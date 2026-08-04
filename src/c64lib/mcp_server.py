@@ -1147,7 +1147,10 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     warped. It does not touch the emulator's speed: run it inside a pinned
     recording (or c64_audio_capture) and every frame lands. Run it on a
     warped session and it is far faster, but a frame can slip past between
-    records — the returned `warning` says so. Leaves the machine running.
+    records — the returned `warning` says so when the sampling rate gives it
+    away. That check is one-sided, so no warning is not proof of an exact
+    timeline: pin real time for that, and check the returned `fps` against
+    the machine's frame rate. Leaves the machine running.
     """
     s = _attach(session)
     return sid_log_detail(s, frames, path)

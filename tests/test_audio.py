@@ -675,6 +675,19 @@ def test_sid_log_is_quiet_when_the_session_runs_at_real_time(tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_sid_log_reports_the_sampling_rate_it_measured(tmp_path):
+    """The warning is a one-sided test — it proves the machine outran real
+    time, never that it did not, so a warped session sampled slowly (loaded
+    host, busy daemon) drops most of its frames silently. The measured rate
+    is returned so a caller that pinned real time can assert the other half
+    rather than read a missing warning as a guarantee."""
+    m = FakeMachine(_states(4), delay=0.02)
+    detail = sid_log_detail(_machine_session(m), 4, str(tmp_path / "sid.jsonl"))
+    assert detail["warning"] is None                 # slow: nothing to flag
+    assert detail["fps"] == pytest.approx(detail["frames"] / detail["seconds"])
+    assert 20 < detail["fps"] < 60                   # ~50/s at 20 ms a frame
+
+
 def test_sid_log_keeps_the_frames_it_got_when_it_runs_out_of_time(tmp_path):
     """A short log beats no log, but the shortfall is never silent."""
     out = tmp_path / "sid.jsonl"
@@ -692,6 +705,18 @@ def test_sid_log_rejects_a_frame_count_below_one(tmp_path):
                 str(tmp_path / "sid.jsonl"))
 
 
+def test_sid_log_names_the_spent_budget_when_it_samples_nothing(tmp_path):
+    """The only way out with an empty log: both loops take at least one
+    sample unless the deadline had already passed. A machine that cannot
+    advance fails the other way — it fills a whole log with identical
+    frames — so the message must not offer that as the explanation."""
+    out = tmp_path / "sid.jsonl"
+    with pytest.raises(AudioError, match="timeout"):
+        sid_log_detail(_machine_session(FakeMachine(_states(2))), 2, str(out),
+                       timeout=0)
+    assert not out.exists()
+
+
 def test_sid_log_runs_the_loop_in_the_daemon_when_there_is_one(tmp_path):
     """Per-frame RPCs cost ~0.5 s a frame; the loop belongs on the daemon's
     own VICE connection, exactly like `run_until`."""
@@ -703,6 +728,10 @@ def test_sid_log_runs_the_loop_in_the_daemon_when_there_is_one(tmp_path):
     assert mon.sid_log.call_args.args[0] == 3
     mon.memory_read.assert_not_called()
     assert _rows(out)[0]["regs"][0] == 7
+    # The daemon loop already left the machine running. A resume on top of it
+    # would cost a round trip and let two more unlogged frames pass after the
+    # last record — which is the window Task 6 has to bracket.
+    mon.resume.assert_not_called()
 
 
 def test_sid_log_falls_back_to_the_client_loop_on_an_older_daemon(tmp_path):

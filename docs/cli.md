@@ -1388,9 +1388,18 @@ stderr and in `warning`: VICE hands the monitor control once per frame and
 exposes no frame counter, so a missed frame can be flagged but never
 counted. Pin real time when the timeline matters.
 
-JSON: `{"path", "frames", "requested", "seconds", "warning"}` — `frames` is
-what landed, `requested` what was asked for (they differ when the sampling
-budget ran out), and `warning` is null or the line to show the user.
+A missing warning is not proof of an exact timeline. The check is one-sided:
+it catches a session that sampled *faster* than real time, which only a
+warped one can do, but a warped session that sampled slowly — loaded host,
+busy daemon — stays under the threshold while the machine still runs ~9.7x
+and most frames go unrecorded. Pin real time and the question does not
+arise; `fps` is there to check it did.
+
+JSON: `{"path", "frames", "requested", "seconds", "fps", "warning"}` —
+`frames` is what landed, `requested` what was asked for (they differ when
+the sampling budget ran out), `fps` the measured sampling rate in frames per
+wall-clock second (compare it against the machine's frame rate after
+pinning), and `warning` is null or the line to show the user.
 
 ---
 

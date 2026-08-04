@@ -236,7 +236,10 @@ every WAV finding with the roll before naming a cause.
   counter to the binary monitor, so a missed frame can be flagged but never
   counted: the tools warn, and the log's frame numbers count captured frames
   rather than elapsed ones. Pin real time — any full capture does — whenever
-  the timeline matters.
+  the timeline matters. The warning is one-sided, so its *absence* proves
+  nothing: a warped session that sampled slowly (loaded host) never trips it
+  while dropping most frames. The reported `fps` is the check that does — at
+  real time it lands near the machine's frame rate.
 
 Related: `references/hardware.md` for the SID register, ADSR and note
 tables; `references/cookbook.md` for working sound recipes; and, in the
