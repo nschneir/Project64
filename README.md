@@ -114,6 +114,7 @@ three-voice SID sound:
 | Demo | Language | Description |
 |------|----------|-------------|
 | [1812](demos/1812/) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID |
+| [Fugue No. 2 in C Minor](demos/fugue/) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note |
 
 Every demo outside the test tier keeps its whole solution once it has been
 built — [`demos/invaders/`](demos/invaders/)

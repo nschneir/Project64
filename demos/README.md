@@ -36,6 +36,7 @@ Audiovisual builds that aren't games:
 | Demo | Language | Description |
 |------|----------|-------------|
 | [1812](1812/PROMPT.md) | 6502 assembly | Randomised shapes painted to Tchaikovsky's *1812 Overture* — spec→plan→build, bitmap mode, a rotating polygon rasterizer, 3-voice SID |
+| [Fugue No. 2 in C Minor](fugue/PROMPT.md) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note |
 
 **Where the work goes.** Every demo is a directory holding its prompt in
 `PROMPT.md` and a `README.md` describing it — the prompt is named `PROMPT.md`,
