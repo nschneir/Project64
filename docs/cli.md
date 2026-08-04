@@ -1397,15 +1397,16 @@ measurement here substitutes for that.
 
 `sample_rate_hz` is samples per second of **wall clock**, and it is neither
 the machine's frame rate nor expected to match it. The emulator advances
-only while resumed, so those 100 pinned frames — 100 emulated frames, about
-1.7 seconds of emulated time — arrive over the ~5 seconds of wall clock
-noted above: roughly 21 samples/s from a 60 Hz machine. So the only
-inference the number supports is the one-sided one: above the machine's
-frame rate it cannot have been at real time, since nothing samples more
-often than once per frame, and anything below is inconclusive. What the
-pinned rate actually equals is host-dependent (round-trip latency sets it),
-so there is no figure to assert — the useful signal is the size of the gap,
-~21/s pinned against ~442/s warped on one idle host.
+only while resumed, so a pinned 200-frame log — 200 emulated frames, 3.3
+seconds of emulated time on an NTSC machine — arrives over the 9.1 seconds
+of wall clock it took: ~22 samples/s from a ~60 Hz machine, while still
+covering every emulated frame. So the only inference the number supports is
+the one-sided one: above the machine's frame rate it cannot have been at
+real time, since nothing samples more often than once per frame, and
+anything below is inconclusive. What the pinned rate actually equals is
+host-dependent (round-trip latency sets it), so there is no figure to
+assert — the useful signal is the size of the gap: that same 200-frame log
+measured ~22/s pinned against ~425/s warped on one idle host.
 
 JSON: `{"path", "frames", "requested", "seconds", "sample_rate_hz",
 "warning"}` — `frames` is what landed, `requested` what was asked for (they

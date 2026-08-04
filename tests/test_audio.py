@@ -712,12 +712,16 @@ def test_sid_log_times_the_loop_not_the_connection(tmp_path):
 
 def test_sid_log_never_reports_a_non_finite_rate(tmp_path):
     """A float infinity is not JSON — `json.dumps` spells it `Infinity` —
-    and this dict is both `c64 --json audio sidlog` and an MCP result."""
+    and this dict is both `c64 --json audio sidlog` and an MCP result. The
+    warning must not print one either: "sampled inf frames/s" is not a
+    sentence."""
     with patch("c64lib.audio.time.monotonic", return_value=1.0):
         detail = sid_log_detail(_machine_session(FakeMachine(_states(2))), 2,
                                 str(tmp_path / "sid.jsonl"))
     assert detail["sample_rate_hz"] is None
     json.dumps(detail, allow_nan=False)          # raises on a bare Infinity
+    assert "inf" not in detail["warning"]
+    assert "inside the clock's resolution" in detail["warning"]
 
 
 def test_sid_log_keeps_the_frames_it_got_when_it_runs_out_of_time(tmp_path):

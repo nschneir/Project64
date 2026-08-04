@@ -1151,10 +1151,10 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     away. That check is one-sided, so no warning is not proof of an exact
     timeline; pinning real time is what settles it. `sample_rate_hz` is
     samples per wall-clock second, NOT the machine's frame rate and not
-    comparable to it (the emulator only runs between round trips, so pinned
-    logs measure ~21/s from a 60 Hz machine, against ~442/s warped): above
-    the frame rate it proves the session was not at real time, below it
-    proves nothing. Leaves the machine running.
+    comparable to it (the emulator only runs between round trips, so one
+    200-frame log measured ~22/s pinned from a 60 Hz machine against ~425/s
+    warped): above the frame rate it proves the session was not at real
+    time, below it proves nothing. Leaves the machine running.
     """
     s = _attach(session)
     return sid_log_detail(s, frames, path)

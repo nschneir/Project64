@@ -414,17 +414,19 @@ def sid_log_detail(session, frames: int, jsonl_path,
     frames — 3.3 seconds of emulated time on the NTSC machine measured —
     spread over the 9.1 seconds of wall clock it took: ~22 samples/s from a
     ~60 Hz machine, and no contradiction between them. That is how "200
-    samples over 202 elapsed frames" and "~22 samples/s" are both true of
-    the same log, and it is why `sample_rate_hz > frame rate` is the only
-    inference
-    it supports: above the frame rate the machine cannot have been at real
+    samples over 201 elapsed frames" and "~22 samples/s" are both true of
+    that one log, and it is why a rate above the frame rate is the only
+    inference it supports: above it the machine cannot have been at real
     time (nothing samples more often than once per frame), while anything
     below is inconclusive. The pinned figure is host-dependent — round-trip
     latency sets it, not the emulator — so there is no fixed value to
-    assert; the useful separation is the size of the gap (~21/s pinned
-    against ~442/s warped, measured on one idle host). A caller that knows
+    assert; the useful separation is the size of the gap, ~22/s pinned
+    against ~425/s warped for that same 200-frame log. A caller that knows
     the machine model can apply a tighter ceiling than this module's fixed
     60 Hz — 50 on a PAL machine — but only ever as a falsifier.
+
+    `sample_rate_hz` is None if the whole log fit inside the clock's
+    resolution, which is a rate no wall clock here can express.
 
     The machine is left RUNNING, with exactly one resume after the final
     sample and no round trip after that: the log's last record is the last
@@ -457,19 +459,16 @@ def sid_log_detail(session, frames: int, jsonl_path,
     Path(path).write_text("".join(
         json.dumps({"frame": n, "regs": list(regs)}, separators=(",", ":")) + "\n"
         for n, regs in enumerate(samples)))
-    measured = seconds > 0
-    rate = len(samples) / seconds if measured else float("inf")
+    # None, never an infinity: this dict is `c64 --json audio sidlog` and the
+    # MCP result, and `json.dumps` spells a float infinity `Infinity`, which
+    # is not JSON. Reachable only if the whole log fit inside the clock's
+    # resolution — which the warning then has to phrase without a number.
+    rate = len(samples) / seconds if seconds > 0 else None
     warning = _sid_log_warning(len(samples), frames, rate)
     if warning is not None:
         print(f"c64: {warning}", file=sys.stderr)
     return {"path": path, "frames": len(samples), "requested": frames,
-            "seconds": seconds,
-            # None, never an infinity: this dict is `c64 --json audio sidlog`
-            # and the MCP result, and `json.dumps` spells a float infinity
-            # `Infinity`, which is not JSON. Reachable only if the whole log
-            # fit inside the clock's resolution.
-            "sample_rate_hz": rate if measured else None,
-            "warning": warning}
+            "seconds": seconds, "sample_rate_hz": rate, "warning": warning}
 
 
 def _sample_frames(mon, frames: int, timeout: float) -> list[bytes]:
@@ -506,26 +505,31 @@ def _sample_frames_client(mon, frames: int, timeout: float) -> list[bytes]:
     return out
 
 
-def _sid_log_warning(written: int, requested: int, rate: float) -> str | None:
+def _sid_log_warning(written: int, requested: int,
+                     rate: float | None) -> str | None:
     """The one thing the JSONL cannot say for itself: that its frame numbers
     may not be the machine's.
 
     One-sided by design (a sampling rate can prove the machine outran real
     time, never that it did not) — `sid_log_detail` returns the rate for the
-    caller who needs the other half.
+    caller who needs the other half. A `rate` of None means the log fit
+    inside the clock's resolution, which is faster than any real-time machine
+    can go and is said in words, there being no number to print.
     """
     if written < requested:
         return (f"sid log timed out after {written} of {requested} frames; "
                 f"raise the timeout, or check that the machine is running")
-    if rate <= REALTIME_MAX_FPS * WARP_RATE_MARGIN:
+    if rate is not None and rate <= REALTIME_MAX_FPS * WARP_RATE_MARGIN:
         return None
-    return (f"sampled {rate:.0f} frames/s, faster than real time (a machine "
-            f"at 1x runs at most {REALTIME_MAX_FPS:g} frames/s): this session "
-            f"is warped, where an emulated frame is about as short as one "
-            f"sampling round trip, so a frame can be dropped between records "
-            f"(200 samples covered 202 elapsed frames when measured on an "
-            f"idle host, and more slip under load) and the "
-            f"log's frame numbers count captured frames, not elapsed ones. "
+    how_fast = (f"sampled {rate:.0f} frames/s" if rate is not None else
+                f"sampled all {written} frames inside the clock's resolution")
+    return (f"{how_fast}, faster than real time (a machine at 1x runs at most "
+            f"{REALTIME_MAX_FPS:g} frames/s): this session is warped, where an "
+            f"emulated frame is about as short as one sampling round trip, so "
+            f"a frame can be dropped between records (200 samples covered 202 "
+            f"elapsed frames when measured warped on an idle host, and more "
+            f"slip under load) and the log's frame numbers count captured "
+            f"frames, not elapsed ones. "
             f"Pin real time first (c64lib.audio.pin_realtime, `c64 audio "
             f"record --start`, or a capture through c64_audio_capture): at 1x "
             f"a frame is many times the round trip, and every frame landed")
