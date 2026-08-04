@@ -1414,6 +1414,95 @@ differ when the sampling budget ran out), `seconds` and `sample_rate_hz`
 cover the sampling loop alone (not opening the session), and `warning` is
 null or the line to show the user.
 
+### `c64 audio capture`
+
+Record the running program and report on what it played — the whole
+verification loop in one command. Pins real time, records `capture.wav`,
+logs the SID's registers to `sid-log.jsonl`, restores the session's speed
+and warp, then writes `piano-roll.png`, `spectrogram.png`, and `report.md`
+into OUTDIR.
+
+- `SECONDS` — how much **emulated** time to capture.
+- `OUTDIR` — where the five artifacts go (created if needed).
+- `--ref PATH` — reference score YAML to diff the transcription against.
+
+Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
+caller reads the diffs rather than an `{"error": ...}`.
+
+Start the music before you call this. A capture that opens before the first
+gate begins with a rest the reference score does not list, and a positional
+diff cascades from there — every later note is compared against the wrong
+entry.
+
+**Budget wall clock, not `SECONDS`.** The machine advances one frame per
+monitor round trip while the log samples, so emulated time and wall clock
+diverge sharply: measured on an NTSC session (2026-08-04), 120 frames came
+back as 2.000 s emulated after 6.19 s of wall clock — about 46 ms of wall
+clock per frame. Nothing else may drive the session meanwhile: the window has
+to stay at real time from end to end, because a warped VICE writes a 0-frame
+WAV.
+
+The WAV covers slightly *more* than the log does, and it is emulated time
+either way. In that same run the recording was 2.089 s against the log's
+2.000 s: the machine free-runs between arming the recorder and the first
+sample, and again after the last sample until the recorder is disarmed. The
+bracket measured 0.086-0.101 s across captures of 0.5 s, 1 s, and 2 s — it is
+round trips, so it does not grow with the capture. Verified against the audio
+itself, not just its length: a register-predicted 439.98 Hz tone measured
+439.99 Hz in the WAV (0.1 cents), which a recording paced on wall clock could
+not be.
+
+JSON: everything `audio report` returns, plus `frames` (what landed),
+`requested_frames`, `emulated_s`, `wall_clock_s`, `wav_bytes`, and
+`log_warning`.
+
+### `c64 audio report`
+
+Analyse a captured SID log — and its WAV, when there is one — into a verdict.
+Pure analysis: it needs no running session, so it re-runs on artifacts from
+any earlier capture.
+
+- `LOG` — the JSONL register log (`c64 audio sidlog` or a capture writes one).
+- `OUTDIR` — where `report.md`, `piano-roll.png`, and `spectrogram.png` go.
+- `--wav PATH` — the recording captured alongside LOG. Without it the report
+  is register-only: no level metrics and no spectrogram, which is a
+  legitimate mode rather than a failure.
+- `--ref PATH` — reference score YAML. Without one the transcription is still
+  checked for everything a score is not needed for (stuck gates, notes held
+  audibly out of tune), and an empty diff is a legitimate pass.
+
+Exits 1 when the verdict is FAIL, same as `audio capture`.
+
+The transcription needs the machine's clock and a register log does not carry
+one: `-s NAME` takes it from that session's model, and with no session PAL is
+assumed (985248 Hz, 50 fps). The wrong clock is not an error, it is a
+plausible report of the wrong pitches — reading the NTSC capture above as PAL
+turns its A4 into "G#4, detuned +35.4 cents". Name the session when the
+capture was NTSC.
+
+The reference score is positional per voice — event *n* of a voice against
+entry *n* of that voice's list:
+
+```yaml
+voices:
+  1:
+    - {note: A4, frames: 120}   # frames optional: omit to check pitch only
+    - {note: rest, frames: 12}
+  2: []                          # an empty list means "silent"
+```
+
+Write it from your own note data **before** capturing. A score derived from a
+transcription this produced cannot fail, and a check that cannot fail is not
+evidence.
+
+JSON: `{"outdir", "report", "verdict", "failures", "log", "wav",
+"piano_roll", "spectrogram", "events", "notes", "diffs", "anomalies",
+"metrics", "machine", "clock_hz", "fps"}` — `verdict` is `"PASS"` or
+`"FAIL"`, `failures` is the reasons behind a FAIL, `events` counts note
+events (rests included) against `notes` for the ones that sounded, and
+`metrics` is null without a WAV (it carries `duration_s`, `clipped_samples`,
+and `silence_windows`; the full RMS profile stays in the report).
+
 ---
 
 ## Test runner

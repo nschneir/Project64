@@ -40,6 +40,24 @@ run windows. Measured against the KERNAL jiffy, bracketed inside one
 monitor session: 200 samples over 201 elapsed frames at real time (every
 frame), and 200 over 202 warped.
 
+`capture` composes all of it — pin, record, log, disarm, restore, report —
+and it rests on one fact that had never been measured with a sampler running
+alongside the recorder: VICE's WAV writer paces on EMULATED time, not wall
+clock. Live on an NTSC session (2026-08-04, tone.bas holding one gated
+triangle): 120 frames requested, 120 logged, 2.000 s emulated, a 2.089 s WAV,
+6.19 s of wall clock. The recording follows the register log's timeline and
+not the clock on the wall, which is what makes a pitch or a duration read off
+the two together mean anything. Checked against the audio and not only its
+length: those registers predict 439.98 Hz and the WAV's dominant partial
+measured 439.99 Hz (0.1 cents), which a wall-clock-paced recording could not
+give.
+
+The WAV covers a little MORE emulated time than the log does, at both ends.
+The machine free-runs from the resume that arms the recorder until the
+sampling loop's first halt, and again from the last sample until the recorder
+is disarmed. That bracket measured 0.086-0.101 s across captures of 0.5 s,
+1 s, and 2 s — round trips, so it does not grow with the capture.
+
 That second figure is the whole reason `sid_log_detail` returns a warning.
 Warped, an emulated frame (~2 ms) is about as long as one sampling round
 trip, so the machine can reach the next vsync before the next read is
@@ -59,9 +77,11 @@ import re
 import socket
 import sys
 import time
+import wave
 from pathlib import Path
 
 from .daemon_client import DaemonMonitorClient
+from .machines import get_profile
 from .monitor import MonitorError
 from .session import audio_pin_path
 
@@ -629,3 +649,211 @@ def pinned_record_stop(session) -> dict:
                  "speed": saved.get("speed", REALTIME_SPEED)}
                 if saved is not None else None)
     return {"wav": wav, "bytes": size, "restored": restored}
+
+
+# --- report and capture ------------------------------------------------------
+
+#: The artifact names a capture writes into its output directory. Pinned: the
+#: report links them by name, demo evidence scripts read them, and the skill
+#: tells agents to look for exactly these.
+CAPTURE_WAV = "capture.wav"
+CAPTURE_LOG = "sid-log.jsonl"
+PIANO_ROLL = "piano-roll.png"
+SPECTROGRAM = "spectrogram.png"
+
+#: The machine a report assumes when nothing names one. PAL is the C64 most
+#: music was written for, and a report has to pick something: the clock is not
+#: recoverable from a register log, and the two are ~65 cents apart.
+DEFAULT_REPORT_MODEL = "c64pal"
+
+#: A canonical PCM WAV header with no sample data. VICE writes exactly this
+#: much and no more when it records under warp, so it is the size that says
+#: "0 frames" rather than "quiet".
+WAV_HEADER_BYTES = 44
+
+#: `write_report` is the authority on the verdict; this reads its answer back
+#: rather than reimplementing the rule. The line is pinned by that function's
+#: own tests.
+_VERDICT = re.compile(r"^\*\*(PASS|FAIL)\*\*$", re.M)
+
+
+def report_timing_for(model: str | None) -> dict:
+    """`{"machine", "clock_hz", "fps"}` for a machine model, PAL for None.
+
+    The one place a clock is chosen. Both numbers come from the machine
+    profile table, never from a constant at a call site: a table built for
+    the wrong machine transcribes every note about 65 cents out, which is a
+    plausible-looking report rather than an error.
+    """
+    profile = get_profile(model or DEFAULT_REPORT_MODEL)
+    return {"machine": profile.name, "clock_hz": profile.clock_hz,
+            "fps": profile.fps}
+
+
+def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
+               timing: dict) -> dict:
+    """Analyse a captured SID log (and its WAV, if there is one) into a report.
+
+    Pure analysis — no session, no monitor: parse the log, transcribe it with
+    `timing`'s clock, diff it against `ref_path` when there is one, look for
+    anomalies, render the piano roll (and the spectrogram, when there is
+    audio), and write `report.md` into `outdir`. Returns the artifact paths,
+    the verdict, and the findings behind it.
+
+    `ref_path` is optional and *skipped*, not passed on as None: `diff_score`
+    has no "no reference" mode. A run without one is the anomaly-and-render
+    mode — every reference-free check still applies, and an empty diff list is
+    a legitimate PASS.
+
+    `wav_path` is optional for the same kind of reason: a register log alone
+    is a real mode (`c64 audio sidlog` produces one), and `write_report`
+    treats `metrics=None` as render-only rather than as a failure.
+    """
+    # Imported here, not at module scope: this pulls in numpy and Pillow, and
+    # `c64lib.cli` imports this module at startup. Measured on this host
+    # 2026-08-04 with .venv/bin/python: `import c64lib.cli` 0.081 s, and
+    # `import c64lib.sid_analysis` a further 0.080 s — doubling the startup of
+    # every `c64` command for two of them.
+    import yaml
+
+    from . import sid_analysis
+
+    outdir = Path(_abs(outdir))
+    outdir.mkdir(parents=True, exist_ok=True)
+    records = sid_analysis.parse_log(log_path)
+    events = sid_analysis.transcribe(records, timing["clock_hz"])
+    try:
+        # `if ref_path` and not `diff_score(events, ref_path)` with a None:
+        # there is no "no reference" reference, and passing one raises a bare
+        # AttributeError from inside the diff.
+        diffs = sid_analysis.diff_score(events, ref_path) if ref_path else []
+    except yaml.YAMLError as e:
+        # Neither an OSError nor a ValueError, so it would reach a front end
+        # as a traceback; a hand-written score is exactly where a typo lands.
+        raise AudioError(f"{ref_path} is not readable YAML ({e})") from e
+    anomalies = sid_analysis.find_anomalies(events, records)
+
+    roll = outdir / PIANO_ROLL
+    sid_analysis.render_piano_roll(events, roll, timing["fps"])
+    metrics = spectrogram = None
+    if wav_path is not None:
+        try:
+            metrics = sid_analysis.wav_metrics(wav_path)
+            spectrogram = outdir / SPECTROGRAM
+            sid_analysis.render_spectrogram(wav_path, spectrogram)
+        except wave.Error as e:
+            # Not an OSError and not a ValueError, so it would reach a front
+            # end as a traceback: a truncated or non-RIFF file is a report.
+            raise AudioError(f"{wav_path} is not a readable WAV ({e})") from e
+    # After the renders: the report links the artifacts that exist beside it.
+    report = sid_analysis.write_report(outdir, events, diffs, anomalies, metrics)
+
+    verdict, failures = _read_verdict(report)
+    return {
+        "outdir": str(outdir), "report": str(report),
+        "verdict": verdict, "failures": failures,
+        "log": _abs(log_path), "wav": _abs(wav_path) if wav_path else None,
+        "piano_roll": str(roll),
+        "spectrogram": str(spectrogram) if spectrogram else None,
+        "events": len(events),
+        "notes": sum(1 for e in events if e.note != sid_analysis.REST),
+        "diffs": diffs, "anomalies": anomalies,
+        # Without the RMS profile: it is one number per 0.1 s of audio, which
+        # is hundreds of floats in a payload an agent reads. `report.md` has
+        # its min/median/max, and `sid_analysis.wav_metrics` has all of it.
+        "metrics": ({k: v for k, v in metrics.items() if k != "rms_db_profile"}
+                    if metrics is not None else None),
+        **timing,
+    }
+
+
+def _read_verdict(report_path) -> tuple[str, list[str]]:
+    """The verdict and its reasons, read back out of the written report.
+
+    `write_report` owns the rule — no clipping, no anomalies, no diffs, no
+    unexpected silence — and reimplementing it here is how the two drift
+    apart. The verdict is the last section, so every `- ` line after it is one
+    of its reasons.
+    """
+    text = Path(report_path).read_text()
+    found = _VERDICT.search(text)
+    if found is None:
+        raise AudioError(f"{report_path} has no verdict line: the report was "
+                         f"written, but it cannot be judged")
+    return found.group(1), [line[2:] for line in text[found.end():].splitlines()
+                            if line.startswith("- ")]
+
+
+def capture(session, seconds: float, outdir, ref_path=None) -> dict:
+    """Record the session's audio for `seconds` of EMULATED time and report.
+
+    The end-to-end verification path: pin real time, arm the WAV recorder,
+    log the SID registers for `round(seconds * fps)` frames, disarm, restore
+    the session's speed and warp, then analyse both artifacts into
+    `outdir/report.md`. Returns `sid_report`'s payload plus what the capture
+    itself cost.
+
+    `seconds` is emulated time, and wall clock is the larger number by far.
+    The machine advances only while resumed, and the sampling loop resumes it
+    one frame at a time, so a frame costs a round trip. Measured end to end on
+    an NTSC session (2026-08-04), pin and report included: a 2 s capture — 120
+    frames — cost 6.19 s of wall clock, and a 1 s capture 3.55-3.70 s over
+    four runs. Budget for that rather than for `seconds`, and hold the session
+    for the duration.
+
+    `emulated_s` (the log's frames over the machine's frame rate) is what both
+    artifacts cover; the WAV covers that plus a bracket of round trips at each
+    end — see this module's docstring for the measurement.
+
+    Everything the pin touches is restored on the way out, including from a
+    failure mid-capture — `pinned_record_stop` disarms the recorder and unpins
+    in one step, and it runs in a `finally`.
+
+    Raises AudioError if VICE produced no WAV samples. That is not a flake to
+    retry: under warp VICE writes a header and no frames at all, so an empty
+    WAV means the capture window was not at real time. The register log is
+    left in place either way.
+    """
+    seconds = float(seconds)
+    timing = report_timing_for(session.model)
+    frames = round(seconds * timing["fps"])
+    if frames < 1:
+        raise ValueError(
+            f"seconds must cover at least one frame: {seconds:g}s of a "
+            f"{timing['fps']:g} fps machine rounds to {frames} frames")
+    outdir = Path(_abs(outdir))
+    outdir.mkdir(parents=True, exist_ok=True)
+    wav, log = outdir / CAPTURE_WAV, outdir / CAPTURE_LOG
+
+    started = time.monotonic()
+    pinned_record_start(session, wav)
+    try:
+        detail = sid_log_detail(session, frames, log)
+    finally:
+        # A failure to unpin replaces a failure to sample, which loses the
+        # root cause (Python keeps it as __context__). Deliberate: a session
+        # left at 1x with its recorder armed is the more urgent of the two,
+        # and it is the one the next command will trip over.
+        stopped = pinned_record_stop(session)
+    wall_clock = time.monotonic() - started
+
+    recorded = stopped.get("bytes")
+    if recorded is None or recorded <= WAV_HEADER_BYTES:
+        what = ("missing" if recorded is None else
+                f"{recorded} bytes — a WAV header and no samples")
+        raise AudioError(
+            f"VICE recorded no audio: {wav} is {what}. Under warp VICE writes "
+            f"a 0-frame WAV, so the capture window was not at real time — "
+            f"check that nothing re-warped the session mid-capture. The "
+            f"register log is still at {log}")
+
+    out = sid_report(log, outdir, wav_path=wav, ref_path=ref_path, timing=timing)
+    return {**out,
+            "frames": detail["frames"], "requested_frames": frames,
+            # Emulated time is what the WAV and the log both cover; wall clock
+            # is what it cost. They are not the same number and the gap is
+            # large — see this function's docstring.
+            "emulated_s": detail["frames"] / timing["fps"],
+            "wall_clock_s": wall_clock,
+            "wav_bytes": recorded,
+            "log_warning": detail["warning"]}

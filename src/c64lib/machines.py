@@ -19,9 +19,12 @@ class MachineProfile:
     screen_cols: int
     screen_rows: int
     ram_kb: int                 # total RAM (BASIC sees 38911 bytes free)
+    clock_hz: int               # CPU/SID clock: sets SID pitch and cycle costs
+    fps: int                    # video frames per second
 
 
-def _c64(name: str, extra_args: tuple[str, ...] = ()) -> MachineProfile:
+def _c64(name: str, extra_args: tuple[str, ...], clock_hz: int,
+         fps: int) -> MachineProfile:
     return MachineProfile(
         name=name,
         vice_emulator="x64sc",
@@ -32,14 +35,19 @@ def _c64(name: str, extra_args: tuple[str, ...] = ()) -> MachineProfile:
         screen_cols=40,
         screen_rows=25,
         ram_kb=64,
+        clock_hz=clock_hz,
+        fps=fps,
     )
 
 
 PROFILES: dict[str, MachineProfile] = {
     p.name: p
     for p in (
-        _c64("c64", extra_args=("-ntsc",)),           # NTSC, the default
-        _c64("c64pal", extra_args=("-pal",)),
+        # The clock is the SID's too: a note frequency is `reg16 * clock_hz /
+        # 2**24`, so reading a register log with the other machine's clock
+        # transcribes every note about 65 cents out.
+        _c64("c64", ("-ntsc",), clock_hz=1022727, fps=60),   # NTSC, the default
+        _c64("c64pal", ("-pal",), clock_hz=985248, fps=50),
     )
 }
 

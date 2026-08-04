@@ -13,7 +13,14 @@ from typing import NoReturn
 import click
 
 from . import __version__
-from .audio import pinned_record_start, pinned_record_stop, sid_log_detail
+from .audio import (
+    capture,
+    pinned_record_start,
+    pinned_record_stop,
+    report_timing_for,
+    sid_log_detail,
+    sid_report,
+)
 from .basic import BasicError, detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import BuildError, build_asm
@@ -2348,3 +2355,103 @@ def audio_sidlog(ctx, frames, path):
     if out["warning"]:
         human += f"\nwarning: {out['warning']}"
     emit(ctx, out, human)
+
+
+#: Findings listed under a verdict before the rest are summarized. A failing
+#: capture can produce one diff per note; the report holds them all.
+FINDINGS_SHOWN = 10
+
+
+def _verdict_report(ctx, out: dict, headline: str) -> None:
+    """Emit a report payload, then exit 1 if its verdict is FAIL.
+
+    A FAIL is a finding about the program, not a broken command, so the
+    payload is emitted in full first (`--json` callers get the diffs, not an
+    `{"error": ...}`) — but it exits non-zero, because an evidence script that
+    treats "the report was written" as success proves nothing.
+    """
+    lines = [f"{out['verdict']}: {out['report']}", headline]
+    findings = list(out["diffs"]) + list(out["anomalies"])
+    lines += [f"- {f}" for f in findings[:FINDINGS_SHOWN]]
+    if len(findings) > FINDINGS_SHOWN:
+        lines.append(f"- ... and {len(findings) - FINDINGS_SHOWN} more, "
+                     f"all of them in the report")
+    emit(ctx, out, "\n".join(line for line in lines if line))
+    if out["verdict"] == "FAIL":
+        ctx.exit(1)
+    return None
+
+
+@audio.command("report")
+@click.argument("log", type=click.Path(exists=True, dir_okay=False))
+@click.argument("outdir", type=click.Path(file_okay=False))
+@click.option("--wav", "wav_path", default=None, type=click.Path(dir_okay=False),
+              help="The WAV captured alongside LOG. Without it the report is "
+                   "register-only: no level metrics and no spectrogram.")
+@click.option("--ref", "ref_path", default=None, type=click.Path(dir_okay=False),
+              help="Reference score YAML to diff the transcription against. "
+                   "Without one the report still runs every reference-free "
+                   "check, and an empty diff is a legitimate pass.")
+@click.pass_context
+def audio_report(ctx, log, outdir, wav_path, ref_path):
+    """Analyse a captured SID log (and its WAV) into a verdict.
+
+    Writes `report.md` into OUTDIR next to `piano-roll.png` and, with a WAV,
+    `spectrogram.png`. Transcribes the log to note events, diffs them against
+    --ref, and lists the anomalies no working tune produces. Exits 1 when the
+    verdict is FAIL — the payload is still printed.
+
+    The transcription needs the machine's clock, and a register log does not
+    carry it: `-s NAME` takes it from that session's model, and without a
+    session PAL is assumed (985248 Hz, 50 fps). Reading an NTSC capture as PAL
+    transcribes every note about 65 cents out, which looks like a badly tuned
+    program rather than a mistake here, so name the session when it was NTSC.
+    """
+    name = ctx.obj["session"]
+    timing = report_timing_for(attach(ctx).model if name else None)
+    try:
+        out = sid_report(log, outdir, wav_path=wav_path, ref_path=ref_path,
+                         timing=timing)
+    except (RuntimeError, OSError, ValueError) as e:
+        fail(ctx, f"audio report: {e}")
+        return
+    notes = f"{out['notes']} note" + ("" if out["notes"] == 1 else "s")
+    _verdict_report(ctx, out, f"transcribed {notes} as a {out['machine']} "
+                              f"machine ({out['clock_hz']} Hz, {out['fps']} fps)")
+
+
+@audio.command("capture")
+@click.argument("seconds", type=float)
+@click.argument("outdir", type=click.Path(file_okay=False))
+@click.option("--ref", "ref_path", default=None, type=click.Path(dir_okay=False),
+              help="Reference score YAML to diff the transcription against — "
+                   "write it from your own note data BEFORE capturing, never "
+                   "from a transcription this produced.")
+@click.pass_context
+def audio_capture(ctx, seconds, outdir, ref_path):
+    """Record SECONDS of the running program and report on what it played.
+
+    One call for the whole loop: pin real time, record `capture.wav`, log the
+    SID's registers to `sid-log.jsonl`, restore the session's speed, and write
+    `piano-roll.png`, `spectrogram.png`, and `report.md` into OUTDIR. Exits 1
+    when the verdict is FAIL.
+
+    SECONDS is EMULATED time, and it costs considerably more wall clock than
+    that: the machine advances one frame per monitor round trip while the log
+    is sampling, which measured ~46 ms of wall clock per frame on an NTSC
+    session (200 frames = 3.3 s emulated over 9.1 s of wall clock). Budget for
+    that, keep the session to yourself for the duration, and start the music
+    before you call this — a capture that opens on silence diffs against the
+    reference from its first note on.
+    """
+    s = attach(ctx)
+    try:
+        out = capture(s, seconds, outdir, ref_path=ref_path)
+    except (RuntimeError, OSError, ValueError, MonitorError) as e:
+        # As wide as `audio record`: a capture drives two monitors, and a
+        # MonitorError or a busy daemon's TimeoutError is a report.
+        fail(ctx, f"audio capture: {e}")
+        return
+    _verdict_report(ctx, out,
+                    f"{out['frames']} frames — {out['emulated_s']:.1f} s "
+                    f"emulated in {out['wall_clock_s']:.1f} s of wall clock")

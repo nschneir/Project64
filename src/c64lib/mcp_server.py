@@ -12,7 +12,14 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from .audio import pinned_record_start, pinned_record_stop, sid_log_detail
+from .audio import (
+    capture,
+    pinned_record_start,
+    pinned_record_stop,
+    report_timing_for,
+    sid_log_detail,
+    sid_report,
+)
 from .basic import tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
@@ -1158,3 +1165,55 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     """
     s = _attach(session)
     return sid_log_detail(s, frames, path)
+
+
+@srv.tool()
+def c64_sid_report(log: str, outdir: str, wav: str | None = None,
+                   ref: str | None = None, session: str | None = None) -> dict:
+    """Turn a captured SID register log (and its WAV, if there is one) into a
+    verdict you can read: `report.md` in `outdir`, beside `piano-roll.png` and
+    — with a WAV — `spectrogram.png`. Pure analysis, so it needs no running
+    session and can be re-run on old artifacts.
+
+    It transcribes the log to note events, diffs them against the `ref` score
+    YAML when you give one, and lists the anomalies no working tune produces
+    (stuck gates, notes held audibly out of tune). Without `ref` every
+    reference-free check still runs and an empty diff is a legitimate PASS —
+    but a score you wrote from your own note data BEFORE capturing is what
+    turns this from a description into a test.
+
+    Name a `session` when the capture came from an NTSC machine: a register
+    log does not carry its clock, so with no session PAL is assumed (985248
+    Hz, 50 fps) and an NTSC log transcribes about 65 cents out — a plausible
+    report of the wrong pitches. Returns the artifact paths, the verdict, and
+    the findings behind it.
+    """
+    timing = report_timing_for(_attach(session).model if session else None)
+    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
+
+
+@srv.tool()
+def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
+                      session: str | None = None) -> dict:
+    """Record the running program's audio and report on what it played — the
+    one call that verifies SID music end to end. Pins real time, records
+    `capture.wav`, logs the SID's registers to `sid-log.jsonl`, restores the
+    session's speed, and writes `piano-roll.png`, `spectrogram.png`, and
+    `report.md` into `outdir`.
+
+    Start the music BEFORE calling this, and give `ref` a score YAML written
+    from your own note data rather than from a transcription this produced —
+    a reference derived from the output cannot fail.
+
+    `seconds` is EMULATED time and costs several times that in wall clock: the
+    machine advances one frame per monitor round trip while the log samples,
+    measured at ~46 ms of wall clock per frame on an NTSC session (200 frames
+    = 3.3 s emulated over 9.1 s of wall clock). Budget for it, and let nothing
+    else drive the session meanwhile — the capture window has to stay at real
+    time, since a warped VICE writes a 0-frame WAV.
+
+    Returns the artifact paths, the verdict, the score diff, the anomalies,
+    and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`).
+    """
+    s = _attach(session)
+    return capture(s, seconds, outdir, ref_path=ref)

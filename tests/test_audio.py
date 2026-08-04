@@ -14,6 +14,7 @@ import json
 import socket
 import threading
 import time
+from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -830,3 +831,418 @@ def test_module_exposes_only_the_capture_surface():
     from c64lib.monitor import MonitorClient
     assert not hasattr(MonitorClient, "warp")
     assert audio._TextMonitor.__name__.startswith("_")
+
+
+# --- the report wrapper and the capture orchestrator -------------------------
+
+#: $D400/$D401 for A4 on the NTSC machine: 440 Hz * 2**24 / 1022727 = 7217.6,
+#: which rounds to 7218 -> 439.98 Hz, a tenth of a cent flat. Read with the PAL
+#: clock the SAME registers are 985248 * 7218 / 2**24 = 423.9 Hz — G#4 (415.30)
+#: sharp by 35 cents, not A4 — which is what makes one pair of registers a test
+#: of which clock the transcription used.
+A4_NTSC_REG = 7218
+#: Triangle (bit 4) with the gate on (bit 0).
+TRIANGLE_GATED = 0x11
+
+
+def _voice1(reg16: int = A4_NTSC_REG, control: int = TRIANGLE_GATED) -> bytes:
+    """A SID block sounding one note on voice 1 and nothing on voices 2-3."""
+    regs = [0] * 25
+    regs[0], regs[1], regs[4] = reg16 & 0xFF, reg16 >> 8, control
+    regs[24] = 0x0F                      # $D418: full volume
+    return bytes(regs)
+
+
+def _write_wav(path, seconds: float, rate: int = 22050, hz: float = 440.0) -> None:
+    """A real mono 16-bit WAV of a sine — what `wav_metrics` and the
+    spectrogram read. Not silence: a silent capture is a FAIL verdict, which
+    would hide the artifact this is standing in for."""
+    import math
+    import struct
+    import wave
+    count = max(1, round(seconds * rate))
+    pcm = b"".join(struct.pack("<h", int(16000 * math.sin(2 * math.pi * hz * i / rate)))
+                   for i in range(count))
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(pcm)
+
+
+class FakeVice(FakeMachine):
+    """FakeMachine plus VICE's resource surface and its WAV recorder.
+
+    One object with ONE ordered call trace, because a capture's contract is
+    the order: pin (warp off, Speed 100) before the recorder is armed, every
+    sample inside the armed window, the recorder disarmed before the speed
+    goes back. Two separate mocks could each be right and still compose
+    wrongly.
+
+    The recorder writes a real WAV covering the frames that elapsed while it
+    was armed — the emulated duration, which is what VICE's own recorder
+    produces and what the live alignment check confirmed. It is a stand-in
+    for VICE, not evidence about it.
+    """
+
+    def __init__(self, states, fps: float = 60.0, delay: float = 0.0,
+                 records: bool = True, **resources):
+        super().__init__(states, delay)
+        self.resources = {**VICE_DEFAULTS, **resources}
+        self.fps = fps
+        self.records = records
+        self.wav_path: str | None = None
+        self.armed_at: int | None = None
+
+    def resource_get(self, name: str):
+        self.calls.append(("get", name))
+        return self.resources[name]
+
+    def resource_set(self, name: str, value) -> None:
+        self.calls.append(("set", name, value))
+        self.resources[name] = value
+        if name == audio.REC_ARG:
+            self.wav_path = value
+        elif name == audio.REC_NAME:
+            if value == "wav":
+                self.armed_at = self.frame
+            elif self.armed_at is not None:
+                if self.records and self.wav_path:
+                    _write_wav(self.wav_path, (self.frame - self.armed_at) / self.fps)
+                self.armed_at = None
+
+    @property
+    def sets(self) -> list[str]:
+        """The resource names set, in order — the sequence IS the contract."""
+        return [c[1] for c in self.calls if c[0] == "set"]
+
+    def index_of(self, name: str, value) -> int:
+        return self.calls.index(("set", name, value))
+
+
+def _capture_session(vice: FakeVice, model: str = "c64", pid: int = 4242):
+    """A Session whose monitor() hands out `vice` for both its resource and
+    its memory traffic, with a real machine profile behind `.profile`."""
+    from c64lib.machines import get_profile
+    s = Mock()
+    s.name, s.model, s.socket, s.pid = "c64", model, None, pid
+    s.profile = get_profile(model)
+    s.monitor.return_value.__enter__ = Mock(return_value=vice)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    return s
+
+
+def _log(path, states, first_frame: int = 0) -> None:
+    """A sid-log.jsonl as `sid_log` writes one."""
+    Path(path).write_text("".join(
+        json.dumps({"frame": first_frame + n, "regs": list(regs)}) + "\n"
+        for n, regs in enumerate(states)))
+
+
+PAL = 985248
+NTSC = 1022727
+
+
+# --- sid_report ---------------------------------------------------------------
+
+def test_sid_report_writes_every_artifact_it_can_and_a_verdict(tmp_path):
+    """The wrapper's whole job: parse, transcribe, render, and hand back the
+    paths plus the verdict the report reached."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 30)
+    _write_wav(tmp_path / "capture.wav", 0.5)
+    out = audio.sid_report(log, tmp_path, wav_path=tmp_path / "capture.wav",
+                           timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "PASS" and out["failures"] == []
+    assert Path(out["report"]).name == "report.md"
+    assert Path(out["piano_roll"]).exists() and Path(out["spectrogram"]).exists()
+    assert out["machine"] == "c64" and out["clock_hz"] == NTSC and out["fps"] == 60
+    assert "A4" in Path(out["report"]).read_text()
+
+
+def test_sid_report_transcribes_with_the_clock_it_was_given(tmp_path):
+    """One pair of registers, two machines: 65 cents apart is a different
+    note name, so a report built on the wrong clock is visibly wrong."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 30)
+    ntsc = audio.sid_report(log, tmp_path / "ntsc",
+                            timing=audio.report_timing_for("c64"))
+    pal = audio.sid_report(log, tmp_path / "pal",
+                           timing=audio.report_timing_for("c64pal"))
+    assert "A4" in Path(ntsc["report"]).read_text()
+    assert "G#4" in Path(pal["report"]).read_text()
+    assert pal["clock_hz"] == PAL and pal["fps"] == 50
+
+
+def test_sid_report_without_a_wav_is_a_render_only_pass(tmp_path):
+    """No audio is a legitimate mode, not a failure: no spectrogram, no
+    metrics, and the verdict still stands on the register log alone."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 20)
+    out = audio.sid_report(log, tmp_path, timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "PASS"
+    assert out["spectrogram"] is None and out["metrics"] is None
+    assert not (tmp_path / "spectrogram.png").exists()
+    assert "register log only" in Path(out["report"]).read_text()
+
+
+def test_sid_report_never_calls_the_diff_without_a_reference_score(tmp_path):
+    """`diff_score(events, None)` raises a bare AttributeError — there is no
+    "empty reference" to pass, so the diff has to be skipped outright."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 20)
+    with patch("c64lib.sid_analysis.diff_score",
+               side_effect=AssertionError("diffed without a reference")) as diff:
+        out = audio.sid_report(log, tmp_path, timing=audio.report_timing_for("c64"))
+    diff.assert_not_called()
+    assert out["diffs"] == [] and out["verdict"] == "PASS"
+
+
+def test_sid_report_fails_on_a_reference_score_that_does_not_match(tmp_path):
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 30)
+    ref = tmp_path / "score.yaml"
+    ref.write_text("voices:\n  1:\n    - {note: C4, frames: 30}\n")
+    out = audio.sid_report(log, tmp_path, ref_path=ref,
+                           timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "FAIL"
+    assert out["diffs"] and "C4" in out["diffs"][0]
+    assert any("reference score" in reason for reason in out["failures"])
+
+
+def test_sid_report_reports_anomalies_from_the_register_log(tmp_path):
+    """A gate held over a zero frequency for 51 frames is the stuck-gate
+    anomaly — reference-free, so it is the check a run with no score keeps."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1(reg16=0)] * 60)
+    out = audio.sid_report(log, tmp_path, timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "FAIL"
+    assert any("stuck gate" in a for a in out["anomalies"])
+
+
+# --- capture ------------------------------------------------------------------
+
+def test_capture_pins_arms_samples_disarms_then_restores(vice_text, tmp_path):
+    """The order is the contract. Warp off and Speed 100 BEFORE the recorder
+    is armed (while warped VICE writes a 0-frame WAV), every sample strictly
+    inside the armed window, and the recorder disarmed before the speed goes
+    back."""
+    vice = FakeVice([_voice1()] * 8)
+    with _port(vice_text):
+        audio.capture(_capture_session(vice), 0.1, tmp_path)
+    assert vice.sets == ["MonitorServerAddress", "MonitorServer", "Speed",
+                         "SoundRecordDeviceArg", "SoundRecordDeviceName",
+                         "SoundRecordDeviceName", "Speed", "MonitorServer"]
+    armed = vice.index_of("SoundRecordDeviceName", "wav")
+    disarmed = vice.index_of("SoundRecordDeviceName", "")
+    samples = [i for i, c in enumerate(vice.calls) if c == (audio.SID_BASE, 25)]
+    assert samples and armed < min(samples) and max(samples) < disarmed
+    assert vice_text.warp is True                     # and warp is put back
+
+
+def test_capture_writes_the_five_pinned_artifacts(vice_text, tmp_path):
+    """The names are pinned: the report links them, demo evidence scripts
+    reference them, and an agent is told to look for them."""
+    vice = FakeVice([_voice1()] * 12)
+    with _port(vice_text):
+        out = audio.capture(_capture_session(vice), 0.2, tmp_path / "cap")
+    assert sorted(p.name for p in (tmp_path / "cap").iterdir()) == [
+        "capture.wav", "piano-roll.png", "report.md", "sid-log.jsonl",
+        "spectrogram.png"]
+    assert out["verdict"] == "PASS"
+    assert Path(out["wav"]).name == "capture.wav"
+    assert Path(out["log"]).name == "sid-log.jsonl"
+
+
+def test_capture_takes_its_frame_count_from_the_machines_frame_rate(
+        vice_text, tmp_path):
+    """`round(seconds * fps)` — and fps comes from the machine profile, so
+    the same half second is 30 frames on the NTSC machine and 25 on PAL."""
+    for model, expected in (("c64", 30), ("c64pal", 25)):
+        vice = FakeVice([_voice1()] * 4, fps=60.0 if model == "c64" else 50.0)
+        out_dir = tmp_path / model
+        with _port(vice_text):
+            out = audio.capture(_capture_session(vice, model=model), 0.5, out_dir)
+        assert out["requested_frames"] == expected
+        assert len(_rows(out_dir / "sid-log.jsonl")) == expected
+        assert out["machine"] == model
+        assert out["emulated_s"] == pytest.approx(expected / out["fps"])
+
+
+def test_capture_transcribes_with_the_machines_clock(vice_text, tmp_path):
+    """The registers are the same; only the clock differs. A table built for
+    the wrong machine is uniformly off by about 65 cents — one note name."""
+    reports = {}
+    for model in ("c64", "c64pal"):
+        vice = FakeVice([_voice1()] * 4, fps=60.0 if model == "c64" else 50.0)
+        with _port(vice_text):
+            out = audio.capture(_capture_session(vice, model=model), 0.2,
+                                tmp_path / model)
+        reports[model] = Path(out["report"]).read_text()
+    assert "A4" in reports["c64"] and "G#4" not in reports["c64"]
+    assert "G#4" in reports["c64pal"]
+
+
+def test_capture_restores_the_session_when_the_log_fails(vice_text, tmp_path):
+    """A capture that dies half way must not leave the session pinned at 1x
+    with the recorder still armed."""
+    vice = FakeVice([_voice1()] * 4)
+    with _port(vice_text), \
+         patch("c64lib.audio.sid_log_detail",
+               side_effect=AudioError("the machine is stopped")), \
+         pytest.raises(AudioError, match="the machine is stopped"):
+        audio.capture(_capture_session(vice), 0.2, tmp_path)
+    assert vice.sets[-3:] == ["SoundRecordDeviceName", "Speed", "MonitorServer"]
+    assert vice.resources["SoundRecordDeviceName"] == ""      # disarmed
+    assert vice.resources["Speed"] == 100                     # as it was found
+    assert vice_text.warp is True                             # and re-warped
+
+
+def test_capture_leaves_no_pin_behind(vice_text, tmp_path):
+    """The sidecar exists so a crashed capture can still be unpinned; a
+    capture that finished must not leave one for the next command to honour."""
+    vice = FakeVice([_voice1()] * 4)
+    s = _capture_session(vice)
+    with _port(vice_text):
+        audio.capture(s, 0.2, tmp_path)
+    assert not audio._pin_path(s).exists()
+
+
+def test_capture_refuses_a_window_shorter_than_one_frame(vice_text, tmp_path):
+    vice = FakeVice([_voice1()])
+    with _port(vice_text), pytest.raises(ValueError, match="at least one frame"):
+        audio.capture(_capture_session(vice), 0.001, tmp_path)
+    assert vice.sets == []          # and it never touched the machine
+
+
+def test_capture_diagnoses_a_wav_with_no_samples(vice_text, tmp_path):
+    """The failure this whole module is built around: under warp VICE writes
+    a 0-frame WAV — a header and nothing else — so an empty file is a capture
+    failure to diagnose, never an empty tune. The register log is kept."""
+    vice = FakeVice([_voice1()] * 4, records=False)
+    with _port(vice_text), pytest.raises(AudioError) as raised:
+        audio.capture(_capture_session(vice), 0.2, tmp_path)
+    assert "warp" in str(raised.value) and "capture.wav" in str(raised.value)
+    assert (tmp_path / "sid-log.jsonl").exists()      # the log survives
+    assert vice_text.warp is True                     # and the session is back
+
+
+def test_capture_passes_the_reference_score_through(vice_text, tmp_path):
+    vice = FakeVice([_voice1()] * 4)
+    ref = tmp_path / "score.yaml"
+    ref.write_text("voices:\n  1:\n    - {note: C4}\n")
+    with _port(vice_text):
+        out = audio.capture(_capture_session(vice), 0.2, tmp_path / "cap",
+                            ref_path=ref)
+    assert out["verdict"] == "FAIL" and out["diffs"]
+
+
+def test_capture_reports_the_wall_clock_it_cost(vice_text, tmp_path):
+    """Emulated time and wall clock diverge sharply while sampling — the
+    machine only advances between round trips — so a caller who wants to
+    know what a capture cost cannot divide frames by fps."""
+    vice = FakeVice([_voice1()] * 4)
+    with _port(vice_text):
+        out = audio.capture(_capture_session(vice), 0.2, tmp_path)
+    assert out["frames"] == 12 and out["emulated_s"] == pytest.approx(0.2)
+    assert out["wall_clock_s"] > 0
+
+
+# --- MCP tools ----------------------------------------------------------------
+
+def test_mcp_sid_report_defaults_to_pal_with_no_session(tmp_path):
+    """No session names a machine, so the report assumes PAL — and says so,
+    because a wrong clock is a uniformly detuned transcription, not an error."""
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.sid_report",
+               return_value={"verdict": "PASS"}) as report:
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                                "outdir": "/tmp/out"})
+    assert err is False and out["verdict"] == "PASS"
+    S.attach.assert_not_called()
+    assert report.call_args.kwargs["timing"]["clock_hz"] == PAL
+
+
+def test_mcp_sid_report_uses_the_named_sessions_clock(tmp_path):
+    from c64lib.machines import get_profile
+    s, _ = _fake_session()
+    s.profile = get_profile("c64")
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.sid_report",
+               return_value={"verdict": "PASS"}) as report:
+        S.attach.return_value = s
+        call_tool("c64_sid_report", {"log": "/tmp/s.jsonl", "outdir": "/tmp/o",
+                                     "session": "c64"})
+    assert report.call_args.kwargs["timing"]["clock_hz"] == NTSC
+
+
+def test_mcp_audio_capture():
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md"}) as cap:
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture", {"seconds": 2.0,
+                                                   "outdir": "/tmp/o"})
+    assert err is False and out["verdict"] == "PASS"
+    cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None)
+
+
+# --- CLI ----------------------------------------------------------------------
+
+def test_cli_audio_report_assumes_pal_when_no_session_is_named(tmp_path):
+    """A register log does not carry its clock and no session names one, so
+    the report falls back to PAL — and says which machine it read it as."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.sid_report",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "notes": 1,
+                             "machine": "c64pal", "clock_hz": PAL,
+                             "fps": 50}) as report:
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    S.attach.assert_not_called()
+    assert report.call_args.kwargs["timing"]["clock_hz"] == PAL
+    assert "PASS" in r.output and "c64pal" in r.output
+
+
+def test_cli_audio_capture_reports_the_verdict():
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "FAIL", "report": "/tmp/o/report.md",
+                             "diffs": ["voice 1 event 1: expected C4"],
+                             "anomalies": [], "frames": 120,
+                             "emulated_s": 2.0, "wall_clock_s": 5.5}) as cap:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "2", "/tmp/o"])
+    assert r.exit_code == 1, r.output          # a FAIL verdict is a failure
+    assert "/tmp/o/report.md" in r.output and "expected C4" in r.output
+    cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None)
+
+
+def test_cli_audio_capture_passes_the_reference_score():
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8}) as cap:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
+                                      "--ref", "score.yaml"])
+    assert r.exit_code == 0, r.output
+    cap.assert_called_once_with(s, 1.0, "/tmp/o", ref_path="score.yaml")
+
+
+def test_cli_audio_capture_reports_a_capture_failure():
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               side_effect=AudioError("VICE wrote a 0-frame WAV")):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
+    assert r.exit_code == 1
+    assert "0-frame WAV" in r.output
