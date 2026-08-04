@@ -13,7 +13,7 @@ from typing import NoReturn
 import click
 
 from . import __version__
-from .audio import AudioError, pinned_record_start, pinned_record_stop
+from .audio import pinned_record_start, pinned_record_stop
 from .basic import BasicError, detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import BuildError, build_asm
@@ -37,6 +37,7 @@ from .disk import (
     validate_image,
 )
 from .machines import get_profile
+from .monitor import MonitorError
 from .ops import (
     call_routine,
     clear_checkpoints,
@@ -2303,7 +2304,10 @@ def audio_record(ctx, start_path, stop):
             out = pinned_record_stop(s)
             human = (f"stopped; {out['wav']} is {out['bytes']} bytes"
                      if out["wav"] else "stopped; no pinned recording was active")
-    except AudioError as e:
+    except (RuntimeError, OSError, MonitorError) as e:
+        # Wider than AudioError (which is a RuntimeError) on purpose: a
+        # capture drives two monitors, and a MonitorError or the TimeoutError
+        # a busy daemon raises is a report, not a traceback.
         fail(ctx, f"audio record: {e}")
         return
     emit(ctx, out, human)

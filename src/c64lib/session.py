@@ -32,6 +32,18 @@ def sessions_dir() -> Path:
     return d
 
 
+def audio_pin_path(name: str) -> Path:
+    """Sidecar holding what a pinned audio capture owes the session: what
+    `c64lib.audio` must put back when the recording stops.
+
+    Written and read by `c64lib.audio`; named here so `Session.stop()` can
+    clear it without importing that module. The extension is NOT `.json`:
+    `_load_all()` parses every `*.json` in this directory as a session
+    record.
+    """
+    return sessions_dir() / f"{name}.audio"
+
+
 class SessionError(Exception):
     pass
 
@@ -383,4 +395,5 @@ class Session:
         if self.socket:
             Path(self.socket).unlink(missing_ok=True)
         self._respawns_path().unlink(missing_ok=True)
+        audio_pin_path(self.name).unlink(missing_ok=True)
         self._record_path().unlink(missing_ok=True)

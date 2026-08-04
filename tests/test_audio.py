@@ -122,14 +122,23 @@ def vice_text(request):
     srv.close()
 
 
-def _fake_session(speed: int = 100, address: str = ""):
+#: What a FRESH VICE answers for the resources audio.py reads — measured on
+#: a headless session that had never run a text monitor. The address has a
+#: factory default, so reading one back is no evidence that anybody set it;
+#: a fake that starts it empty hides a whole class of bug (it did).
+VICE_DEFAULTS = {"MonitorServerAddress": "ip4://127.0.0.1:6510",
+                 "MonitorServer": 0, "Speed": 100}
+
+
+def _fake_session(speed: int = 100, pid: int = 4242, **resources):
     """A Session whose monitor() hands out one Mock. Resources behave like
-    VICE's: what was set is what reads back, so a second capture sees the
-    text-monitor address the first one left behind."""
+    VICE's: they start at their factory defaults, and what was set is what
+    reads back — so a second capture sees the text monitor the first one
+    actually switched on."""
     s = Mock()
-    s.name, s.model, s.socket = "c64", "c64", None
+    s.name, s.model, s.socket, s.pid = "c64", "c64", None, pid
     mon = Mock()
-    values = {"MonitorServerAddress": address, "Speed": speed}
+    values = {**VICE_DEFAULTS, "Speed": speed, **resources}
     mon.resource_get.side_effect = lambda n: values[n]
     mon.resource_set.side_effect = values.__setitem__
     s.monitor.return_value.__enter__ = Mock(return_value=mon)
@@ -203,14 +212,29 @@ def test_pin_realtime_starts_the_text_monitor_then_clears_warp(vice_text):
     assert vice_text.lines == ["warp", "warp off", "warp", "x"]
 
 
-def test_pin_realtime_reuses_an_address_vice_already_has(vice_text):
+def test_pin_realtime_reuses_the_listener_it_already_switched_on(vice_text):
     """MonitorServer stays on for the session's life; a second capture must
     reuse that listener, not point VICE somewhere new."""
-    s, mon = _fake_session(address=f"ip4://127.0.0.1:{vice_text.port}")
+    s, mon = _fake_session(MonitorServer=1,
+                           MonitorServerAddress=f"ip4://127.0.0.1:{vice_text.port}")
     with patch("c64lib.audio._free_port",
                side_effect=AssertionError("picked a new port")):
         pin_realtime(s)
     assert _names(mon) == ["MonitorServer", "Speed"]
+
+
+def test_pin_realtime_never_trusts_vices_default_text_monitor_address(vice_text):
+    """`MonitorServerAddress` reads `ip4://127.0.0.1:6510` on a session that
+    has never run a text monitor, so treating "an address is set" as "our
+    listener is up" points EVERY session at 6510 — where only the first VICE
+    to bind wins and every other session's client silently drives that
+    emulator instead. `MonitorServer` is the signal that separates the two."""
+    s, mon = _fake_session()          # MonitorServer 0, address 6510
+    with _port(vice_text):
+        pin_realtime(s)
+    assert mon.resource_set.call_args_list[0] == call(
+        "MonitorServerAddress", f"ip4://127.0.0.1:{vice_text.port}")
+    assert vice_text.port != 6510 and vice_text.lines[0] == "warp"
 
 
 def test_pin_realtime_saves_a_non_default_speed(vice_text):
@@ -238,6 +262,35 @@ def test_pin_realtime_raises_when_warp_will_not_clear(vice_text):
     s, _ = _fake_session()
     with _port(vice_text), pytest.raises(AudioError, match="warp"):
         pin_realtime(s)
+
+
+@pytest.mark.parametrize("vice_text", [StubbornTextMonitor], indirect=True)
+def test_a_failed_pin_puts_the_speed_back(vice_text):
+    """Nobody holds the saved state until pin_realtime returns, so a pin
+    that fails half way has to undo itself — there is no one else left who
+    could."""
+    s, mon = _fake_session(speed=200)
+    with _port(vice_text), pytest.raises(AudioError):
+        pin_realtime(s)
+    assert mon.resource_set.call_args_list[-1] == call("Speed", 200)
+
+
+def test_a_failed_speed_pin_leaves_warp_alone(vice_text):
+    """Warp is cleared last, so the step most likely to fail — two binary
+    monitor round trips, where a live TimeoutError has been seen — happens
+    while the machine is still as the caller handed it over."""
+    s, mon = _fake_session()
+
+    def refuse(name, value):
+        if name == "Speed":
+            raise TimeoutError("timed out")
+
+    mon.resource_set.side_effect = refuse
+    with _port(vice_text), pytest.raises(TimeoutError):
+        pin_realtime(s)
+    assert vice_text.warp is True
+    vice_text.settle()
+    assert "warp off" not in vice_text.lines
 
 
 def test_pin_realtime_reports_an_unreachable_text_monitor():
@@ -322,6 +375,56 @@ def test_a_second_start_keeps_the_first_pins_saved_state(vice_text, tmp_path):
         assert out["pinned"] == {"warp": True, "speed": 200}
         assert pinned_record_stop(s)["restored"] == {"warp": True, "speed": 200}
     assert vice_text.warp is True
+
+
+def test_a_pin_left_behind_by_a_dead_session_is_discarded(vice_text, tmp_path):
+    """A session killed between start and stop leaves its sidecar in place.
+    The next session to take that name must not inherit a dead machine's
+    saved state in preference to what it just read live."""
+    s, _ = _fake_session(pid=222, speed=200)
+    audio._pin_path(s).write_text(json.dumps(
+        {"warp": True, "speed": 50, "wav": "/gone.wav", "pid": 111}))
+    with _port(vice_text):
+        out = pinned_record_start(s, str(tmp_path / "cap.wav"))
+    assert out["pinned"] == {"warp": True, "speed": 200}
+
+
+def test_a_dead_sessions_pin_cannot_warp_its_replacement(vice_text, tmp_path):
+    """The concrete break: pinned while warped, killed, replaced by a
+    session booted WITHOUT --warp. Honouring the corpse's `warp: true`
+    would warp a session that never was — the one thing restore_speed
+    exists to refuse."""
+    vice_text.warp = False                       # the replacement is unwarped
+    s, _ = _fake_session(pid=222)
+    audio._pin_path(s).write_text(json.dumps(
+        {"warp": True, "speed": 100, "wav": "/gone.wav", "pid": 111}))
+    with _port(vice_text):
+        pinned_record_start(s, str(tmp_path / "cap.wav"))
+        out = pinned_record_stop(s)
+    assert out["restored"] == {"warp": False, "speed": 100}
+    assert vice_text.warp is False
+
+
+def test_stopping_a_session_clears_its_audio_pin():
+    """Session.stop() prunes the sidecar, so a name that comes back cannot
+    come back holding a pin."""
+    from c64lib.session import Session, audio_pin_path
+    audio_pin_path("gone").write_text('{"pid": 1}')
+    dead = Session(name="gone", pid=424242, port=1, model="c64")
+    with patch("c64lib.session._pid_alive", return_value=False):
+        dead.stop()
+    assert not audio_pin_path("gone").exists()
+
+
+def test_an_unreadable_pin_is_reported_not_swallowed(vice_text, capsys):
+    """A truncated sidecar (crash mid-write) means nobody will unpin the
+    session; saying nothing leaves it at 1x with no diagnostic."""
+    s, _ = _fake_session()
+    audio._pin_path(s).write_text('{"warp": tru')
+    out = pinned_record_stop(s)
+    assert out["restored"] is None
+    assert "unreadable" in capsys.readouterr().err
+    assert not audio._pin_path(s).exists()
 
 
 def test_the_pin_sidecar_is_not_read_back_as_a_session_record(vice_text, tmp_path):

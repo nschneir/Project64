@@ -26,11 +26,12 @@ import json
 import os
 import re
 import socket
+import sys
 import time
 from pathlib import Path
 
 from .monitor import MonitorError
-from .session import sessions_dir
+from .session import audio_pin_path
 
 #: VICE's recorder: the output path (set FIRST — arming with no arg drops a
 #: `vicesnd.wav` into the VICE process's working directory) and the driver
@@ -85,17 +86,33 @@ class _TextMonitor:
     def __init__(self, sock: socket.socket):
         self._sock = sock
 
+    @staticmethod
+    def _listening_port(mon) -> int | None:
+        """The port of a text monitor THIS session already has open, or None.
+
+        `MonitorServerAddress` alone proves nothing: it ships with a factory
+        default of `ip4://127.0.0.1:6510` on a session that has never run a
+        text monitor, so trusting it points every session at 6510 — where
+        only the first VICE to bind wins and every other session's client
+        silently drives that emulator instead (reproduced live: two
+        sessions, one listener, both clients connected to it). It is
+        `MonitorServer == 1` that says the listener is ours and open.
+        """
+        try:
+            if int(mon.resource_get("MonitorServer")) != 1:
+                return None
+            found = _ADDRESS.search(str(mon.resource_get("MonitorServerAddress")))
+        except (MonitorError, KeyError, ValueError, TypeError):
+            return None
+        return int(found.group(1)) if found else None
+
     @classmethod
     def open(cls, session) -> _TextMonitor:
         with session.monitor() as mon:
             try:
-                try:
-                    current = str(mon.resource_get("MonitorServerAddress"))
-                except (MonitorError, KeyError, ValueError):
-                    current = ""          # never set on this session yet
-                known = _ADDRESS.search(current)
-                port = int(known.group(1)) if known else _free_port()
-                if not known:
+                port = cls._listening_port(mon)
+                if port is None:
+                    port = _free_port()
                     mon.resource_set("MonitorServerAddress",
                                      f"ip4://127.0.0.1:{port}")
                 mon.resource_set("MonitorServer", 1)   # harmless when already 1
@@ -172,9 +189,18 @@ class _TextMonitor:
     def close(self) -> None:
         """Teardown order is load-bearing: `x` to leave the monitor, then
         `shutdown(SHUT_RDWR)`, then close. Closing without the shutdown
-        wedged VICE in 2 of 3 attempts; with it, 8 of 8 were clean."""
+        wedged VICE in 2 of 3 attempts; with it, 8 of 8 were clean.
+
+        The reply to `x` is read before the shutdown, not left in the
+        receive queue: closing a socket with unread data sends an RST rather
+        than a FIN, which is the likeliest mechanism behind the wedge (one
+        was reproduced here after a command had already timed out — VICE
+        left halted, its text monitor answering nothing, so the binary
+        monitor's resume never lands).
+        """
         try:
             self._send("x")
+            self._drain()
         except OSError:
             pass
         try:
@@ -217,6 +243,22 @@ def record_stop(session) -> None:
             mon.resume()
 
 
+def _read_speed(session) -> int:
+    with session.monitor() as mon:
+        try:
+            return int(mon.resource_get(SPEED))
+        finally:
+            mon.resume()
+
+
+def _write_speed(session, percent: int) -> None:
+    with session.monitor() as mon:
+        try:
+            mon.resource_set(SPEED, int(percent))
+        finally:
+            mon.resume()
+
+
 def pin_realtime(session) -> dict:
     """Take the machine off warp and pin `Speed` to 100 for a capture.
 
@@ -226,32 +268,48 @@ def pin_realtime(session) -> dict:
     `c64 session start` without `--warp` do not), and `Speed` as it read.
     Raises AudioError if warp cannot be cleared, rather than let the
     capture come back as a 0-frame WAV.
+
+    All or nothing: until this returns, nobody holds the state needed to
+    undo a half-applied pin, so a failure part way through rolls back what
+    landed before it re-raises. Warp is cleared LAST for the same reason —
+    the step most likely to fail (two binary-monitor round trips over the
+    daemon, where a `TimeoutError` has been seen live) happens while the
+    machine is still in the state the caller handed us.
     """
     text = _TextMonitor.open(session)
     try:
         warp = text.warp_state()
-        if warp:
-            text.set_warp(False)
+        speed = _read_speed(session)
+        try:
+            _write_speed(session, REALTIME_SPEED)
+            if warp:
+                text.set_warp(False)
+        except Exception:
+            _unpin_best_effort(session, text, warp, speed)
+            raise
     finally:
         text.close()
-    with session.monitor() as mon:
+    return {"warp": warp, "speed": speed}
+
+
+def _unpin_best_effort(session, text: _TextMonitor, warp: bool,
+                       speed: int) -> None:
+    """Undo a partly-applied pin. Best effort by definition: it runs while
+    something is already failing, and that first failure is the one worth
+    raising, so a failed undo is swallowed rather than masking it."""
+    for undo in (lambda: _write_speed(session, speed),
+                 lambda: text.set_warp(True) if warp else None):
         try:
-            speed = mon.resource_get(SPEED)
-            mon.resource_set(SPEED, REALTIME_SPEED)
-        finally:
-            mon.resume()
-    return {"warp": warp, "speed": int(speed)}
+            undo()
+        except Exception:
+            pass
 
 
 def restore_speed(session, saved: dict) -> None:
     """Put back what `pin_realtime` saved: `Speed` always, warp only when it
     was on (re-warping a session that was never warped would be a change,
     not a restore)."""
-    with session.monitor() as mon:
-        try:
-            mon.resource_set(SPEED, int(saved.get("speed", REALTIME_SPEED)))
-        finally:
-            mon.resume()
+    _write_speed(session, int(saved.get("speed", REALTIME_SPEED)))
     if saved.get("warp"):
         text = _TextMonitor.open(session)
         try:
@@ -267,22 +325,44 @@ def _pin_path(session) -> Path:
     are separate processes for the CLI, so the saved state outlives neither
     unless it is on disk; a sidecar beside the session record is how this
     codebase already keeps per-session scratch state (`<name>.respawns`).
-
-    The extension is NOT `.json`, deliberately: `Session._load_all()` reads
-    every `*.json` in this directory as a session record, so a `.json`
-    sidecar here breaks `c64` altogether (`KeyError: 'name'`).
+    `Session.stop()` clears it, which is why the path is defined in
+    `session.py` — see `audio_pin_path` there for the naming constraint.
     """
-    return sessions_dir() / f"{session.name}.audio"
+    return audio_pin_path(session.name)
+
+
+def _write_pin(session, state: dict) -> None:
+    """Record the pin, stamped with the pid it belongs to."""
+    _pin_path(session).write_text(json.dumps({**state, "pid": session.pid}))
 
 
 def _read_pin(session) -> dict | None:
+    """The pin this session is holding, or None.
+
+    A sidecar from a *different* pid is stale — the session it described is
+    gone (killed, crashed, or stopped before its recording did) and this
+    name has been reused. Honouring it would restore a dead machine's warp
+    onto a new one, which is the very thing `restore_speed` refuses to do.
+    Prune it instead, the way `Session._load_all()` prunes dead records.
+    """
     path = _pin_path(session)
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
+        state = json.loads(path.read_text())
+        pid = state["pid"]
+    except (OSError, ValueError, TypeError, KeyError) as e:
+        # Not silent: an unreadable pin means nobody will unpin the session,
+        # so it may still be sitting at real time with warp off.
+        print(f"c64: audio pin {path} is unreadable ({e}); the session may "
+              f"still be unwarped — restart it if audio timing matters",
+              file=sys.stderr)
+        path.unlink(missing_ok=True)
         return None
+    if pid != session.pid:
+        path.unlink(missing_ok=True)
+        return None
+    return state
 
 
 def _clear_pin(session) -> None:
@@ -303,7 +383,7 @@ def pinned_record_start(session, wav_path) -> dict:
         # its warp back.
         saved = {"warp": earlier.get("warp", False),
                  "speed": earlier.get("speed", REALTIME_SPEED)}
-    _pin_path(session).write_text(json.dumps({**saved, "wav": path}))
+    _write_pin(session, {**saved, "wav": path})
     try:
         record_start(session, path)
     except Exception:
