@@ -1206,11 +1206,12 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     a reference derived from the output cannot fail.
 
     `seconds` is EMULATED time and costs several times that in wall clock: the
-    machine advances one frame per monitor round trip while the log samples,
-    measured at ~46 ms of wall clock per frame on an NTSC session (200 frames
-    = 3.3 s emulated over 9.1 s of wall clock). Budget for it, and let nothing
-    else drive the session meanwhile — the capture window has to stay at real
-    time, since a warped VICE writes a 0-frame WAV.
+    machine advances one frame per monitor round trip while the log samples.
+    Measured end to end on an NTSC session, pin and report included, a
+    2-second capture (120 frames) cost 6.19 s of wall clock and a 1-second
+    capture 3.55-3.70 s over four runs. Budget for it, and let nothing else
+    drive the session meanwhile — the capture window has to stay at real time,
+    since a warped VICE writes a 0-frame WAV.
 
     Returns the artifact paths, the verdict, the score diff, the anomalies,
     and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`).

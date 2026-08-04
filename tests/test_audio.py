@@ -860,7 +860,7 @@ def _write_wav(path, seconds: float, rate: int = 22050, hz: float = 440.0) -> No
     import math
     import struct
     import wave
-    count = max(1, round(seconds * rate))
+    count = round(seconds * rate)
     pcm = b"".join(struct.pack("<h", int(16000 * math.sin(2 * math.pi * hz * i / rate)))
                    for i in range(count))
     with wave.open(str(path), "wb") as out:
@@ -886,7 +886,7 @@ class FakeVice(FakeMachine):
     """
 
     def __init__(self, states, fps: float = 60.0, delay: float = 0.0,
-                 records: bool = True, **resources):
+                 records: bool | str = True, **resources):
         super().__init__(states, delay)
         self.resources = {**VICE_DEFAULTS, **resources}
         self.fps = fps
@@ -908,7 +908,11 @@ class FakeVice(FakeMachine):
                 self.armed_at = self.frame
             elif self.armed_at is not None:
                 if self.records and self.wav_path:
-                    _write_wav(self.wav_path, (self.frame - self.armed_at) / self.fps)
+                    # records="header" is the warped VICE: a finalized WAV
+                    # holding a header and no frames at all.
+                    seconds = (0.0 if self.records == "header"
+                               else (self.frame - self.armed_at) / self.fps)
+                    _write_wav(self.wav_path, seconds)
                 self.armed_at = None
 
     @property
@@ -1115,14 +1119,20 @@ def test_capture_refuses_a_window_shorter_than_one_frame(vice_text, tmp_path):
     assert vice.sets == []          # and it never touched the machine
 
 
-def test_capture_diagnoses_a_wav_with_no_samples(vice_text, tmp_path):
+@pytest.mark.parametrize("recorder, expected", [
+    ("header", "44 bytes"),        # what a warped VICE actually leaves behind
+    (False, "missing"),            # the recorder never wrote at all
+])
+def test_capture_diagnoses_a_wav_with_no_samples(vice_text, tmp_path,
+                                                 recorder, expected):
     """The failure this whole module is built around: under warp VICE writes
     a 0-frame WAV — a header and nothing else — so an empty file is a capture
     failure to diagnose, never an empty tune. The register log is kept."""
-    vice = FakeVice([_voice1()] * 4, records=False)
+    vice = FakeVice([_voice1()] * 4, records=recorder)
     with _port(vice_text), pytest.raises(AudioError) as raised:
         audio.capture(_capture_session(vice), 0.2, tmp_path)
     assert "warp" in str(raised.value) and "capture.wav" in str(raised.value)
+    assert expected in str(raised.value)
     assert (tmp_path / "sid-log.jsonl").exists()      # the log survives
     assert vice_text.warp is True                     # and the session is back
 

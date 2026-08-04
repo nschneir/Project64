@@ -2379,7 +2379,6 @@ def _verdict_report(ctx, out: dict, headline: str) -> None:
     emit(ctx, out, "\n".join(line for line in lines if line))
     if out["verdict"] == "FAIL":
         ctx.exit(1)
-    return None
 
 
 @audio.command("report")
@@ -2436,13 +2435,14 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     `piano-roll.png`, `spectrogram.png`, and `report.md` into OUTDIR. Exits 1
     when the verdict is FAIL.
 
-    SECONDS is EMULATED time, and it costs considerably more wall clock than
-    that: the machine advances one frame per monitor round trip while the log
-    is sampling, which measured ~46 ms of wall clock per frame on an NTSC
-    session (200 frames = 3.3 s emulated over 9.1 s of wall clock). Budget for
-    that, keep the session to yourself for the duration, and start the music
-    before you call this — a capture that opens on silence diffs against the
-    reference from its first note on.
+    SECONDS is EMULATED time, and it costs several times that in wall clock:
+    the machine advances one frame per monitor round trip while the log is
+    sampling. Measured end to end on an NTSC session, pin and report included,
+    a 2-second capture (120 frames) cost 6.19 s of wall clock and a 1-second
+    capture 3.55-3.70 s over four runs. Budget for that, keep the session to
+    yourself for the duration, and start the music before you call this — a
+    capture that opens on silence begins with a rest the reference score does
+    not list, and the positional diff cascades from there.
     """
     s = attach(ctx)
     try:

@@ -666,9 +666,10 @@ SPECTROGRAM = "spectrogram.png"
 #: recoverable from a register log, and the two are ~65 cents apart.
 DEFAULT_REPORT_MODEL = "c64pal"
 
-#: A canonical PCM WAV header with no sample data. VICE writes exactly this
-#: much and no more when it records under warp, so it is the size that says
-#: "0 frames" rather than "quiet".
+#: A canonical PCM WAV header with no sample data — and the header VICE
+#: writes: a 0.601 s capture came back as 57772 bytes, which is 28864 frames
+#: of 48 kHz 16-bit mono (57728 bytes) plus exactly 44. A file this size or
+#: smaller carries no audio at all, which is what a warped window produces.
 WAV_HEADER_BYTES = 44
 
 #: `write_report` is the authority on the verdict; this reads its answer back
@@ -709,13 +710,13 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
     is a real mode (`c64 audio sidlog` produces one), and `write_report`
     treats `metrics=None` as render-only rather than as a failure.
     """
+    import yaml
+
     # Imported here, not at module scope: this pulls in numpy and Pillow, and
     # `c64lib.cli` imports this module at startup. Measured on this host
     # 2026-08-04 with .venv/bin/python: `import c64lib.cli` 0.081 s, and
     # `import c64lib.sid_analysis` a further 0.080 s — doubling the startup of
     # every `c64` command for two of them.
-    import yaml
-
     from . import sid_analysis
 
     outdir = Path(_abs(outdir))
