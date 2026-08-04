@@ -112,6 +112,23 @@ starting lower than wave 1; a game over; and a second game whose
 HI-SCORE is the first game's final score. Collect the screenshots as
 evidence PNGs per docs/graphics-and-sprites.md.
 
+**Audio evidence.** The shadow bytes prove your player wrote something;
+they cannot prove the heartbeat is in tune, that it accelerates with the
+march, or that an effect handed its voice back. Capture the sound itself
+with `c64_audio_capture` (`c64 audio capture` from the shell) and commit
+its five artifacts — `capture.wav`, `sid-log.jsonl`, `piano-roll.png`,
+`spectrogram.png`, `report.md` — under `demos/invaders/evidence/audio/`:
+the heartbeat with a full formation, the same heartbeat with the last
+invader frantic, and a capture holding the shot, the invader hit, the
+player explosion and the UFO warble. Write a reference score (YAML) from
+your own music data and capture against it; the report must pass. Then
+read your piano roll the way you read a screenshot — a wrong contour, a
+missing voice, or bars that drift off the rhythm are bugs — and use the
+spectrogram for what notes cannot show: the explosion's filtered noise and
+the UFO's sweep. The maintainer's listen of `capture.wav` is the final
+gate; skills/c64-development/references/audio-verification.md has the
+method.
+
 **Ship it.** When everything passes, package the game so anyone with
 stock VICE can play it: `c64 package` your source into
 `demos/invaders/invaders.d64` with `--title "INVADERS"` (the `.prg` lands

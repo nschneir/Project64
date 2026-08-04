@@ -561,6 +561,23 @@ hum — showing the waveform and envelope bytes this spec calls for on the
 voices it assigns them to. Record `mux_count` and `mux_overflow` (§3)
 during the busiest dive you can stage.
 
+**Audio evidence.** The shadow block (§9) proves a write was issued; it
+cannot prove the melody is in tune or that a seized voice ever came back.
+Capture the sound itself with `c64_audio_capture` (`c64 audio capture` from
+the shell) and commit its five artifacts — `capture.wav`, `sid-log.jsonl`,
+`piano-roll.png`, `spectrogram.png`, `report.md` — under
+`demos/la-galaxia/evidence/audio/`: the title music undisturbed, a capture
+across a laser volley and an explosion, and one over the tractor beam. Write
+a reference score (YAML) from your own music data and capture against it;
+the report must pass. Then read your piano roll the way you read the
+screenshots above — a wrong contour, a missing voice, or bars that drift off
+the rhythm are bugs — and read it specifically against the priority rule of
+§9: an effect that takes a voice and never returns it shows up as a color
+that stops and never resumes. Captures run with warp off, so keep each one
+to the few seconds that carry the claim. The maintainer's listen of
+`capture.wav` is the final gate;
+skills/c64-development/references/audio-verification.md has the method.
+
 The audit's evidence section must list the hidden stage-select keys
 explicitly, so the next reader knows they exist and that the evidence
 above used them.

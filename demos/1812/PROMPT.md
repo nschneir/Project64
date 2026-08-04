@@ -197,6 +197,24 @@ mid-arrangement SID shadow reads (`c64 mem read` over the shadow block)
 go in the run log beside the frame taken at the same stop, since the
 proof that sound happened is bytes, not a picture.
 
+**Audio evidence.** Shadow bytes prove the writes happened; on a demo whose
+whole point is an arrangement, they are nowhere near enough. Capture the
+music itself with `c64_audio_capture` (`c64 audio capture` from the shell)
+and commit its five artifacts — `capture.wav`, `sid-log.jsonl`,
+`piano-roll.png`, `spectrogram.png`, `report.md` — under
+`demos/1812/evidence/audio/`, one capture per recognizable section: the
+hymn, the Marseillaise fragment, the battle, a cannon, and the finale.
+Captures run with warp off, in real time, so take the ten or fifteen
+seconds that carry each section rather than the whole piece. Write a
+reference score (YAML) from your own arrangement data and capture against
+it; the report must pass. Then read your piano roll the way you read the
+canvas frames — a wrong contour, a missing voice, or bars that drift off
+the rhythm are bugs, not interpretation — and use the spectrogram for what
+the notes cannot show: the cannon's filtered noise and its downward cutoff
+sweep. The maintainer's listen of `capture.wav` is the final gate on
+whether it sounds like the Overture;
+skills/c64-development/references/audio-verification.md has the method.
+
 **Ship it.** When everything passes, package the demo so anyone with
 stock VICE can run it: `c64 package` your source into
 `demos/1812/1812.d64` with `--title "1812"` (the `.prg` lands beside it),

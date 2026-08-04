@@ -6,6 +6,26 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [Unreleased]
+
+Sound is verifiable now. `c64 audio capture` (MCP `c64_audio_capture`)
+records the machine's audio to a WAV while sampling `$D400-$D418` once per
+frame, transcribes the register log into notes, diffs them against a
+reference score you write in YAML, and drops five artifacts — `capture.wav`,
+`sid-log.jsonl`, `piano-roll.png`, `spectrogram.png`, `report.md` — with a
+PASS/FAIL verdict; the pieces are also separately available as `c64 audio
+record`, `c64 audio sidlog` and `c64 audio report`. Piano-roll voice colors
+are fixed (voice 1 red, 2 green, 3 blue) so rolls compare across demos, and
+a capture pins real time for its duration — warp off, `Speed` 100 — so a
+30-second capture costs 30 seconds of wall clock. The five full-build demo
+prompts — Snake, Invaders, Ms. Muncher, La Galaxia and 1812 — now require
+the artifact set under `evidence/audio/` and a passing report, alongside the
+SID shadow bytes they already required: the shadows
+prove a write was issued, the capture proves what came out of the chip. The
+method — capturing, authoring a score from your note tables, reading a roll
+and a spectrogram, and the register facts behind them — is the new
+`skills/c64-development/references/audio-verification.md`.
+
 ## [0.9.5] — 2026-08-03
 
 Removed the pyright CI workflow — type checks are a local, pre-commit gate

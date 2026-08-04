@@ -85,6 +85,18 @@ your SID shadow bytes captured as a blip plays. Then write
 RAM, the score and level in the status line, the surviving high score, and
 non-zero SID shadows.
 
+**Audio evidence.** Shadow bytes prove a write happened; they say nothing
+about what came out of the chip. Capture the sound itself with
+`c64_audio_capture` (`c64 audio capture` from the shell) and commit its five
+artifacts — `capture.wav`, `sid-log.jsonl`, `piano-roll.png`,
+`spectrogram.png`, `report.md` — under `demos/snake/evidence/audio/`, once
+over an eat blip and once over the crash. Write a reference score (YAML)
+from your own sound data and capture against it: the report must pass. Then
+read your piano roll the way you read a screenshot — a wrong contour, a
+missing voice, or bars that drift off the rhythm are bugs, not noise. The
+maintainer's listen of `capture.wav` is the final gate;
+skills/c64-development/references/audio-verification.md has the method.
+
 **Ship it.** When everything passes, package the game so anyone with stock
 VICE can play it: `c64 package` your source into `demos/snake/snake.d64`
 with `--title "SNAKE"` (the `.prg` lands beside it), and tell the user the
