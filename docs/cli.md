@@ -1335,6 +1335,32 @@ above for the reference.
 
 ---
 
+## Audio
+
+### `c64 audio record`
+
+Record the emulated SID to a WAV file. Give exactly one of:
+
+- `--start PATH` — arm VICE's WAV recorder on PATH (made absolute; a
+  relative path resolves against the current directory, never VICE's).
+- `--stop` — disarm the recorder, finalizing the WAV, and unpin the speed.
+
+Recording holds the machine at real time — warp off, `Speed` 100 — for the
+whole window and restores both on `--stop`, so a 3-second capture costs 3
+real seconds and nothing else should drive the session in between. The pin
+is not optional: while warped VICE writes a **0-frame** WAV, so an unpinned
+capture comes back empty rather than merely fast. Warp is not a resource on
+VICE 3.10; it is cleared over VICE's text monitor, which `audio record`
+starts on the session at need and leaves running.
+
+JSON: `{"wav", "pinned": {"warp", "speed"}}` on `--start`, and
+`{"wav", "bytes", "restored": {"warp", "speed"}}` on `--stop` — `bytes` is
+the finished file's size, which is the honest evidence that the recording
+landed (a 44-byte file is a header with no samples). A `--stop` with no
+recording in flight still disarms and reports `{"wav": null}`.
+
+---
+
 ## Test runner
 
 ### `c64 test run`

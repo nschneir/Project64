@@ -12,6 +12,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from .audio import pinned_record_start, pinned_record_stop
 from .basic import tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
@@ -1109,3 +1110,26 @@ def c64_sprite_from_png(image: str, multicolor: bool = False) -> dict:
     img = Image.open(image)
     data, lines = sprite_from_image(img, multicolor=multicolor)
     return {"rows": lines, "bytes": list(data)}
+
+
+@srv.tool()
+def c64_audio_record(action: str, path: str | None = None,
+                     session: str | None = None) -> dict:
+    """Record the emulated SID to a WAV file. action="start" arms the
+    recorder on `path` (an absolute path is safest — a relative one is
+    resolved against this server's working directory); action="stop"
+    disarms it and reports the file's size.
+
+    Recording takes the machine off warp and holds it at 100% speed for the
+    whole window, then puts both back on stop — so a 3-second capture costs
+    3 real seconds, and nothing else should share the session meanwhile.
+    That pin is not optional: while warped VICE writes a 0-frame WAV.
+    """
+    s = _attach(session)
+    if action == "start":
+        if not path:
+            raise ValueError("c64_audio_record start needs a path for the WAV")
+        return pinned_record_start(s, path)
+    if action == "stop":
+        return pinned_record_stop(s)
+    raise ValueError(f"unknown action {action!r}; use 'start' or 'stop'")

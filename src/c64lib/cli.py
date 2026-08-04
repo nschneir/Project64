@@ -13,6 +13,7 @@ from typing import NoReturn
 import click
 
 from . import __version__
+from .audio import AudioError, pinned_record_start, pinned_record_stop
 from .basic import BasicError, detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import BuildError, build_asm
@@ -2265,3 +2266,44 @@ def charset_encode(ctx, file, hires, first_code, out_path):
                            "bytes": [encode_row(r, not hires) for r in rows]}
                           for name, rows in glyphs]},
          text if not out_path else f"wrote {out_path}")
+
+
+@main.group()
+def audio() -> None:
+    """Record the emulated SID to a WAV file."""
+
+
+@audio.command("record")
+@click.option("--start", "start_path", default=None, metavar="PATH",
+              help="Arm VICE's WAV recorder on PATH (made absolute) and hold "
+                   "the machine at real time until --stop.")
+@click.option("--stop", "stop", is_flag=True,
+              help="Disarm the recorder, finalizing the WAV, and unpin the "
+                   "speed.")
+@click.pass_context
+def audio_record(ctx, start_path, stop):
+    """Record the emulated SID to a WAV file. Give exactly one of --start
+    PATH or --stop.
+
+    Recording runs the machine at 100% speed for the whole window and
+    restores the session's warp and Speed settings on --stop, so a
+    3-second capture costs 3 real seconds. The pin is not optional: while
+    warped VICE writes a 0-frame WAV, so an unpinned capture comes back
+    empty rather than merely fast. Nothing else should drive the session
+    in between.
+    """
+    if bool(start_path) == bool(stop):
+        fail(ctx, "give exactly one of --start PATH or --stop")
+    s = attach(ctx)
+    try:
+        if start_path:
+            out = pinned_record_start(s, start_path)
+            human = f"recording to {out['wav']} (warp off, speed 100)"
+        else:
+            out = pinned_record_stop(s)
+            human = (f"stopped; {out['wav']} is {out['bytes']} bytes"
+                     if out["wav"] else "stopped; no pinned recording was active")
+    except AudioError as e:
+        fail(ctx, f"audio record: {e}")
+        return
+    emit(ctx, out, human)
