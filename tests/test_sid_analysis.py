@@ -2,12 +2,17 @@
 
 Register logs are built in-memory by ``_log`` from per-voice ``(reg16,
 control)`` states, so every expectation below is traceable to the exact SID
-register values a capture would have recorded.
+register values a capture would have recorded. WAVs are synthesized the same
+way by ``_write_wav``, so the expected metrics are arithmetic on the tone that
+was written, not a restatement of the implementation.
 """
 
 import json
+import wave
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from c64lib.sid_analysis import (
     FrameRecord,
@@ -16,7 +21,11 @@ from c64lib.sid_analysis import (
     find_anomalies,
     freq_to_note,
     parse_log,
+    render_piano_roll,
+    render_spectrogram,
     transcribe,
+    wav_metrics,
+    write_report,
 )
 
 PAL_CLOCK = 985248
@@ -379,3 +388,336 @@ def test_find_anomalies_reports_every_voice_in_order():
     findings = find_anomalies(transcribe(records, PAL_CLOCK), records)
     assert len(findings) == 2
     assert "voice 1" in findings[0] and "voice 2" in findings[1]
+
+
+# --- render_piano_roll ----------------------------------------------------
+
+MIN_ROLL_SIZE = (640, 240)
+PAL_FPS = 50
+
+
+def _note(voice, note, start_frame, frames, waveform=0x10, gate_frames=None):
+    return NoteEvent(voice=voice, note=note, start_frame=start_frame, frames=frames,
+                     waveform=waveform,
+                     gate_frames=frames if gate_frames is None else gate_frames,
+                     cents_off=0.0)
+
+
+def _colors(path):
+    """``{(r, g, b): pixel_count}`` for a rendered PNG."""
+    with Image.open(path) as img:
+        counted = img.convert("RGB").getcolors(1 << 20)
+    assert counted is not None, "image has more colours than the counting cap"
+    return {color: count for count, color in counted}
+
+
+def _dominant(colors, channel):
+    """Pixels whose colour is clearly led by one channel — the voice bars.
+
+    Grid lines, background and label text are all neutral greys, so they never
+    qualify; this isolates "how much of the image is voice N's colour" without
+    the test having to know the exact pinned RGB triples.
+    """
+    return sum(count for color, count in colors.items()
+               if color[channel] > 128
+               and all(color[channel] - color[other] > 64
+                       for other in range(3) if other != channel))
+
+
+def test_render_piano_roll_writes_a_png_of_at_least_the_minimum_size(tmp_path):
+    png = tmp_path / "piano-roll.png"
+    render_piano_roll([_note(1, "A4", 0, 20), _note(2, "C4", 0, 20)], png, PAL_FPS)
+    assert png.exists()
+    with Image.open(png) as img:
+        assert img.size >= MIN_ROLL_SIZE
+        assert img.format == "PNG"
+
+
+def test_render_piano_roll_draws_a_distinct_color_per_voice(tmp_path):
+    png = tmp_path / "piano-roll.png"
+    render_piano_roll(
+        [_note(1, "A4", 0, 40), _note(2, "C4", 0, 40), _note(3, "E5", 0, 40)],
+        png, PAL_FPS,
+    )
+    colors = _colors(png)
+    background, _ = max(colors.items(), key=lambda item: item[1])
+    assert len(set(colors) - {background}) >= 2
+    red, green, blue = (_dominant(colors, c) for c in range(3))
+    assert red > 0 and green > 0 and blue > 0
+
+
+def test_render_piano_roll_draws_gates_as_bars_and_leaves_rests_empty(tmp_path):
+    """More gated frames means more of voice 1's colour on the page."""
+    long_note = tmp_path / "long.png"
+    short_note = tmp_path / "short.png"
+    all_rest = tmp_path / "rest.png"
+    render_piano_roll([_note(1, "A4", 0, 40)], long_note, PAL_FPS)
+    render_piano_roll([_note(1, "A4", 0, 4), _note(1, "rest", 4, 36)], short_note, PAL_FPS)
+    render_piano_roll([_note(1, "rest", 0, 40)], all_rest, PAL_FPS)
+
+    reds = [_dominant(_colors(p), 0) for p in (long_note, short_note, all_rest)]
+    assert reds[0] > reds[1] > reds[2]
+
+
+def test_render_piano_roll_pads_the_note_range(tmp_path):
+    """One note in a +/-2 semitone pad is one row of five, not the whole plot.
+
+    Measured as the tallest unbroken band of voice-1 colour: without the
+    padding the single note would fill the plot top to bottom.
+    """
+    png = tmp_path / "piano-roll.png"
+    render_piano_roll([_note(1, "A4", 0, 40)], png, PAL_FPS)
+    with Image.open(png) as img:
+        height = img.height
+        pixels = np.asarray(img.convert("RGB"), dtype=int)
+    red_rows = ((pixels[:, :, 0] > 128) & (pixels[:, :, 0] - pixels[:, :, 1] > 64)).any(axis=1)
+
+    tallest, run = 0, 0
+    for is_red in red_rows:
+        run = run + 1 if is_red else 0
+        tallest = max(tallest, run)
+    assert 0 < tallest < height * 0.4
+
+
+def test_render_piano_roll_handles_an_empty_event_list(tmp_path):
+    png = tmp_path / "piano-roll.png"
+    render_piano_roll([], png, PAL_FPS)
+    with Image.open(png) as img:
+        assert img.size >= MIN_ROLL_SIZE
+
+
+def test_render_piano_roll_rejects_a_non_positive_fps(tmp_path):
+    for bad in (0, -50):
+        with pytest.raises(ValueError, match="fps"):
+            render_piano_roll([_note(1, "A4", 0, 4)], tmp_path / "roll.png", bad)
+
+
+# --- wav_metrics ----------------------------------------------------------
+
+RATE = 44100
+
+
+def _write_wav(path, samples, rate=RATE, channels=1, width=2):
+    """A PCM WAV from full-scale floats in [-1, 1] (interleaved if stereo)."""
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(channels)
+        out.setsampwidth(width)
+        out.setframerate(rate)
+        out.writeframes(np.round(np.asarray(samples) * 32767).astype("<i2").tobytes())
+    return path
+
+
+def _tone(seconds, hz=440.0, amplitude=0.5, rate=RATE):
+    t = np.arange(int(seconds * rate)) / rate
+    return amplitude * np.sin(2 * np.pi * hz * t)
+
+
+def test_wav_metrics_tone_has_no_clipping_and_no_silence(tmp_path):
+    """A half-amplitude sine sits at 20*log10(0.5/sqrt(2)) = -9.03 dBFS."""
+    metrics = wav_metrics(_write_wav(tmp_path / "tone.wav", _tone(1.0)))
+    assert metrics["duration_s"] == pytest.approx(1.0)
+    assert metrics["clipped_samples"] == 0
+    assert metrics["silence_windows"] == []
+    assert len(metrics["rms_db_profile"]) == 10
+    for db in metrics["rms_db_profile"]:
+        assert db == pytest.approx(-9.03, abs=0.05)
+
+
+def test_wav_metrics_full_scale_tone_is_three_db_louder(tmp_path):
+    """Doubling amplitude adds 6.02 dB: -9.03 -> -3.01 dBFS."""
+    metrics = wav_metrics(_write_wav(tmp_path / "tone.wav", _tone(0.5, amplitude=1.0)))
+    for db in metrics["rms_db_profile"]:
+        assert db == pytest.approx(-3.01, abs=0.05)
+
+
+def test_wav_metrics_silence_is_one_full_length_window(tmp_path):
+    metrics = wav_metrics(_write_wav(tmp_path / "silence.wav", np.zeros(RATE)))
+    assert metrics["silence_windows"] == [pytest.approx((0.0, 1.0))]
+    assert metrics["clipped_samples"] == 0
+    assert all(db < -60 for db in metrics["rms_db_profile"])
+
+
+def test_wav_metrics_counts_clipped_samples(tmp_path):
+    """A full-scale square wave sits at every sample on the rails."""
+    square = np.sign(np.sin(2 * np.pi * 440.0 * np.arange(RATE) / RATE))
+    metrics = wav_metrics(_write_wav(tmp_path / "clipped.wav", square))
+    assert metrics["clipped_samples"] > 0
+    assert metrics["clipped_samples"] == RATE - np.count_nonzero(square == 0)
+
+
+def test_wav_metrics_finds_an_interior_silence(tmp_path):
+    samples = np.concatenate([_tone(0.5), np.zeros(RATE // 2), _tone(0.5)])
+    metrics = wav_metrics(_write_wav(tmp_path / "gap.wav", samples))
+    assert metrics["silence_windows"] == [pytest.approx((0.5, 1.0))]
+
+
+def test_wav_metrics_ignores_a_silence_shorter_than_the_minimum(tmp_path):
+    """0.2 s of nothing is a musical gap, not a dropout."""
+    samples = np.concatenate([_tone(0.5), np.zeros(int(0.2 * RATE)), _tone(0.5)])
+    assert wav_metrics(_write_wav(tmp_path / "gap.wav", samples))["silence_windows"] == []
+
+
+def test_wav_metrics_mixes_stereo_channels_to_mono(tmp_path):
+    """One silent channel halves the amplitude: -9.03 dBFS becomes -15.05."""
+    mono = _tone(1.0)
+    stereo = np.stack([mono, np.zeros_like(mono)], axis=1).reshape(-1)
+    metrics = wav_metrics(_write_wav(tmp_path / "stereo.wav", stereo, channels=2))
+    assert metrics["duration_s"] == pytest.approx(1.0)
+    for db in metrics["rms_db_profile"]:
+        assert db == pytest.approx(-15.05, abs=0.05)
+
+
+def test_wav_metrics_handles_a_wav_with_no_frames(tmp_path):
+    metrics = wav_metrics(_write_wav(tmp_path / "empty.wav", np.zeros(0)))
+    assert metrics["duration_s"] == 0.0
+    assert metrics["clipped_samples"] == 0
+    assert metrics["rms_db_profile"] == []
+    assert metrics["silence_windows"] == []
+
+
+def test_wav_metrics_rejects_an_unsupported_sample_width(tmp_path):
+    path = tmp_path / "24bit.wav"
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(3)
+        out.setframerate(RATE)
+        out.writeframes(b"\x00\x00\x00" * 100)
+    with pytest.raises(ValueError, match="24-bit"):
+        wav_metrics(path)
+
+
+# --- render_spectrogram ---------------------------------------------------
+
+def _brightest_row_fraction(path):
+    """Where the loudest horizontal band sits, 0.0 = top of the image."""
+    with Image.open(path) as img:
+        rows = np.asarray(img.convert("L"), dtype=float).sum(axis=1)
+    return int(np.argmax(rows)) / len(rows)
+
+
+def test_render_spectrogram_writes_a_png(tmp_path):
+    png = tmp_path / "spectrogram.png"
+    render_spectrogram(_write_wav(tmp_path / "tone.wav", _tone(1.0)), png)
+    assert png.exists() and png.stat().st_size > 0
+    with Image.open(png) as img:
+        assert img.size >= MIN_ROLL_SIZE
+        assert img.format == "PNG"
+
+
+def test_render_spectrogram_places_a_tone_at_its_frequency(tmp_path):
+    """The Y axis runs 0-8 kHz bottom to top, so 1 kHz sits low and 6 kHz high."""
+    low = tmp_path / "low.png"
+    high = tmp_path / "high.png"
+    render_spectrogram(_write_wav(tmp_path / "low.wav", _tone(1.0, hz=1000.0)), low)
+    render_spectrogram(_write_wav(tmp_path / "high.wav", _tone(1.0, hz=6000.0)), high)
+
+    assert _brightest_row_fraction(low) == pytest.approx(1 - 1000 / 8000, abs=0.05)
+    assert _brightest_row_fraction(high) == pytest.approx(1 - 6000 / 8000, abs=0.05)
+
+
+def test_render_spectrogram_handles_a_wav_shorter_than_one_window(tmp_path):
+    png = tmp_path / "spectrogram.png"
+    render_spectrogram(_write_wav(tmp_path / "short.wav", _tone(1.0)[:100]), png)
+    with Image.open(png) as img:
+        assert img.size >= MIN_ROLL_SIZE
+
+
+# --- write_report ---------------------------------------------------------
+
+def _metrics(duration_s=1.0, clipped_samples=0, silence_windows=(), profile=(-9.0,) * 10):
+    return {"duration_s": duration_s, "clipped_samples": clipped_samples,
+            "silence_windows": [tuple(w) for w in silence_windows],
+            "rms_db_profile": list(profile)}
+
+
+def _report(tmp_path, events=(), diffs=(), anomalies=(), metrics=None):
+    return write_report(tmp_path, list(events), list(diffs), list(anomalies), metrics)
+
+
+SOUNDING = (_note(1, "A4", 0, 25), _note(1, "rest", 25, 25))
+
+
+def test_write_report_writes_report_md_and_returns_its_path(tmp_path):
+    path = _report(tmp_path, SOUNDING, metrics=_metrics())
+    assert path == tmp_path / "report.md"
+    assert path.exists()
+
+
+def test_write_report_creates_a_missing_output_directory(tmp_path):
+    path = _report(tmp_path / "run" / "nested", SOUNDING, metrics=_metrics())
+    assert path.exists()
+
+
+def test_write_report_has_every_section(tmp_path):
+    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    for heading in ("## Transcription", "## Score diff", "## Anomalies",
+                    "## WAV metrics", "## Artifacts", "## Verdict"):
+        assert heading in text
+    assert text.index("## Transcription") < text.index("## Score diff") \
+        < text.index("## Anomalies") < text.index("## WAV metrics") \
+        < text.index("## Artifacts") < text.index("## Verdict")
+
+
+def test_write_report_passes_on_empty_inputs(tmp_path):
+    assert "**PASS**" in _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+
+
+def test_write_report_fails_on_a_score_diff(tmp_path):
+    text = _report(tmp_path, SOUNDING, diffs=["voice 1 event 1: expected C4, heard A4"],
+                   metrics=_metrics()).read_text()
+    assert "**FAIL**" in text
+    assert "expected C4, heard A4" in text
+
+
+def test_write_report_fails_on_an_anomaly(tmp_path):
+    text = _report(tmp_path, SOUNDING, anomalies=["voice 1: stuck gate"],
+                   metrics=_metrics()).read_text()
+    assert "**FAIL**" in text
+    assert "stuck gate" in text
+
+
+def test_write_report_fails_on_clipping(tmp_path):
+    text = _report(tmp_path, SOUNDING, metrics=_metrics(clipped_samples=12)).read_text()
+    assert "**FAIL**" in text
+    assert "12" in text
+
+
+def test_write_report_fails_when_a_sounding_log_recorded_silence(tmp_path):
+    metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
+    assert "**FAIL**" in _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+
+
+def test_write_report_passes_when_an_all_rest_log_recorded_silence(tmp_path):
+    """Silence is only a failure when the register log says something sounded."""
+    metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
+    events = [_note(v, "rest", 0, 50, waveform=0, gate_frames=0) for v in (1, 2, 3)]
+    assert "**PASS**" in _report(tmp_path, events, metrics=metrics).read_text()
+
+
+def test_write_report_without_metrics_is_a_render_only_run(tmp_path):
+    """No reference and no WAV is a legitimate run, not a failure."""
+    text = _report(tmp_path, SOUNDING).read_text()
+    assert "**PASS**" in text
+    assert "## WAV metrics" in text
+
+
+def test_write_report_tabulates_the_notes_of_each_voice(tmp_path):
+    events = [_note(1, "A4", 0, 25), _note(2, "C4", 3, 9, waveform=0x40)]
+    text = _report(tmp_path, events, metrics=_metrics()).read_text()
+    assert "Voice 1" in text and "Voice 2" in text
+    assert "A4" in text and "C4" in text
+    assert "pulse" in text
+
+
+def test_write_report_links_only_the_artifacts_that_exist(tmp_path):
+    (tmp_path / "piano-roll.png").write_bytes(b"")
+    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    assert "(piano-roll.png)" in text
+    assert "spectrogram.png" not in text
+
+
+def test_write_report_reports_the_wav_metrics(tmp_path):
+    metrics = _metrics(duration_s=2.5, silence_windows=[(1.0, 1.5)])
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    assert "2.5" in text
+    assert "1.0" in text and "1.5" in text
