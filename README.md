@@ -97,6 +97,7 @@ watch it write, run, and debug real C64 software on the emulated machine.
 | 02 | [Bouncing ball (sprite)](demos/02-bouncing-ball/) | BASIC | A multicolor sprite bounced off all four borders, proved from the VIC-II registers |
 | 03 | [Sieve benchmark](demos/03-sieve-benchmark/) | BASIC + asm | The sieve written twice and timed off the jiffy clock — the asm speedup, then optimized |
 | 04 | [Debug hunt](demos/04-debug-hunt/) | BASIC + debugger | A dashboard broken in three layers, found with breakpoints and stepping |
+| 05 | [Bach's Invention No. 13](demos/05-bach-invention/) | BASIC | A two-part invention on voices 1 and 2, noise percussion on voice 3 — proved by audio capture, a reference score, and a piano roll |
 
 **Game demos** — complete builds with sprites, custom charsets, and
 three-voice SID sound:

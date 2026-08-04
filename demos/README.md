@@ -16,6 +16,7 @@ you're new:
 | 02 | [Bouncing beach ball](02-bouncing-ball/PROMPT.md) | BASIC | A multicolor hardware sprite bounced off all four borders, proved from the VIC-II registers rather than screen text |
 | 03 | [Sieve benchmark](03-sieve-benchmark/PROMPT.md) | BASIC + asm | The sieve of Eratosthenes written twice and timed off the jiffy clock — the asm speedup, then a second optimizing pass |
 | 04 | [Debug hunt](04-debug-hunt/PROMPT.md) | BASIC + debugger | A dashboard broken in three layers, found with breakpoints, stepping, and memory inspection |
+| 05 | [Bach's Invention No. 13](05-bach-invention/PROMPT.md) | BASIC | A two-part invention on voices 1 and 2 with noise percussion on voice 3 — proved by register-level audio capture, a reference score, and a piano roll the agent has to read |
 
 ## Game demos
 
