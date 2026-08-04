@@ -490,3 +490,6 @@ Read the matching file when you need the detail:
 - `references/hardware.md` — VIC-II (sprites, bitmap & color-text modes, VIC
   bank/raster/collision IRQ), SID (voices, filter, envelopes, note table),
   CIA 6526 (timers, TOD, ICR, serial bus), color RAM.
+- `references/audio-verification.md` — proving music and sound effects
+  without listening: `c64 audio capture` (WAV + per-frame SID register log),
+  writing a reference score, reading a piano roll and a spectrogram.

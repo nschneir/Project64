@@ -170,6 +170,21 @@ deterministic regression spec runnable with `c64 test run` — asserting
 the sprite enables at $D015, maze and dot state in screen RAM, score and
 lives, and non-zero SID shadows.
 
+**Audio evidence.** An original score is a claim about notes, and shadow
+bytes cannot check notes. Capture the sound itself with `c64_audio_capture`
+(`c64 audio capture` from the shell) and commit its five artifacts —
+`capture.wav`, `sid-log.jsonl`, `piano-roll.png`, `spectrogram.png`,
+`report.md` — under `demos/ms-muncher/evidence/audio/`: the title tune, each
+act's music (the hidden keys get you there), and a capture during play that
+holds the siren against the dot-munch alternation. Write a reference score
+(YAML) from your own music data — the sequencer tables you composed, not the
+transcription the report hands back — and capture against it; the report
+must pass. Then read your piano roll the way you read a screenshot: a wrong
+contour, a missing voice, or bars that drift off the rhythm are bugs, and a
+voice an effect took and never gave back is exactly the priority rule above
+failing. The maintainer's listen of `capture.wav` is the final gate;
+skills/c64-development/references/audio-verification.md has the method.
+
 **Ship it.** When everything passes, package the game so anyone with
 stock VICE can play it: `c64 package` your source into
 `demos/ms-muncher/ms-muncher.d64` with `--title "MS MUNCHER"` (the `.prg`
