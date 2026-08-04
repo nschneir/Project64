@@ -40,24 +40,6 @@ run windows. Measured against the KERNAL jiffy, bracketed inside one
 monitor session: 200 samples over 201 elapsed frames at real time (every
 frame), and 200 over 202 warped.
 
-`capture` composes all of it — pin, record, log, disarm, restore, report —
-and it rests on one fact that had never been measured with a sampler running
-alongside the recorder: VICE's WAV writer paces on EMULATED time, not wall
-clock. Live on an NTSC session (2026-08-04, tone.bas holding one gated
-triangle): 120 frames requested, 120 logged, 2.000 s emulated, a 2.089 s WAV,
-6.19 s of wall clock. The recording follows the register log's timeline and
-not the clock on the wall, which is what makes a pitch or a duration read off
-the two together mean anything. Checked against the audio and not only its
-length: those registers predict 439.98 Hz and the WAV's dominant partial
-measured 439.99 Hz (0.1 cents), which a wall-clock-paced recording could not
-give.
-
-The WAV covers a little MORE emulated time than the log does, at both ends.
-The machine free-runs from the resume that arms the recorder until the
-sampling loop's first halt, and again from the last sample until the recorder
-is disarmed. That bracket measured 0.086-0.101 s across captures of 0.5 s,
-1 s, and 2 s — round trips, so it does not grow with the capture.
-
 That second figure is the whole reason `sid_log_detail` returns a warning.
 Warped, an emulated frame (~2 ms) is about as long as one sampling round
 trip, so the machine can reach the next vsync before the next read is
@@ -67,6 +49,50 @@ what was missed — it has no cycle or frame counter, and the jiffy belongs
 to the KERNAL IRQ, which is exactly what a music player takes over — so the
 warning says which regime the log came from instead of offering a frame
 number it cannot stand behind.
+
+`capture` composes all of it — pin, record, log, disarm, restore, report —
+and it rests on one fact that had never been measured with a sampler halting
+the machine alongside the recorder: VICE's WAV writer paces on EMULATED time,
+not wall clock. **This docstring is the one home for that measurement.** The
+front ends and `docs/cli.md` carry the cost a caller has to budget for and
+point here for the evidence, so there is one place to correct when it is
+re-measured.
+
+The run (2026-08-04, NTSC session, a BASIC loop holding one gated triangle
+with `$D400/$D401` = 7218): 120 frames requested, 120 logged, 2.000 s of
+emulated time, a 2.0887 s WAV (100256 frames of 48 kHz 16-bit mono), 6.19 s
+of wall clock. Had the recorder paced on wall clock it would have had to
+account for the ~4.1 s the machine never generated.
+
+Checked against the audio and not only its length, because a recorder that
+padded or repeated to fill wall clock could still land on the right duration.
+Those registers predict 7218 * 1022727 / 2**24 = 440.0041 Hz (A4 +0.016
+cents), and the WAV's dominant partial fell in the FFT bin holding that
+prediction — bin 919 of 0.4788 Hz bins over the 2.0887 s window, where the
+prediction sits at bin 919.02. The agreement is therefore within the
+measurement's own resolution (±0.94 cents), which is all a single bin can
+say, and it is decisive against the alternative: a uniform stretch to 6.19 s
+would put the tone near 148 Hz, some 600 bins away, and padding or repeating
+would smear the partial across bins instead of leaving one.
+
+What that establishes is RATE alignment: the WAV and the log share a time
+base, so a duration or a pitch read off the two together means something. It
+is not OFFSET alignment. The WAV covers a little more emulated time than the
+log does — the machine free-runs from the resume that arms the recorder until
+the sampling loop's first halt, and again from the last sample until the
+recorder is disarmed — and only the SUM of those two windows was measured,
+never the split between them. A WAV timestamp therefore maps to a log frame
+only to within that bracket, about ±0.1 s. Nothing here depends on the
+offset; anything that cross-reads the piano roll against the spectrogram
+would, and would need the head measured first.
+
+The bracket, as WAV duration minus the log's frames over the frame rate:
+0.1013 s at 0.5 s; 0.0860, 0.1027, 0.0860, 0.0860 s across four 1 s captures;
+0.0887 s at 2 s. It does not scale with capture length — as expected of round
+trips — but the spread within one length (0.0860 to 0.1027 s at 1 s) is as
+wide as the spread across lengths, so these six points are jitter-dominated:
+they support "not proportional to the capture" and cannot exclude a small
+proportional term.
 """
 
 from __future__ import annotations
@@ -796,15 +822,22 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
 
     `seconds` is emulated time, and wall clock is the larger number by far.
     The machine advances only while resumed, and the sampling loop resumes it
-    one frame at a time, so a frame costs a round trip. Measured end to end on
-    an NTSC session (2026-08-04), pin and report included: a 2 s capture — 120
-    frames — cost 6.19 s of wall clock, and a 1 s capture 3.55-3.70 s over
-    four runs. Budget for that rather than for `seconds`, and hold the session
-    for the duration.
+    one frame at a time, so a frame costs a round trip. Measured on an NTSC
+    session (2026-08-04): 30 frames cost 2.44 s, 60 frames 3.55-3.70 s over
+    four runs, and 120 frames 6.19 s — a least-squares fit through those six
+    points is ~42 ms per frame on ~1.1 s of fixed cost. Budget for that rather
+    than for `seconds`, and hold the session for the duration.
+
+    `wall_clock_s` is that measurement's bracket exactly, and those figures
+    are that field: it starts just before the pin and stops just after the
+    unpin. It does NOT cover rendering the report — the whole command for the
+    120-frame run took 6.32 s against the field's 6.19 s — nor attaching to
+    the session, nor validating the arguments before it.
 
     `emulated_s` (the log's frames over the machine's frame rate) is what both
     artifacts cover; the WAV covers that plus a bracket of round trips at each
-    end — see this module's docstring for the measurement.
+    end, and is rate-aligned to the log rather than offset-aligned — see this
+    module's docstring, which is where that measurement lives.
 
     Everything the pin touches is restored on the way out, including from a
     failure mid-capture — `pinned_record_stop` disarms the recorder and unpins

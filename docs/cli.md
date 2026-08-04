@@ -1436,21 +1436,35 @@ entry.
 
 **Budget wall clock, not `SECONDS`.** The machine advances one frame per
 monitor round trip while the log samples, so emulated time and wall clock
-diverge sharply: measured on an NTSC session (2026-08-04), 120 frames came
-back as 2.000 s emulated after 6.19 s of wall clock — about 46 ms of wall
-clock per frame. Nothing else may drive the session meanwhile: the window has
-to stay at real time from end to end, because a warped VICE writes a 0-frame
-WAV.
+diverge sharply. Measured on an NTSC session (2026-08-04): 120 frames came
+back as 2.000 s of emulated time after 6.19 s of wall clock, 60 frames cost
+3.55-3.70 s over four runs, and 30 frames 2.44 s. That is ~52 ms of wall
+clock per frame at the 2-second size, but the cost is not proportional — a
+fit through those six points is ~42 ms per frame on ~1.1 s of fixed overhead,
+so short captures pay relatively more. The figures bracket pinning through
+unpinning (the `wall_clock_s` field); the whole command for the 120-frame run
+took 6.32 s including the report. Nothing else may drive the session
+meanwhile: the window has to stay at real time from end to end, because a
+warped VICE writes a 0-frame WAV.
 
 The WAV covers slightly *more* than the log does, and it is emulated time
-either way. In that same run the recording was 2.089 s against the log's
-2.000 s: the machine free-runs between arming the recorder and the first
-sample, and again after the last sample until the recorder is disarmed. The
-bracket measured 0.086-0.101 s across captures of 0.5 s, 1 s, and 2 s — it is
-round trips, so it does not grow with the capture. Verified against the audio
-itself, not just its length: a register-predicted 439.98 Hz tone measured
-439.99 Hz in the WAV (0.1 cents), which a recording paced on wall clock could
-not be.
+either way — the recording in that run was 2.0887 s against the log's 2.000 s.
+The machine free-runs between arming the recorder and the first sample, and
+again after the last sample until the recorder is disarmed. That bracket
+measured 0.086-0.103 s across captures of 0.5 s, 1 s, and 2 s; it does not
+scale with capture length, though the spread at a single length is as wide as
+the spread across lengths, so a small proportional term cannot be ruled out.
+Because only the bracket's total was measured and never its split between the
+two ends, the WAV is *rate*-aligned to the register log and not
+*offset*-aligned: durations and pitches read off the two together agree, but a
+WAV timestamp locates a log frame only to within about 0.1 s.
+
+The alignment itself was verified against the audio and not only its length: a
+tone the registers predict at 440.00 Hz landed in the WAV's FFT bin holding
+that prediction (0.479 Hz bins, so agreement within ±0.94 cents). A recording
+paced on wall clock would have had to invent the ~4.1 s it never generated —
+stretching puts the tone near 148 Hz, padding or repeating smears it across
+bins. `src/c64lib/audio.py`'s module docstring holds the full measurement.
 
 JSON: everything `audio report` returns, plus `frames` (what landed),
 `requested_frames`, `emulated_s`, `wall_clock_s`, `wav_bytes`, and

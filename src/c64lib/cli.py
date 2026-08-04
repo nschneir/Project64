@@ -2437,12 +2437,12 @@ def audio_capture(ctx, seconds, outdir, ref_path):
 
     SECONDS is EMULATED time, and it costs several times that in wall clock:
     the machine advances one frame per monitor round trip while the log is
-    sampling. Measured end to end on an NTSC session, pin and report included,
-    a 2-second capture (120 frames) cost 6.19 s of wall clock and a 1-second
-    capture 3.55-3.70 s over four runs. Budget for that, keep the session to
-    yourself for the duration, and start the music before you call this — a
-    capture that opens on silence begins with a rest the reference score does
-    not list, and the positional diff cascades from there.
+    sampling. Measured on an NTSC session, a 2-second capture (120 frames)
+    took 6.19 s from pinning to unpinning and 6.32 s for the whole command.
+    Budget for that, keep the session to yourself for the duration, and start
+    the music before you call this — a capture that opens on silence begins
+    with a rest the reference score does not list, and the positional diff
+    cascades from there.
     """
     s = attach(ctx)
     try:

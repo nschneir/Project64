@@ -835,11 +835,12 @@ def test_module_exposes_only_the_capture_surface():
 
 # --- the report wrapper and the capture orchestrator -------------------------
 
-#: $D400/$D401 for A4 on the NTSC machine: 440 Hz * 2**24 / 1022727 = 7217.6,
-#: which rounds to 7218 -> 439.98 Hz, a tenth of a cent flat. Read with the PAL
-#: clock the SAME registers are 985248 * 7218 / 2**24 = 423.9 Hz — G#4 (415.30)
-#: sharp by 35 cents, not A4 — which is what makes one pair of registers a test
-#: of which clock the transcription used.
+#: $D400/$D401 for A4 on the NTSC machine: 440 Hz * 2**24 / 1022727 = 7217.93,
+#: which rounds to 7218 -> 7218 * 1022727 / 2**24 = 440.0041 Hz, sharp by
+#: 0.016 cents. Read with the PAL clock the SAME registers are
+#: 7218 * 985248 / 2**24 = 423.88 Hz — G#4 (415.30) sharp by 35.4 cents, not
+#: A4 — which is what makes one pair of registers a test of which clock the
+#: transcription used.
 A4_NTSC_REG = 7218
 #: Triangle (bit 4) with the gate on (bit 0).
 TRIANGLE_GATED = 0x11
@@ -1089,8 +1090,13 @@ def test_capture_transcribes_with_the_machines_clock(vice_text, tmp_path):
 
 def test_capture_restores_the_session_when_the_log_fails(vice_text, tmp_path):
     """A capture that dies half way must not leave the session pinned at 1x
-    with the recorder still armed."""
-    vice = FakeVice([_voice1()] * 4)
+    with the recorder still armed.
+
+    The session is found at Speed 200 on purpose: at the default 100 the
+    restore is indistinguishable from the pin, and the assertion would hold
+    even if nothing were put back.
+    """
+    vice = FakeVice([_voice1()] * 4, Speed=200)
     with _port(vice_text), \
          patch("c64lib.audio.sid_log_detail",
                side_effect=AudioError("the machine is stopped")), \
@@ -1098,8 +1104,52 @@ def test_capture_restores_the_session_when_the_log_fails(vice_text, tmp_path):
         audio.capture(_capture_session(vice), 0.2, tmp_path)
     assert vice.sets[-3:] == ["SoundRecordDeviceName", "Speed", "MonitorServer"]
     assert vice.resources["SoundRecordDeviceName"] == ""      # disarmed
-    assert vice.resources["Speed"] == 100                     # as it was found
+    assert vice.resources["Speed"] == 200                     # as it was found
     assert vice_text.warp is True                             # and re-warped
+
+
+def test_capture_surfaces_an_unpin_failure_over_the_sampling_failure(
+        vice_text, tmp_path):
+    """When the monitor stops answering — the wedge — both the log and the
+    unpin fail. The unpin's failure is the one that propagates, deliberately:
+    a session left at 1x with its recorder armed is what the next command
+    trips over. The sampling failure is kept as its __context__ rather than
+    thrown away."""
+    vice = FakeVice([_voice1()] * 4)
+    with _port(vice_text), \
+         patch("c64lib.audio.sid_log_detail",
+               side_effect=AudioError("the machine is stopped")), \
+         patch("c64lib.audio.pinned_record_stop",
+               side_effect=TimeoutError("timed out")), \
+         pytest.raises(TimeoutError, match="timed out") as raised:
+        audio.capture(_capture_session(vice), 0.2, tmp_path)
+    assert isinstance(raised.value.__context__, AudioError)
+    assert "the machine is stopped" in str(raised.value.__context__)
+
+
+def test_capture_propagates_an_unpin_failure_after_a_clean_log(vice_text,
+                                                               tmp_path):
+    """The same failure with nothing else wrong: a capture whose artifacts all
+    landed still fails loudly if the session could not be put back, rather
+    than reporting a verdict on a machine left pinned."""
+    vice = FakeVice([_voice1()] * 4)
+    with _port(vice_text), \
+         patch("c64lib.audio.pinned_record_stop",
+               side_effect=TimeoutError("timed out")), \
+         pytest.raises(TimeoutError, match="timed out"):
+        audio.capture(_capture_session(vice), 0.2, tmp_path)
+    assert (tmp_path / "sid-log.jsonl").exists()   # the log is still kept
+    assert not (tmp_path / "report.md").exists()   # but no verdict is claimed
+
+
+def test_read_verdict_refuses_a_report_with_no_verdict_line(tmp_path):
+    """The verdict is read back out of the report because `write_report` owns
+    the rule. If that line ever moves, this has to say so rather than hand
+    back a report nobody judged."""
+    report = tmp_path / "report.md"
+    report.write_text("# SID audio verification\n\nno verdict here\n")
+    with pytest.raises(AudioError, match="no verdict line"):
+        audio._read_verdict(report)
 
 
 def test_capture_leaves_no_pin_behind(vice_text, tmp_path):
