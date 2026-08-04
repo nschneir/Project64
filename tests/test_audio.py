@@ -1,9 +1,11 @@
 """Unit tests for c64lib.audio.
 
-Two behaviours carry the whole module: the exact resource sequence VICE
+Three behaviours carry the whole module: the exact resource sequence VICE
 needs to arm its WAV recorder (arg BEFORE name, or it drops vicesnd.wav in
-the process CWD), and the warp/speed pin — under warp VICE writes a
-0-frame WAV, so a capture that forgets to clear warp fails silently.
+the process CWD), the warp/speed pin — under warp VICE writes a 0-frame
+WAV, so a capture that forgets to clear warp fails silently — and the
+per-frame SID sampling loop, whose one frame per resume is the only frame
+clock the binary monitor offers (see FakeMachine).
 """
 
 from __future__ import annotations
@@ -26,8 +28,11 @@ from c64lib.audio import (
     record_start,
     record_stop,
     restore_speed,
+    sid_log,
+    sid_log_detail,
 )
 from c64lib.cli import main
+from c64lib.daemon_client import DaemonMonitorClient
 from tests.test_mcp_scaffold import call_tool
 
 
@@ -542,6 +547,215 @@ def test_cli_audio_record_reports_a_capture_failure():
         r = CliRunner().invoke(main, ["audio", "record", "--start", "a.wav"])
     assert r.exit_code == 1
     assert "warp would not clear" in r.output
+
+
+# --- per-frame SID logging ---------------------------------------------------
+
+class FakeMachine:
+    """VICE as its binary monitor really behaves, which is not how the plan
+    assumed it behaves.
+
+    An asynchronous monitor command is picked up at the next vsync, so the
+    machine only ever halts at the top of a frame: `$D012` reads 12 at every
+    halt, forever (600 consecutive polls on a live boot screen, LIN 12 /
+    CYC 0-2 in every `registers()`), and a `$D012`-wrap loop would spin until
+    its deadline without recording a single frame. What the halt does give is
+    an exact frame clock: one resume advances exactly one frame (the KERNAL
+    jiffy at $A0 ticked +1 per resume).
+
+    So this fake advances one scripted frame per resume, answers a SID block
+    read with that frame's registers, and reports 12 for any raster read.
+    `calls` records the interleaving, which is the contract under test.
+    """
+
+    RASTER_AT_HALT = 12
+
+    def __init__(self, states, delay: float = 0.0):
+        self.states = [bytes(s) for s in states]
+        self.delay = delay
+        self.frame = -1
+        self.calls: list = []
+
+    def resume(self) -> None:
+        self.calls.append("resume")
+        self.frame += 1
+        if self.delay:
+            time.sleep(self.delay)
+
+    def memory_read(self, start: int, length: int, **kw) -> bytes:
+        self.calls.append((start, length))
+        if start != audio.SID_BASE:
+            return bytes([self.RASTER_AT_HALT]) * length
+        assert self.frame >= 0, "sampled a frame the machine was never run to"
+        return self.states[self.frame % len(self.states)]
+
+
+def _machine_session(machine: FakeMachine):
+    """A Session whose monitor() hands out `machine` — a direct connection,
+    so `sid_log` takes its client-side loop."""
+    s = Mock()
+    s.name, s.model, s.socket, s.pid = "c64", "c64", None, 4242
+    s.monitor.return_value.__enter__ = Mock(return_value=machine)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    return s
+
+
+def _states(count: int) -> list[bytes]:
+    """`count` distinguishable SID blocks: frame n has n+1 in $D400."""
+    return [bytes([n + 1] + [0] * 24) for n in range(count)]
+
+
+def _rows(path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_sid_log_writes_one_frame_record_per_frame(tmp_path):
+    """The consumer's contract: one JSONL line per frame, `frame` counting
+    from 0, `regs` the whole 25-byte block with `regs[0]` at $D400."""
+    out = tmp_path / "sid.jsonl"
+    written = sid_log(_machine_session(FakeMachine(_states(5))), 5, str(out))
+    assert written == 5
+    rows = _rows(out)
+    assert [r["frame"] for r in rows] == [0, 1, 2, 3, 4]
+    assert [r["regs"][0] for r in rows] == [1, 2, 3, 4, 5]
+    assert all(len(r["regs"]) == 25 for r in rows)
+
+
+def test_sid_log_advances_one_frame_per_sample(tmp_path):
+    """One resume, one 25-byte read, per frame — and a resume at the end, so
+    the machine is left running rather than halted at the last sample."""
+    m = FakeMachine(_states(3))
+    sid_log(_machine_session(m), 3, str(tmp_path / "sid.jsonl"))
+    assert m.calls == ["resume", (0xD400, 25)] * 3 + ["resume"]
+
+
+def test_sid_log_does_not_poll_the_raster(tmp_path):
+    """The plan's pinned frame detection — poll $D012, a smaller value marks
+    a new frame — cannot work here: every binary-monitor halt is at raster
+    line 12, so the wrap never happens and the loop would record nothing.
+    This fake would happily serve $D012 reads; the loop must not need them."""
+    m = FakeMachine(_states(4))
+    assert sid_log(_machine_session(m), 4, str(tmp_path / "sid.jsonl")) == 4
+    assert not [c for c in m.calls if c != "resume" and c[0] == 0xD012]
+
+
+def test_sid_log_output_parses_as_frame_records(tmp_path):
+    """sid_analysis.parse_log is the only consumer and it raises on anything
+    that is not a 25-register frame record — including a stray warning line."""
+    from c64lib.sid_analysis import parse_log
+    out = tmp_path / "sid.jsonl"
+    sid_log(_machine_session(FakeMachine(_states(6))), 6, str(out))
+    records = parse_log(out)
+    assert [r.frame for r in records] == [0, 1, 2, 3, 4, 5]
+    assert records[2].regs[0] == 3 and len(records[2].regs) == 25
+
+
+def test_sid_log_warns_that_a_warped_session_may_have_dropped_frames(
+        tmp_path, capsys):
+    """A loop that samples one frame per round trip cannot outrun the frame
+    rate, so a rate above 60/s proves the machine is running faster than real
+    time — the regime where an emulated frame is no longer than a round trip
+    and one can slip past between records (measured live: 200 samples over
+    202 elapsed frames warped, 201 at real time). The log cannot show that
+    gap, so the warning has to, and it has to say what to do about it."""
+    detail = sid_log_detail(_machine_session(FakeMachine(_states(20))), 20,
+                            str(tmp_path / "sid.jsonl"))
+    assert detail["frames"] == 20
+    warning = detail["warning"]
+    assert warning and "faster than real time" in warning
+    assert "dropped" in warning and "pin_realtime" in warning
+    assert warning in capsys.readouterr().err
+
+
+def test_sid_log_is_quiet_when_the_session_runs_at_real_time(tmp_path, capsys):
+    """20 ms per frame is real time; nothing to warn about."""
+    detail = sid_log_detail(_machine_session(FakeMachine(_states(3), delay=0.02)),
+                            3, str(tmp_path / "sid.jsonl"))
+    assert detail["warning"] is None
+    assert capsys.readouterr().err == ""
+
+
+def test_sid_log_keeps_the_frames_it_got_when_it_runs_out_of_time(tmp_path):
+    """A short log beats no log, but the shortfall is never silent."""
+    out = tmp_path / "sid.jsonl"
+    detail = sid_log_detail(_machine_session(FakeMachine(_states(4), delay=0.05)),
+                            100, str(out), timeout=0.2)
+    assert 0 < detail["frames"] < 100
+    assert detail["requested"] == 100
+    assert "timed out" in detail["warning"]
+    assert len(_rows(out)) == detail["frames"]
+
+
+def test_sid_log_rejects_a_frame_count_below_one(tmp_path):
+    with pytest.raises(ValueError, match="at least 1"):
+        sid_log(_machine_session(FakeMachine(_states(1))), 0,
+                str(tmp_path / "sid.jsonl"))
+
+
+def test_sid_log_runs_the_loop_in_the_daemon_when_there_is_one(tmp_path):
+    """Per-frame RPCs cost ~0.5 s a frame; the loop belongs on the daemon's
+    own VICE connection, exactly like `run_until`."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.return_value = [bytes([7] + [0] * 24)] * 3
+    out = tmp_path / "sid.jsonl"
+    assert sid_log(_machine_session(mon), 3, str(out)) == 3
+    assert mon.sid_log.call_count == 1
+    assert mon.sid_log.call_args.args[0] == 3
+    mon.memory_read.assert_not_called()
+    assert _rows(out)[0]["regs"][0] == 7
+
+
+def test_sid_log_falls_back_to_the_client_loop_on_an_older_daemon(tmp_path):
+    """An unknown method is a ValueError from the daemon — the same
+    daemon-first-else-local shape `ops.run_until` uses."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.side_effect = ValueError("unknown daemon method 'sid_log'")
+    mon.memory_read.return_value = bytes([9] + [0] * 24)
+    out = tmp_path / "sid.jsonl"
+    assert sid_log(_machine_session(mon), 2, str(out)) == 2
+    assert mon.memory_read.call_args_list == [call(0xD400, 25)] * 2
+    assert _rows(out)[1]["regs"][0] == 9
+
+
+# --- MCP tool / CLI for the sid log ------------------------------------------
+
+def test_mcp_sid_log(tmp_path):
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.sid_log_detail",
+               return_value={"path": "/tmp/s.jsonl", "frames": 50,
+                             "requested": 50, "seconds": 1.0,
+                             "warning": None}) as log:
+        S.attach.return_value = s
+        err, out = call_tool("c64_sid_log", {"frames": 50,
+                                             "path": "/tmp/s.jsonl"})
+    assert err is False and out["frames"] == 50
+    log.assert_called_once_with(s, 50, "/tmp/s.jsonl")
+
+
+def test_cli_audio_sidlog_reports_the_count_and_the_warning():
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.sid_log_detail",
+               return_value={"path": "/tmp/s.jsonl", "frames": 40,
+                             "requested": 50, "seconds": 0.1,
+                             "warning": "timed out after 40 of 50 frames"}):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "sidlog", "50", "/tmp/s.jsonl"])
+    assert r.exit_code == 0, r.output
+    assert "40" in r.output and "/tmp/s.jsonl" in r.output
+    assert "timed out" in r.output
+
+
+def test_cli_audio_sidlog_reports_a_capture_failure():
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.sid_log_detail",
+               side_effect=AudioError("the machine is stopped")):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "sidlog", "10", "/tmp/s.jsonl"])
+    assert r.exit_code == 1
+    assert "the machine is stopped" in r.output
 
 
 def test_module_exposes_only_the_capture_surface():

@@ -1,9 +1,12 @@
-"""Audio capture: arm VICE's WAV recorder, and hold the machine at real time.
+"""Audio capture: arm VICE's WAV recorder, hold the machine at real time,
+and log the SID's registers frame by frame.
 
-Two primitives, deliberately separate. `record_start`/`record_stop` arm and
-disarm the recorder through the binary monitor's resource interface;
+Three capture primitives, deliberately separate. `record_start`/`record_stop`
+arm and disarm the recorder through the binary monitor's resource interface;
 `pin_realtime`/`restore_speed` take the emulator off warp for the capture
-window and put it back. The orchestrator composes them — `record_start`
+window and put it back; `sid_log` samples the chip's registers frame by
+frame, and changes neither speed nor recorder. The orchestrator composes
+them — `record_start`
 does not pin by itself, because a caller who has already pinned (a long
 capture that records several takes) must not be re-pinned per take. The
 front ends (`c64 audio record`, `c64_audio_record`) always pin, since an
@@ -18,6 +21,34 @@ than it sounds: while warped VICE writes a **0-frame** WAV — not
 time-compressed audio, nothing at all — so a capture that fails to clear
 warp fails silently. `pin_realtime` therefore confirms warp is off before
 returning, and refuses the capture if it cannot.
+
+Why `sid_log` does not poll `$D012`, though every reference (this project's
+own skill notes included) says a raster value wrapping to a smaller one
+marks a new frame: it does on real hardware, and it is unobservable from
+VICE's *binary monitor*. An asynchronous monitor command is picked up at
+the next vsync, so the machine only ever halts at the top of a frame.
+Measured live on a boot screen: 600 consecutive `$D012` reads all returned
+12 — with and without read side effects — and every `registers()` came back
+`LIN 12, CYC 0-2`. A wrap-detecting loop would spin to its deadline and log
+nothing.
+
+The same behaviour hands over a better frame clock than the raster ever
+was: one resume advances exactly one frame, and every sample is therefore
+taken at a frame boundary, with no polling at all. It holds because the
+machine advances only while resumed — it cannot outrun a loop that owns its
+run windows. Measured against the KERNAL jiffy, bracketed inside one
+monitor session: 200 samples over 201 elapsed frames at real time (every
+frame), and 200 over 202 warped.
+
+That second figure is the whole reason `sid_log_detail` returns a warning.
+Warped, an emulated frame (~2 ms) is about as long as one sampling round
+trip, so the machine can reach the next vsync before the next read is
+queued and a frame goes unrecorded; at real time the frame is many times
+the round trip and nothing slips. Nothing in the binary monitor can count
+what was missed — it has no cycle or frame counter, and the jiffy belongs
+to the KERNAL IRQ, which is exactly what a music player takes over — so the
+warning says which regime the log came from instead of offering a frame
+number it cannot stand behind.
 """
 
 from __future__ import annotations
@@ -30,6 +61,7 @@ import sys
 import time
 from pathlib import Path
 
+from .daemon_client import DaemonMonitorClient
 from .monitor import MonitorError
 from .session import audio_pin_path
 
@@ -44,6 +76,26 @@ REC_NAME = "SoundRecordDeviceName"
 #: off, so a capture pins it too.
 SPEED = "Speed"
 REALTIME_SPEED = 100
+
+#: The SID register block, `$D400-$D418`: read whole, once per frame, in a
+#: single 25-byte request. `regs[0]` is `$D400`.
+SID_BASE = 0xD400
+SID_REGISTERS = 25
+
+#: The fastest frame rate a supported machine has at real time (NTSC 60; PAL
+#: is 50). The sampling loop takes at most one sample per frame, so an
+#: observed rate above this is proof the session is running faster than real
+#: time — the only regime in which the loop drops frames.
+REALTIME_MAX_FPS = 60.0
+#: Slack on that comparison, so a machine at exactly real time never warns.
+WARP_RATE_MARGIN = 1.05
+
+#: Wall-clock the sampling loop allows itself per requested frame, and its
+#: floor. Real time a frame costs 1/60 s, so this is ~15x headroom; the
+#: budget exists to bound a machine that has stopped advancing, not to pace
+#: a healthy one.
+SID_LOG_FRAME_BUDGET = 0.25
+SID_LOG_MIN_TIMEOUT = 15.0
 
 _ADDRESS = re.compile(r"ip4://127\.0\.0\.1:(\d+)")
 _WARP_STATE = re.compile(r"Warp mode is (on|off)\.")
@@ -316,6 +368,114 @@ def restore_speed(session, saved: dict) -> None:
             text.set_warp(True)
         finally:
             text.close()
+
+
+# --- per-frame SID logging ---------------------------------------------------
+
+def sid_log(session, frames: int, jsonl_path, timeout: float | None = None) -> int:
+    """Log the SID's registers once per video frame; returns frames written.
+
+    The pinned surface the capture orchestrator calls. `sid_log_detail` is
+    the same capture with the numbers a front end reports (and the warning a
+    front end must show) — this one answers the only question a composing
+    caller has.
+    """
+    return sid_log_detail(session, frames, jsonl_path, timeout)["frames"]
+
+
+def sid_log_detail(session, frames: int, jsonl_path,
+                   timeout: float | None = None) -> dict:
+    """`sid_log` with its measurements: `{path, frames, requested, seconds,
+    warning}`, where `warning` is None or a line the caller must show.
+
+    The file is one JSONL `FrameRecord` per frame — `{"frame": n, "regs":
+    [25 ints]}`, `regs[0]` being `$D400` — and nothing else. No header, no
+    trailing note, not even the warning: `sid_analysis.parse_log` raises on
+    any line that is not a frame record.
+
+    Frame numbers count from 0 and are the captured frames, which are the
+    elapsed frames as long as a round trip is short against a frame. At real
+    time it is, by a wide margin (200 of 201 elapsed frames measured);
+    warped the two are comparable and a frame can go missing (200 of 202),
+    which is what the warning is for — a compressed timeline must not pass
+    for an exact one.
+
+    The machine is left RUNNING: samples only exist while it runs, and every
+    binary-monitor command halts it.
+    """
+    frames = int(frames)
+    if frames < 1:
+        raise ValueError(f"frames must be at least 1, got {frames!r}")
+    path = _abs(jsonl_path)
+    budget = (float(timeout) if timeout is not None
+              else max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET))
+    started = time.monotonic()
+    with session.monitor() as mon:
+        try:
+            samples = _sample_frames(mon, frames, budget)
+        finally:
+            mon.resume()
+    seconds = time.monotonic() - started
+    if not samples:
+        raise AudioError(
+            f"sampled no SID frames in {seconds:.1f}s: the machine never "
+            f"advanced a frame — it may be parked at a checkpoint, or VICE "
+            f"may be gone")
+    Path(path).write_text("".join(
+        json.dumps({"frame": n, "regs": list(regs)}, separators=(",", ":")) + "\n"
+        for n, regs in enumerate(samples)))
+    warning = _sid_log_warning(len(samples), frames, seconds)
+    if warning is not None:
+        print(f"c64: {warning}", file=sys.stderr)
+    return {"path": path, "frames": len(samples), "requested": frames,
+            "seconds": seconds, "warning": warning}
+
+
+def _sample_frames(mon, frames: int, timeout: float) -> list[bytes]:
+    """Daemon-side loop when there is a daemon, client-side when there is
+    not — `ops.run_until`'s shape, for `ops.run_until`'s reason: a per-frame
+    RPC costs about 0.5 s, which would make a 50-frame log take half a
+    minute. A pre-sid_log daemon answers ValueError; take the local loop."""
+    if isinstance(mon, DaemonMonitorClient):
+        try:
+            return mon.sid_log(frames, timeout)
+        except ValueError:
+            pass
+    return _sample_frames_client(mon, frames, timeout)
+
+
+def _sample_frames_client(mon, frames: int, timeout: float) -> list[bytes]:
+    """The loop the daemon runs on its own VICE connection, here on a direct
+    one. Deliberately not the `$D012` poll the plan called for: see this
+    module's docstring — every halt is at raster line 12, so the wrap that
+    was meant to mark a frame never happens, while the halt itself already
+    is the frame boundary."""
+    deadline = time.monotonic() + timeout
+    out: list[bytes] = []
+    while len(out) < frames and time.monotonic() < deadline:
+        mon.resume()
+        out.append(mon.memory_read(SID_BASE, SID_REGISTERS))
+    return out
+
+
+def _sid_log_warning(written: int, requested: int, seconds: float) -> str | None:
+    """The one thing the JSONL cannot say for itself: that its frame numbers
+    may not be the machine's."""
+    if written < requested:
+        return (f"sid log timed out after {written} of {requested} frames; "
+                f"raise the timeout, or check that the machine is running")
+    rate = written / seconds if seconds > 0 else float("inf")
+    if rate <= REALTIME_MAX_FPS * WARP_RATE_MARGIN:
+        return None
+    return (f"sampled {rate:.0f} frames/s, faster than real time (a machine "
+            f"at 1x runs at most {REALTIME_MAX_FPS:g} frames/s): this session "
+            f"is warped, where an emulated frame is about as short as one "
+            f"sampling round trip, so a frame can be dropped between records "
+            f"(1 in 200 measured on an idle host, more under load) and the "
+            f"log's frame numbers count captured frames, not elapsed ones. "
+            f"Pin real time first (c64lib.audio.pin_realtime, `c64 audio "
+            f"record --start`, or a capture through c64_audio_capture): at 1x "
+            f"a frame is many times the round trip, and every frame landed")
 
 
 # --- start/stop as the front ends use them -----------------------------------

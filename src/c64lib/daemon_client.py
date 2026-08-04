@@ -170,6 +170,13 @@ class DaemonMonitorClient:
         return self._call("run_until", addr, timeout, count,
                           _timeout=timeout + 5.0)
 
+    def sid_log(self, frames: int, timeout: float) -> list[bytes]:
+        """Daemon-side per-frame SID sampling: the whole log is one RPC.
+        Returns one 25-byte `$D400-$D418` block per captured frame — fewer
+        than `frames` if the daemon's deadline passed. Raises ValueError
+        against a pre-sid_log daemon (caller falls back)."""
+        return self._call("sid_log", frames, timeout, _timeout=timeout + 5.0)
+
     def status(self) -> str:
         """The daemon's tracked machine state: 'running' or 'stopped'.
         Answered daemon-side; no VICE traffic."""

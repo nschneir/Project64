@@ -1359,6 +1359,39 @@ the finished file's size, which is the honest evidence that the recording
 landed (a 44-byte file is a header with no samples). A `--stop` with no
 recording in flight still disarms and reports `{"wav": null}`.
 
+### `c64 audio sidlog`
+
+Log the SID's registers once per video frame to a JSONL file — what the
+analysis side reads to work out what a tune actually played.
+
+- `FRAMES` — how many frames to sample (at least 1).
+- `PATH` — the JSONL file to write.
+
+One line per frame and nothing else: `{"frame": n, "regs": [25 ints]}`,
+where `regs[0]` is `$D400` and `regs[24]` is `$D418`. The whole block is
+one 25-byte read taken at a frame boundary, so the registers in a record
+are consistent with each other.
+
+The sampling loop runs inside the session daemon, one frame per round trip
+— a per-frame round trip from the client would cost about half a second
+each. 100 frames take about 5 seconds at real time and a quarter of a
+second warped. It leaves the machine running and does not touch the
+emulator's speed, so pair it with `c64 audio record --start` when the frame
+numbers have to line up with a WAV.
+
+Frame numbers count captured frames from 0, and they are the elapsed frames
+as long as a round trip is short against a frame. At real time it is, by a
+wide margin — 200 samples covered 201 elapsed frames when measured. Warped,
+an emulated frame is about as long as a round trip, a frame can slip past
+between records (200 samples over 202 frames), and the command says so on
+stderr and in `warning`: VICE hands the monitor control once per frame and
+exposes no frame counter, so a missed frame can be flagged but never
+counted. Pin real time when the timeline matters.
+
+JSON: `{"path", "frames", "requested", "seconds", "warning"}` — `frames` is
+what landed, `requested` what was asked for (they differ when the sampling
+budget ran out), and `warning` is null or the line to show the user.
+
 ---
 
 ## Test runner

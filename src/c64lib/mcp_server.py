@@ -12,7 +12,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from .audio import pinned_record_start, pinned_record_stop
+from .audio import pinned_record_start, pinned_record_stop, sid_log_detail
 from .basic import tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
@@ -1133,3 +1133,21 @@ def c64_audio_record(action: str, path: str | None = None,
     if action == "stop":
         return pinned_record_stop(s)
     raise ValueError(f"unknown action {action!r}; use 'start' or 'stop'")
+
+
+@srv.tool()
+def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
+    """Log the SID's 25 registers ($D400-$D418) once per video frame to
+    `path` as JSONL — `{"frame": n, "regs": [...]}` per line, which is what
+    the analysis side (transcription, note diff, piano roll) reads. This is
+    how you check what a tune actually played without hearing it.
+
+    The loop runs inside the session daemon, one frame per round trip, so
+    100 frames cost about 5 seconds at real time and a quarter of a second
+    warped. It does not touch the emulator's speed: run it inside a pinned
+    recording (or c64_audio_capture) and every frame lands. Run it on a
+    warped session and it is far faster, but a frame can slip past between
+    records — the returned `warning` says so. Leaves the machine running.
+    """
+    s = _attach(session)
+    return sid_log_detail(s, frames, path)

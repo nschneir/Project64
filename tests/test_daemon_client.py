@@ -5,8 +5,9 @@ import collections
 import socket
 import tempfile
 import threading
+import time
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -267,3 +268,34 @@ def test_run_until_durable_flag_fallback(served):
     out = c.run_until(0x0419, 5.0, 1)
     assert out["reached"] == 1 and out["registers"] == {"PC": 0x0419}
     assert d.state == STOPPED
+
+
+# --- sid_log: the per-frame sampling loop also lives daemon-side --------------
+
+def test_sid_log_samples_one_frame_per_resume_daemon_side(served):
+    """A binary-monitor halt always lands at the top of a frame, so one
+    resume is exactly one frame and one 25-byte read is one sample. Per-frame
+    RPCs would cost ~0.5 s a frame, hence the daemon-side loop."""
+    c, mon, d = served
+    mon.memory_read.return_value = bytes(range(25))
+    out = c.sid_log(4, 5.0)
+    assert out == [bytes(range(25))] * 4
+    assert mon.memory_read.call_args_list == [call(0xD400, 25)] * 4
+    # four sampled frames plus the resume that leaves the machine running
+    assert mon.resume.call_count == 5
+    assert d.state == "running"
+
+
+def test_sid_log_returns_what_it_has_at_the_deadline(served):
+    """A machine that will not advance must not hang the client: the loop
+    stops at its deadline and hands back the frames it did get."""
+    c, mon, d = served
+
+    def slow(*a, **kw):
+        time.sleep(0.05)
+        return bytes(25)
+
+    mon.memory_read.side_effect = slow
+    out = c.sid_log(100, 0.25)
+    assert 0 < len(out) < 100
+    assert d.state == "running"

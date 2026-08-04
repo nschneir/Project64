@@ -218,11 +218,25 @@ every WAV finding with the roll before naming a cause.
   at 60 fps. The analysis resolves both from the session's machine model —
   never hardcode a clock, and never compare a PAL capture against an
   NTSC-tuned score without converting.
-- **Frame detection uses `$D012`**, the low byte of the current raster line:
-  a read that wraps to a smaller value than the previous read marks a new
-  frame. That is how the sid log paces itself at exactly one sample per
-  frame, and it works whether your program runs off a raster IRQ, the jiffy
-  clock, or nothing at all.
+- **One resume is one frame — not a `$D012` poll.** On real hardware a read
+  of `$D012` (the raster line's low byte) wrapping to a smaller value marks
+  a new frame, and that is what this reference used to claim the sid log
+  did. It cannot: VICE picks up a binary-monitor command at the next vsync,
+  so the machine only ever halts at the top of a frame and `$D012` reads 12
+  at every halt, forever (measured 2026-08-04: 600 consecutive reads, all
+  12, with and without read side effects; `LIN 12 / CYC 0-2` in every
+  register dump). The halt itself is the frame boundary, so the log samples
+  once per resume and needs no raster at all — and this works whether your
+  program runs off a raster IRQ, the jiffy clock, or nothing at all.
+- **A warped session can drop frames from the log.** Sampling costs one
+  round trip per frame. A real-time frame is many times that, so nothing
+  slips (200 samples over 201 elapsed frames, measured against the KERNAL
+  jiffy); a warped frame is about as long as the round trip, so the odd
+  frame goes unrecorded (200 over 202). VICE exposes no frame or cycle
+  counter to the binary monitor, so a missed frame can be flagged but never
+  counted: the tools warn, and the log's frame numbers count captured frames
+  rather than elapsed ones. Pin real time — any full capture does — whenever
+  the timeline matters.
 
 Related: `references/hardware.md` for the SID register, ADSR and note
 tables; `references/cookbook.md` for working sound recipes; and, in the

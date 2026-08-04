@@ -20,6 +20,12 @@ import time
 import traceback
 
 from . import rpc
+
+# `SID_BASE`/`SID_REGISTERS` are `c64lib.audio`'s pinned domain values, and the
+# daemon runs that module's sampling loop on its own VICE connection; importing
+# them beats a second copy of the address drifting from the first. Not a cycle:
+# `audio` reaches the daemon through `daemon_client`, never through this module.
+from .audio import SID_BASE, SID_REGISTERS
 from .monitor import MonitorClient
 from .protocol import CP_EXEC, Command, ResponseType
 
@@ -33,6 +39,7 @@ ALLOWED = frozenset({
     "vice_info", "quit", "resource_get", "resource_set", "autostart",
     "checkpoint_set", "checkpoint_delete", "checkpoint_toggle", "checkpoint_list",
     "condition_set", "step", "finish", "wait_for_stop", "status", "run_until",
+    "sid_log",
 })
 
 #: methods that leave the machine halted by their own meaning.
@@ -175,6 +182,8 @@ class PetDaemon:
         if method == "run_until":
             return self._run_until(client, int(args[0]), float(args[1]),
                                    int(args[2]))
+        if method == "sid_log":
+            return self._sid_log(client, int(args[0]), float(args[1]))
         result = getattr(self.mon, method)(*args, **kwargs)
         if method in STOPPING:
             self.state = STOPPED
@@ -236,6 +245,36 @@ class PetDaemon:
         self.mon.checkpoint_delete(ck.number)
         self.state = STOPPED
         return {"registers": regs, "reached": count, "count": count}
+
+    def _sid_log(self, client: socket.socket, frames: int,
+                 timeout: float) -> list[bytes]:
+        """Sample the SID's whole register block once per video frame, on the
+        daemon's own VICE connection — one IPC round-trip for the entire log
+        instead of two per frame (see `_run_until` for the same arithmetic:
+        per-hit RPCs cost ~0.5 s each).
+
+        One resume is exactly one frame: VICE picks up an asynchronous
+        monitor command at the next vsync, so the machine halts at the top of
+        a frame and the read that follows a resume samples the frame it just
+        finished. No raster polling — `$D012` reads 12 at every halt, so the
+        wrap `c64lib.audio` was originally to detect never happens.
+
+        Returns the blocks it captured, which is fewer than `frames` if the
+        deadline passes or the client vanishes; the caller reports the
+        shortfall. The machine is left RUNNING either way.
+        """
+        deadline = time.monotonic() + timeout
+        out: list[bytes] = []
+        while len(out) < frames and time.monotonic() < deadline:
+            self.mon.resume()
+            self.state = RUNNING
+            out.append(self.mon.memory_read(SID_BASE, SID_REGISTERS))
+            r, _, _ = select.select([client], [], [], 0)
+            if r and client.recv(1, socket.MSG_PEEK) == b"":
+                break                    # client gone (Ctrl-C mid-log)
+        self.mon.resume()
+        self.state = RUNNING
+        return out
 
     def _restore(self) -> None:
         """release()/disconnect: put the machine back in its desired state.

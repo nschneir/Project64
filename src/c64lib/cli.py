@@ -13,7 +13,7 @@ from typing import NoReturn
 import click
 
 from . import __version__
-from .audio import pinned_record_start, pinned_record_stop
+from .audio import pinned_record_start, pinned_record_stop, sid_log_detail
 from .basic import BasicError, detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import BuildError, build_asm
@@ -2271,7 +2271,7 @@ def charset_encode(ctx, file, hires, first_code, out_path):
 
 @main.group()
 def audio() -> None:
-    """Record the emulated SID to a WAV file."""
+    """Record the emulated SID, and log its registers frame by frame."""
 
 
 @audio.command("record")
@@ -2310,4 +2310,35 @@ def audio_record(ctx, start_path, stop):
         # a busy daemon raises is a report, not a traceback.
         fail(ctx, f"audio record: {e}")
         return
+    emit(ctx, out, human)
+
+
+@audio.command("sidlog")
+@click.argument("frames", type=click.IntRange(min=1))
+@click.argument("path", type=click.Path())
+@click.pass_context
+def audio_sidlog(ctx, frames, path):
+    """Log the SID's registers once per video frame to PATH as JSONL.
+
+    One line per frame — `{"frame": n, "regs": [25 ints]}`, `regs[0]` being
+    $D400 — which is what the analysis side reads to transcribe what the
+    tune actually played. The sampling loop runs inside the session daemon,
+    one frame per round trip, and leaves the machine running.
+
+    It does not change the emulator's speed. Inside a pinned recording (or
+    a full capture) every frame lands; on a warped session the log comes
+    back far faster but a frame can slip past between records, and it says
+    so on stderr.
+    """
+    s = attach(ctx)
+    try:
+        out = sid_log_detail(s, frames, path)
+    except (RuntimeError, OSError, MonitorError) as e:
+        # As wide as `audio record`, and for the same reason: a busy daemon's
+        # TimeoutError is a report, not a traceback.
+        fail(ctx, f"audio sidlog: {e}")
+        return
+    human = f"wrote {out['frames']} frames to {out['path']}"
+    if out["warning"]:
+        human += f"\nwarning: {out['warning']}"
     emit(ctx, out, human)
