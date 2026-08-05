@@ -103,7 +103,12 @@ class MonitorLike(Protocol):
     def vice_info(self) -> str: ...
     def quit(self) -> None: ...
     def resource_get(self, name: str) -> str | int: ...
-    def resource_set(self, name: str, value: str | int) -> None: ...
+
+    def resource_set(self, name: str, value: str | int) -> None:
+        """Set a VICE resource. `""` clears a string resource — see
+        `MonitorClient.resource_set` for the encoding rules it stands for."""
+        ...
+
     def autostart(self, path: str | Path, run: bool = True) -> None: ...
     def checkpoint_set(
         self, start: int, end: int | None = None, *,
@@ -262,9 +267,21 @@ class MonitorClient:
         return parse_palette_get(self.request(Command.PALETTE_GET, b"\x00").body)
 
     def vice_info(self) -> str:
+        """VICE's version as `major.minor[.patch[.build]]`, trailing zeros
+        dropped.
+
+        Zero COMPONENTS are dropped, not trailing `.`/`0` CHARACTERS: this
+        host reports `3.10.0.0`, and the `.rstrip(".0")` that used to stand
+        here turned that into `"3.1"` — a real 3.10 mis-reported as 3.1, and
+        the misreading that put "verified against x64sc 3.1" into
+        `protocol.py`. Any x.10/x.20 release had the same fate.
+        """
         body = self.request(Command.VICE_INFO).body
         n = body[0]
-        return ".".join(str(b) for b in body[1 : 1 + n]).rstrip(".0") or "0"
+        parts = [str(b) for b in body[1 : 1 + n]]
+        while len(parts) > 1 and parts[-1] == "0":
+            parts.pop()
+        return ".".join(parts) if parts else "0"
 
     def quit(self) -> None:
         try:
@@ -278,6 +295,21 @@ class MonitorClient:
         )
 
     def resource_set(self, name: str, value: str | int) -> None:
+        """Set one of VICE's named resources.
+
+        The value's Python type picks the wire type: `int` travels as VICE's
+        integer type (four little-endian bytes, two's complement when
+        negative, so `-1` sentinels work), `str` as its string type.
+
+        `""` is the documented way to CLEAR a string resource and is not a
+        no-op: VICE rejects a zero-length value outright, so an empty string
+        goes out as a single NUL, which VICE reads as the empty C string.
+        That is how `SoundRecordDeviceName` stops a recording. There is no
+        readback that can tell the two apart — `resource_get` returns `""`
+        either way — so confirm a clear by its effect, never by re-reading.
+
+        Raises `MonitorError` when VICE rejects the name or the value.
+        """
         self.request(Command.RESOURCE_SET, resource_set_body(name, value))
 
     def autostart(self, path, run: bool = True) -> None:

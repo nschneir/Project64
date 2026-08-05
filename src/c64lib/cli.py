@@ -2311,10 +2311,13 @@ def audio_record(ctx, start_path, stop):
             out = pinned_record_stop(s)
             human = (f"stopped; {out['wav']} is {out['bytes']} bytes"
                      if out["wav"] else "stopped; no pinned recording was active")
-    except (RuntimeError, OSError, MonitorError) as e:
+    except (RuntimeError, OSError, MonitorError, SessionError) as e:
         # Wider than AudioError (which is a RuntimeError) on purpose: a
         # capture drives two monitors, and a MonitorError or the TimeoutError
-        # a busy daemon raises is a report, not a traceback.
+        # a busy daemon raises is a report, not a traceback. SessionError is
+        # in the list for the same reason and is NOT covered by RuntimeError
+        # (it derives straight from Exception): every `session.monitor()` here
+        # can raise it from a failed daemon respawn.
         fail(ctx, f"audio record: {e}")
         return
     emit(ctx, out, human)
@@ -2346,9 +2349,10 @@ def audio_sidlog(ctx, frames, path):
     s = attach(ctx)
     try:
         out = sid_log_detail(s, frames, path)
-    except (RuntimeError, OSError, MonitorError) as e:
+    except (RuntimeError, OSError, MonitorError, SessionError) as e:
         # As wide as `audio record`, and for the same reason: a busy daemon's
-        # TimeoutError is a report, not a traceback.
+        # TimeoutError — or the SessionError a failed respawn raises — is a
+        # report, not a traceback.
         fail(ctx, f"audio sidlog: {e}")
         return
     human = f"wrote {out['frames']} frames to {out['path']}"
@@ -2447,9 +2451,10 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     s = attach(ctx)
     try:
         out = capture(s, seconds, outdir, ref_path=ref_path)
-    except (RuntimeError, OSError, ValueError, MonitorError) as e:
+    except (RuntimeError, OSError, ValueError, MonitorError, SessionError) as e:
         # As wide as `audio record`: a capture drives two monitors, and a
-        # MonitorError or a busy daemon's TimeoutError is a report.
+        # MonitorError, a busy daemon's TimeoutError, or a failed respawn's
+        # SessionError is a report.
         fail(ctx, f"audio capture: {e}")
         return
     headline = (f"{out['frames']} frames — {out['emulated_s']:.1f} s "

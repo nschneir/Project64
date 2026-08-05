@@ -265,16 +265,21 @@ def resource_set_body(name: str, value: str | int) -> bytes:
     """Value type (0 = string, 1 = integer), then the name, then the value.
 
     The type byte leads, unlike RESOURCE_GET's body, which is bare name —
-    verified against x64sc 3.1 on 2026-08-03: a trailing type byte earns
+    verified against x64sc 3.10 on 2026-08-03: a trailing type byte earns
     INVALID_LENGTH. Integers travel little-endian, and VICE reads whatever
     width it is given, so a fixed 4 bytes needs no per-resource size table.
+
+    Integers are encoded SIGNED when negative: several VICE integer resources
+    use `-1` as a sentinel, and an unsigned 4-byte pack raises OverflowError
+    on every one of them. Two's complement leaves every non-negative value
+    byte-identical to what an unsigned pack produced.
 
     An empty string travels as a single NUL: VICE rejects a zero-length value
     with INVALID_LENGTH, but reads the value as a C string, so one NUL clears
     the resource (that is how `SoundRecordDeviceName` stops a recording)."""
     raw = name.encode("ascii")
     if isinstance(value, int):
-        vtype, encoded = 1, value.to_bytes(4, "little")
+        vtype, encoded = 1, value.to_bytes(4, "little", signed=value < 0)
     else:
         vtype, encoded = 0, value.encode("ascii") or b"\x00"
     return bytes([vtype, len(raw)]) + raw + bytes([len(encoded)]) + encoded
