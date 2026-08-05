@@ -11,18 +11,23 @@ clock the binary monitor offers (see FakeMachine).
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import socket
 import threading
 import time
+import wave
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
-from c64lib import audio
+from c64lib import audio, sid_analysis
 from c64lib.audio import (
     AudioError,
+    capture,
     pin_realtime,
     pinned_record_start,
     pinned_record_stop,
@@ -32,9 +37,13 @@ from c64lib.audio import (
     sid_log,
     sid_log_detail,
 )
+from c64lib.build import build_asm
 from c64lib.cli import main
 from c64lib.daemon_client import DaemonMonitorClient
+from c64lib.ops import wait_for_mem
+from c64lib.session import Session
 from tests.test_mcp_scaffold import call_tool
+from tests.vice_helpers import timeout_scale
 
 
 @pytest.fixture(autouse=True)
@@ -1404,3 +1413,286 @@ def test_cli_audio_capture_reports_a_capture_failure():
         r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
     assert r.exit_code == 1
     assert "0-frame WAV" in r.output
+
+
+# --- live: the whole path against a real emulator -----------------------------
+
+#: PAL reg16 values for the fixture's arpeggio: `hz = reg16 * 985248 / 2**24`
+#: puts these within 3 cents of C4/E4/G4. They are PAL values, which is why
+#: the fixture insists on a PAL machine — the same registers on an NTSC C64
+#: sound 65 cents flat and transcribe as C#4/F4/G#4.
+ARPEGGIO = {"C4": 4455, "E4": 5613, "G4": 6685}
+#: Frames per arpeggio note, and the fixture's video rate (PAL).
+NOTE_FRAMES, PAL_FPS = 50, 50
+#: Frames of C4 the fixture sounds after the test releases it, before the
+#: arpeggio walks on. This is the margin that keeps the capture from opening
+#: on silence — see `test_capture_hears_a_live_arpeggio` for why that matters
+#: and `_hold_at_real_time` for what it has to cover (measured: 14 frames).
+HOLD_FRAMES = 100
+CAPTURE_SECONDS = 4.0
+#: Tape-buffer bytes the fixture and the test hand each other: the fixture
+#: raises READY_FLAG once voice 1 is sounding, the test raises GO_FLAG to
+#: release the arpeggio.
+READY_FLAG, GO_FLAG = 0x03F0, 0x03F1
+#: Sawtooth, per the fixture contract (control $21 = sawtooth + gate).
+SAWTOOTH = 0x20
+ARPEGGIO_SCORE = Path(__file__).parent / "data" / "arpeggio-score.yaml"
+
+#: The fixture program. Assembly rather than BASIC because the notes are
+#: timed in whole frames: this counts raster wraps, so a note is exactly
+#: NOTE_FRAMES frames long and the transcription can be checked against a
+#: pinned duration. A BASIC loop's per-iteration cost is not frame-quantized,
+#: so its note lengths would drift and could only be asserted loosely.
+#:
+#: It is inline for the same reason `tests/test_integration_profile.py`'s
+#: reference routine is: `tests/programs/` is the *auto-collected* example
+#: library (`c64 test programs` builds and runs every directory in it against
+#: an expect.txt screen gate), and this program draws nothing, ends in an
+#: endless loop, and needs a handshake from its test — it belongs to this
+#: test, not to that suite.
+ARPEGGIO_SRC = f"""\
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+
+READY   = ${READY_FLAG:04x}             ; raised once voice 1 is sounding C4
+GO      = ${GO_FLAG:04x}             ; the test raises this to start the walk
+
+C4      = {ARPEGGIO["C4"]}
+E4      = {ARPEGGIO["E4"]}
+G4      = {ARPEGGIO["G4"]}
+HOLD    = {HOLD_FRAMES}
+NOTE    = {NOTE_FRAMES}
+
+start:  sei                     ; the frame wait polls the raster itself
+        lda #$00
+        sta GO
+        sta $d405               ; attack 0 / decay 0
+        lda #$f0
+        sta $d406               ; sustain 15 / release 0: a flat, steady note
+        lda #$0f
+        sta $d418               ; volume
+        lda #<C4
+        sta $d400
+        lda #>C4
+        sta $d401
+        lda #$21                ; sawtooth + gate on
+        sta $d404
+        lda #$01
+        sta READY               ; C4 is sounding; the capture may open now
+
+hold:   jsr frame               ; sound C4 until the test says go
+        lda GO
+        beq hold
+
+        ldx #HOLD               ; still C4, covering the capture's own startup
+        jsr frames
+        lda #<E4
+        sta $d400
+        lda #>E4
+        sta $d401
+        ldx #NOTE
+        jsr frames
+        lda #<G4
+        sta $d400
+        lda #>G4
+        sta $d401
+        ldx #NOTE
+        jsr frames
+        lda #$20                ; gate off, waveform unchanged
+        sta $d404
+idle:   jmp idle
+
+frames: jsr frame
+        dex
+        bne frames
+        rts
+
+;; One video frame: leave raster line 255, then wait for it to come round
+;; again. Line 255 happens exactly once per frame on PAL and on NTSC.
+frame:  lda #$ff
+:       cmp $d012
+        beq :-
+:       cmp $d012
+        bne :-
+        rts
+"""
+
+
+@pytest.fixture
+def pal_session(home):
+    """This test's own PAL emulator, not conftest's shared machine.
+
+    Three reasons it cannot be shared: the fixture's registers are only an
+    arpeggio at the PAL clock (the shared machine is NTSC), a capture pins
+    the session's speed and clears its warp for ten seconds, and the program
+    masks interrupts and never returns to READY.
+
+    Depends on `home` rather than trusting autouse ordering: the session
+    record lands in whatever C64_TOOLS_HOME is set when it launches, and this
+    file's `home` is what keeps it out of the developer's real sessions.
+    """
+    s = Session.launch(model="c64pal", name="arpeggio", headless=True,
+                       warp=True)
+    try:
+        yield s
+    finally:
+        s.stop()
+
+
+def _load_arpeggio(session, tmp_path) -> None:
+    """Assemble and autostart the fixture, and return once it is sounding."""
+    src = tmp_path / "arpeggio.s"
+    src.write_text(ARPEGGIO_SRC)
+    built = build_asm(src, basic_start=session.profile.basic_start)
+    with session.monitor() as mon:
+        try:
+            mon.autostart(built.prg, run=True)
+        finally:
+            mon.resume()
+    wait_for_mem(session, READY_FLAG, 1, timeout=60.0 * timeout_scale())
+
+
+def _hold_at_real_time(session, wav_path) -> None:
+    """Pin the machine to real time *before* the fixture is released.
+
+    The wait matters as much as the pin. The capture has to open while the
+    fixture is already sounding — `diff_score` is positional and exempts only
+    *trailing* silence, so a capture that opens on a leading rest shifts every
+    slot of the voice and cascades a false diff down all of it. That means the
+    release and the capture have to be a known number of *emulated* frames
+    apart, and on a warped session they are not: warp runs ~9.7x, so the same
+    fraction of a second of setup is ~10x the frames, and a stalled warp
+    readback (retried, but seen live) would put the whole arpeggio behind the
+    capture window before it opened. At real time the gap is 14 frames against
+    HOLD_FRAMES of cover.
+
+    The pin has to arm a recorder to survive, which is why this takes a path:
+    a headless VICE at real time with nothing consuming its sound output stops
+    answering its binary monitor within a second (`Session.launch(warp=False)`
+    times out on this host for the same reason). `capture()` re-arms the
+    recorder onto its own WAV, and its `pinned_record_stop` reads the pin this
+    one wrote, so the session still gets its warp back at the end.
+    """
+    pinned_record_start(session, wav_path)
+
+
+def _release_arpeggio(session) -> None:
+    with session.monitor() as mon:
+        try:
+            mon.memory_write(GO_FLAG, b"\x01")
+        finally:
+            mon.resume()
+
+
+def _dominant_hz(wav_path, start_s: float, end_s: float) -> float:
+    """The loudest frequency in a slice of a WAV. A sawtooth's fundamental is
+    its loudest partial, so this is the note the recording actually holds."""
+    import numpy as np
+
+    with wave.open(str(wav_path)) as w:
+        rate, channels = w.getframerate(), w.getnchannels()
+        samples = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    mono = samples.astype(float).reshape(-1, channels).mean(axis=1)
+    window = mono[int(start_s * rate):int(end_s * rate)]
+    window = (window - window.mean()) * np.hanning(len(window))
+    spectrum = np.abs(np.fft.rfft(window))
+    return float(np.fft.rfftfreq(len(window), 1 / rate)[int(np.argmax(spectrum))])
+
+
+@pytest.mark.vice
+@pytest.mark.skipif(
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
+)
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
+    """The whole path against a real emulator: a program that plays a known
+    arpeggio comes back as that arpeggio, with a PASS against a reference
+    score and five artifacts on disk.
+
+    Slow by design — the capture window runs at real time and each of its 200
+    frames costs a monitor round trip, so this takes ~20 s of wall clock for
+    4 s of emulated audio.
+    """
+    _load_arpeggio(pal_session, tmp_path)
+    _hold_at_real_time(pal_session, tmp_path / "prewarm.wav")
+    _release_arpeggio(pal_session)
+
+    outdir = tmp_path / "capture"
+    out = capture(pal_session, CAPTURE_SECONDS, outdir,
+                  ref_path=str(ARPEGGIO_SCORE))
+
+    # The verdict, and the findings it was reached from.
+    assert out["verdict"] == "PASS", out["failures"]
+    assert out["diffs"] == [] and out["anomalies"] == []
+    assert "**PASS**" in (outdir / "report.md").read_text()
+    # A capture that put its session back: the verdict is about the audio,
+    # this is about the machine that produced it.
+    assert out["unpin_error"] is None
+
+    # The machine the analysis read the log as, and every artifact — nothing
+    # beside them, so a stray WAV or a renamed one is a failure.
+    assert (out["machine"], out["clock_hz"], out["fps"]) == ("c64pal", PAL, 50)
+    assert out["frames"] == out["requested_frames"] == round(
+        CAPTURE_SECONDS * PAL_FPS)
+    assert sorted(p.name for p in outdir.iterdir()) == [
+        "capture.wav", "piano-roll.png", "report.md", "sid-log.jsonl",
+        "spectrogram.png"]
+    assert all((outdir / name).stat().st_size > 0 for name in
+               ("piano-roll.png", "spectrogram.png"))
+
+    with wave.open(str(outdir / "capture.wav")) as wav:
+        assert wav.getnframes() > 0
+        wav_seconds = wav.getnframes() / wav.getframerate()
+    # Rate-aligned to the log, not offset-aligned: same duration, but do not
+    # read sample N as frame N (see c64lib.audio's module docstring).
+    assert abs(wav_seconds - out["emulated_s"]) < 0.5, wav_seconds
+    assert out["metrics"]["clipped_samples"] == 0
+
+    # The transcription itself, re-derived from the log the capture wrote.
+    records = sid_analysis.parse_log(outdir / "sid-log.jsonl")
+    events = sid_analysis.transcribe(records, PAL)
+    voice1 = [e for e in events if e.voice == 1]
+    assert [e.note for e in voice1[:3]] == ["C4", "E4", "G4"]
+    # Anything after the arpeggio is the fixture's closing silence.
+    assert all(e.note == "rest" for e in voice1[3:])
+    assert all(e.note == "rest" for e in events if e.voice != 1)
+    heard = {e.note: e for e in voice1[:3]}
+    # C4 is however much of the opening note the capture caught; the two the
+    # fixture times itself are exact.
+    assert heard["C4"].frames > 0
+    assert heard["E4"].frames == heard["G4"].frames == NOTE_FRAMES
+    for note in ("C4", "E4", "G4"):
+        event = heard[note]
+        assert event.waveform == SAWTOOTH
+        assert event.gate_frames == event.frames        # gated throughout
+        assert abs(event.cents_off) < 5, (note, event.cents_off)
+
+    # The recording holds the notes the register log claims. Measured over the
+    # middle of each note, which is far enough inside it to absorb the WAV's
+    # ~0.1 s offset against the log.
+    for note in ("E4", "G4"):
+        event = heard[note]
+        middle = (event.start_frame + event.frames / 2) / PAL_FPS
+        heard_hz = _dominant_hz(outdir / "capture.wav", middle - 0.2,
+                                middle + 0.2)
+        want_hz = ARPEGGIO[note] * PAL / 2**24
+        assert abs(heard_hz - want_hz) < want_hz * 0.02, (note, heard_hz)
+
+    # The diff is doing work: the same transcription against a score with one
+    # note changed has to come back with that note in it. Without this, a
+    # diff_score that always returned [] would still make everything above
+    # pass.
+    wrong = yaml.safe_load(ARPEGGIO_SCORE.read_text())
+    wrong["voices"][1][1]["note"] = "D4"
+    assert any("D4" in diff for diff in sid_analysis.diff_score(events, wrong))
