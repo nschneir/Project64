@@ -1190,7 +1190,11 @@ def test_capture_reports_an_unpin_failure_and_keeps_the_sampling_failure(
     """When the monitor stops answering — the wedge — both the log and the
     unpin fail. The sampling failure is the root cause and the one that
     propagates; the unpin failure is not swallowed with it, because a session
-    left at 1x with its recorder armed is what the next command trips over."""
+    left at 1x is what the next command trips over.
+
+    The whole of `pinned_record_stop` is stubbed out here, so the pin sidecar
+    it would have cleared is still on disk — which is how `capture` reads this
+    as a restore that failed rather than a disarm that did."""
     vice = FakeVice([_voice1()] * 4)
     with _port(vice_text), \
          patch("c64lib.audio.sid_log_detail",
@@ -1227,6 +1231,27 @@ def test_capture_survives_an_unpin_that_fails_and_says_so(vice_text, tmp_path,
     assert "record --stop" in out["unpin_error"]      # and how to retry it
     assert out["unpin_error"] in capsys.readouterr().err
     assert audio._pin_path(s).exists()                # left for that retry
+
+
+def test_capture_still_fails_when_the_recorder_will_not_disarm(vice_text,
+                                                               tmp_path):
+    """The other half of `pinned_record_stop`, and NOT the same failure.
+    Disarming is what finalizes the WAV, so a recorder VICE would not stop
+    leaves a file it may still be writing — there is nothing complete to judge
+    and no unpin left to retry (the restore succeeded, so the sidecar is gone,
+    which is exactly how `capture` tells the two apart). It raises, as it did
+    before a failed restore was made survivable."""
+    vice = FakeVice([_voice1()] * 12)
+    s = _capture_session(vice)
+    with _port(vice_text), \
+         patch("c64lib.audio.record_stop",
+               side_effect=TimeoutError("timed out")), \
+         pytest.raises(TimeoutError, match="timed out"):
+        audio.capture(s, 0.2, tmp_path / "cap")
+    assert not (tmp_path / "cap" / "report.md").exists()   # no verdict claimed
+    assert (tmp_path / "cap" / "sid-log.jsonl").exists()   # the log is kept
+    assert not audio._pin_path(s).exists()                 # the restore ran
+    assert vice_text.warp is True                          # and put warp back
 
 
 def test_read_verdict_refuses_a_report_with_no_verdict_line(tmp_path):
@@ -1387,21 +1412,25 @@ def test_cli_audio_capture_passes_the_reference_score():
 def test_cli_audio_capture_shows_an_unpin_failure_under_the_verdict():
     """A PASS verdict is about the audio; a session left pinned is about the
     machine that produced it, and it outlives the command. The capture still
-    succeeds — exit 0, report written — and the warning is printed with it."""
+    succeeds — exit 0, report written — and the verdict carries a flag for it.
+
+    A pointer, not a copy: `capture` has already printed the whole sentence to
+    stderr, and repeating it here would say it twice in the one situation
+    where the operator is already reading carefully."""
     s, _ = _fake_session()
     with patch("c64lib.cli.Session") as S, \
          patch("c64lib.cli.capture",
                return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
                              "diffs": [], "anomalies": [], "frames": 60,
                              "emulated_s": 1.0, "wall_clock_s": 2.8,
-                             "unpin_error": "the capture's artifacts are "
-                                            "complete, but the session could "
-                                            "not be unpinned"}):
+                             "unpin_error": "the session could not be "
+                                            "unpinned (TimeoutError: ...)"}):
         S.attach.return_value = s
         r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
     assert r.exit_code == 0, r.output
-    assert "warning: the capture's artifacts are complete" in r.output
-    assert "could not be unpinned" in r.output
+    assert "warning: this session could not be unpinned" in r.output
+    assert "unpin_error" in r.output              # and where the reason is
+    assert "TimeoutError" not in r.output         # said once, not twice
 
 
 def test_cli_audio_capture_reports_a_capture_failure():

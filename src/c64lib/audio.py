@@ -296,14 +296,24 @@ class _TextMonitor:
 
         Without it the raise below tears the socket down mid-stall and that
         session's text monitor stops answering for the rest of its life:
-        10 of 1663 opens (0.60%) in the same measurement, every one of them
-        fatal to the session's audio.
+        10 of 1663 opens (0.60%) in the un-retried population, every one of
+        them fatal to the session's audio.
         """
         # Bounded, not open-ended: two attempts, each capped by the same
         # `_REPLY_TIMEOUT` the single attempt used, so a monitor that has
         # genuinely stopped answering still fails in ~6 s instead of hanging.
         for _ in range(1 + self._READBACK_RETRIES):
-            self._send("warp")
+            try:
+                self._send("warp")
+            except OSError as e:
+                # `_await` reports a clean EOF exactly as it reports a
+                # timeout, so a retry can find itself writing to a socket the
+                # peer has already closed. Retrying was pointless there and
+                # `sendall`'s bare error would say nothing about the readback;
+                # this does.
+                raise AudioError(f"VICE's text monitor closed the connection "
+                                 f"while its warp state was being read: "
+                                 f"{e}") from e
             found = self._await(_WARP_STATE)
             if found is not None:
                 return found.group(1) == "on"
@@ -851,13 +861,20 @@ def _unpin_warning(error: BaseException) -> str:
     """What a capture says when it could not put the session back.
 
     Names the state the session is left in and the command that retries it —
-    the pin sidecar is still on disk, so `c64 audio record --stop` is a real
-    second chance rather than advice to restart.
+    the pin sidecar is still on disk (which is how `capture` knows it was the
+    restore that failed), so `c64 audio record --stop` is a real second chance
+    rather than advice to restart.
+
+    It claims where the artifacts are, not that they are perfect: the one case
+    this fires on where the WAV might not be finalized is a disarm that failed
+    *and* a restore that failed after it, and no signal here can separate that
+    from a restore-only failure.
     """
-    return (f"the capture's artifacts are complete, but the session could not "
-            f"be unpinned ({type(error).__name__}: {error}): it may still be "
-            f"at real time, unwarped, with its recorder armed. Run `c64 audio "
-            f"record --stop` on it to retry the unpin, or restart the session")
+    return (f"the session could not be unpinned ({type(error).__name__}: "
+            f"{error}): the recording and the register log are on disk, but "
+            f"the machine may still be at real time with warp off. Run `c64 "
+            f"audio record --stop` on it to retry the unpin, or restart the "
+            f"session")
 
 
 def capture(session, seconds: float, outdir, ref_path=None) -> dict:
@@ -892,13 +909,17 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     failure mid-capture — `pinned_record_stop` disarms the recorder and unpins
     in one step, and it runs in a `finally`.
 
-    An unpin that FAILS is reported, not fatal: the WAV and the register log
-    are already complete when it runs, so the report is still written and
+    A failed RESTORE is reported, not fatal: the WAV and the register log are
+    already complete when it runs, so the report is still written and
     `unpin_error` carries the reason (also printed to stderr, and the pin
     sidecar is left on disk for `c64 audio record --stop` to retry). It is
-    None on every capture that put its session back. A caller that cares
-    about the session's state afterwards — anything reusing it — must read
-    that field; the verdict is about the audio, not about the machine.
+    None on every capture that put its session back. A caller that cares about
+    the session's state afterwards — anything reusing it — must read that
+    field; the verdict is about the audio, not about the machine.
+
+    A failed DISARM still raises. That half is not the same failure: disarming
+    is what finalizes the WAV, so a recorder VICE would not stop leaves a file
+    still being written, and there is nothing complete to report a verdict on.
 
     Raises AudioError if VICE produced no WAV samples. That is not a flake to
     retry: under warp VICE writes a header and no frames at all, so an empty
@@ -923,23 +944,31 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
         detail = sid_log_detail(session, frames, log)
     finally:
         try:
-            stopped = pinned_record_stop(session)
+            recorded = pinned_record_stop(session)["bytes"]
         except Exception as e:
-            # Reported, never fatal, and never swallowed. By the time the
-            # unpin runs the WAV and the register log are complete — every
-            # unpin failure measured in the wedge investigation fired after
-            # the recording had landed, on the `warp on` readback — so
-            # raising here would throw away good evidence over a session
-            # that is merely still at real time. `pinned_record_stop`
-            # deliberately leaves the pin sidecar on disk when its restore
-            # fails, so `c64 audio record --stop` can retry the unpin.
+            # WHICH half failed decides whether this capture survives, and the
+            # pin sidecar is the exact discriminator: `pinned_record_stop`
+            # restores first and clears the pin second, so the sidecar is on
+            # disk if and only if the RESTORE is what failed.
+            #
+            # Sidecar gone -> the disarm failed and the restore did not. The
+            # recorder is still armed, which means VICE has not finalized the
+            # WAV (`record_stop` is what does that), so there is no complete
+            # artifact to salvage and no unpin left to retry. Re-raise, as
+            # this did before the unpin was made non-fatal.
+            #
+            # Sidecar there -> the recording is complete and only the session's
+            # speed could not be put back. Report it and carry on: raising
+            # would throw away good evidence over a machine that is merely
+            # still at real time, and the sidecar `pinned_record_stop`
+            # deliberately left behind lets `c64 audio record --stop` retry.
+            if not _pin_path(session).exists():
+                raise
             unpin_error = _unpin_warning(e)
             print(f"c64: {unpin_error}", file=sys.stderr)
-            size = os.path.getsize(wav) if os.path.exists(wav) else None
-            stopped = {"wav": str(wav), "bytes": size, "restored": None}
+            recorded = os.path.getsize(wav) if os.path.exists(wav) else None
     wall_clock = time.monotonic() - started
 
-    recorded = stopped.get("bytes")
     if recorded is None or recorded <= WAV_HEADER_BYTES:
         what = ("missing" if recorded is None else
                 f"{recorded} bytes — a WAV header and no samples")

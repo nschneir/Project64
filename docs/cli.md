@@ -1470,13 +1470,17 @@ JSON: everything `audio report` returns, plus `frames` (what landed),
 `requested_frames`, `emulated_s`, `wall_clock_s`, `wav_bytes`,
 `log_warning`, and `unpin_error`.
 
-A failed unpin does not fail the capture. The WAV and the register log are
-already complete when the session is put back, so a restore that cannot be
-confirmed is reported rather than raised: the report is still written, and
-`unpin_error` — also printed as a `warning:` line under the verdict — says the
-session may still be at real time with warp off and its recorder armed. The
-pin sidecar stays on disk in that case, so `c64 audio record --stop` retries
-the unpin; restart the session if that fails too.
+A failed *restore* does not fail the capture. The WAV and the register log are
+already complete by the time the session is put back, so a restore that cannot
+be confirmed is reported rather than raised: the report is still written, and
+`unpin_error` — printed to stderr, and flagged by a `warning:` line under the
+verdict — says the machine may still be at real time with warp off. The pin
+sidecar stays on disk in that case, so `c64 audio record --stop` retries the
+unpin; restart the session if that fails too.
+
+A failed *disarm* is still an error, because disarming the recorder is what
+finalizes the WAV: there is no complete capture to judge, so no report is
+written.
 
 ### `c64 audio report`
 

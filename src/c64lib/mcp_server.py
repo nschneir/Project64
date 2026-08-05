@@ -1218,10 +1218,11 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
 
     `unpin_error` is None on a capture that put its session back. When it is
     not, the artifacts and the verdict are still good — they were complete
-    before the unpin ran — but that session may still be at real time with
-    warp off and its recorder armed: retry with
-    `c64_audio_record(action="stop")`, or restart it, before trusting its
-    timing again.
+    before the restore ran — but that session may still be at real time with
+    warp off: retry with `c64_audio_record(action="stop")`, or restart it,
+    before trusting its timing again. (A recorder that could not be disarmed
+    is a different failure and still raises: that one leaves no finalized WAV
+    to report on.)
     """
     s = _attach(session)
     return capture(s, seconds, outdir, ref_path=ref)

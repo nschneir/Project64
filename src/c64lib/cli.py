@@ -2455,8 +2455,10 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     headline = (f"{out['frames']} frames — {out['emulated_s']:.1f} s "
                 f"emulated in {out['wall_clock_s']:.1f} s of wall clock")
     if out.get("unpin_error"):
-        # The verdict is about the audio; this is about the machine the audio
-        # came from, and it survives the capture. Say it where the verdict is
-        # read, not only on stderr.
-        headline += f"\nwarning: {out['unpin_error']}"
+        # A pointer, not a repeat: `capture` has already printed the whole
+        # sentence to stderr. The verdict is about the audio, and this is about
+        # the machine it came from — which outlives the command — so the line
+        # under the verdict says that much and where the rest is.
+        headline += ("\nwarning: this session could not be unpinned; the "
+                     "reason is on stderr, and in `unpin_error` with --json")
     _verdict_report(ctx, out, headline)
