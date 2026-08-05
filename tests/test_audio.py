@@ -1448,15 +1448,18 @@ def test_cli_audio_capture_reports_a_capture_failure():
 
 #: PAL reg16 values for the fixture's arpeggio: `hz = reg16 * 985248 / 2**24`
 #: puts these within 3 cents of C4/E4/G4. They are PAL values, which is why
-#: the fixture insists on a PAL machine — the same registers on an NTSC C64
-#: sound 65 cents flat and transcribe as C#4/F4/G#4.
+#: the fixture insists on a PAL machine — NTSC's clock is the higher one
+#: (1022727 Hz, +65 cents), so the same registers sound ~65 cents SHARP there
+#: and transcribe as C#4/F4/G#4 sitting ~35 cents under each.
 ARPEGGIO = {"C4": 4455, "E4": 5613, "G4": 6685}
 #: Frames per arpeggio note, and the fixture's video rate (PAL).
+#: `tests/data/arpeggio-score.yaml` pins the same 50 by hand — change one and
+#: the other has to move with it.
 NOTE_FRAMES, PAL_FPS = 50, 50
 #: Frames of C4 the fixture sounds after the test releases it, before the
 #: arpeggio walks on. This is the margin that keeps the capture from opening
 #: on silence — see `test_capture_hears_a_live_arpeggio` for why that matters
-#: and `_hold_at_real_time` for what it has to cover (measured: 14 frames).
+#: and `_pin_and_arm` for what it has to cover (measured: 14 frames).
 HOLD_FRAMES = 100
 CAPTURE_SECONDS = 4.0
 #: Tape-buffer bytes the fixture and the test hand each other: the fixture
@@ -1588,10 +1591,10 @@ def _load_arpeggio(session, tmp_path) -> None:
     wait_for_mem(session, READY_FLAG, 1, timeout=60.0 * timeout_scale())
 
 
-def _hold_at_real_time(session, wav_path) -> None:
+def _pin_and_arm(session, wav_path) -> None:
     """Pin the machine to real time *before* the fixture is released.
 
-    The wait matters as much as the pin. The capture has to open while the
+    The order matters as much as the pin. The capture has to open while the
     fixture is already sounding — `diff_score` is positional and exempts only
     *trailing* silence, so a capture that opens on a leading rest shifts every
     slot of the voice and cascades a false diff down all of it. That means the
@@ -1654,7 +1657,7 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
     4 s of emulated audio.
     """
     _load_arpeggio(pal_session, tmp_path)
-    _hold_at_real_time(pal_session, tmp_path / "prewarm.wav")
+    _pin_and_arm(pal_session, tmp_path / "prewarm.wav")
     _release_arpeggio(pal_session)
 
     outdir = tmp_path / "capture"
@@ -1684,8 +1687,10 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
         assert wav.getnframes() > 0
         wav_seconds = wav.getnframes() / wav.getframerate()
     # Rate-aligned to the log, not offset-aligned: same duration, but do not
-    # read sample N as frame N (see c64lib.audio's module docstring).
-    assert abs(wav_seconds - out["emulated_s"]) < 0.5, wav_seconds
+    # read sample N as frame N (see c64lib.audio's module docstring). The
+    # tolerance covers the bracket of round trips at each end of the window,
+    # measured at 0.089 s on a 4 s capture.
+    assert abs(wav_seconds - out["emulated_s"]) < 0.25, wav_seconds
     assert out["metrics"]["clipped_samples"] == 0
 
     # The transcription itself, re-derived from the log the capture wrote.
@@ -1697,9 +1702,18 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
     assert all(e.note == "rest" for e in voice1[3:])
     assert all(e.note == "rest" for e in events if e.voice != 1)
     heard = {e.note: e for e in voice1[:3]}
-    # C4 is however much of the opening note the capture caught; the two the
-    # fixture times itself are exact.
-    assert heard["C4"].frames > 0
+    # C4 is however much of the opening note the capture caught — the rest of
+    # it is the arm latency this test budgets HOLD_FRAMES for. Asserting half
+    # of that budget is left, rather than merely "some", is what notices the
+    # latency growing: at 99 frames of arm this would still catch a 1-frame C4
+    # and pass, having silently spent the whole margin.
+    assert heard["C4"].frames > HOLD_FRAMES // 2, heard["C4"].frames
+    # The two notes the fixture times itself are exact: one `resume` advances
+    # exactly one frame, so the log is contiguous in emulated time and a note
+    # is as long as the program made it. If this ever fails by one frame, the
+    # suspect is the sampling loop missing a sample, NOT the fixture's timing
+    # — `diff_score` compares `frames` with no tolerance, so the same miss
+    # also turns the verdict to FAIL. Diagnose it there; do not loosen this.
     assert heard["E4"].frames == heard["G4"].frames == NOTE_FRAMES
     for note in ("C4", "E4", "G4"):
         event = heard[note]
@@ -1718,10 +1732,18 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
         want_hz = ARPEGGIO[note] * PAL / 2**24
         assert abs(heard_hz - want_hz) < want_hz * 0.02, (note, heard_hz)
 
-    # The diff is doing work: the same transcription against a score with one
-    # note changed has to come back with that note in it. Without this, a
-    # diff_score that always returned [] would still make everything above
-    # pass.
-    wrong = yaml.safe_load(ARPEGGIO_SCORE.read_text())
-    wrong["voices"][1][1]["note"] = "D4"
-    assert any("D4" in diff for diff in sid_analysis.diff_score(events, wrong))
+    # The diff is doing work, on both halves of what the score asserts: the
+    # same transcription against a score with one note changed has to come
+    # back with that note in it, and against a score with one *duration*
+    # changed with that duration in it. Without the first, a diff_score that
+    # always returned [] would make everything above pass; without the second,
+    # one that ignored `frames` would — and `frames` is half the reference.
+    wrong_note = yaml.safe_load(ARPEGGIO_SCORE.read_text())
+    wrong_note["voices"][1][1]["note"] = "D4"
+    assert any("D4" in diff
+               for diff in sid_analysis.diff_score(events, wrong_note))
+
+    wrong_frames = yaml.safe_load(ARPEGGIO_SCORE.read_text())
+    wrong_frames["voices"][1][1]["frames"] = 7
+    assert any("7 frames" in diff
+               for diff in sid_analysis.diff_score(events, wrong_frames))

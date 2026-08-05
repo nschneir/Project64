@@ -2,9 +2,10 @@
 #
 # PAL values throughout: the fixture runs on a `c64pal` session, and the
 # register values it writes (4455 / 5613 / 6685) are C4 / E4 / G4 only at the
-# PAL clock. The same registers on an NTSC machine sound 65 cents flat and
-# transcribe as C#4 / F4 / G#4 — which is what makes this file a real check
-# rather than a rubber stamp.
+# PAL clock. NTSC's clock is the higher one (1022727 Hz against 985248), so on
+# an NTSC machine the same registers sound ~65 cents SHARP and transcribe as
+# C#4 / F4 / G#4, ~35 cents under each — which is what makes this file a real
+# check rather than a rubber stamp.
 #
 # Voice 1's first event has no `frames`: the fixture is already sounding C4
 # when the capture starts (a capture that opens on silence would shift every
@@ -14,6 +15,10 @@
 # lengths are pinned. The capture window ends inside the fixture's closing
 # silence, which `diff_score` exempts as the end of the window rather than a
 # mistake — a score need not predict its own trailing rest.
+#
+# The 50s below are the fixture's `NOTE_FRAMES` (tests/test_audio.py), written
+# out by hand because a YAML file cannot import it: change that constant and
+# these have to move with it, or the score fails as a duration diff.
 voices:
   1:
     - {note: C4}
