@@ -1375,6 +1375,26 @@ def test_cli_audio_capture_passes_the_reference_score():
     cap.assert_called_once_with(s, 1.0, "/tmp/o", ref_path="score.yaml")
 
 
+def test_cli_audio_capture_shows_an_unpin_failure_under_the_verdict():
+    """A PASS verdict is about the audio; a session left pinned is about the
+    machine that produced it, and it outlives the command. The capture still
+    succeeds — exit 0, report written — and the warning is printed with it."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8,
+                             "unpin_error": "the capture's artifacts are "
+                                            "complete, but the session could "
+                                            "not be unpinned"}):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    assert "warning: the capture's artifacts are complete" in r.output
+    assert "could not be unpinned" in r.output
+
+
 def test_cli_audio_capture_reports_a_capture_failure():
     s, _ = _fake_session()
     with patch("c64lib.cli.Session") as S, \
