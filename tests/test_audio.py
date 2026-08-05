@@ -120,6 +120,33 @@ class StubbornTextMonitor(FakeTextMonitor):
         return super().reply("warp" if line == "warp" else "")
 
 
+class WithholdingTextMonitor(FakeTextMonitor):
+    """VICE mid-stall, as the wire traces caught it: the first bare `warp`
+    query gets no answer at all — the reply is withheld, not lost — while the
+    prompt echo keeps flowing, and asking again is answered normally.
+    `withhold` is how many queries go unanswered before one is."""
+
+    withhold = 1
+
+    def __init__(self, warp: bool = True):
+        super().__init__(warp)
+        self.queries = 0
+
+    def reply(self, line: str) -> bytes:
+        if line == "warp":
+            self.queries += 1
+            if self.queries <= self.withhold:
+                return b""
+        return super().reply(line)
+
+
+class MuteTextMonitor(WithholdingTextMonitor):
+    """A text monitor that never answers `warp` at all — the stall no retry
+    can rescue, which must still fail rather than hang."""
+
+    withhold = 1 << 30
+
+
 @pytest.fixture
 def vice_text(request):
     cls = getattr(request, "param", FakeTextMonitor)
@@ -329,6 +356,46 @@ def test_restore_speed_leaves_warp_off_when_the_session_was_not_warped(vice_text
         restore_speed(s, {"warp": False, "speed": 100})
     assert call("Speed", 100) in mon.resource_set.call_args_list
     assert vice_text.lines == []          # no text-monitor traffic at all
+
+
+# --- the withheld warp readback ----------------------------------------------
+
+@pytest.mark.parametrize("vice_text", [WithholdingTextMonitor], indirect=True)
+def test_the_warp_readback_is_re_sent_when_the_first_reply_is_withheld(vice_text):
+    """The measured wedge: VICE withholds the `warp on` confirmation until
+    more input arrives, so waiting longer never gets it (a 30 s timeout stalled
+    the full 30.1 s) and only re-sending does. Asking again rescued 39 of 39
+    stalls across 240 measured cycles — see the wedge investigation. Without
+    it this raises, the socket is torn down mid-stall, and that session's text
+    monitor never answers again."""
+    vice_text.warp = False
+    s, mon = _fake_session()
+    with _port(vice_text), \
+         patch.object(audio._TextMonitor, "_REPLY_TIMEOUT", 0.2):
+        restore_speed(s, {"warp": True, "speed": 200})
+    assert call("Speed", 200) in mon.resource_set.call_args_list
+    assert vice_text.warp is True                  # the restore completed
+    vice_text.settle()
+    # the second `warp` is the retry: one query answered nothing, one answered
+    assert vice_text.lines == ["warp on", "warp", "warp", "x"]
+
+
+@pytest.mark.parametrize("vice_text", [MuteTextMonitor], indirect=True)
+def test_a_readback_nobody_answers_fails_cleanly_instead_of_hanging(vice_text):
+    """The retry is bounded: two attempts at the same reply timeout, then an
+    AudioError that names what happened. A monitor that has genuinely stopped
+    answering must still cost a fixed amount of time."""
+    s, _ = _fake_session()
+    started = time.monotonic()
+    with _port(vice_text), \
+         patch.object(audio._TextMonitor, "_REPLY_TIMEOUT", 0.2), \
+         pytest.raises(AudioError, match="did not report a warp state"):
+        pin_realtime(s)
+    elapsed = time.monotonic() - started
+    assert elapsed < 2.0, f"took {elapsed:.2f}s for two 0.2s attempts"
+    vice_text.settle()
+    assert vice_text.lines.count("warp") == 2      # asked twice, then gave up
+    assert vice_text.lines[-1] == "x"              # and let go of the monitor
 
 
 # --- the composed start/stop the MCP tool and CLI use ------------------------
@@ -1057,6 +1124,7 @@ def test_capture_writes_the_five_pinned_artifacts(vice_text, tmp_path):
     assert out["verdict"] == "PASS"
     assert Path(out["wav"]).name == "capture.wav"
     assert Path(out["log"]).name == "sid-log.jsonl"
+    assert out["unpin_error"] is None      # the session was put back
 
 
 def test_capture_takes_its_frame_count_from_the_machines_frame_rate(
@@ -1108,38 +1176,48 @@ def test_capture_restores_the_session_when_the_log_fails(vice_text, tmp_path):
     assert vice_text.warp is True                             # and re-warped
 
 
-def test_capture_surfaces_an_unpin_failure_over_the_sampling_failure(
-        vice_text, tmp_path):
+def test_capture_reports_an_unpin_failure_and_keeps_the_sampling_failure(
+        vice_text, tmp_path, capsys):
     """When the monitor stops answering — the wedge — both the log and the
-    unpin fail. The unpin's failure is the one that propagates, deliberately:
-    a session left at 1x with its recorder armed is what the next command
-    trips over. The sampling failure is kept as its __context__ rather than
-    thrown away."""
+    unpin fail. The sampling failure is the root cause and the one that
+    propagates; the unpin failure is not swallowed with it, because a session
+    left at 1x with its recorder armed is what the next command trips over."""
     vice = FakeVice([_voice1()] * 4)
     with _port(vice_text), \
          patch("c64lib.audio.sid_log_detail",
                side_effect=AudioError("the machine is stopped")), \
          patch("c64lib.audio.pinned_record_stop",
                side_effect=TimeoutError("timed out")), \
-         pytest.raises(TimeoutError, match="timed out") as raised:
+         pytest.raises(AudioError, match="the machine is stopped"):
         audio.capture(_capture_session(vice), 0.2, tmp_path)
-    assert isinstance(raised.value.__context__, AudioError)
-    assert "the machine is stopped" in str(raised.value.__context__)
+    err = capsys.readouterr().err
+    assert "could not be unpinned" in err and "timed out" in err
 
 
-def test_capture_propagates_an_unpin_failure_after_a_clean_log(vice_text,
-                                                               tmp_path):
-    """The same failure with nothing else wrong: a capture whose artifacts all
-    landed still fails loudly if the session could not be put back, rather
-    than reporting a verdict on a machine left pinned."""
-    vice = FakeVice([_voice1()] * 4)
+def test_capture_survives_an_unpin_that_fails_and_says_so(vice_text, tmp_path,
+                                                          capsys):
+    """A failed unpin is reported, not fatal. By the time the restore runs the
+    WAV and the register log are complete — every unpin stall measured in the
+    wedge investigation fired after the recording had landed — so failing here
+    would throw away good evidence over a session that is merely still at real
+    time. The pin sidecar is left behind on purpose: `c64 audio record --stop`
+    can retry the unpin, which it cannot do without it."""
+    vice = FakeVice([_voice1()] * 12)
+    s = _capture_session(vice)
     with _port(vice_text), \
-         patch("c64lib.audio.pinned_record_stop",
-               side_effect=TimeoutError("timed out")), \
-         pytest.raises(TimeoutError, match="timed out"):
-        audio.capture(_capture_session(vice), 0.2, tmp_path)
-    assert (tmp_path / "sid-log.jsonl").exists()   # the log is still kept
-    assert not (tmp_path / "report.md").exists()   # but no verdict is claimed
+         patch("c64lib.audio.restore_speed",
+               side_effect=TimeoutError("timed out")):
+        out = audio.capture(s, 0.2, tmp_path / "cap")
+    assert sorted(p.name for p in (tmp_path / "cap").iterdir()) == [
+        "capture.wav", "piano-roll.png", "report.md", "sid-log.jsonl",
+        "spectrogram.png"]
+    assert out["verdict"] == "PASS"
+    assert out["wav_bytes"] > audio.WAV_HEADER_BYTES
+    assert "could not be unpinned" in out["unpin_error"]
+    assert "timed out" in out["unpin_error"]
+    assert "record --stop" in out["unpin_error"]      # and how to retry it
+    assert out["unpin_error"] in capsys.readouterr().err
+    assert audio._pin_path(s).exists()                # left for that retry
 
 
 def test_read_verdict_refuses_a_report_with_no_verdict_line(tmp_path):

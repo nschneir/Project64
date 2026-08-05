@@ -2452,6 +2452,11 @@ def audio_capture(ctx, seconds, outdir, ref_path):
         # MonitorError or a busy daemon's TimeoutError is a report.
         fail(ctx, f"audio capture: {e}")
         return
-    _verdict_report(ctx, out,
-                    f"{out['frames']} frames — {out['emulated_s']:.1f} s "
-                    f"emulated in {out['wall_clock_s']:.1f} s of wall clock")
+    headline = (f"{out['frames']} frames — {out['emulated_s']:.1f} s "
+                f"emulated in {out['wall_clock_s']:.1f} s of wall clock")
+    if out.get("unpin_error"):
+        # The verdict is about the audio; this is about the machine the audio
+        # came from, and it survives the capture. Say it where the verdict is
+        # read, not only on stderr.
+        headline += f"\nwarning: {out['unpin_error']}"
+    _verdict_report(ctx, out, headline)

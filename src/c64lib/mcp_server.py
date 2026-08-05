@@ -1215,6 +1215,13 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
 
     Returns the artifact paths, the verdict, the score diff, the anomalies,
     and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`).
+
+    `unpin_error` is None on a capture that put its session back. When it is
+    not, the artifacts and the verdict are still good — they were complete
+    before the unpin ran — but that session may still be at real time with
+    warp off and its recorder armed: retry with
+    `c64_audio_record(action="stop")`, or restart it, before trusting its
+    timing again.
     """
     s = _attach(session)
     return capture(s, seconds, outdir, ref_path=ref)

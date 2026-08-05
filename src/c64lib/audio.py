@@ -180,6 +180,11 @@ class _TextMonitor:
 
     _CONNECT_TIMEOUT = 5.0
     _REPLY_TIMEOUT = 3.0
+    #: Re-sends of the bare `warp` query when its reply does not arrive. One,
+    #: because one was always enough: 39 of 39 measured stalls answered the
+    #: first re-send, and the second attempt that was configured alongside it
+    #: never fired. See `warp_state`, which is the only thing that reads this.
+    _READBACK_RETRIES = 1
 
     def __init__(self, sock: socket.socket):
         self._sock = sock
@@ -268,12 +273,43 @@ class _TextMonitor:
 
     def warp_state(self) -> bool:
         """True when warp is on. A bare `warp` is the only readback of live
-        warp state VICE 3.10 has."""
-        self._send("warp")
-        found = self._await(_WARP_STATE)
-        if found is None:
-            raise AudioError("VICE's text monitor did not report a warp state")
-        return found.group(1) == "on"
+        warp state VICE 3.10 has.
+
+        The query is RE-SENT once when no reply arrives, and that retry is
+        load-bearing — do not simplify it away. VICE does not lose this
+        reply, it withholds it until more input arrives on the socket:
+        measured 2026-08-04/05 (see
+        `.superpowers/sdd/2026-08-02-sid-audio-verification/wedge-investigation.md`
+        for the wire traces), the missing `Warp mode is on.` line turned up
+        only after the next byte was written, and a run with the timeout
+        raised to 30 s waited the full 30.1 s and still got nothing. So
+        waiting longer does not work; asking again does. Across 240
+        pin/unpin cycles the first reply was missing 39 times and a single
+        re-send rescued 39 of 39, ~50 ms each, with no session lost. All 39
+        were the `warp on` confirmation `set_warp` makes from
+        `restore_speed`; the `warp off` readback `pin_realtime` makes never
+        stalled once in the same measurement.
+
+        Re-sending is safe because a bare `warp` is a pure query — it reports
+        state and changes none — so the worst a duplicate costs is one extra
+        prompt echo, which `_send`'s drain swallows.
+
+        Without it the raise below tears the socket down mid-stall and that
+        session's text monitor stops answering for the rest of its life:
+        10 of 1663 opens (0.60%) in the same measurement, every one of them
+        fatal to the session's audio.
+        """
+        # Bounded, not open-ended: two attempts, each capped by the same
+        # `_REPLY_TIMEOUT` the single attempt used, so a monitor that has
+        # genuinely stopped answering still fails in ~6 s instead of hanging.
+        for _ in range(1 + self._READBACK_RETRIES):
+            self._send("warp")
+            found = self._await(_WARP_STATE)
+            if found is not None:
+                return found.group(1) == "on"
+        raise AudioError("VICE's text monitor did not report a warp state, "
+                         "twice: the query was re-sent once and neither reply "
+                         "arrived")
 
     def set_warp(self, on: bool) -> None:
         """Set warp and confirm it took — the failure this guards against is
@@ -811,6 +847,19 @@ def _read_verdict(report_path) -> tuple[str, list[str]]:
                             if line.startswith("- ")]
 
 
+def _unpin_warning(error: BaseException) -> str:
+    """What a capture says when it could not put the session back.
+
+    Names the state the session is left in and the command that retries it —
+    the pin sidecar is still on disk, so `c64 audio record --stop` is a real
+    second chance rather than advice to restart.
+    """
+    return (f"the capture's artifacts are complete, but the session could not "
+            f"be unpinned ({type(error).__name__}: {error}): it may still be "
+            f"at real time, unwarped, with its recorder armed. Run `c64 audio "
+            f"record --stop` on it to retry the unpin, or restart the session")
+
+
 def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     """Record the session's audio for `seconds` of EMULATED time and report.
 
@@ -843,6 +892,14 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     failure mid-capture — `pinned_record_stop` disarms the recorder and unpins
     in one step, and it runs in a `finally`.
 
+    An unpin that FAILS is reported, not fatal: the WAV and the register log
+    are already complete when it runs, so the report is still written and
+    `unpin_error` carries the reason (also printed to stderr, and the pin
+    sidecar is left on disk for `c64 audio record --stop` to retry). It is
+    None on every capture that put its session back. A caller that cares
+    about the session's state afterwards — anything reusing it — must read
+    that field; the verdict is about the audio, not about the machine.
+
     Raises AudioError if VICE produced no WAV samples. That is not a flake to
     retry: under warp VICE writes a header and no frames at all, so an empty
     WAV means the capture window was not at real time. The register log is
@@ -861,14 +918,25 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
 
     started = time.monotonic()
     pinned_record_start(session, wav)
+    unpin_error: str | None = None
     try:
         detail = sid_log_detail(session, frames, log)
     finally:
-        # A failure to unpin replaces a failure to sample, which loses the
-        # root cause (Python keeps it as __context__). Deliberate: a session
-        # left at 1x with its recorder armed is the more urgent of the two,
-        # and it is the one the next command will trip over.
-        stopped = pinned_record_stop(session)
+        try:
+            stopped = pinned_record_stop(session)
+        except Exception as e:
+            # Reported, never fatal, and never swallowed. By the time the
+            # unpin runs the WAV and the register log are complete — every
+            # unpin failure measured in the wedge investigation fired after
+            # the recording had landed, on the `warp on` readback — so
+            # raising here would throw away good evidence over a session
+            # that is merely still at real time. `pinned_record_stop`
+            # deliberately leaves the pin sidecar on disk when its restore
+            # fails, so `c64 audio record --stop` can retry the unpin.
+            unpin_error = _unpin_warning(e)
+            print(f"c64: {unpin_error}", file=sys.stderr)
+            size = os.path.getsize(wav) if os.path.exists(wav) else None
+            stopped = {"wav": str(wav), "bytes": size, "restored": None}
     wall_clock = time.monotonic() - started
 
     recorded = stopped.get("bytes")
@@ -890,4 +958,5 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
             "emulated_s": detail["frames"] / timing["fps"],
             "wall_clock_s": wall_clock,
             "wav_bytes": recorded,
-            "log_warning": detail["warning"]}
+            "log_warning": detail["warning"],
+            "unpin_error": unpin_error}
