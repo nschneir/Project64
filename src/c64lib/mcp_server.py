@@ -1149,9 +1149,11 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     the analysis side (transcription, note diff, piano roll) reads. This is
     how you check what a tune actually played without hearing it.
 
-    The loop runs inside the session daemon, one frame per round trip, so
-    100 frames cost about 5 seconds at real time and a quarter of a second
-    warped. It does not touch the emulator's speed: run it inside a pinned
+    The loop runs inside the session daemon, one frame per round trip, so a
+    100-frame log costs about 5 seconds at real time and a quarter of a
+    second warped. (That is a different log from the 200-frame one the rates
+    below come from — the two are separate measurements, not a cost and its
+    quotient.) It does not touch the emulator's speed: run it inside a pinned
     recording (or c64_audio_capture) and every frame lands. Run it on a
     warped session and it is far faster, but a frame can slip past between
     records — the returned `warning` says so when the sampling rate gives it
@@ -1161,7 +1163,13 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     comparable to it (the emulator only runs between round trips, so one
     200-frame log measured ~22/s pinned from a 60 Hz machine against ~425/s
     warped): above the frame rate it proves the session was not at real
-    time, below it proves nothing. Leaves the machine running.
+    time, below it proves nothing.
+
+    The warning's own threshold is a fixed 63/s — 60 fps, the fastest machine
+    here, plus a 5% margin — not the session's frame rate, so a PAL session
+    sampling between 50 and 63/s goes unflagged although it already proves
+    the machine outran 50 fps. Apply the machine's own rate yourself when the
+    timeline matters. Leaves the machine running.
     """
     s = _attach(session)
     return sid_log_detail(s, frames, path)
@@ -1203,15 +1211,19 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
 
     Start the music BEFORE calling this, and give `ref` a score YAML written
     from your own note data rather than from a transcription this produced —
-    a reference derived from the output cannot fail.
+    a reference derived from the output cannot fail. An opening rest the
+    score does not list is skipped rather than diffed (the way trailing
+    silence is), so a slightly early capture costs window rather than a
+    cascade of wrong notes.
 
     `seconds` is EMULATED time and costs several times that in wall clock: the
     machine advances one frame per monitor round trip while the log samples.
     Measured on an NTSC session, a 2-second capture (120 frames) took 6.19 s
     from pinning to unpinning — the `wall_clock_s` this returns — and 6.32 s
-    for the whole call including the report. Budget for it, and let nothing
-    else drive the session meanwhile — the capture window has to stay at real
-    time, since a warped VICE writes a 0-frame WAV.
+    for the whole call including the report; `src/c64lib/audio.py`'s module
+    docstring holds that measurement and the evidence behind it. Budget for
+    it, and let nothing else drive the session meanwhile — the capture window
+    has to stay at real time, since a warped VICE writes a 0-frame WAV.
 
     Returns the artifact paths, the verdict, the score diff, the anomalies,
     and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`).

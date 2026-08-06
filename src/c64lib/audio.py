@@ -54,9 +54,10 @@ number it cannot stand behind.
 and it rests on one fact that had never been measured with a sampler halting
 the machine alongside the recorder: VICE's WAV writer paces on EMULATED time,
 not wall clock. **This docstring is the one home for that measurement.** The
-front ends and `docs/cli.md` carry the cost a caller has to budget for and
-point here for the evidence, so there is one place to correct when it is
-re-measured.
+front ends (`c64 audio capture --help`, `c64_audio_capture`) and
+`docs/cli.md` carry the cost a caller has to budget for and name this
+docstring for the evidence behind it, so there is one place to correct when
+it is re-measured.
 
 The run (2026-08-04, NTSC session, a BASIC loop holding one gated triangle
 with `$D400/$D401` = 7218): 120 frames requested, 120 logged, 2.000 s of
@@ -64,16 +65,25 @@ emulated time, a 2.0887 s WAV (100256 frames of 48 kHz 16-bit mono), 6.19 s
 of wall clock. Had the recorder paced on wall clock it would have had to
 account for the ~4.1 s the machine never generated.
 
-Checked against the audio and not only its length, because a recorder that
-padded or repeated to fill wall clock could still land on the right duration.
-Those registers predict 7218 * 1022727 / 2**24 = 440.0041 Hz (A4 +0.016
-cents), and the WAV's dominant partial fell in the FFT bin holding that
-prediction — bin 919 of 0.4788 Hz bins over the 2.0887 s window, where the
-prediction sits at bin 919.02. The agreement is therefore within the
-measurement's own resolution (±0.94 cents), which is all a single bin can
-say, and it is decisive against the alternative: a uniform stretch to 6.19 s
-would put the tone near 148 Hz, some 600 bins away, and padding or repeating
-would smear the partial across bins instead of leaving one.
+Checked against the audio and not only its length. Those registers predict
+7218 * 1022727 / 2**24 = 440.0041 Hz (A4 +0.016 cents), and the WAV's
+dominant partial fell in the FFT bin holding that prediction — bin 919 of
+0.4788 Hz bins over the 2.0887 s window, where the prediction sits at bin
+919.02. The agreement is therefore within the measurement's own resolution
+(±0.94 cents), which is all a single bin can say, and it is decisive against
+a uniform stretch to 6.19 s, which would put the tone near 148 Hz, some 610
+bins away.
+
+The instrument is `sid_analysis.dominant_partial_hz` — one rFFT over the
+whole mono mixdown, DC excluded — so that number is re-derivable from this
+repo rather than from a probe script that no longer exists. `c64 audio
+report --peak-hz` is the same measurement from the command line.
+
+Filling wall clock instead of stretching it is excluded by the DURATION, not
+by the spectrum: the file is 2.0887 s, so it holds no 4.1 s of padding or
+repeats to find. (Repeats would smear the partial too; silence-padding would
+leave it exactly where it is, which is why the length carries that half of
+the argument.)
 
 What that establishes is RATE alignment: the WAV and the log share a time
 base, so a duration or a pitch read off the two together means something. It
@@ -82,9 +92,11 @@ log does — the machine free-runs from the resume that arms the recorder until
 the sampling loop's first halt, and again from the last sample until the
 recorder is disarmed — and only the SUM of those two windows was measured,
 never the split between them. A WAV timestamp therefore maps to a log frame
-only to within that bracket, about ±0.1 s. Nothing here depends on the
-offset; anything that cross-reads the piano roll against the spectrogram
-would, and would need the head measured first.
+only to within that bracket, which is ONE-signed: the WAV strictly contains
+the log window, so a log frame sits somewhere in [0, +0.103 s] into the WAV,
+never before it. Nothing here depends on the offset; anything that
+cross-reads the piano roll against the spectrogram would, and would need the
+head measured first.
 
 The bracket, as WAV duration minus the log's frames over the frame rate:
 0.1013 s at 0.5 s; 0.0860, 0.1027, 0.0860, 0.0860 s across four 1 s captures;
@@ -136,10 +148,17 @@ REALTIME_MAX_FPS = 60.0
 #: Slack on that comparison, so a machine at exactly real time never warns.
 WARP_RATE_MARGIN = 1.05
 
-#: Wall-clock the sampling loop allows itself per requested frame, and its
-#: floor. Real time a frame costs 1/60 s, so this is ~15x headroom; the
-#: budget exists to bound a machine that has stopped advancing, not to pace
-#: a healthy one.
+#: Wall clock the sampling loop allows itself per requested frame, and its
+#: floor.
+#:
+#: NOT the ~15x headroom that 0.25 s against a 1/60 s frame would suggest:
+#: 1/60 s is an EMULATED frame and this budget is wall clock, which is the
+#: conflation three fix rounds went into removing elsewhere. A pinned frame
+#: costs a monitor round trip — 45.5 ms on the canonical 200-frame log (200
+#: samples over 9.1 s of wall clock) — so the real headroom is
+#: 0.25 / 0.0455 = 5.5x: that log needs 9.1 s against its 50 s budget. Still
+#: ample for what the budget is for, which is bounding a machine that has
+#: stopped advancing rather than pacing a healthy one.
 SID_LOG_FRAME_BUDGET = 0.25
 SID_LOG_MIN_TIMEOUT = 15.0
 
@@ -567,12 +586,19 @@ def sid_log_detail(session, frames: int, jsonl_path,
     below is inconclusive. The pinned figure is host-dependent — round-trip
     latency sets it, not the emulator — so there is no fixed value to
     assert; the useful separation is the size of the gap, ~22/s pinned
-    against ~425/s warped for that same 200-frame log. A caller that knows
-    the machine model can apply a tighter ceiling than this module's fixed
-    60 Hz — 50 on a PAL machine — but only ever as a falsifier.
+    against ~425/s warped for that same 200-frame log.
 
-    `sample_rate_hz` is None if the whole log fit inside the clock's
-    resolution, which is a rate no wall clock here can express.
+    The warning's own ceiling is FIXED at `REALTIME_MAX_FPS` (60, the fastest
+    supported machine) times `WARP_RATE_MARGIN`, so it fires above 63/s and
+    nowhere else. On a PAL session that leaves a real gap: 50 to 63 samples a
+    second is already proof the machine was not running at 50 fps, and
+    nothing here says so. A caller that knows the machine model should apply
+    that model's frame rate as its own ceiling — always as a falsifier, never
+    as a target.
+
+    `sample_rate_hz` is None when the whole log fit inside the clock's
+    resolution — a rate no wall clock here can express, so there is no number
+    to report and the warning has to say it in words.
 
     The machine is left RUNNING, with exactly one resume after the final
     sample and no round trip after that: the log's last record is the last

@@ -46,7 +46,7 @@ Four tools, three of them the pieces and one the whole job:
 | `c64_audio_record` — `c64 audio record --start <path>` / `c64 audio record --stop` | Drives VICE's WAV sound recorder. Start writes to `<path>`; stop closes it. |
 | `c64_sid_log` — `c64 audio sidlog <frames> <path>` | Samples all 25 SID registers once per frame for `<frames>` frames into a JSONL log. |
 | `c64_sid_report` — `c64 audio report …` | Analysis only, no machine: takes an existing log (and optionally the WAV and a score) and writes the roll, the spectrogram, and `report.md`. Re-run it after editing a score without re-capturing. |
-| `c64_audio_capture` — `c64 audio capture …` | **The one you want.** Starts the recorder, logs the frames, stops the recorder, analyses, and writes all five artifacts. Over MCP: `c64_audio_capture(seconds, outdir, ref, session)`; the CLI takes the same values (`--help` for the exact spelling). |
+| `c64_audio_capture` — `c64 audio capture …` | **The one you want.** Starts the recorder, logs the frames, stops the recorder, analyses, and writes all five artifacts. Over MCP: `c64_audio_capture(seconds, outdir, ref=None, session=None)`; on the CLI the first two are positional and the rest are options (`--help` for the exact spelling). |
 
 **The artifact set.** `c64_audio_capture` writes exactly these five files
 into `outdir`, under those exact names, so every demo's audio evidence looks
@@ -71,10 +71,16 @@ is 1.67 s. Score lengths, roll positions and report offsets are all frames.
 
 **The speed caveat — captures run in real time.** Sessions boot headless
 *and under warp*, which is why everything else in this toolset is fast. A
-capture cannot: for its duration it clears `WarpMode` and pins `Speed` to
-100 so the recorded WAV has the right sample rate and the frame log paces to
-real frames, then restores what it found. **A 30-second capture takes 30
-seconds of wall clock.** Two consequences:
+capture cannot: for its duration it takes the machine off warp and pins
+`Speed` to 100, **so the WAV and the frame log share one timeline**, then
+restores what it found. (Warp is not a resource on VICE 3.10 — it is
+cleared over VICE's text monitor, which the capture starts on the session at
+need. The sample rate is the sound device's and does not depend on warp.)
+
+The rule is not a nicety. Under warp VICE writes a **zero-frame** WAV — not
+time-compressed audio, nothing at all — so a capture that fails to clear
+warp comes back empty rather than merely fast. **A 30-second capture takes
+30 seconds of wall clock.** Two consequences:
 
 - Capture the shortest span that proves the claim — one phrase, one effect,
   the bar where the tempo is supposed to change — not the whole tune. Five
@@ -104,8 +110,19 @@ voices:
 ```
 
 `note` is a note name (`C4`, `F#3`, `A#5`) or `rest`; `frames` is that
-note's length in frames. All three voices are listed; a voice that sits out
-the captured passage gets an empty list.
+note's length in frames, and it is optional — omit it to check the note but
+not its duration.
+
+Only the voices the score lists are compared, so listing all three is a
+convention rather than a rule: an empty list is the positive claim "this
+voice sits out the captured passage", while omitting a voice claims nothing
+about it at all. Write all three, and the score says what every voice did.
+
+**Leading and trailing silence are exempt.** A capture usually opens a few
+frames before the player's first gate and closes mid-phrase, and neither is
+a mistake — so an unscored rest at either end is skipped rather than diffed.
+Score the opening rest explicitly when its length is part of the claim, and
+it is compared like any other entry.
 
 **Write it from your note data, not from the transcription.** Capturing
 first and pasting the transcribed notes back in as the score produces a
@@ -171,8 +188,10 @@ not for a general impression of health.
 | Notes that are one frame long | Gate set and cleared inside the same frame; the envelope never gets to attack. |
 | Bars where the score says rest | An un-zeroed gate bit left over from the previous section, or an effect firing on a voice it was not assigned. |
 
-The roll is the diff's picture: when `report.md` names a failing frame
-range, look at that range in the roll before touching code.
+The roll is the diff's picture. A diff is a line of prose, not a range —
+`voice 1 event 3: expected C4, heard A4 at frame 120` — so it gives you a
+voice and the frame the offending event *starts* on. Find that voice's bar
+at that frame in the roll, and read forward from it, before touching code.
 
 ## WAV metrics and what they catch
 
@@ -249,6 +268,12 @@ every WAV finding with the roll before naming a cause.
   nothing, since the pinned rate is set by host latency. The separation is
   wide enough to be useful anyway: that same 200-frame log measured ~22/s
   pinned against ~425/s warped.
+- **The warning's threshold is fixed, and it is the NTSC one.** It fires
+  above 63/s — 60 fps plus a 5% margin — whatever machine the session is.
+  On a PAL session that leaves 50 to 63/s unflagged, although a 50 fps
+  machine cannot sample above 50/s either. Apply the machine's own frame
+  rate to `sample_rate_hz` yourself when the timeline matters; the built-in
+  warning is a backstop, not the check.
 
 Related: `references/hardware.md` for the SID register, ADSR and note
 tables; `references/cookbook.md` for working sound recipes; and, in the

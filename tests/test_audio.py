@@ -20,6 +20,7 @@ import wave
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
+import numpy as np
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -1543,6 +1544,42 @@ def test_cli_audio_report_assumes_pal_when_no_session_is_named(tmp_path):
     assert "PASS" in r.output and "c64pal" in r.output
 
 
+def test_cli_audio_report_measures_the_peak_with_peak_hz(tmp_path):
+    """The alignment gate's instrument, reachable from the command line.
+
+    A 440 Hz tone over 1 s of 44100 gives 1 Hz bins, so the answer is bin
+    440 exactly — which is the check an agent runs against what the registers
+    predict for the same capture.
+    """
+    log = tmp_path / "sid.jsonl"
+    log.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    wav = tmp_path / "capture.wav"
+    tone = np.sin(2 * np.pi * 440.0 * np.arange(44100) / 44100) * 0.5
+    with wave.open(str(wav), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(44100)
+        out.writeframes(np.round(tone * 32767).astype("<i2").tobytes())
+    r = CliRunner().invoke(main, ["--json", "audio", "report", str(log),
+                                  str(tmp_path / "out"), "--wav", str(wav),
+                                  "--peak-hz"])
+    assert r.exit_code == 0, r.output
+    peak = json.loads(r.output)["peak"]
+    assert peak["bin"] == 440
+    assert peak["peak_hz"] == pytest.approx(440.0)
+    assert peak["bin_hz"] == pytest.approx(1.0)
+    assert peak["resolution_cents"] == pytest.approx(1.967, abs=0.01)
+
+
+def test_cli_audio_report_peak_hz_needs_a_wav(tmp_path):
+    log = tmp_path / "sid.jsonl"
+    log.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    r = CliRunner().invoke(main, ["audio", "report", str(log),
+                                  str(tmp_path / "out"), "--peak-hz"])
+    assert r.exit_code == 1
+    assert "--wav" in r.output
+
+
 def test_cli_audio_capture_reports_the_verdict():
     s, _ = _fake_session()
     with patch("c64lib.cli.Session") as S, \
@@ -1758,15 +1795,18 @@ def _pin_and_arm(session, wav_path) -> None:
     """Pin the machine to real time *before* the fixture is released.
 
     The order matters as much as the pin. The capture has to open while the
-    fixture is already sounding — `diff_score` is positional and exempts only
-    *trailing* silence, so a capture that opens on a leading rest shifts every
-    slot of the voice and cascades a false diff down all of it. That means the
-    release and the capture have to be a known number of *emulated* frames
-    apart, and on a warped session they are not: warp runs ~9.7x, so the same
-    fraction of a second of setup is ~10x the frames, and a stalled warp
-    readback (retried, but seen live) would put the whole arpeggio behind the
-    capture window before it opened. At real time the gap is 14 frames against
-    HOLD_FRAMES of cover.
+    fixture is already sounding, so that the whole arpeggio is inside the
+    window: the release and the capture have to be a known number of
+    *emulated* frames apart, and on a warped session they are not — warp runs
+    ~9.7x, so the same fraction of a second of setup is ~10x the frames, and a
+    stalled warp readback (retried, but seen live) would put the whole
+    arpeggio behind the capture window before it opened. At real time the gap
+    is 14 frames against HOLD_FRAMES of cover.
+
+    An unscored *leading* rest is now exempt from the diff the way a trailing
+    one always was, so opening a few frames early costs window rather than
+    cascading a wrong-note diff down the voice — but window is exactly what
+    this fixture has none of to spare.
 
     The pin has to arm a recorder to survive, which is why this takes a path:
     a headless VICE at real time with nothing consuming its sound output stops

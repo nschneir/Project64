@@ -8,13 +8,14 @@
 # check rather than a rubber stamp.
 #
 # Voice 1's first event has no `frames`: the fixture is already sounding C4
-# when the capture starts (a capture that opens on silence would shift every
-# later slot and cascade a false diff down the whole voice), so how much of
-# that C4 is caught depends on how long `capture()` takes to arm. E4 and G4
-# are whole notes the fixture times itself against the raster, so their
-# lengths are pinned. The capture window ends inside the fixture's closing
-# silence, which `diff_score` exempts as the end of the window rather than a
-# mistake — a score need not predict its own trailing rest.
+# when the capture starts, so how much of that C4 is caught depends on how
+# long `capture()` takes to arm. E4 and G4 are whole notes the fixture times
+# itself against the raster, so their lengths are pinned. The window also ends
+# inside the fixture's closing silence, which `diff_score` exempts as the end
+# of the window rather than a mistake — a score need not predict its own
+# trailing rest, and since the same exemption now covers an unscored LEADING
+# rest, a capture that opened a few frames early would still match this file
+# rather than cascading a diff down the voice.
 #
 # The 50s below are the fixture's `NOTE_FRAMES` (tests/test_audio.py), written
 # out by hand because a YAML file cannot import it: change that constant and

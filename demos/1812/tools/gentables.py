@@ -27,7 +27,13 @@ ROWS = 200               # bitmap pixel rows
 CELLS = 40               # cells across
 CELLROWS = 25
 
-NTSC_CLOCK = 1022730     # references/hardware.md, "Sound"
+# The true NTSC clock is 1022727 Hz; `references/hardware.md` said 1022730 and
+# has since been corrected. This keeps the older value ON PURPOSE: the note
+# table committed beside this script was generated with it, and re-running
+# with 1022727 would move three of the 72 entries (C#3, F6, A#6) by one LSB —
+# 0.76 cents at worst, and only at C#3. Not worth a regenerated artifact, but
+# it is a real diff, so change this only together with the table it produces.
+NTSC_CLOCK = 1022730
 SID_ACC = 16777216       # 2**24, the oscillator accumulator
 C1_HZ = 32.70319566      # note index 1
 NOTES = 72               # C1..B6

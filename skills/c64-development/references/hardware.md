@@ -287,9 +287,9 @@ The classic beep from BASIC:
 160 poke 54296,0           : rem volume off when done
 ```
 
-Frequency: Fout = value × clock / 16777216 Hz (NTSC clock ≈ 1022730), so
-value ≈ Fout × 16.4. Always gate off and zero the volume when done, or the
-tone continues forever.
+Frequency: Fout = value × clock / 16777216 Hz (NTSC clock 1022727 Hz, PAL
+985248 Hz), so value ≈ Fout × 16.4 on NTSC. Always gate off and zero the
+volume when done, or the tone continues forever.
 
 **Playing named notes.** Fn = round(freq × 16777216 / clock); split it with
 Fhi = INT(Fn/256), Flo = Fn AND 255, then poke Fhi→`$D401`, Flo→`$D400`. One

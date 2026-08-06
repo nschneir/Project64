@@ -2345,6 +2345,12 @@ def audio_sidlog(ctx, frames, path):
     measured ~22/s pinned from a 60 Hz machine, ~425/s warped): above the
     frame rate it proves the session was not at real time, below it proves
     nothing.
+
+    The WARNING's threshold is a fixed 63/s — 60 fps, the fastest machine
+    here, plus a 5% margin — not the session's own frame rate. On a PAL
+    session that leaves 50 to 63/s unflagged even though it already proves
+    the machine outran 50 fps, so apply the machine's own rate yourself when
+    the timeline matters.
     """
     s = attach(ctx)
     try:
@@ -2395,8 +2401,11 @@ def _verdict_report(ctx, out: dict, headline: str) -> None:
               help="Reference score YAML to diff the transcription against. "
                    "Without one the report still runs every reference-free "
                    "check, and an empty diff is a legitimate pass.")
+@click.option("--peak-hz", "peak_hz", is_flag=True,
+              help="Also measure the WAV's loudest frequency, and how precise "
+                   "that answer is. Needs --wav.")
 @click.pass_context
-def audio_report(ctx, log, outdir, wav_path, ref_path):
+def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     """Analyse a captured SID log (and its WAV) into a verdict.
 
     Writes `report.md` into OUTDIR next to `piano-roll.png` and, with a WAV,
@@ -2409,18 +2418,42 @@ def audio_report(ctx, log, outdir, wav_path, ref_path):
     session PAL is assumed (985248 Hz, 50 fps). Reading an NTSC capture as PAL
     transcribes every note about 65 cents out, which looks like a badly tuned
     program rather than a mistake here, so name the session when it was NTSC.
+
+    --peak-hz adds the recording's loudest frequency to the payload, measured
+    by one rFFT over the whole file with DC excluded. It is a bin centre, not
+    a sub-bin estimate, so `resolution_cents` is what half a bin is worth at
+    that pitch and is the tightest agreement the number can claim. Use it to
+    check a WAV against what the registers predict — `hz = reg16 * clock /
+    2**24` — which is the measurement `src/c64lib/audio.py`'s module docstring
+    rests its emulated-time alignment on.
     """
     name = ctx.obj["session"]
     timing = report_timing_for(attach(ctx).model if name else None)
+    if peak_hz and not wav_path:
+        fail(ctx, "audio report --peak-hz needs --wav: a dominant partial is "
+                  "a property of the recording, not of the register log")
+        return
     try:
         out = sid_report(log, outdir, wav_path=wav_path, ref_path=ref_path,
                          timing=timing)
+        if peak_hz:
+            # Imported here for the reason sid_report imports it here: numpy
+            # and Pillow double the startup of every `c64` command.
+            from .sid_analysis import dominant_partial_hz
+            out["peak"] = dominant_partial_hz(wav_path)
     except (RuntimeError, OSError, ValueError) as e:
         fail(ctx, f"audio report: {e}")
         return
     notes = f"{out['notes']} note" + ("" if out["notes"] == 1 else "s")
-    _verdict_report(ctx, out, f"transcribed {notes} as a {out['machine']} "
-                              f"machine ({out['clock_hz']} Hz, {out['fps']} fps)")
+    headline = (f"transcribed {notes} as a {out['machine']} "
+                f"machine ({out['clock_hz']} Hz, {out['fps']} fps)")
+    if peak_hz:
+        peak = out["peak"]
+        cents = ("" if peak["resolution_cents"] is None
+                 else f" (+-{peak['resolution_cents']:.2f} cents)")
+        headline += (f"\npeak {peak['peak_hz']:.2f} Hz, bin {peak['bin']} of "
+                     f"{peak['bin_hz']:.4f} Hz{cents}")
+    _verdict_report(ctx, out, headline)
 
 
 @audio.command("capture")
@@ -2442,11 +2475,15 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     SECONDS is EMULATED time, and it costs several times that in wall clock:
     the machine advances one frame per monitor round trip while the log is
     sampling. Measured on an NTSC session, a 2-second capture (120 frames)
-    took 6.19 s from pinning to unpinning and 6.32 s for the whole command.
-    Budget for that, keep the session to yourself for the duration, and start
-    the music before you call this — a capture that opens on silence begins
-    with a rest the reference score does not list, and the positional diff
-    cascades from there.
+    took 6.19 s from pinning to unpinning and 6.32 s for the whole command
+    (`src/c64lib/audio.py`'s module docstring holds that measurement and the
+    evidence behind it). Budget for that and keep the session to yourself for
+    the duration.
+
+    Start the music before you call this. An opening rest the score does not
+    list is tolerated — it is skipped, the way trailing silence is — but a
+    capture that opens on silence still spends part of its window recording
+    nothing.
     """
     s = attach(ctx)
     try:

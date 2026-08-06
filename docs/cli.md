@@ -1374,8 +1374,10 @@ are consistent with each other.
 
 The sampling loop runs inside the session daemon, one frame per round trip
 — a per-frame round trip from the client would cost about half a second
-each. 100 frames take about 5 seconds at real time and a quarter of a
-second warped. It leaves the machine running and does not touch the
+each. A 100-frame log takes about 5 seconds at real time and a quarter of a
+second warped; that is its own measurement, on a different log from the
+200-frame one whose sampling rates are quoted below, so do not read one as
+the other's quotient. It leaves the machine running and does not touch the
 emulator's speed, so pair it with `c64 audio record --start` when the frame
 numbers have to line up with a WAV.
 
@@ -1408,6 +1410,12 @@ host-dependent (round-trip latency sets it), so there is no figure to
 assert — the useful signal is the size of the gap: that same 200-frame log
 measured ~22/s pinned against ~425/s warped on one idle host.
 
+The *warning* does not use the session's frame rate. Its threshold is fixed
+at 63/s — 60 fps, the fastest machine here, plus a 5% margin — so a PAL
+session sampling between 50 and 63/s goes unflagged even though it has
+already proved the machine outran 50 fps. Read `sample_rate_hz` against the
+machine's own rate yourself whenever the timeline matters.
+
 JSON: `{"path", "frames", "requested", "seconds", "sample_rate_hz",
 "warning"}` — `frames` is what landed, `requested` what was asked for (they
 differ when the sampling budget ran out), `seconds` and `sample_rate_hz`
@@ -1430,9 +1438,11 @@ Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
 
 Start the music before you call this. A capture that opens before the first
-gate begins with a rest the reference score does not list, and a positional
-diff cascades from there — every later note is compared against the wrong
-entry.
+gate begins with a rest the reference score does not list; that rest is
+skipped rather than diffed — the same exemption trailing silence gets — so
+it costs part of the capture window, not a cascade of wrong notes. Score the
+opening rest explicitly if its length is part of the claim, and it is
+compared like any other entry.
 
 **Budget wall clock, not `SECONDS`.** The machine advances one frame per
 monitor round trip while the log samples, so emulated time and wall clock
@@ -1462,9 +1472,12 @@ WAV timestamp locates a log frame only to within about 0.1 s.
 The alignment itself was verified against the audio and not only its length: a
 tone the registers predict at 440.00 Hz landed in the WAV's FFT bin holding
 that prediction (0.479 Hz bins, so agreement within ±0.94 cents). A recording
-paced on wall clock would have had to invent the ~4.1 s it never generated —
-stretching puts the tone near 148 Hz, padding or repeating smears it across
-bins. `src/c64lib/audio.py`'s module docstring holds the full measurement.
+paced on wall clock would have had to account for the ~4.1 s it never
+generated: stretching would put the tone near 148 Hz, some 610 bins away, and
+a 2.0887 s file has no room for 4.1 s of padding or repeats — the *length*
+excludes that half, not the spectrum. `src/c64lib/audio.py`'s module docstring
+holds the full measurement; `c64 audio report --peak-hz` is the instrument, so
+the pitch half re-runs on any capture.
 
 JSON: everything `audio report` returns, plus `frames` (what landed),
 `requested_frames`, `emulated_s`, `wall_clock_s`, `wav_bytes`,
@@ -1496,8 +1509,19 @@ any earlier capture.
 - `--ref PATH` — reference score YAML. Without one the transcription is still
   checked for everything a score is not needed for (stuck gates, notes held
   audibly out of tune), and an empty diff is a legitimate pass.
+- `--peak-hz` — also measure the recording's loudest frequency. Needs
+  `--wav`.
 
 Exits 1 when the verdict is FAIL, same as `audio capture`.
+
+`--peak-hz` is one rFFT over the whole mono mixdown with DC excluded, and it
+adds a `peak` object to the payload: `peak_hz`, `bin`, `bin_hz`,
+`resolution_cents`, `seconds`. The answer is a bin *centre*, never a sub-bin
+estimate, so `resolution_cents` — what half a bin is worth at that pitch — is
+the tightest agreement it can honestly claim. Use it to check a WAV against
+what the registers predict (`hz = reg16 * clock / 2**24`): that comparison is
+what establishes a capture's WAV and its register log share a time base, and
+it is the measurement `src/c64lib/audio.py`'s module docstring rests on.
 
 The transcription needs the machine's clock and a register log does not carry
 one: `-s NAME` takes it from that session's model, and with no session PAL is
