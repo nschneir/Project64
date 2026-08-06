@@ -44,6 +44,10 @@ FALLBACK_NOTE = _midi_name(sum(_midi_range([])) // 2)
 
 PAL_CLOCK = 985248
 NTSC_CLOCK = 1022727
+#: Frames per second of the machines above. Paired with the clock, never
+#: mixed: a PAL log timed at 60 fps places every note 20% early against a WAV.
+PAL_FPS = 50
+NTSC_FPS = 60
 
 #: reg16 values whose PAL pitches are pinned by the plan.
 A4_REG = 7493        # 440.03 Hz, A4, +0.11 cents
@@ -51,8 +55,18 @@ C4_REG = 4455        # 261.62 Hz, C4, -0.03 cents
 E4_REG = 5613        # 329.63 Hz, E4, -0.01 cents
 A4_SHARP30_REG = 7623   # 447.66 Hz, A4 +29.9 cents — audibly out of tune
 
+#: Voice 3's frequency in the 8 s NTSC Space Invaders gameplay capture of
+#: 2026-08-02, which is the log every noise test below is built from:
+#: 6176 * 1022727 / 2**24 = 376.485 Hz, which is F#4 sharp by 30.1 cents.
+#: The invader march's percussion — noise, so there is no pitch there at all.
+INVADERS_NOISE_REG = 6176
+
 TRIANGLE_ON = 0x11   # triangle waveform + gate
 TRIANGLE_OFF = 0x10  # same waveform, gate released
+PULSE_ON = 0x41      # pulse waveform + gate: pitched, so tuning applies
+NOISE_ON = 0x81      # noise waveform + gate: no pitch to be in tune with
+NOISE_OFF = 0x80     # same waveform, gate released
+PULSE_NOISE_ON = 0xC1   # a combined waveform with noise in it
 
 
 def _regs(voices):
@@ -508,10 +522,181 @@ def test_find_anomalies_reports_every_voice_in_order():
     assert "voice 1" in findings[0] and "voice 2" in findings[1]
 
 
+# --- find_anomalies: noise has no tuning ----------------------------------
+
+def _invaders_voice3():
+    """Voice 3 of the 2026-08-02 NTSC Invaders gameplay capture: the march's
+    noise percussion, 43 frames from frame 0 and 59 from frame 197."""
+    return _log(
+        (43, {3: (INVADERS_NOISE_REG, NOISE_ON)}),
+        (154, {3: (INVADERS_NOISE_REG, NOISE_OFF)}),
+        (59, {3: (INVADERS_NOISE_REG, NOISE_ON)}),
+    )
+
+
+def test_invaders_noise_percussion_transcribes_as_the_capture_did():
+    """The fixture is the failing capture, not a convenient approximation.
+
+    Asserted before the anomaly test uses it, because "no detune anomaly" is
+    only evidence if this log is one that WOULD have produced one: two runs
+    past `MIN_DETUNE_FRAMES`, each more than `MAX_CENTS_OFF` from a note."""
+    sounding = [e for e in _voice(transcribe(_invaders_voice3(), NTSC_CLOCK), 3)
+                if e.note != sid_analysis.REST]
+    assert [(e.note, e.start_frame, e.frames) for e in sounding] \
+        == [("F#4", 0, 43), ("F#4", 197, 59)]
+    for event in sounding:
+        assert event.cents_off == pytest.approx(30.1, abs=0.05)
+        assert event.frames >= sid_analysis.MIN_DETUNE_FRAMES
+        assert abs(event.cents_off) > sid_analysis.MAX_CENTS_OFF
+
+
+def test_find_anomalies_does_not_call_noise_percussion_detuned():
+    """The regression this fix exists for. Noise is an LFSR, not an
+    oscillator: `$D400/$D401` sets its brightness, and calling that "F#4
+    detuned +30.1 cents" failed a real capture whose transcription was
+    independently confirmed correct."""
+    records = _invaders_voice3()
+    assert find_anomalies(transcribe(records, NTSC_CLOCK), records) == []
+
+
+def test_find_anomalies_still_flags_the_same_detuning_on_a_pitched_waveform():
+    """Same registers, same durations, pulse instead of noise — so the
+    exemption is the WAVEFORM and not a threshold quietly widened past the
+    numbers the Invaders capture happened to hold."""
+    records = _log((43, {3: (INVADERS_NOISE_REG, PULSE_ON)}))
+    findings = find_anomalies(transcribe(records, NTSC_CLOCK), records)
+    assert len(findings) == 1
+    assert "voice 3" in findings[0] and "F#4" in findings[0]
+    assert "detuned +30.1 cents for 43 frames" in findings[0]
+
+
+def test_find_anomalies_exempts_a_combined_waveform_holding_noise():
+    """The bit is tested, not the whole register: pulse+noise is not a clean
+    tone either, so there is still no tuning to be wrong about."""
+    records = _log((43, {3: (INVADERS_NOISE_REG, PULSE_NOISE_ON)}))
+    assert find_anomalies(transcribe(records, NTSC_CLOCK), records) == []
+
+
+def test_find_anomalies_still_flags_a_stuck_gate_on_a_noise_voice():
+    """Only tuning is exempt. A noise voice gated over a zero frequency is as
+    stuck as any other, and that check reads the registers, not the pitch."""
+    records = _log((51, {3: (0, NOISE_ON)}))
+    findings = find_anomalies(transcribe(records, NTSC_CLOCK), records)
+    assert len(findings) == 1 and "stuck gate" in findings[0]
+
+
+# --- find_anomalies: gated but inaudible ----------------------------------
+
+def _wav(duration_s, silence_windows=()):
+    """The `wav_metrics` fields the anomaly checks read, and only those."""
+    return {"duration_s": duration_s,
+            "silence_windows": [tuple(w) for w in silence_windows]}
+
+
+def _decayed_note_log():
+    """2.0 s of an audible note, then a 290-frame note held to the end.
+
+    The shape of the capture this check was written for: voice 1's last event
+    transcribed as 290 frames while the WAV under it went quiet part way
+    through. At `PAL_FPS` the second note runs 2.00 s to 7.80 s.
+    """
+    return _log((100, {1: (A4_REG, TRIANGLE_ON)}),
+                (290, {1: (C4_REG, TRIANGLE_ON)}))
+
+
+def test_find_anomalies_flags_a_note_gated_across_recorded_silence():
+    """A gate is not audibility: a sustain-zero envelope decays to nothing
+    with the gate still held, so the transcription reports 5.8 s of C4 while
+    the recording says the last 3.6 s of it never sounded."""
+    records = _decayed_note_log()
+    findings = find_anomalies(transcribe(records, PAL_CLOCK), records,
+                              fps=PAL_FPS, metrics=_wav(7.8, [(4.0, 7.8)]))
+    assert len(findings) == 1
+    assert "voice 1: C4 at frame 100" in findings[0]
+    assert "gated for 290 frames" in findings[0]
+    assert "silent from 4.00 s to 7.80 s" in findings[0]
+    assert "3.6 s of the note never sounded" in findings[0]
+
+
+def test_find_anomalies_cannot_see_an_inaudible_note_without_the_recording():
+    """The same log alone is clean — every register in it is doing what it
+    was told. Which is why the assertion above is evidence about the WAV and
+    not about the transcription, and why a register-only run keeps passing."""
+    records = _decayed_note_log()
+    assert find_anomalies(transcribe(records, PAL_CLOCK), records) == []
+
+
+def test_find_anomalies_tolerates_silence_shorter_than_the_threshold():
+    """1.15 s of measured silence inside the note, less 0.1 s of alignment
+    slack at each end, is 0.95 s — under `MIN_INAUDIBLE_S`, which is where a
+    decay tail and a gap between phrases live."""
+    records = _decayed_note_log()
+    assert find_anomalies(transcribe(records, PAL_CLOCK), records,
+                          fps=PAL_FPS, metrics=_wav(7.8, [(4.0, 5.15)])) == []
+
+
+def test_find_anomalies_flags_silence_just_past_the_threshold():
+    """The other side of the same 0.1 s: a 1.25 s window is 1.05 s after the
+    slack, which is over — and reported to one decimal as 1.1 s. The pair pins
+    the threshold AND the slack: without the slack the 1.15 s window above
+    would be over it too, and 0.1 s of window separates the two cases."""
+    records = _decayed_note_log()
+    findings = find_anomalies(transcribe(records, PAL_CLOCK), records,
+                              fps=PAL_FPS, metrics=_wav(7.8, [(4.0, 5.25)]))
+    assert len(findings) == 1 and "1.1 s of the note never sounded" in findings[0]
+
+
+def test_find_anomalies_ignores_silence_outside_the_note():
+    """An overlap, not "a long silence exists somewhere". The note ends at
+    5.80 s and the recording goes quiet after it — which is the gate being
+    released, the most ordinary thing in the log."""
+    records = _log((290, {1: (A4_REG, TRIANGLE_ON)}),
+                   (100, {1: (A4_REG, TRIANGLE_OFF)}))
+    assert find_anomalies(transcribe(records, PAL_CLOCK), records,
+                          fps=PAL_FPS, metrics=_wav(7.8, [(5.9, 7.8)])) == []
+
+
+def test_find_anomalies_times_the_recording_from_the_first_logged_frame():
+    """Frame numbers are the session's, seconds are the recording's. A log
+    that opens at frame 3000 is 60 s into the machine and 0 s into the WAV;
+    measured from frame 0 the note would land at 62-78 s, past the end of a
+    7.8 s recording, and nothing would ever be flagged."""
+    records = [FrameRecord(frame=r.frame + 3000, regs=r.regs)
+               for r in _decayed_note_log()]
+    findings = find_anomalies(transcribe(records, PAL_CLOCK), records,
+                              fps=PAL_FPS, metrics=_wav(7.8, [(4.0, 7.8)]))
+    assert len(findings) == 1 and "C4 at frame 3100" in findings[0]
+
+
+def test_find_anomalies_leaves_a_wholly_silent_recording_to_the_verdict():
+    """A capture that recorded nothing at all is one failure with a named
+    cause — `write_report`'s silence rule — not one anomaly per note burying
+    it under the symptom."""
+    records = _decayed_note_log()
+    assert find_anomalies(transcribe(records, PAL_CLOCK), records,
+                          fps=PAL_FPS, metrics=_wav(7.8, [(0.0, 7.8)])) == []
+
+
+def test_find_anomalies_refuses_a_frame_rate_it_cannot_divide_by():
+    """Raised rather than skipped: a bad fps is a caller bug, and swallowing
+    it would delete the check silently — which is how this defect shipped."""
+    records = _decayed_note_log()
+    with pytest.raises(ValueError, match="fps must be positive"):
+        find_anomalies(transcribe(records, PAL_CLOCK), records,
+                       fps=0, metrics=_wav(7.8, [(4.0, 7.8)]))
+
+
+def test_find_anomalies_ignores_a_rest_over_recorded_silence():
+    """Silence under a released gate is the system working."""
+    records = _log((100, {1: (A4_REG, TRIANGLE_ON)}),
+                   (290, {1: (A4_REG, TRIANGLE_OFF)}))
+    assert find_anomalies(transcribe(records, PAL_CLOCK), records,
+                          fps=PAL_FPS, metrics=_wav(7.8, [(2.0, 7.8)])) == []
+
+
 # --- render_piano_roll ----------------------------------------------------
 
 MIN_ROLL_SIZE = (640, 240)
-PAL_FPS = 50
 
 
 def _note(voice, note, start_frame, frames, waveform=0x10, gate_frames=None):
@@ -1096,6 +1281,86 @@ def test_write_report_tabulates_the_notes_of_each_voice(tmp_path):
     assert "Voice 1" in text and "Voice 2" in text
     assert "A4" in text and "C4" in text
     assert "pulse" in text
+
+
+def test_write_report_prints_no_cents_for_a_noise_event(tmp_path):
+    """The cents column is a tuning claim, and noise has no pitch to be in
+    tune with — the note name stays (it is what the oscillator holds, and
+    what the roll and the diff are positioned by), the number goes."""
+    events = [NoteEvent(voice=3, note="F#4", start_frame=0, frames=43,
+                        waveform=0x80, gate_frames=43, cents_off=30.1)]
+    row = [line for line in _report(tmp_path, events, metrics=_metrics()
+                                    ).read_text().splitlines()
+           if line.startswith("| 0 |")]
+    assert row == ["| 0 | 43 | F#4 | - | noise | 43 |"]
+
+
+def test_write_report_still_prints_cents_for_a_pitched_event(tmp_path):
+    """The same event on a pulse waveform keeps its number, so the dash above
+    is about the waveform and not about the column having been emptied."""
+    events = [NoteEvent(voice=3, note="F#4", start_frame=0, frames=43,
+                        waveform=0x40, gate_frames=43, cents_off=30.1)]
+    row = [line for line in _report(tmp_path, events, metrics=_metrics()
+                                    ).read_text().splitlines()
+           if line.startswith("| 0 |")]
+    assert row == ["| 0 | 43 | F#4 | +30.1 | pulse | 43 |"]
+
+
+ALL_REST = tuple(_note(v, "rest", 0, 50, waveform=0, gate_frames=0) for v in (1, 2, 3))
+
+
+def test_write_report_says_so_when_nothing_played(tmp_path):
+    """The attract-screen capture: no voice gated, the WAV silent throughout.
+    Still a PASS — nothing sounded, so no check had anything to disagree with
+    — but a bare PASS there tells an agent whose program never started that
+    everything is fine, so the pass says what it is passing on."""
+    metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
+    text = _report(tmp_path, ALL_REST, metrics=metrics).read_text()
+    assert "**PASS**" in text
+    assert "**Nothing played.**" in text          # under the verdict
+    assert "**No voice sounded.**" in text        # and above the transcription
+    assert "the recording is silent from end to end" in text
+
+
+def test_write_report_does_not_say_nothing_played_when_a_voice_sounded(tmp_path):
+    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    assert "Nothing played" not in text and "No voice sounded" not in text
+
+
+def test_write_report_does_not_call_a_silent_log_over_an_audible_wav_silent(tmp_path):
+    """No gated voice over a WAV with audio in it is `$D418` sample playback,
+    which this transcription cannot see. The transcription reports what it
+    read; the verdict does not claim nothing played when the recording
+    disagrees."""
+    text = _report(tmp_path, ALL_REST, metrics=_metrics()).read_text()
+    assert "**No voice sounded.**" in text
+    assert "Nothing played" not in text
+
+
+def test_write_report_says_nothing_played_on_a_register_only_run(tmp_path):
+    """No WAV to corroborate, so the notice makes the claim it can: the log
+    is what says nothing played, and the sentence does not invent a silent
+    recording that was never measured."""
+    text = _report(tmp_path, ALL_REST).read_text()
+    assert "**Nothing played.**" in text
+    assert "the recording is silent" not in text
+
+
+def test_write_report_says_nothing_played_for_an_empty_log(tmp_path):
+    text = _report(tmp_path).read_text()
+    assert "the register log was empty" in text
+    assert "**Nothing played.**" in text
+
+
+def test_write_report_nothing_played_notice_is_not_a_verdict_reason(tmp_path):
+    """The reasons under a verdict are `- ` bullets that a front end reads
+    back out of this file. The notice is a block quote so that a PASS with a
+    notice still has no reasons — and so a FAIL's reasons stay countable."""
+    metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
+    verdict = _report(tmp_path, ALL_REST, metrics=metrics).read_text()
+    body = verdict[verdict.index("## Verdict"):]
+    assert "**Nothing played.**" in body
+    assert [line for line in body.splitlines() if line.startswith("- ")] == []
 
 
 def test_write_report_links_only_the_artifacts_that_exist(tmp_path):

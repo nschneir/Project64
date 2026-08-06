@@ -930,10 +930,6 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
         # Neither an OSError nor a ValueError, so it would reach a front end
         # as a traceback; a hand-written score is exactly where a typo lands.
         raise AudioError(f"{ref_path} is not readable YAML ({e})") from e
-    anomalies = sid_analysis.find_anomalies(events, records)
-
-    roll = outdir / PIANO_ROLL
-    sid_analysis.render_piano_roll(events, roll, timing["fps"])
     metrics = spectrogram = None
     if wav_path is not None:
         try:
@@ -944,6 +940,15 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
             # Not an OSError and not a ValueError, so it would reach a front
             # end as a traceback: a truncated or non-RIFF file is a report.
             raise AudioError(f"{wav_path} is not a readable WAV ({e})") from e
+    # After the metrics, not before: one of the anomaly checks reads a note the
+    # log calls sounding against the levels the recording actually reached, so
+    # the WAV has to have been measured first. Without one it is skipped and
+    # every register-only check still runs.
+    anomalies = sid_analysis.find_anomalies(events, records, fps=timing["fps"],
+                                            metrics=metrics)
+
+    roll = outdir / PIANO_ROLL
+    sid_analysis.render_piano_roll(events, roll, timing["fps"])
     # After the renders: the report links the artifacts that exist beside it.
     report = sid_analysis.write_report(outdir, events, diffs, anomalies, metrics)
 
@@ -956,6 +961,11 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
         "spectrogram": str(spectrogram) if spectrogram else None,
         "events": len(events),
         "notes": sum(1 for e in events if e.note != sid_analysis.REST),
+        # Not derivable from `notes` alone: a log with no gated voice over a
+        # WAV with audio in it is `$D418` sample playback, which the
+        # transcription cannot see and this must not call silent. The rule
+        # lives in `sid_analysis`, next to the report's own notice.
+        "nothing_played": sid_analysis.nothing_played(events, metrics),
         "diffs": diffs, "anomalies": anomalies,
         # Without the RMS profile: it is one number per 0.1 s of audio, which
         # is hundreds of floats in a payload an agent reads. `report.md` has

@@ -2381,6 +2381,15 @@ def _verdict_report(ctx, out: dict, headline: str) -> None:
     treats "the report was written" as success proves nothing.
     """
     lines = [f"{out['verdict']}: {out['report']}", headline]
+    if out.get("nothing_played"):
+        # A PASS over an empty capture is the one verdict that means nothing:
+        # no note sounded, so no check had anything to disagree with. It is
+        # not a failure — proving a program is quiet is a real claim — but it
+        # must not scroll past as "the audio works".
+        lines.append("warning: nothing played — no voice sounded in this "
+                     "capture, so the verdict above checked nothing. Confirm "
+                     "the capture window was where you meant it. (Details "
+                     "under the verdict in the report.)")
     findings = list(out["diffs"]) + list(out["anomalies"])
     lines += [f"- {f}" for f in findings[:FINDINGS_SHOWN]]
     if len(findings) > FINDINGS_SHOWN:

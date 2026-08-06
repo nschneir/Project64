@@ -1097,16 +1097,25 @@ def _voice1(reg16: int = A4_NTSC_REG, control: int = TRIANGLE_GATED) -> bytes:
     return bytes(regs)
 
 
-def _write_wav(path, seconds: float, rate: int = 22050, hz: float = 440.0) -> None:
+def _write_wav(path, seconds: float, rate: int = 22050, hz: float = 440.0,
+               amplitude: int = 16000, silent_after: float | None = None) -> None:
     """A real mono 16-bit WAV of a sine — what `wav_metrics` and the
-    spectrogram read. Not silence: a silent capture is a FAIL verdict, which
-    would hide the artifact this is standing in for."""
+    spectrogram read. Not silence by default: a silent capture is a FAIL
+    verdict, which would hide the artifact this is standing in for.
+
+    `amplitude=0` writes digital silence, and `silent_after` cuts the sine
+    dead at that many seconds and pads the rest with zeros — a note whose
+    envelope decayed while the gate stayed held.
+    """
     import math
     import struct
     import wave
     count = round(seconds * rate)
-    pcm = b"".join(struct.pack("<h", int(16000 * math.sin(2 * math.pi * hz * i / rate)))
-                   for i in range(count))
+    loud = count if silent_after is None else round(silent_after * rate)
+    pcm = b"".join(
+        struct.pack("<h", int(amplitude * math.sin(2 * math.pi * hz * i / rate))
+                          if i < loud else 0)
+        for i in range(count))
     with wave.open(str(path), "wb") as out:
         out.setnchannels(1)
         out.setsampwidth(2)
@@ -1266,6 +1275,66 @@ def test_sid_report_reports_anomalies_from_the_register_log(tmp_path):
     out = audio.sid_report(log, tmp_path, timing=audio.report_timing_for("c64"))
     assert out["verdict"] == "FAIL"
     assert any("stuck gate" in a for a in out["anomalies"])
+
+
+def test_sid_report_flags_a_note_the_recording_says_never_sounded(tmp_path):
+    """The WAV-aware anomaly, end to end — and the reason the order inside
+    `sid_report` matters: the check reads the WAV's silence windows, so the
+    recording has to be measured BEFORE the anomalies are looked for. With
+    the metrics computed afterwards the check never saw a recording at all.
+
+    5 s of NTSC log (300 frames at 60 fps) holding one gated note over a WAV
+    that sounds for 2 s and is silent for the remaining 3."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 300)
+    wav = tmp_path / "capture.wav"
+    _write_wav(wav, 5.0, silent_after=2.0)
+    out = audio.sid_report(log, tmp_path, wav_path=wav,
+                           timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "FAIL"
+    assert len(out["anomalies"]) == 1
+    assert "gated for 300 frames" in out["anomalies"][0]
+    assert "never sounded" in out["anomalies"][0]
+
+
+def test_sid_report_keeps_passing_a_note_that_sounds_all_the_way_through(tmp_path):
+    """The same log over a WAV that never goes quiet. Without this the test
+    above would pass just as well against a check that fires on every note."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 300)
+    wav = tmp_path / "capture.wav"
+    _write_wav(wav, 5.0)
+    out = audio.sid_report(log, tmp_path, wav_path=wav,
+                           timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "PASS" and out["anomalies"] == []
+
+
+def test_sid_report_says_when_nothing_played_at_all(tmp_path):
+    """The attract-screen capture: no voice gated, a silent recording, and a
+    PASS that checked nothing. Still a PASS — but the payload carries the
+    fact, and the report's notice is a block quote, so a verdict with no
+    reasons still reads back as a verdict with no reasons."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [bytes(25)] * 60)
+    wav = tmp_path / "capture.wav"
+    _write_wav(wav, 1.0, amplitude=0)
+    out = audio.sid_report(log, tmp_path, wav_path=wav,
+                           timing=audio.report_timing_for("c64"))
+    assert out["verdict"] == "PASS" and out["failures"] == []
+    assert out["nothing_played"] is True
+    assert out["notes"] == 0
+    assert "**Nothing played.**" in Path(out["report"]).read_text()
+
+
+def test_sid_report_does_not_say_nothing_played_when_a_note_sounded(tmp_path):
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 30)
+    wav = tmp_path / "capture.wav"
+    _write_wav(wav, 0.5)
+    out = audio.sid_report(log, tmp_path, wav_path=wav,
+                           timing=audio.report_timing_for("c64"))
+    assert out["nothing_played"] is False
+    assert "Nothing played" not in Path(out["report"]).read_text()
 
 
 # --- capture ------------------------------------------------------------------
@@ -1596,6 +1665,39 @@ def test_cli_audio_capture_reports_the_verdict():
     assert r.exit_code == 1, r.output          # a FAIL verdict is a failure
     assert "/tmp/o/report.md" in r.output and "expected C4" in r.output
     cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None)
+
+
+def test_cli_audio_capture_warns_when_nothing_played():
+    """A PASS over an empty capture is the one verdict that means nothing:
+    no note sounded, so no check had anything to disagree with. Exit 0 — it
+    is not a failure — with the warning on the same screen as the PASS."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "nothing_played": True,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8}):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    assert "warning: nothing played" in r.output
+
+
+def test_cli_audio_capture_is_quiet_about_a_capture_that_played():
+    """Same payload with the flag false — so the warning above is the flag
+    and not a line printed under every verdict."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "nothing_played": False,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8}):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    assert "nothing played" not in r.output
 
 
 def test_cli_audio_capture_passes_the_reference_score():

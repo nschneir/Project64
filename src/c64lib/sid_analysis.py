@@ -58,6 +58,36 @@ MIN_DETUNE_FRAMES = 25
 
 #: Waveform bits (control register bits 4-7), for report tables.
 WAVEFORM_NAMES = {0x10: "triangle", 0x20: "sawtooth", 0x40: "pulse", 0x80: "noise"}
+#: The noise bit. Noise is an LFSR clocked by the oscillator, so the frequency
+#: register sets how BRIGHT the broadband output is and not what pitch it is —
+#: there is no pitch to be out of tune with. Everything downstream that talks
+#: about tuning (the detune check, the report's cents column) therefore has to
+#: exclude it, and the bit is tested rather than the whole waveform compared:
+#: a combined waveform with noise in it is not a clean tone either.
+NOISE_WAVEFORM = 0x80
+
+#: A gated note the recording says was inaudible for longer than this is
+#: over-reported: the gate stayed on, but a sustain-zero envelope had already
+#: decayed to nothing, so the piano roll draws a bar over silence.
+#:
+#: One second, which is four times ``MIN_SILENCE_S`` (a stretch shorter than
+#: that is not even called silence) and ten times the ``RMS_WINDOW_S`` the
+#: measurement is quantized to. It is deliberately far above any decay tail
+#: worth calling normal: a silence window only exists when the whole MIX is
+#: under ``SILENCE_DB``, so a plucked voice under a sounding arrangement can
+#: never reach it, and a plucked voice alone would have to be inaudible for a
+#: full second while still gated to be flagged. Against the capture this was
+#: written for — the 8 s NTSC Invaders gameplay capture of 2026-08-02, whose
+#: voice 1 transcribed a 290-frame (4.83 s at 60 fps) G2 while the WAV's
+#: silence window ran 4.00 s to 8.11 s — the overlap is 4.11 s measured and
+#: 3.91 s after the alignment slack below, nearly four times this threshold.
+MIN_INAUDIBLE_S = 1.0
+#: How far the WAV's zero and the log's frame 0 may disagree. The recorder and
+#: the sampling loop share a time base but are started one after the other, so
+#: the two agree on RATE exactly and on OFFSET only to about a frame. Silence
+#: windows are shrunk by this at both ends before they are measured against a
+#: note, which spends the uncertainty on not crying wolf.
+SILENCE_ALIGNMENT_S = 0.1
 
 # --- rendering -----------------------------------------------------------
 
@@ -172,6 +202,12 @@ class NoteEvent:
     over silence. ``waveform`` is the control register's waveform bits (mask
     ``0xF0``) as of the run's first frame, and ``cents_off`` is the mean
     deviation from the equal-tempered pitch (``0.0`` for a rest).
+
+    ``note`` and ``cents_off`` describe the OSCILLATOR, which is only a pitch
+    when the waveform is one. A noise event still carries both — the frequency
+    register is real, it sets how bright the noise is, and the piano roll and
+    the score diff are positioned by the name — but nothing may read its
+    ``cents_off`` as tuning: see ``NOISE_WAVEFORM``.
     """
 
     voice: int
@@ -304,17 +340,51 @@ def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[s
 
 
 def find_anomalies(
-    events: Sequence[NoteEvent], records: Sequence[FrameRecord]
+    events: Sequence[NoteEvent],
+    records: Sequence[FrameRecord],
+    *,
+    fps: float | None = None,
+    metrics: Mapping | None = None,
 ) -> list[str]:
     """Reference-free checks for things no working tune does.
 
     A voice that never sounds is not one of them — silence is a legal
     arrangement, and only a reference score can say a voice should have played.
+
+    ``fps`` and ``metrics`` are what a run with audio adds: given both, a note
+    the register log says is sounding is checked against the levels the
+    recording actually reached, which is the only way to catch a note that is
+    gated but inaudible. Without them (a register-only run — `c64 audio
+    sidlog` produces one) that check is skipped and every other one still
+    applies; there is no WAV to contradict the log.
     """
     found = [f for voice in VOICES for f in _stuck_gates(records, voice)]
     found += [f for f in map(_detuned, events) if f is not None]
+    if fps is not None and metrics is not None:
+        found += _inaudible_notes(events, fps, metrics)
     found.sort(key=lambda f: f[:2])
     return [message for _, _, message in found]
+
+
+def nothing_played(events: Sequence[NoteEvent], metrics: Mapping | None = None) -> bool:
+    """Whether this capture caught no sound at all.
+
+    True when no transcribed event sounds and — when there is a recording —
+    the recording is silent too. This is not a failure: proving a program is
+    quiet when it should be quiet is a real thing to want, and a reference
+    score listing three empty voices is how you claim it. It is reported
+    prominently anyway, because the same result is what a capture window that
+    opened on the wrong screen, or on a program that never started, produces,
+    and those must not read as "everything checks out".
+
+    The recording has to agree before the notice fires. A log with no gated
+    voice over a WAV with audio in it is not "nothing played" — that is
+    sample playback driven through ``$D418``, which this transcription cannot
+    see and must not deny.
+    """
+    if any(event.note != REST for event in events):
+        return False
+    return metrics is None or _all_silent(metrics)
 
 
 def render_piano_roll(events: Sequence[NoteEvent], png_path: str | Path, fps: float) -> None:
@@ -524,6 +594,10 @@ def write_report(
     of ``None`` is a render-only run (no audio captured), which is a legitimate
     outcome and not a failure; likewise an empty ``diffs`` list, which is what a
     run with no reference score produces.
+
+    A capture in which nothing sounded at all passes on the same rule — there
+    is nothing for a check to disagree with — but says so, under the verdict
+    and again above the transcription. See :func:`nothing_played`.
     """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -538,6 +612,7 @@ def write_report(
     lines += _metrics_section(metrics)
     lines += _artifacts_section(outdir)
     lines += ["## Verdict", "", f"**{'FAIL' if failures else 'PASS'}**", ""]
+    lines += _nothing_played_notice(events, metrics)
     lines += [f"- {reason}" for reason in failures] + ([""] if failures else [])
 
     path = outdir / REPORT_NAME
@@ -685,7 +760,19 @@ def _stuck_gates(
     return found
 
 
+def _is_noise(waveform: int) -> bool:
+    """Whether a waveform has the noise bit in it — see ``NOISE_WAVEFORM``."""
+    return bool(waveform & NOISE_WAVEFORM)
+
+
 def _detuned(event: NoteEvent) -> tuple[int, int, str] | None:
+    # Noise first, and on its own line, because it is exempt for a different
+    # reason than the thresholds are: not "too small to matter" but "not a
+    # pitch at all". While it fired, the commonest drum track there is failed
+    # a capture for being "detuned +30.1 cents" — the register that sets the
+    # LFSR's brightness read as a badly tuned F#4. See NOISE_WAVEFORM.
+    if _is_noise(event.waveform):
+        return None
     if (event.note == REST
             or event.frames < MIN_DETUNE_FRAMES
             or abs(event.cents_off) <= MAX_CENTS_OFF):
@@ -694,6 +781,71 @@ def _detuned(event: NoteEvent) -> tuple[int, int, str] | None:
         f"voice {event.voice}: {event.note} at frame {event.start_frame} is detuned "
         f"{event.cents_off:+.1f} cents for {event.frames} frames"
     ))
+
+
+def _silent_overlap_s(start_s: float, end_s: float, window: Sequence[float]) -> float:
+    """Seconds of ``start_s``-``end_s`` inside a silence window, less slack.
+
+    The window is shrunk by ``SILENCE_ALIGNMENT_S`` at each end before the
+    intersection, so an offset error between the WAV and the log can only ever
+    shorten the overlap this reports, never invent one.
+    """
+    window_start, window_end = window
+    return (min(end_s, window_end - SILENCE_ALIGNMENT_S)
+            - max(start_s, window_start + SILENCE_ALIGNMENT_S))
+
+
+def _inaudible_notes(
+    events: Sequence[NoteEvent], fps: float, metrics: Mapping
+) -> list[tuple[int, int, str]]:
+    """Notes the log says are sounding while the recording says nothing is.
+
+    The transcriber reads the gate, and a gate is not audibility: a
+    sustain-zero ADSR envelope decays to nothing with the gate still held, so
+    a voice can transcribe as one long note while the WAV under it is silent.
+    That is a real over-report — the piano roll draws the bar to the edge —
+    and neither the transcription nor ``_stuck_gates`` can see it, because
+    every register involved is doing exactly what it was told.
+
+    Frames become seconds against the FIRST frame in the events, not against
+    frame 0: a log that opens at frame 3000 is 50 s into a session, not 50 s
+    into this recording, and the WAV starts where the capture did.
+
+    A recording that is silent END TO END is left alone. That is the warped
+    or dead capture, ``_silence_failure`` already reports it once with the
+    sentence that names the real cause, and turning it into one anomaly per
+    note would bury that sentence under the symptom.
+    """
+    if fps <= 0:
+        # Raised, not skipped. A frame rate this cannot divide by is a caller
+        # bug, and swallowing it would delete a check silently — which is the
+        # exact failure mode this check was added to close.
+        raise ValueError(f"fps must be positive, got {fps!r}")
+    windows = [tuple(window) for window in metrics.get("silence_windows") or []]
+    if not windows or _all_silent(metrics):
+        return []
+    sounding = [event for event in events if event.note != REST]
+    if not sounding:
+        return []
+
+    origin = min(event.start_frame for event in events)
+    found = []
+    for event in sounding:
+        start_s = (event.start_frame - origin) / fps
+        end_s = (event.start_frame + event.frames - origin) / fps
+        seconds, window = max(
+            ((_silent_overlap_s(start_s, end_s, w), w) for w in windows),
+            key=lambda pair: pair[0])
+        if seconds < MIN_INAUDIBLE_S:
+            continue
+        found.append((event.voice, event.start_frame, (
+            f"voice {event.voice}: {event.note} at frame {event.start_frame} is "
+            f"gated for {event.frames} frames ({start_s:.2f}-{end_s:.2f} s) but "
+            f"the recording is silent from {window[0]:.2f} s to {window[1]:.2f} s "
+            f"— at least {seconds:.1f} s of the note never sounded (gate held "
+            f"over a decayed envelope?)"
+        )))
+    return found
 
 
 def _midi_name(midi: int) -> str:
@@ -818,6 +970,11 @@ def _transcription_section(events: Sequence[NoteEvent]) -> list[str]:
     lines = ["## Transcription", ""]
     if not events:
         return lines + ["No note events — the register log was empty.", ""]
+    if not any(event.note != REST for event in events):
+        # Said before the tables, not left to be inferred from three columns
+        # of "rest": this is the shape of a capture that missed its window.
+        lines += ["**No voice sounded.** Every frame of all three voices "
+                  "transcribed as a rest.", ""]
     for voice in VOICES:
         heard = [event for event in events if event.voice == voice]
         if not heard:
@@ -830,7 +987,16 @@ def _transcription_section(events: Sequence[NoteEvent]) -> list[str]:
         for event in heard:
             # `+ 0.0` folds the negative zero a tiny flat deviation rounds to,
             # so a dead-in-tune note reads "+0.0" rather than "-0.0".
-            cents = "-" if event.note == REST else f"{round(event.cents_off, 1) + 0.0:+.1f}"
+            #
+            # Noise gets the rest's dash rather than a number. The note NAME
+            # stays — it is a faithful reading of the oscillator, it is what
+            # sets the noise's brightness, and the piano roll and the score
+            # diff are both built on it — but a cents figure next to it is a
+            # claim about tuning, and noise has no pitch to be in tune with.
+            # Printing "+30.1" there is what made a drum track's FAIL read as
+            # credible. The `Waveform` column two cells along says "noise".
+            cents = ("-" if event.note == REST or _is_noise(event.waveform)
+                     else f"{round(event.cents_off, 1) + 0.0:+.1f}")
             lines.append(
                 f"| {event.start_frame} | {event.frames} | {event.note} | {cents} | "
                 f"{_waveform_name(event.waveform)} | {event.gate_frames} |"
@@ -877,6 +1043,19 @@ def _artifacts_section(outdir: Path) -> list[str]:
     return lines + [""]
 
 
+def _all_silent(metrics: Mapping) -> bool:
+    """Whether a measured recording carries no audible sound at all.
+
+    ``ALL_SILENT_COVERAGE`` of its duration under ``SILENCE_DB`` — or no
+    duration to cover, which is the WAV with a header and no frames.
+    """
+    duration = float(metrics.get("duration_s") or 0.0)
+    if duration <= 0.0:
+        return True
+    silent = sum(end - start for start, end in metrics.get("silence_windows") or [])
+    return silent >= duration * ALL_SILENT_COVERAGE
+
+
 def _silence_failure(events: Sequence[NoteEvent], metrics: Mapping) -> str | None:
     """Why a recording's silence fails the verdict, or ``None``.
 
@@ -889,15 +1068,43 @@ def _silence_failure(events: Sequence[NoteEvent], metrics: Mapping) -> str | Non
     """
     if not any(event.note != REST for event in events):
         return None
-    duration = float(metrics.get("duration_s") or 0.0)
-    if duration <= 0.0:
+    if float(metrics.get("duration_s") or 0.0) <= 0.0:
         return ("the recording has no samples at all, though the register log has "
                 "sounding notes — a WAV with a header and no frames is what a "
                 "capture window that was not at real time produces")
-    silent = sum(end - start for start, end in metrics.get("silence_windows") or [])
-    if silent >= duration * ALL_SILENT_COVERAGE:
+    if _all_silent(metrics):
         return "the recording is silent, but the register log has sounding notes"
     return None
+
+
+def _nothing_played_notice(
+    events: Sequence[NoteEvent], metrics: Mapping | None
+) -> list[str]:
+    """The block quote that sits under the verdict when nothing sounded.
+
+    A notice and not a failure, for the reason `nothing_played` gives: a
+    silent capture can be exactly what was asked for. But a bare **PASS** over
+    an empty capture tells an agent that mis-timed its window, or whose
+    program never started, that everything checks out — so the pass says out
+    loud what it is passing on. A block quote rather than a ``- `` bullet
+    because those bullets are the verdict's REASONS, which a front end reads
+    back out of this file.
+    """
+    if not nothing_played(events, metrics):
+        return []
+    heard = ("no voice was ever gated over a frequency" if events
+             else "the register log was empty")
+    recording = ("" if metrics is None
+                 else " and the recording is silent from end to end")
+    return [
+        f"> **Nothing played.** In this capture {heard}{recording}, so there was "
+        f"nothing for the checks above to disagree with. That is a legitimate "
+        f"result when the claim was that the program is quiet — and it is also "
+        f"what a capture window that opened on the wrong moment, or on a "
+        f"program that never started, produces. Confirm which before reading "
+        f"this as evidence that the audio works.",
+        "",
+    ]
 
 
 def _verdict_failures(
