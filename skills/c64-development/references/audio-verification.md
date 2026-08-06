@@ -106,14 +106,27 @@ need. The sample rate is the sound device's and does not depend on warp.)
 
 The rule is not a nicety. Under warp VICE writes a **zero-frame** WAV — not
 time-compressed audio, nothing at all — so a capture that fails to clear
-warp comes back empty rather than merely fast. **A 30-second capture takes
-30 seconds of wall clock.** Two consequences:
+warp comes back empty rather than merely fast.
+
+Real time is the **floor** on what a capture costs, not the price: **a
+30-second capture takes at least 30 seconds of wall clock, and in practice
+two to three times that.** The sampling loop advances the machine one frame
+per monitor round trip, so every logged frame costs one — about 42 ms each
+over ~1.1 s of fixed cost when it was measured (2026-08-04, NTSC session,
+captures of 30, 60 and 120 frames). Thirty emulated seconds is 1500 PAL
+frames or 1800 NTSC ones, which puts that capture at roughly 60–80 s of wall
+clock. `c64 audio capture --help` carries the same measurement. Two
+consequences:
 
 - Capture the shortest span that proves the claim — one phrase, one effect,
   the bar where the tempo is supposed to change — not the whole tune. Five
   to fifteen seconds proves most claims.
-- Do not wrap a long capture in a short tool timeout, and do not read the
-  wall-clock cost as a hang.
+- Size a tool timeout from wall clock, not from the seconds you asked for,
+  and do not read the gap between the two as a hang.
+
+`c64 audio record` is the exception, and only because it has no sampler:
+nothing halts the machine between its start and its stop, so **there** a
+3-second recording really does cost 3 real seconds.
 
 **Capture the right moment.** The tools record what is playing when you call
 them; they do not start the music for you. Drive the machine to the moment
@@ -151,6 +164,28 @@ a mistake — so an unscored rest at either end is skipped rather than diffed.
 Score the opening rest explicitly when its length is part of the claim, and
 it is compared like any other entry.
 
+**The window's edges cut notes in half.** You start the music *before* you
+capture, so the window opens mid-note: whatever was sounding at the first
+sample is caught only in part, and how much depends on how long arming took.
+**Omit `frames` on the first entry of every voice that is already playing** —
+the note is still checked, its truncated length is not. Continuous music
+closes the window the same way, so omit `frames` on the last entry too,
+unless the passage ends in silence you arranged to be there (a capture that
+runs past the final gate-off is pinned at both ends and can be durationed
+throughout).
+
+**Score the window, not the phrase.** Silence past the end of a voice's list
+is exempt, but an extra *sounding* note is a diff by design — so a score that
+stops eight notes into a window holding twelve fails on the last four. Count
+what the window holds and list exactly that many events.
+
+Both edges are where a first fully-durationed attempt fails, and neither is a
+reason to do what the next paragraph forbids. In the Project64 repo,
+`tests/data/arpeggio-score.yaml` is this shape in miniature: an undurationed
+first note because the fixture was already sounding, two whole notes pinned
+to the frame, and a window that closes inside the fixture's own trailing
+silence.
+
 **Write it from your note data, not from the transcription.** Capturing
 first and pasting the transcribed notes back in as the score produces a
 diff that passes by construction — with your bug baked in as the
@@ -173,10 +208,16 @@ voices:
   3: []
 ```
 
-If instead your player re-gates on every row, that same pattern is two
-6-frame E4 notes — write what your player actually does. The gate is what
-divides notes, so this is the one place where the score has to follow the
-player rather than the sheet.
+If instead your player re-gates on every row, the score follows the gate —
+but only the gate the sampler can *see*. Registers are read once per frame,
+so a re-gate registers only when the gate is low at a frame boundary: a
+player that drops the gate for one frame between rows transcribes as a
+6-frame E4, **a 1-frame rest the score has to list**, and a 5-frame E4. A
+player that clears and re-sets the gate inside a single IRQ retriggers
+audibly and transcribes as one 12-frame note — indistinguishable from the
+held version above (see *Known facts*). The gate is what divides notes, so
+this is the one place where the score has to follow the player rather than
+the sheet: the player as the once-per-frame sampler sees it.
 
 To check that the table entry behind `E4` really is E4, run the register
 through the frequency formula — `hz = reg16 * clock / 2**24` — with *your
@@ -208,12 +249,12 @@ not for a general impression of health.
 |---|---|
 | A color missing entirely | The player never gated that voice: a voice-allocation bug, or an effect seized it and never handed it back. |
 | A color that stops partway and never returns | The effect/music priority rule releases the gate but never resumes the sequencer on that voice. |
-| One long bar where the score has repeated notes | The gate is never released between notes, so the notes never retrigger — the transcriber correctly sees one long note. |
+| One long bar where the score has repeated notes | Either the gate is never released between notes, or it is released and re-set *inside* one frame, which the once-per-frame sampler cannot see. The first is a player bug; the second is a correct player that retriggers audibly. The roll cannot tell them apart — read the player's gate handling to decide. |
 | A long bar over a spectrogram that went dark under it | The gate is held over an envelope that decayed to nothing (sustain 0, no release), so the bar over-reports how long the note was audible. Flagged as an anomaly when the WAV is there to say so. |
 | Bars of ragged, unequal length where the score is even | Tempo drift: the sequencer is driven from a loop instead of the frame tick, or a frame counter is reset on the wrong branch. |
 | The melody's contour inverted or scrambled | Note-table index off by one, or the frequency high/low bytes swapped. |
 | Every note offset by the same small amount | Wrong clock for the table (see the PAL/NTSC row above) — check `cents_off`, not the shape. |
-| Notes that are one frame long | Gate set and cleared inside the same frame; the envelope never gets to attack. |
+| Notes that are one frame long | The gate was sampled set at one frame boundary and clear at the next, so the note lasted about a frame and the envelope barely attacks. Not the same as a gate set *and* cleared between two samples — that one leaves no bar at all (see *Known facts*). |
 | Bars where the score says rest | An un-zeroed gate bit left over from the previous section, or an effect firing on a voice it was not assigned. |
 
 The roll is the diff's picture. A diff is a line of prose, not a range —
@@ -275,6 +316,15 @@ every WAV finding with the roll before naming a cause.
   register dump). The halt itself is the frame boundary, so the log samples
   once per resume and needs no raster at all — and this works whether your
   program runs off a raster IRQ, the jiffy clock, or nothing at all.
+- **Gate transitions inside a single frame are invisible.** The control
+  register is read once per frame, so the transcription divides notes only at
+  the gate state *sampled* at a frame boundary — never at a transition
+  between two samples. A driver that clears and re-sets the gate within one
+  IRQ retriggers audibly and leaves the gate set at every sample, so two
+  re-gated 6-frame notes come back as one 12-frame note, with no anomaly to
+  flag it. Nothing in the log recovers it: score what the sampler can see, or
+  leave at least one frame of gate-off between notes when their boundaries
+  are part of the claim.
 - **A warped session can drop frames from the log.** Sampling costs one
   round trip per frame. A real-time frame is many times that, so nothing
   slips (200 samples over 201 elapsed frames, measured against the KERNAL
