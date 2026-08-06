@@ -48,6 +48,32 @@ def test_error_code_raises_monitor_error():
             c.memory_read(0x0400, 1)
 
 
+@pytest.mark.parametrize("cmd,verb,call", [
+    (Command.RESOURCE_SET, 0x52, lambda c: c.resource_set("NoSuchResource", 1)),
+    (Command.RESOURCE_GET, 0x51, lambda c: c.resource_get("NoSuchResource")),
+])
+def test_a_rejected_resource_name_raises_monitor_error(cmd, verb, call):
+    """VICE answers OBJECT_MISSING for a name it does not know, and neither
+    verb had a test for that: `resource_set` returns None on success, so a
+    swallowed error would look exactly like a set that worked."""
+    fake = FakeVice({cmd: lambda b, rid: [resp_frame(verb, 0x01, rid)]})
+    with _client(fake) as c:
+        with pytest.raises(MonitorError, match="OBJECT_MISSING") as caught:
+            call(c)
+    assert caught.value.error_code == 0x01
+    assert cmd.name in str(caught.value)
+
+
+def test_resource_set_sends_the_encoded_body():
+    """The body is `resource_set_body`'s, unaltered — the empty-string clear
+    in particular must reach VICE as the single NUL it encodes."""
+    fake = FakeVice({Command.RESOURCE_SET: lambda b, rid: [resp_frame(0x52, 0, rid)]})
+    with _client(fake) as c:
+        c.resource_set("SoundRecordDeviceName", "")
+    assert fake.received[0][1] == bytes([0, 21]) + b"SoundRecordDeviceName" \
+        + bytes([1]) + b"\x00"
+
+
 def test_resume_sends_exit():
     fake = FakeVice({Command.EXIT: lambda b, rid: [resp_frame(0xAA, 0, rid)]})
     with _client(fake) as c:
@@ -87,6 +113,25 @@ def test_vice_info_parses_version():
     fake = FakeVice({Command.VICE_INFO: handle})
     with _client(fake) as c:
         assert c.vice_info() == "3.5"
+
+
+@pytest.mark.parametrize("parts,expected", [
+    # THE regression: this host is 3.10, and `.rstrip(".0")` reported "3.1".
+    ((3, 10, 0, 0), "3.10"),
+    ((3, 20, 0, 0), "3.20"),
+    ((3, 10, 1, 0), "3.10.1"),
+    # ...without breaking what the character strip happened to get right.
+    ((3, 5, 0, 0), "3.5"),
+    ((3, 6, 1, 0), "3.6.1"),
+    ((0, 0, 0, 0), "0"),
+])
+def test_vice_info_drops_trailing_zero_components_not_characters(parts, expected):
+    def handle(body, rid):
+        return [resp_frame(0x85, 0, rid, bytes([len(parts), *parts]))]
+
+    fake = FakeVice({Command.VICE_INFO: handle})
+    with _client(fake) as c:
+        assert c.vice_info() == expected
 
 
 def test_quit_swallows_no_reply():

@@ -14,7 +14,7 @@ import pytest
 from c64lib.daemon import STOPPED, PetDaemon
 from c64lib.daemon_client import DaemonMonitorClient
 from c64lib.monitor import MonitorClient, MonitorError, StopInfo
-from c64lib.protocol import CP_EXEC, Checkpoint
+from c64lib.protocol import CP_EXEC, Checkpoint, Command, ErrorCode
 
 
 @pytest.fixture
@@ -159,19 +159,66 @@ def test_direct_monitorclient_release_aliases_resume():
 
 # --- passthrough methods and failure modes (reuse the `served` fixture) -------
 
-@pytest.mark.parametrize("method,args,monattr", [
-    ("reset", (True,), "reset"),
-    ("keyboard_feed", (b"RUN\r",), "keyboard_feed"),
-    ("vice_info", (), "vice_info"),
-    ("checkpoint_toggle", (1, False), "checkpoint_toggle"),
-    ("condition_set", (1, "A == 0"), "condition_set"),
-    ("resource_set", ("Speed", 90), "resource_set"),
+@pytest.mark.parametrize("method,args,expected,monattr", [
+    ("reset", (True,), call(hard=True), "reset"),
+    ("keyboard_feed", (b"RUN\r",), call(b"RUN\r"), "keyboard_feed"),
+    ("vice_info", (), call(), "vice_info"),
+    ("checkpoint_toggle", (1, False), call(1, False), "checkpoint_toggle"),
+    ("condition_set", (1, "A == 0"), call(1, "A == 0"), "condition_set"),
+    ("resource_set", ("Speed", 90), call("Speed", 90), "resource_set"),
 ])
-def test_passthrough_methods(served, method, args, monattr):
+def test_passthrough_methods(served, method, args, expected, monattr):
+    """The ARGUMENTS have to survive the round trip, not just the call.
+
+    `.called` alone would pass for a passthrough that dropped `value`
+    entirely, or that delivered `resource_set("Speed", 90)` as the string
+    `"90"` — and this parametrize row is the only test that crosses the RPC
+    boundary for `resource_set` at all. The type check is the second half:
+    JSON has one number type and `False == 0`, so equality alone would let a
+    bool arrive as an int.
+    """
     c, mon, _ = served
     getattr(mon, monattr).return_value = "ok"   # JSON-serializable; void methods ignore it
     getattr(c, method)(*args)
-    assert getattr(mon, monattr).called
+    got = getattr(mon, monattr).call_args
+    assert got == expected, f"{method} arrived as {got!r}, not {expected!r}"
+    flat = list(got.args) + list(got.kwargs.values())
+    want = list(expected.args) + list(expected.kwargs.values())
+    assert [type(v) for v in flat] == [type(v) for v in want], \
+        f"{method} changed a value's type in transit: {flat!r}"
+
+
+def test_resource_get_round_trips_both_wire_types(served):
+    """VICE answers either a string or an int, and the RPC must not flatten
+    one into the other: `Speed` is compared numerically by every caller."""
+    c, mon, _ = served
+    mon.resource_get.return_value = 100
+    assert c.resource_get("Speed") == 100
+    mon.resource_get.assert_called_once_with("Speed")
+    mon.resource_get.return_value = "wav"
+    assert c.resource_get("SoundRecordDeviceName") == "wav"
+
+
+@pytest.mark.parametrize("method,args", [
+    ("resource_set", ("NoSuchResource", 1)),
+    ("resource_get", ("NoSuchResource",)),
+])
+def test_resource_errors_propagate_as_monitor_errors(served, method, args):
+    """A bad resource name is VICE's error code, and it has to reach the
+    caller as a MonitorError rather than as a success or a bare string.
+
+    The CODE does not survive the hop — `rpc.raise_remote` rebuilds the
+    exception from a name and a message and stamps `error_code = -1`,
+    deliberately — so what has to arrive intact is the sentence naming the
+    code and the command.
+    """
+    c, mon, _ = served
+    getattr(mon, method).side_effect = MonitorError(
+        Command.RESOURCE_SET, ErrorCode.OBJECT_MISSING)
+    with pytest.raises(MonitorError) as caught:
+        getattr(c, method)(*args)
+    assert "OBJECT_MISSING" in str(caught.value)
+    assert "RESOURCE_SET" in str(caught.value)
 
 
 def test_display_and_palette_marshalling(served):
@@ -284,6 +331,38 @@ def test_sid_log_samples_one_frame_per_resume_daemon_side(served):
     # four sampled frames plus the resume that leaves the machine running
     assert mon.resume.call_count == 5
     assert d.state == "running"
+
+
+def test_sid_log_stops_when_the_client_vanishes_mid_log():
+    """A Ctrl-C'd capture must not leave the daemon sampling to its deadline.
+
+    Driven straight against `_sid_log` over a socketpair: once the client end
+    is closed the loop's `MSG_PEEK` reads EOF and it stops with what it has,
+    leaving the machine RUNNING. The 30 s budget is the thing being escaped,
+    so returning quickly is half the assertion.
+    """
+    mon = Mock()
+    daemon_side, client_side = socket.socketpair()
+    d = PetDaemon(mon, Mock(), "t")
+    frames: list[int] = []
+
+    def read_a_frame(*a, **kw):
+        frames.append(1)
+        if len(frames) == 3:
+            client_side.close()          # Ctrl-C mid-log
+        return bytes(25)
+
+    mon.memory_read.side_effect = read_a_frame
+    started = time.monotonic()
+    try:
+        out = d._sid_log(daemon_side, 1000, 30.0)
+    finally:
+        daemon_side.close()
+    assert time.monotonic() - started < 5.0, "the loop ran on past its client"
+    assert len(out) == 3
+    assert d.state == "running"
+    # One resume per sampled frame, plus the one that leaves it running.
+    assert mon.resume.call_count == 4
 
 
 def test_sid_log_returns_what_it_has_at_the_deadline(served):

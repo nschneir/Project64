@@ -41,7 +41,7 @@ from c64lib.build import build_asm
 from c64lib.cli import main
 from c64lib.daemon_client import DaemonMonitorClient
 from c64lib.ops import wait_for_mem
-from c64lib.session import Session
+from c64lib.session import Session, SessionError
 from tests.test_mcp_scaffold import call_tool
 from tests.vice_helpers import timeout_scale
 
@@ -110,9 +110,14 @@ class FakeTextMonitor:
         return b""
 
     def settle(self, timeout: float = 2.0) -> None:
-        """Wait for the client's parting `x` to be logged. close() sends it
-        and returns without waiting for a reply, so a test that asserts on
-        `lines` immediately would race the server thread."""
+        """Wait for the client's parting `x` to be logged.
+
+        `close()` does drain the reply to `x`, so the line is normally already
+        recorded by the time it returns — but the drain gives up after 50 ms,
+        and this server logs the line on its own thread, so a loaded host can
+        still have `close()` return first. Belt and braces before any
+        assertion on `lines`.
+        """
         end = time.monotonic() + timeout
         while time.monotonic() < end and self.lines[-1:] != ["x"]:
             time.sleep(0.01)
@@ -509,6 +514,52 @@ def test_an_unreadable_pin_is_reported_not_swallowed(vice_text, capsys):
     assert not audio._pin_path(s).exists()
 
 
+def test_a_pin_that_cannot_be_opened_is_kept_not_deleted(vice_text, capsys, tmp_path):
+    """A read that fails for reasons outside the file's CONTENT — permissions,
+    a flaky filesystem — says nothing about whether the restore state is
+    intact, and it very likely is. Deleting it there turned a transient error
+    into a permanently unpinnable session; keep it and say so."""
+    s, _ = _fake_session()
+    path = audio._pin_path(s)
+    path.write_text(json.dumps({"warp": True, "speed": 100, "pid": s.pid}))
+    with patch.object(Path, "read_text", side_effect=PermissionError("denied")):
+        out = pinned_record_stop(s)
+    assert out["restored"] is None
+    err = capsys.readouterr().err
+    assert "could not be read" in err and "left in place" in err
+    assert "is unreadable" not in err
+    assert path.exists(), "a transient read error must not destroy the pin"
+
+
+def test_a_pin_without_a_pid_stamp_is_an_upgrade_not_a_corruption(vice_text, capsys):
+    """A sidecar written before the pid stamp existed is perfectly readable —
+    it just cannot be shown to belong to this session. Reporting it as
+    "unreadable" described a file that parsed fine."""
+    s, _ = _fake_session()
+    audio._pin_path(s).write_text(json.dumps({"warp": True, "speed": 200}))
+    out = pinned_record_stop(s)
+    assert out["restored"] is None
+    err = capsys.readouterr().err
+    assert "predates the session-pid stamp" in err
+    assert "unreadable" not in err
+    assert not audio._pin_path(s).exists()
+
+
+def test_load_all_prunes_a_dead_sessions_audio_pin():
+    """`stop()` clears the sidecar, but a killed session never reaches
+    `stop()` — which is the common way a record ends up dead. Inert either
+    way thanks to the pid stamp, so this is housekeeping: without it a
+    `<name>.audio` outlives every session whose name is never reused."""
+    from c64lib.session import Session, audio_pin_path, sessions_dir
+    (sessions_dir() / "ghost.json").write_text(json.dumps(
+        {"name": "ghost", "pid": 424242, "port": 1, "model": "c64"}))
+    audio_pin_path("ghost").write_text(json.dumps({"pid": 424242}))
+    with patch("c64lib.session._pid_alive", return_value=False):
+        assert Session.list_all() == []
+    assert not (sessions_dir() / "ghost.json").exists()
+    assert not audio_pin_path("ghost").exists()
+
+
 def test_the_pin_sidecar_is_not_read_back_as_a_session_record(vice_text, tmp_path):
     """Session._load_all() parses every *.json in the session directory, so
     a pin file named `<session>.audio.json` there breaks every later `c64`
@@ -561,6 +612,60 @@ def test_mcp_audio_record_stop():
         err, out = call_tool("c64_audio_record", {"action": "stop"})
     assert err is False and out["bytes"] == 64
     stop.assert_called_once_with(s)
+
+
+def test_mcp_audio_record_start_really_pins_the_session(vice_text, tmp_path):
+    """The "always pin" contract, asserted at the MCP layer itself.
+
+    Every other test here patches `pinned_record_start` wholesale, so the
+    front ends were only ever checked for forwarding their arguments to
+    *something* — a tool wired to bare `record_start` would have passed them
+    all, and produced a 0-frame WAV on every warped session. This one lets
+    the real composition run against the fake VICE and reads the outcome off
+    the machine: warp cleared, Speed pinned, recorder armed last.
+    """
+    s, mon = _fake_session()
+    wav = tmp_path / "mcp.wav"
+    with patch("c64lib.mcp_server.Session") as S, _port(vice_text):
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_record",
+                             {"action": "start", "path": str(wav)})
+    assert err is False and out["wav"] == str(wav)
+    assert vice_text.warp is False, "the MCP tool armed a recorder under warp"
+    assert _names(mon) == ["MonitorServerAddress", "MonitorServer", "Speed",
+                           "SoundRecordDeviceArg", "SoundRecordDeviceName"]
+    assert call("Speed", 100) in mon.resource_set.call_args_list
+
+
+def test_cli_audio_record_start_really_pins_the_session(vice_text, tmp_path):
+    """The same contract at the CLI layer, for the same reason."""
+    s, mon = _fake_session()
+    wav = tmp_path / "cli.wav"
+    with patch("c64lib.cli.Session") as S, _port(vice_text):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "record", "--start", str(wav)])
+    assert r.exit_code == 0, r.output
+    assert vice_text.warp is False, "the CLI armed a recorder under warp"
+    assert _names(mon) == ["MonitorServerAddress", "MonitorServer", "Speed",
+                           "SoundRecordDeviceArg", "SoundRecordDeviceName"]
+    assert call("Speed", 100) in mon.resource_set.call_args_list
+
+
+def test_cli_audio_record_stop_really_unpins_the_session(vice_text, tmp_path):
+    """And the other end of it: `--stop` has to put the session back, not
+    merely disarm the recorder and report a file size."""
+    s, mon = _fake_session()
+    wav = tmp_path / "cli.wav"
+    with patch("c64lib.cli.Session") as S, _port(vice_text):
+        S.attach.return_value = s
+        assert CliRunner().invoke(
+            main, ["audio", "record", "--start", str(wav)]).exit_code == 0
+        wav.write_bytes(b"RIFF" + bytes(60))
+        mon.resource_set.reset_mock()
+        r = CliRunner().invoke(main, ["audio", "record", "--stop"])
+    assert r.exit_code == 0, r.output
+    assert vice_text.warp is True, "the CLI left the session unwarped"
+    assert _names(mon) == ["SoundRecordDeviceName", "Speed", "MonitorServer"]
 
 
 def test_mcp_audio_record_start_needs_a_path():
@@ -624,6 +729,28 @@ def test_cli_audio_record_reports_a_capture_failure():
         r = CliRunner().invoke(main, ["audio", "record", "--start", "a.wav"])
     assert r.exit_code == 1
     assert "warp would not clear" in r.output
+
+
+@pytest.mark.parametrize("argv,target", [
+    (["audio", "record", "--start", "a.wav"], "pinned_record_start"),
+    (["audio", "record", "--stop"], "pinned_record_stop"),
+    (["audio", "sidlog", "10", "s.jsonl"], "sid_log_detail"),
+    (["audio", "capture", "1", "out"], "capture"),
+])
+def test_cli_audio_reports_a_session_error_instead_of_a_traceback(argv, target):
+    """SessionError derives from Exception, NOT RuntimeError, so it was one
+    name short of every handler here. Every `session.monitor()` inside these
+    commands can raise it from a failed daemon respawn."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch(f"c64lib.cli.{target}",
+               side_effect=SessionError("daemon did not come back")):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, argv)
+    assert r.exception is None or isinstance(r.exception, SystemExit), \
+        f"{argv} let a SessionError escape: {r.exception!r}"
+    assert r.exit_code == 1
+    assert "daemon did not come back" in r.output
 
 
 # --- per-frame SID logging ---------------------------------------------------
@@ -760,8 +887,8 @@ def test_sid_log_reports_the_sampling_rate_it_measured(tmp_path):
 
     It is samples per second of wall clock, NOT emulated frames per second:
     the emulator only advances between round trips, so a pinned log measures
-    ~21/s from a 60 Hz machine. Nothing should ever assert it equals the
-    machine's frame rate."""
+    ~22/s from a 60 Hz machine (the canonical 200-frame log: 200 samples over
+    9.1 s). Nothing should ever assert it equals the machine's frame rate."""
     m = FakeMachine(_states(4), delay=0.02)
     detail = sid_log_detail(_machine_session(m), 4, str(tmp_path / "sid.jsonl"))
     assert detail["warning"] is None                 # slow: nothing to flag
@@ -808,7 +935,11 @@ def test_sid_log_keeps_the_frames_it_got_when_it_runs_out_of_time(tmp_path):
                             100, str(out), timeout=0.2)
     assert 0 < detail["frames"] < 100
     assert detail["requested"] == 100
-    assert "timed out" in detail["warning"]
+    # "stopped", not "timed out": the daemon also stops a log early when its
+    # client goes away, and the advice has to fit that cause too.
+    assert f"stopped after {detail['frames']} of 100 frames" in detail["warning"]
+    assert "raise the timeout" in detail["warning"]
+    assert "interrupted" in detail["warning"]
     assert len(_rows(out)) == detail["frames"]
 
 
@@ -838,13 +969,45 @@ def test_sid_log_runs_the_loop_in_the_daemon_when_there_is_one(tmp_path):
     out = tmp_path / "sid.jsonl"
     assert sid_log(_machine_session(mon), 3, str(out)) == 3
     assert mon.sid_log.call_count == 1
-    assert mon.sid_log.call_args.args[0] == 3
+    # BOTH arguments: the daemon cannot compute the budget for itself, so a
+    # regression in `max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET)`
+    # would only ever show up here. 3 frames is under the floor, so the
+    # floor is what travels.
+    assert mon.sid_log.call_args.args == (3, audio.SID_LOG_MIN_TIMEOUT)
     mon.memory_read.assert_not_called()
     assert _rows(out)[0]["regs"][0] == 7
     # The daemon loop already left the machine running. A resume on top of it
     # would cost a round trip and let two more unlogged frames pass after the
     # last record — which is the window Task 6 has to bracket.
     mon.resume.assert_not_called()
+
+
+@pytest.mark.parametrize("frames,expected", [
+    (3, 15.0),        # under the floor: SID_LOG_MIN_TIMEOUT wins
+    (60, 15.0),       # 60 * 0.25 = 15.0, the crossover
+    (200, 50.0),      # 200 * 0.25, the pinned-log size the docstrings quote
+    (1800, 450.0),    # a 30 s NTSC capture
+])
+def test_sid_log_budgets_wall_clock_per_requested_frame(tmp_path, frames, expected):
+    """`max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET)`, spelled out
+    at both sides of the floor. The budget is what the daemon enforces, and
+    nothing else measures it."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.return_value = [bytes(25)] * frames
+    sid_log(_machine_session(mon), frames, str(tmp_path / "sid.jsonl"))
+    assert mon.sid_log.call_args.args == (frames, pytest.approx(expected))
+
+
+def test_sid_log_refuses_a_frame_count_past_the_sanity_ceiling(tmp_path):
+    """The whole log lives in memory on the daemon and comes back as one
+    base64 line, and the budget scales with it — `frames = 1_000_000` is a
+    250,000 s budget and a ~36 MB response. Bounded in code now, not by
+    convention."""
+    mon = Mock(spec=DaemonMonitorClient)
+    with pytest.raises(ValueError, match="at most 36000"):
+        sid_log(_machine_session(mon), audio.MAX_SID_LOG_FRAMES + 1,
+                str(tmp_path / "sid.jsonl"))
+    mon.sid_log.assert_not_called()
 
 
 def test_sid_log_falls_back_to_the_client_loop_on_an_older_daemon(tmp_path):

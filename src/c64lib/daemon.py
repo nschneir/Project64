@@ -262,6 +262,16 @@ class PetDaemon:
         Returns the blocks it captured, which is fewer than `frames` if the
         deadline passes or the client vanishes; the caller reports the
         shortfall. The machine is left RUNNING either way.
+
+        **It owns the daemon for the whole log.** Dispatch is one client at a
+        time, so every other command on this session waits here — about 70 s
+        for a 1500-frame real-time capture, which is a normal 30 s window.
+        `_run_until` has the same shape, but its callers name a timeout they
+        are already waiting on; this one is held for a capture window the
+        rest of the session knows nothing about. Not a wedge, and not worth
+        interleaving for: a capture that shared the machine would no longer be
+        capturing what it claims to. Read a stalled session during an audio
+        capture as this, and wait for it.
         """
         deadline = time.monotonic() + timeout
         out: list[bytes] = []

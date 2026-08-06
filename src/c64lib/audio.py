@@ -143,6 +143,15 @@ WARP_RATE_MARGIN = 1.05
 SID_LOG_FRAME_BUDGET = 0.25
 SID_LOG_MIN_TIMEOUT = 15.0
 
+#: Sanity ceiling on a single log. Nothing composes anywhere near it — a 30 s
+#: capture is ~1500 frames (~37 KB) — but the whole log is held in memory as
+#: one list on the daemon side and travels back as ONE base64 RPC line, and
+#: both scale with this number, as does the default budget. At the ceiling
+#: that is 36000 frames: 10 minutes of NTSC, ~900 KB of registers, a ~1.2 MB
+#: response line, and a 2.5-hour budget. Past it the request is a bug, not a
+#: capture.
+MAX_SID_LOG_FRAMES = 36_000
+
 _ADDRESS = re.compile(r"ip4://127\.0\.0\.1:(\d+)")
 _WARP_STATE = re.compile(r"Warp mode is (on|off)\.")
 
@@ -159,6 +168,22 @@ def _abs(path) -> str:
 
 
 def _free_port() -> int:
+    """A port nothing is listening on right now.
+
+    Racy by construction, and knowingly so: the port is bound, read back and
+    released here, then handed to VICE a few round trips later. Two sessions
+    opening their text monitors at the same moment can draw the same number,
+    and the loser then binds nothing and connects to the WINNER's listener —
+    silently driving another emulator for the rest of its life, which is the
+    `MonitorServerAddress` default-port failure in miniature (see
+    `_listening_port`). The ephemeral range makes that about 1 in 16000 per
+    concurrent pair, and closing it properly needs VICE to report the port it
+    actually bound, which the resource interface does not offer.
+
+    Left as a documented hazard rather than a guard because the pattern is
+    codebase-wide — `session.py`'s VICE monitor port is drawn the same way —
+    so a local fix here would buy a false sense of coverage.
+    """
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
@@ -185,6 +210,10 @@ class _TextMonitor:
     #: first re-send, and the second attempt that was configured alongside it
     #: never fired. See `warp_state`, which is the only thing that reads this.
     _READBACK_RETRIES = 1
+
+    #: How long the socket must stay quiet before a matched reply is taken as
+    #: the newest one. See `_await`.
+    _SETTLE = 0.05
 
     def __init__(self, sock: socket.socket):
         self._sock = sock
@@ -253,23 +282,45 @@ class _TextMonitor:
         self._sock.sendall(line.encode("ascii") + b"\n")
 
     def _await(self, pattern: re.Pattern[str]) -> re.Match[str] | None:
+        """The LAST match in the reply window, or None.
+
+        Last, not first, and this is the point of the `_SETTLE` pause: the
+        pre-send `_drain` bounds its own wait at 50 ms, so a reply VICE
+        withheld from the PREVIOUS command can still be sitting in the kernel
+        buffer when the next one goes out — and `warp_state`'s re-send is a
+        measured, deliberate source of exactly that (the withheld line turns
+        up only once more input is written). Matching the first thing that
+        parses would hand the previous command's answer back as this one's.
+        So a match starts a short quiet timer instead of returning, and any
+        fresher match supersedes it.
+
+        What that does NOT do is give this channel a sequence boundary. VICE
+        emits its prompt asynchronously and repeatedly, so nothing positional
+        is trustworthy here and replies are matched by content — which cannot
+        distinguish two identical lines. It closes the stale-reply window; it
+        does not make the channel ordered.
+        """
         deadline = time.monotonic() + self._REPLY_TIMEOUT
         buf = ""
+        found: re.Match[str] | None = None
         while True:
             left = deadline - time.monotonic()
             if left <= 0:
-                return None
+                return found
             self._sock.settimeout(left)
             try:
                 data = self._sock.recv(4096)
             except OSError:
-                return None
+                return found                # timed out, or the socket failed
             if not data:
-                return None
+                return found                # clean EOF
             buf += data.decode("ascii", "replace")
-            found = pattern.search(buf)
-            if found:
-                return found
+            matches = list(pattern.finditer(buf))
+            if matches:
+                found = matches[-1]
+                # Bounded from the FIRST match, not reset per match: this is a
+                # settle window, not an open-ended wait for a better answer.
+                deadline = min(deadline, time.monotonic() + self._SETTLE)
 
     def warp_state(self) -> bool:
         """True when warp is on. A bare `warp` is the only readback of live
@@ -292,7 +343,10 @@ class _TextMonitor:
 
         Re-sending is safe because a bare `warp` is a pure query — it reports
         state and changes none — so the worst a duplicate costs is one extra
-        prompt echo, which `_send`'s drain swallows.
+        prompt echo and one extra state line. The echo `_send`'s drain
+        swallows; the state line is why `_await` takes the LAST match rather
+        than the first, so a duplicate cannot be read as the NEXT command's
+        answer.
 
         Without it the raise below tears the socket down mid-stall and that
         session's text monitor stops answering for the rest of its life:
@@ -529,6 +583,14 @@ def sid_log_detail(session, frames: int, jsonl_path,
     frames = int(frames)
     if frames < 1:
         raise ValueError(f"frames must be at least 1, got {frames!r}")
+    if frames > MAX_SID_LOG_FRAMES:
+        # Bounded in code, not by convention: the daemon holds the whole log
+        # in memory and returns it as one line. See MAX_SID_LOG_FRAMES.
+        raise ValueError(
+            f"frames must be at most {MAX_SID_LOG_FRAMES}, got {frames}: the "
+            f"whole log is held in memory and returned in one response, and "
+            f"{MAX_SID_LOG_FRAMES} frames is already about ten minutes of "
+            f"emulated time")
     path = _abs(jsonl_path)
     budget = (float(timeout) if timeout is not None
               else max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET))
@@ -558,6 +620,13 @@ def sid_log_detail(session, frames: int, jsonl_path,
     rate = len(samples) / seconds if seconds > 0 else None
     warning = _sid_log_warning(len(samples), frames, rate)
     if warning is not None:
+        # Library code writing to stderr, deliberately: the controller's rule
+        # for this feature is "return payload AND stderr", because a warning
+        # about a timeline nobody can see has to reach a human even when the
+        # caller only looks at `frames`. It is also in the return value, so a
+        # programmatic caller loses nothing. If it ever has to be silenced,
+        # move the print to `cli.py` and `mcp_server.py` and let this dict be
+        # the single source — do not add a `quiet=` flag here.
         print(f"c64: {warning}", file=sys.stderr)
     return {"path": path, "frames": len(samples), "requested": frames,
             "seconds": seconds, "sample_rate_hz": rate, "warning": warning}
@@ -609,8 +678,14 @@ def _sid_log_warning(written: int, requested: int,
     can go and is said in words, there being no number to print.
     """
     if written < requested:
-        return (f"sid log timed out after {written} of {requested} frames; "
-                f"raise the timeout, or check that the machine is running")
+        # Three causes reach here and only two of them are the caller's: the
+        # budget ran out, the machine stopped advancing, or the daemon saw
+        # this client go away mid-log and stopped (daemon.py `_sid_log`).
+        # Naming the third is what keeps the advice honest — "raise the
+        # timeout" is no help to a Ctrl-C'd capture.
+        return (f"sid log stopped after {written} of {requested} frames; "
+                f"raise the timeout, check that the machine is running, or — "
+                f"if the command was interrupted — run it again")
     if rate is not None and rate <= REALTIME_MAX_FPS * WARP_RATE_MARGIN:
         return None
     how_fast = (f"sampled {rate:.0f} frames/s" if rate is not None else
@@ -658,17 +733,42 @@ def _read_pin(session) -> dict | None:
     if not path.exists():
         return None
     try:
-        state = json.loads(path.read_text())
-        pid = state["pid"]
-    except (OSError, ValueError, TypeError, KeyError) as e:
-        # Not silent: an unreadable pin means nobody will unpin the session,
-        # so it may still be sitting at real time with warp off.
+        raw = path.read_text()
+    except OSError as e:
+        # KEPT, not deleted. This failure says nothing about the file's
+        # contents — a permission problem, a full or flaky filesystem — so the
+        # restore state is very likely still intact and still the only record
+        # of what to put back. Deleting it here would turn a transient error
+        # into a permanently unpinnable session.
+        print(f"c64: audio pin {path} could not be read ({e}); it is left in "
+              f"place, so `c64 audio record --stop` can try again once the "
+              f"cause is fixed. Until then the session may still be unwarped",
+              file=sys.stderr)
+        return None
+    try:
+        state = json.loads(raw)
+        if not isinstance(state, dict):
+            raise TypeError(f"a JSON {type(state).__name__}, not an object")
+    except (ValueError, TypeError) as e:
+        # Content, not access: nothing here is recoverable, and leaving it
+        # would re-report the same complaint on every later command.
         print(f"c64: audio pin {path} is unreadable ({e}); the session may "
               f"still be unwarped — restart it if audio timing matters",
               file=sys.stderr)
         path.unlink(missing_ok=True)
         return None
-    if pid != session.pid:
+    if "pid" not in state:
+        # Written before the pid stamp existed. The file is perfectly
+        # readable — it just cannot be matched to a session, which is the
+        # whole point of the stamp — so this is an upgrade, not corruption,
+        # and it must not be reported as "unreadable".
+        print(f"c64: audio pin {path} predates the session-pid stamp, so it "
+              f"cannot be shown to belong to this session; discarding it "
+              f"rather than restoring a stranger's warp. Restart the session "
+              f"if its audio timing matters", file=sys.stderr)
+        path.unlink(missing_ok=True)
+        return None
+    if state["pid"] != session.pid:
         path.unlink(missing_ok=True)
         return None
     return state

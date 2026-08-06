@@ -225,6 +225,14 @@ class Session:
                 out.append(s)
             else:
                 f.unlink(missing_ok=True)  # prune dead record
+                # ...and its audio pin. `stop()` clears it, but a session
+                # that was killed or crashed never reaches `stop()`, which is
+                # the common way a record ends up here. The audio pin is inert
+                # once its pid is gone (`audio._read_pin` refuses a foreign
+                # one), so this is housekeeping, not correctness: without it a
+                # `<name>.audio` outlives every session whose name is never
+                # reused.
+                audio_pin_path(s.name).unlink(missing_ok=True)
         return out
 
     # --- lifecycle --------------------------------------------------------

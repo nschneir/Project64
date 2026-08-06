@@ -75,6 +75,23 @@ def test_resource_set_body_int():
     assert body == bytes([1, 5]) + b"Speed" + bytes([4]) + b"\x5a\x00\x00\x00"
 
 
+def test_resource_set_body_negative_int_is_twos_complement():
+    """Several VICE integer resources use -1 as a sentinel. An unsigned pack
+    raised OverflowError on every one of them, so the caller got a crash
+    instead of a set."""
+    body = resource_set_body("Speed", -1)
+    assert body == bytes([1, 5]) + b"Speed" + bytes([4]) + b"\xff\xff\xff\xff"
+    assert resource_set_body("Speed", -2)[-4:] == b"\xfe\xff\xff\xff"
+
+
+def test_resource_set_body_non_negative_ints_are_unchanged_by_the_sign_fix():
+    """Signedness is selected per value, so nothing that worked before moves:
+    2**31 - 1 still fits, and the largest unsigned 4-byte value still does."""
+    assert resource_set_body("X", 0)[-4:] == b"\x00\x00\x00\x00"
+    assert resource_set_body("X", 2**31 - 1)[-4:] == b"\xff\xff\xff\x7f"
+    assert resource_set_body("X", 2**32 - 1)[-4:] == b"\xff\xff\xff\xff"
+
+
 def _resp_frame(rtype, err, rid, body):
     import struct
 
