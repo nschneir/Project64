@@ -88,6 +88,11 @@ LIVE_RECIPES = [
         {"wait": {"text": "JIFFIES"}},
         {"assert": {"screen": "2001000"}},
     ]),
+    ("basic-frame-pacing", "basic", "pace a loop to the frame", [
+        # the whole claim is the verdict: 300 raster syncs land within +-2
+        # jiffies of 300 * 60.00/59.826. SLIPPED shares no substring with it.
+        {"wait": {"text": "PACED"}},
+    ]),
     ("basic-multicolor-sprite", "basic", "multicolor beach ball", [
         {"wait": {"text": "BALL ON"}},
         {"assert": {"mem": "$D015", "equals": 1}},      # sprite 0 enabled

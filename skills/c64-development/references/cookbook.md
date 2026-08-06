@@ -15,6 +15,7 @@ BASIC:
 - [Poke characters at a screen position](#poke-characters-at-a-screen-position)
 - [Sound: a beep subroutine](#sound-a-beep-subroutine)
 - [Time a section of code with TI](#time-a-section-of-code-with-ti)
+- [Pace a BASIC loop to the frame](#pace-a-basic-loop-to-the-frame)
 - [Switch character sets: uppercase/graphics vs lowercase](#switch-character-sets-uppercasegraphics-vs-lowercase)
 - [Score HUD: poke a changing number to the screen](#score-hud-poke-a-changing-number-to-the-screen)
 - [Poke a letter string to the screen (PETSCII → screen codes)](#poke-a-letter-string-to-the-screen-petscii--screen-codes)
@@ -200,6 +201,67 @@ report a number from this:
   something fast, repeat it N times inside the measurement and divide.
   That matters most when comparing BASIC against machine code, where the
   asm side often lands in single digits.
+- **`TI` is the wrong clock for anything the frame counts.** The jiffy IRQ
+  runs at exactly 60.00 Hz; an NTSC frame is 59.826 Hz. Over 2184 frames
+  that is 2190 jiffies — six frames of drift, and it grows without bound.
+  Use `TI` to *measure* a span, never to *pace* one that a sid log, a raster
+  effect or a screenshot will be compared against. See
+  [Pace a BASIC loop to the frame](#pace-a-basic-loop-to-the-frame).
+
+### Pace a BASIC loop to the frame
+
+When something outside your program counts frames — the SID register log
+behind `c64 audio capture`, a raster effect, a screenshot at a known moment —
+the loop that drives it has to advance exactly one frame per iteration. `TI`
+cannot do that (see the bullet above). `WAIT` on the raster can:
+
+```basic
+10 rem --- pace a loop to the frame ---
+20 d=53265 : mk=128 : n=300
+30 print "{clr}pacing";n;"frames..."
+40 t=ti
+50 for k=1 to n
+60 wait d,mk
+70 next k
+80 t=ti-t
+90 w=int(n*60/59.826+.5)
+100 if abs(t-w)<=2 then print "paced";t;"jiffies, want";w : end
+110 print "slipped";t;"jiffies, want";w
+```
+
+Prints `PACED 301 JIFFIES, WANT 301`. `$D011` bit 7 is the raster line's 9th
+bit, set only for lines 256–262, so a `WAIT` on it returns once per frame.
+
+**One `WAIT`, never two.** The obvious-looking `wait d,128 : wait d,128,128`
+— wait for the bit, then wait for it to clear — does *not* give you a frame
+boundary. Those seven raster lines last 0.44 ms and the second `WAIT`'s own
+statement setup costs about 3 ms, so it overshoots the window and returns
+somewhere in the middle of the frame (measured: raster line 120–190), leaving
+under 8 ms of budget. A *single* `WAIT` self-clears, because whatever runs
+next always carries the raster past line 262 before the next `WAIT` polls.
+
+**Budget the work per slice, not per tick.** Between two single-`WAIT` syncs
+you have about **15 ms**. Overrun it by a hair and the next `WAIT` misses its
+window and costs you a whole extra frame — the failure is quantized, so a
+slice that is 5% too heavy runs 100% too slow. Split a tick's work across as
+many synced slices as it takes to fit; a music player writing ten SID
+registers per tick wants five slices of two, not one slice of ten.
+
+What fits in 15 ms, measured on an NTSC machine (500 repetitions timed
+against `TI`, empty-loop baseline subtracted):
+
+| Statement | Cost |
+|---|---|
+| `poke <var>,<var>` | 3.0 ms |
+| `poke <var>,<int array>(<var>)` | 5.0 ms |
+| `poke <5-digit literal>,<var>` | 7.7 ms |
+| `poke <5-digit literal>,<int array>(<var>)` | 9.6 ms |
+| empty `for`/`next` iteration | 1.6 ms |
+
+**A literal address costs +4.7 ms** — more than the poke itself. That is why
+every address above is in a variable assigned before the loop, and it is the
+single cheapest speedup available to a BASIC inner loop: five array-pokes fit
+in a frame, but only three of them do if you spell the addresses out.
 
 ### Switch character sets: uppercase/graphics vs lowercase
 
