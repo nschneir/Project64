@@ -278,6 +278,44 @@ def transcribe(records: Sequence[FrameRecord], clock_hz: float) -> list[NoteEven
     return [event for voice in VOICES for event in _transcribe_voice(records, voice, clock_hz)]
 
 
+def load_score(ref: Mapping | str | Path) -> list[tuple[int, list]]:
+    """A reference score's voices as ``(voice, entries)`` pairs, in voice order.
+
+    Everything `diff_score` checks about a score's *shape*, split out so it can
+    be paid for before a capture rather than after one: `audio.capture` calls
+    this before it opens its real-time window, where a typo would otherwise
+    cost the whole window before the diff ever read the file. It is the same
+    reader, not a second one, so nothing can pass here and fail there.
+
+    Raises ValueError for a score that is not a mapping, one with no ``voices``
+    mapping, a voice that is not a list of entries, or a voice key the SID does
+    not have. That last one is why unknown keys are rejected rather than
+    ignored: `diff_score` compares only the voices a score lists, so a typo'd
+    ``4:`` would be compared against a voice with no events and report every
+    entry under it as "heard nothing" — a wall of diffs blaming the program
+    for a mistake in the reference. Entry contents are NOT checked here; a
+    missing ``note`` is still `diff_score`'s to raise.
+    """
+    voices = _load_score(ref).get("voices")
+    if not isinstance(voices, Mapping):
+        raise ValueError("reference score has no 'voices' mapping")
+    known = ", ".join(str(v) for v in VOICES)
+    out = []
+    for key, entries in voices.items():
+        try:
+            voice = int(key)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"reference score voice key {key!r} is not a voice number: "
+                f"the SID's voices are {known}") from exc
+        if voice not in VOICES:
+            raise ValueError(
+                f"reference score lists voice {voice}: the SID's voices are "
+                f"{known}")
+        out.append((voice, _voice_entries(entries, voice)))
+    return sorted(out, key=lambda pair: pair[0])
+
+
 def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[str]:
     """Compare transcribed events against a reference score; empty means pass.
 
@@ -300,15 +338,13 @@ def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[s
     skipped event instead of cascading a wrong-note diff onto every entry in
     the voice. Score a leading rest explicitly when its length is part of the
     claim — then it is compared like any other entry.
-    """
-    voices = _load_score(ref).get("voices")
-    if not isinstance(voices, Mapping):
-        raise ValueError("reference score has no 'voices' mapping")
 
+    The score is read through `load_score`, which is where every complaint
+    about its shape — including a voice key the SID does not have — comes
+    from.
+    """
     diffs = []
-    for key in sorted(voices, key=int):
-        voice = int(key)
-        expected = _voice_entries(voices[key], voice)
+    for voice, expected in load_score(ref):
         heard = _drop_unscored_leading_rest(
             [e for e in events if e.voice == voice], expected, voice)
         for index in range(max(len(expected), len(heard))):

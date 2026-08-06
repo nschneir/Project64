@@ -405,6 +405,36 @@ def test_diff_score_empty_voice_list_means_silent():
     assert len(diff_score(events, {"voices": {1: []}})) == 1
 
 
+@pytest.mark.parametrize("bad", [4, "4", 0, -1])
+def test_diff_score_rejects_a_voice_number_the_sid_does_not_have(bad):
+    """A typo'd `4:` used to be compared against a voice with no events, so
+    every entry under it came back "heard nothing" — a wall of diffs blaming
+    the program for a mistake in the reference."""
+    events = transcribe(_log((10, {1: (C4_REG, TRIANGLE_ON)})), PAL_CLOCK)
+    with pytest.raises(ValueError, match="voice"):
+        diff_score(events, {"voices": {1: [{"note": "C4"}], bad: [{"note": "C4"}]}})
+
+
+def test_diff_score_rejects_a_voice_key_that_is_not_a_number():
+    """Named rather than left to `int()`'s bare "invalid literal", which is
+    the one complaint in this module that does not say what it was reading."""
+    with pytest.raises(ValueError, match="'lead' is not a voice number"):
+        diff_score([], {"voices": {"lead": []}})
+
+
+def test_load_score_accepts_what_diff_score_accepts(tmp_path):
+    """The pre-parse `audio.capture` runs before it opens a capture window is
+    the reader `diff_score` itself uses, so a score that survives one cannot
+    fail the other on shape."""
+    ref = tmp_path / "score.yaml"
+    ref.write_text("voices:\n  1:\n    - {note: C4, frames: 5}\n  2: []\n")
+    assert sid_analysis.load_score(ref) == [(1, [{"note": "C4", "frames": 5}]),
+                                            (2, [])]
+    ref.write_text("voices:\n  4: []\n")
+    with pytest.raises(ValueError, match="voice 4"):
+        sid_analysis.load_score(ref)
+
+
 def test_diff_score_ignores_voices_the_reference_omits():
     events = transcribe(_log((10, {2: (C4_REG, TRIANGLE_ON)})), PAL_CLOCK)
     assert diff_score(events, {"voices": {}}) == []

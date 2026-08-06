@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import socket
+import sys
 import threading
 import time
 import wave
@@ -1042,19 +1043,57 @@ def test_mcp_sid_log(tmp_path):
     log.assert_called_once_with(s, 50, "/tmp/s.jsonl")
 
 
-def test_cli_audio_sidlog_reports_the_count_and_the_warning():
+#: What a real `sid_log_detail` hands back, and prints to stderr, when the
+#: sampling loop stopped short. The paragraph is long, which is the point:
+#: printed twice it fills a screen.
+SIDLOG_WARNING = ("sid log stopped after 40 of 50 frames; raise the timeout, "
+                  "check that the machine is running, or — if the command was "
+                  "interrupted — run it again")
+
+
+def _warning_detail(session, frames, path):
+    """`sid_log_detail`'s two halves: the stderr line the library owns (see
+    its `print`, and the test above that pins it) and the returned dict."""
+    print(f"c64: {SIDLOG_WARNING}", file=sys.stderr)
+    return {"path": "/tmp/s.jsonl", "frames": 40, "requested": 50,
+            "seconds": 0.1, "sample_rate_hz": 400.0, "warning": SIDLOG_WARNING}
+
+
+def test_cli_audio_sidlog_reports_the_count_and_points_at_the_warning():
     s, _ = _fake_session()
     with patch("c64lib.cli.Session") as S, \
-         patch("c64lib.cli.sid_log_detail",
-               return_value={"path": "/tmp/s.jsonl", "frames": 40,
-                             "requested": 50, "seconds": 0.1,
-                             "sample_rate_hz": 400.0,
-                             "warning": "timed out after 40 of 50 frames"}):
+         patch("c64lib.cli.sid_log_detail", side_effect=_warning_detail):
         S.attach.return_value = s
         r = CliRunner().invoke(main, ["audio", "sidlog", "50", "/tmp/s.jsonl"])
     assert r.exit_code == 0, r.output
     assert "40" in r.output and "/tmp/s.jsonl" in r.output
-    assert "timed out" in r.output
+    assert "warning:" in r.output and "stderr" in r.output
+
+
+def test_cli_audio_sidlog_says_the_warning_once_not_twice():
+    """`sid_log_detail` prints the whole paragraph to stderr — the documented
+    rule for this feature — so the human line repeating it puts the same text
+    on the screen twice. `audio capture` settled the identical duplication by
+    making its second surface a pointer; this is that, for sidlog."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.sid_log_detail", side_effect=_warning_detail):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "sidlog", "50", "/tmp/s.jsonl"])
+    assert r.output.count("raise the timeout") == 1
+
+
+def test_cli_audio_sidlog_json_still_carries_the_whole_warning():
+    """The pointer is a human-output rule only: `--json` is what a script
+    reads, and it must not be told to go look at a stream it is not capturing."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.sid_log_detail", side_effect=_warning_detail):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["--json", "audio", "sidlog", "50",
+                                      "/tmp/s.jsonl"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.stdout)["warning"] == SIDLOG_WARNING
 
 
 def test_cli_audio_sidlog_reports_a_capture_failure():
@@ -1543,6 +1582,32 @@ def test_capture_passes_the_reference_score_through(vice_text, tmp_path):
         out = audio.capture(_capture_session(vice), 0.2, tmp_path / "cap",
                             ref_path=ref)
     assert out["verdict"] == "FAIL" and out["diffs"]
+
+
+def test_capture_rejects_a_bad_reference_before_it_opens_the_window(
+        vice_text, tmp_path):
+    """The score used to be read only inside `sid_report`, i.e. after the
+    whole real-time window — so a typo cost a minute of wall clock before it
+    was named. Nothing may be pinned or armed for a score that cannot parse."""
+    vice = FakeVice([_voice1()] * 4)
+    ref = tmp_path / "score.yaml"
+    ref.write_text("voices:\n  4: [{note: C4}]\n")
+    with _port(vice_text), pytest.raises(ValueError, match="voice 4"):
+        audio.capture(_capture_session(vice), 0.2, tmp_path / "cap", ref_path=ref)
+    assert vice.sets == []
+    assert not (tmp_path / "cap" / "capture.wav").exists()
+
+
+def test_capture_names_unreadable_reference_yaml_before_the_window(
+        vice_text, tmp_path):
+    """The other half of the same pre-parse, and the one `sid_report` already
+    translates out of a bare `yaml.YAMLError`."""
+    vice = FakeVice([_voice1()] * 4)
+    ref = tmp_path / "score.yaml"
+    ref.write_text("voices: {1: [\n")
+    with _port(vice_text), pytest.raises(AudioError, match="not readable YAML"):
+        audio.capture(_capture_session(vice), 0.2, tmp_path / "cap", ref_path=ref)
+    assert vice.sets == []
 
 
 def test_capture_reports_the_wall_clock_it_cost(vice_text, tmp_path):

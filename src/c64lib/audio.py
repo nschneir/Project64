@@ -1013,6 +1013,30 @@ def _unpin_warning(error: BaseException) -> str:
             f"session")
 
 
+def _check_reference(ref_path) -> None:
+    """Read the reference score BEFORE a capture window opens.
+
+    `sid_report` reads it at the end, which is the right place there and the
+    wrong one to find a typo: a capture holds the session at real time for a
+    minute or more, and a score that cannot parse would cost all of it before
+    the diff ever opened the file. The artifacts do survive that (`c64 audio
+    report` re-runs the analysis over them), so this buys wall clock, not
+    evidence.
+
+    Deliberately `sid_analysis.load_score` and not a second parser: it is
+    exactly what `diff_score` reads a reference through, so nothing can pass
+    here and fail there. Entry contents are still the diff's to check.
+    YAMLError is translated the way `sid_report` translates it.
+    """
+    import yaml
+
+    from . import sid_analysis
+    try:
+        sid_analysis.load_score(ref_path)
+    except yaml.YAMLError as e:
+        raise AudioError(f"{ref_path} is not readable YAML ({e})") from e
+
+
 def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     """Record the session's audio for `seconds` of EMULATED time and report.
 
@@ -1061,6 +1085,9 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     retry: under warp VICE writes a header and no frames at all, so an empty
     WAV means the capture window was not at real time. The register log is
     left in place either way.
+
+    A `ref_path` is parsed before anything is pinned or armed — see
+    `_check_reference` — so a malformed score costs no wall clock at all.
     """
     seconds = float(seconds)
     timing = report_timing_for(session.model)
@@ -1069,6 +1096,9 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
         raise ValueError(
             f"seconds must cover at least one frame: {seconds:g}s of a "
             f"{timing['fps']:g} fps machine rounds to {frames} frames")
+    if ref_path is not None:
+        # Before the pin, not after the window: see `_check_reference`.
+        _check_reference(ref_path)
     outdir = Path(_abs(outdir))
     outdir.mkdir(parents=True, exist_ok=True)
     wav, log = outdir / CAPTURE_WAV, outdir / CAPTURE_LOG

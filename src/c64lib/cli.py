@@ -2338,7 +2338,9 @@ def audio_sidlog(ctx, frames, path):
     It does not change the emulator's speed. Inside a pinned recording (or
     a full capture) every frame lands; on a warped session the log comes
     back far faster but a frame can slip past between records, and it says
-    so on stderr. That check is one-sided — a warped session that sampled
+    so on stderr — the human output flags that there is one and leaves the
+    text there, rather than printing the paragraph a second time. That
+    check is one-sided — a warped session that sampled
     slowly stays quiet — so no warning is not proof of an exact timeline;
     pinning real time is. `sample_rate_hz` reports samples per wall-clock
     second, which is not the machine's frame rate (one 200-frame log
@@ -2363,7 +2365,14 @@ def audio_sidlog(ctx, frames, path):
         return
     human = f"wrote {out['frames']} frames to {out['path']}"
     if out["warning"]:
-        human += f"\nwarning: {out['warning']}"
+        # A pointer, not a repeat, exactly as `audio capture` does with
+        # `unpin_error`: `sid_log_detail` has already printed the whole
+        # paragraph to stderr, and printing it again here puts a screenful of
+        # the same text on the screen twice. `--json` still carries it whole —
+        # a script reads the payload, not a stream it never captured.
+        human += ("\nwarning: this log's frame numbers may not be the "
+                  "machine's; the reason is on stderr, and in `warning` "
+                  "with --json")
     emit(ctx, out, human)
 
 
