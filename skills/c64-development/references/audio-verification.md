@@ -134,6 +134,29 @@ first — `c64 until` on your per-frame tick label, a hidden key that jumps to
 the act you want, a `c64 call` into the effect routine — and capture from
 there. Same discipline as a screenshot: stage the state, then sample it.
 
+### Give the program a silent lead-in
+
+For a BASIC program there is usually nothing to drive it *to* — you type
+`run` and the music starts. Two things then go wrong at once, and one line in
+the program fixes both: **start the program with a silent delay, and make sure
+warp is off.**
+
+Arming the capture is not instant. Starting the WAV recorder, clearing warp
+and pinning the speed took about **0.75 s** when it was measured (2026-08-06,
+NTSC session), and a program that begins playing on the first frame loses its
+opening to that. A lead-in long enough to cover it — **8 seconds was
+comfortable** — puts the first note safely inside the window, and costs
+nothing, because leading silence is exempt from the diff.
+
+The lead-in must be counted in a clock that is still running at real time,
+which is the other half of the rule. Under warp, emulated time races: a
+jiffy-counted delay that reads as 8 seconds to the program evaporates in a
+fraction of a real second, long before the capture has pinned the machine. So
+turn warp off *before* the program starts its delay, not as part of arming.
+In a BASIC program the delay itself is the usual `t=ti : if ti-t<480 goto …`
+one-shot — a legitimate use of `TI`, and not the same thing as pacing a
+sequencer on it.
+
 ## Writing a reference score
 
 The score is a small YAML file you author from your own music data. It is
@@ -192,6 +215,13 @@ diff that passes by construction — with your bug baked in as the
 specification. Read the transcription to *understand* a failure; write the
 score from the sequencer table you composed.
 
+**What divides one entry from the next is the note name, not the gate.** The
+transcription starts a new event whenever the pitch it reads changes, so a
+pitch change under a held gate is a new note — and two equal pitches in a row
+**merge into one entry**, re-gated or not, unless a frame of silence separates
+them. That is the rule that turns your sequencer table into score entries:
+walk your own data, collapse consecutive equal pitches, and list what is left.
+
 **A worked example.** Say your melody pattern is one row per 6 frames and
 the rows are `E4 E4 rest G4`, with the player holding the gate across a
 repeated row rather than retriggering it. Two held rows are one 12-frame
@@ -208,16 +238,24 @@ voices:
   3: []
 ```
 
-If instead your player re-gates on every row, the score follows the gate —
-but only the gate the sampler can *see*. Registers are read once per frame,
-so a re-gate registers only when the gate is low at a frame boundary: a
-player that drops the gate for one frame between rows transcribes as a
-6-frame E4, **a 1-frame rest the score has to list**, and a 5-frame E4. A
-player that clears and re-sets the gate inside a single IRQ retriggers
-audibly and transcribes as one 12-frame note — indistinguishable from the
-held version above (see *Known facts*). The gate is what divides notes, so
-this is the one place where the score has to follow the player rather than
-the sheet: the player as the once-per-frame sampler sees it.
+If instead your player re-gates on every row, what the score says depends on
+*where in the frame* the re-gate happens, and that is a design decision worth
+making on purpose:
+
+- **Drop and re-raise the gate inside one frame** — both writes between two
+  samples. The note retriggers audibly, the sampler never sees the gate low,
+  and the two rows come back as one 12-frame E4, indistinguishable from the
+  held version above. Every note is articulated *and* every duration stays
+  whole, so the score is exactly `frames = ticks × frames_per_tick`. This is
+  the option to reach for when you want the arithmetic to be predictable.
+- **Spread the drop across a frame boundary** — gate low at one sample, high
+  at the next. Now the rest is visible, and it costs **a 1-frame rest per
+  note** that the score has to list: a 6-frame E4, a 1-frame rest, a 5-frame
+  E4. Reach for this when the note boundaries themselves are part of the claim
+  and you want the log to prove each one.
+
+Both are correct players. The choice belongs in the player, and the score
+follows it — so decide which one you are writing before you write either.
 
 To check that the table entry behind `E4` really is E4, run the register
 through the frequency formula — `hz = reg16 * clock / 2**24` — with *your
@@ -316,15 +354,17 @@ every WAV finding with the roll before naming a cause.
   register dump). The halt itself is the frame boundary, so the log samples
   once per resume and needs no raster at all — and this works whether your
   program runs off a raster IRQ, the jiffy clock, or nothing at all.
-- **Gate transitions inside a single frame are invisible.** The control
-  register is read once per frame, so the transcription divides notes only at
-  the gate state *sampled* at a frame boundary — never at a transition
-  between two samples. A driver that clears and re-sets the gate within one
-  IRQ retriggers audibly and leaves the gate set at every sample, so two
-  re-gated 6-frame notes come back as one 12-frame note, with no anomaly to
-  flag it. Nothing in the log recovers it: score what the sampler can see, or
-  leave at least one frame of gate-off between notes when their boundaries
-  are part of the claim.
+- **Gate transitions inside a single frame are invisible — and that is a tool,
+  not only a limit.** The control register is read once per frame, so a gate
+  that goes low and high again between two samples leaves no trace: the driver
+  retriggers audibly, the log shows the gate set at every sample, and two
+  re-gated 6-frame notes come back as one 12-frame note with no anomaly to
+  flag it. Read one way that is a blind spot — nothing in the log recovers the
+  boundary, so leave at least one frame of gate-off between notes when their
+  boundaries are part of the claim. Read the other way it is how a player
+  articulates every note while keeping every scored duration a whole multiple
+  of its tick, with no 1-frame rests to list. Pick the reading you want and
+  write the player to it; the score follows the player, not the sheet.
 - **A warped session can drop frames from the log.** Sampling costs one
   round trip per frame. A real-time frame is many times that, so nothing
   slips (200 samples over 201 elapsed frames, measured against the KERNAL

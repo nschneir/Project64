@@ -236,6 +236,38 @@ def test_transcribe_splits_on_pitch_change():
     ]
 
 
+def test_transcribe_merges_two_gatings_of_the_same_pitch():
+    """The other half of ``test_transcribe_splits_on_pitch_change``: events are
+    divided by the note NAME, so two gatings of the same pitch with no gate-low
+    frame between them are one event, not two.
+
+    The two segments below are the two gatings. A player that drops and
+    re-raises the gate inside a single frame retriggers audibly, but the
+    sampler reads the control register once per frame and never sees the dip —
+    so the two 6-frame notes come back as one 12-frame note. That is what lets
+    a player articulate every note and still score ``frames = ticks *
+    frames_per_tick`` exactly. Spread the drop across a frame boundary instead
+    and the rest becomes visible, which the second half asserts: the score then
+    has to list a 1-frame rest per note."""
+    merged = _log(
+        (6, {1: (A4_REG, TRIANGLE_ON)}),   # first gating
+        (6, {1: (A4_REG, TRIANGLE_ON)}),   # re-gated inside a frame: invisible
+    )
+    events = _voice(transcribe(merged, PAL_CLOCK), 1)
+    assert [(e.note, e.start_frame, e.frames) for e in events] == [("A4", 0, 12)]
+    assert events[0].gate_frames == 12
+
+    split = _log(
+        (6, {1: (A4_REG, TRIANGLE_ON)}),
+        (1, {1: (A4_REG, TRIANGLE_OFF)}),   # one gate-low frame: now visible
+        (5, {1: (A4_REG, TRIANGLE_ON)}),
+    )
+    assert [(e.note, e.start_frame, e.frames)
+            for e in _voice(transcribe(split, PAL_CLOCK), 1)] == [
+        ("A4", 0, 6), ("rest", 6, 1), ("A4", 7, 5),
+    ]
+
+
 def test_transcribe_records_the_waveform_bits():
     records = _log((3, {1: (A4_REG, 0x41)}))   # pulse + gate
     assert _voice(transcribe(records, PAL_CLOCK), 1)[0].waveform == 0x40
