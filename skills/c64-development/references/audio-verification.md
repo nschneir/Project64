@@ -65,6 +65,33 @@ found, and the WAV shows no clipping and no unexpected silence. Anything
 else is a FAIL, with every diff and anomaly listed — and the fix belongs in
 the program, not in the score.
 
+**One PASS is not evidence: the one where nothing played.** No voice gated
+and a silent recording passes every check above, because no check had
+anything to disagree with. The report says so under the verdict (**Nothing
+played**), the CLI prints `warning: nothing played`, and the payload carries
+`nothing_played`. It is a legitimate result when your claim is that the
+program is *quiet*; it is also exactly what a capture window that opened on
+a title screen, or on a program that never started, produces. Confirm which
+before you file it as audio evidence.
+
+## The anomaly checks
+
+Three, all reference-free — they run whether or not you wrote a score:
+
+| Anomaly | What it means |
+|---|---|
+| Gate held over a zero frequency for more than 50 frames | A stuck gate or a zero-frequency drone: a real release drops the gate, and a real note has a frequency. |
+| A note more than 15 cents off pitch for at least 25 frames | A tuning bug — most often a note table built for the other machine's clock (65 cents), or a wrong table index. Short blips are exempt: those are slides and arpeggios. |
+| A note the log calls sounding while the WAV says nothing sounded, for more than a second | The gate is held over an envelope that already decayed — a sustain of 0 with no release. The transcription and the piano roll over-report the note's audible length by that much. Needs the WAV; a register-only report cannot see it. |
+
+**The detune check does not apply to noise, and must not.** Noise is an
+LFSR clocked by the oscillator, so `$D400/$D401` sets how *bright* it is,
+not what pitch it is — there is no pitch to be out of tune with. The report
+still names the note the frequency register works out to, because that is
+what the register holds and what positions the bar in the roll, but its
+cents column reads `-`. Drum accents on voice 3 are ordinary C64 arranging;
+they are not a tuning finding.
+
 **Frames are the timeline.** The log carries no cycle counts; the frame
 index is the clock. At PAL 50 fps frame 100 is 2.00 s in; at NTSC 60 fps it
 is 1.67 s. Score lengths, roll positions and report offsets are all frames.
@@ -182,6 +209,7 @@ not for a general impression of health.
 | A color missing entirely | The player never gated that voice: a voice-allocation bug, or an effect seized it and never handed it back. |
 | A color that stops partway and never returns | The effect/music priority rule releases the gate but never resumes the sequencer on that voice. |
 | One long bar where the score has repeated notes | The gate is never released between notes, so the notes never retrigger — the transcriber correctly sees one long note. |
+| A long bar over a spectrogram that went dark under it | The gate is held over an envelope that decayed to nothing (sustain 0, no release), so the bar over-reports how long the note was audible. Flagged as an anomaly when the WAV is there to say so. |
 | Bars of ragged, unequal length where the score is even | Tempo drift: the sequencer is driven from a loop instead of the frame tick, or a frame counter is reset on the wrong branch. |
 | The melody's contour inverted or scrambled | Note-table index off by one, or the frequency high/low bytes swapped. |
 | Every note offset by the same small amount | Wrong clock for the table (see the PAL/NTSC row above) — check `cents_off`, not the shape. |
@@ -202,7 +230,7 @@ class of bug the register log is blind to:
 |---|---|
 | `duration_s` | That the capture really ran as long as you asked. Far short means the speed pin did not hold or the session died mid-capture — the whole artifact set is then suspect. |
 | `clipped_samples` | Three voices at volume 15 sum past full scale. Clipping is a mixing bug; every register in the log is perfect while the output crunches. |
-| `silence_windows` | The audio stopped. Cross-check with the roll: registers changing while the WAV is silent means `$D418` volume is 0 or the filter is swallowing the voices; registers static too means the sequencer or its IRQ died. |
+| `silence_windows` | The audio stopped. Cross-check with the roll: registers changing while the WAV is silent means `$D418` volume is 0 or the filter is swallowing the voices; registers static too means the sequencer or its IRQ died. A window sitting *under* a note the roll draws is the third anomaly above, and the report makes that cross-check for you. |
 | `rms_db_profile` | Level over time — an effect that drowns the music because nothing ducks it, a fade that never fades, a heartbeat that is supposed to grow and does not. |
 
 The **spectrogram** is where everything the note transcription cannot

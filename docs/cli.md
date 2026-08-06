@@ -1437,6 +1437,16 @@ into OUTDIR.
 Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
 
+**A capture in which nothing played still passes** — nothing sounded, so no
+check had anything to disagree with — but it says so: `nothing_played` is
+true in the payload, a `warning: nothing played` line prints under the
+verdict, and the report carries a **Nothing played** notice. Read that as
+"this verdict checked nothing", not as "the audio works". It is a legitimate
+result when the claim is that the program is quiet, and it is equally what a
+capture window that opened on the wrong moment produces. `nothing_played`
+needs the recording to agree: no gated voice over a WAV with audio in it is
+`$D418` sample playback, which the transcription cannot see and does not deny.
+
 Start the music before you call this. A capture that opens before the first
 gate begins with a rest the reference score does not list; that rest is
 skipped rather than diffed — the same exemption trailing silence gets — so
@@ -1507,8 +1517,17 @@ any earlier capture.
   is register-only: no level metrics and no spectrogram, which is a
   legitimate mode rather than a failure.
 - `--ref PATH` — reference score YAML. Without one the transcription is still
-  checked for everything a score is not needed for (stuck gates, notes held
-  audibly out of tune), and an empty diff is a legitimate pass.
+  checked for everything a score is not needed for, and an empty diff is a
+  legitimate pass. Those reference-free checks are:
+  - a gate held over a zero frequency for more than 50 frames (a stuck gate);
+  - a note more than 15 cents off pitch for at least 25 frames — **pitched
+    waveforms only**, since noise is an LFSR whose frequency register sets its
+    brightness and not a pitch, so noise percussion is never "detuned";
+  - with `--wav`, a note the log says is sounding while the recording says
+    nothing is, for more than a second — a gate held over an envelope that
+    already decayed, which over-reports the note's audible length and draws a
+    piano-roll bar over silence. A recording that is silent end to end is
+    exempt: that is one failure with a cause, reported once by the verdict.
 - `--peak-hz` — also measure the recording's loudest frequency. Needs
   `--wav`.
 
@@ -1546,10 +1565,12 @@ transcription this produced cannot fail, and a check that cannot fail is not
 evidence.
 
 JSON: `{"outdir", "report", "verdict", "failures", "log", "wav",
-"piano_roll", "spectrogram", "events", "notes", "diffs", "anomalies",
-"metrics", "machine", "clock_hz", "fps"}` — `verdict` is `"PASS"` or
-`"FAIL"`, `failures` is the reasons behind a FAIL, `events` counts note
-events (rests included) against `notes` for the ones that sounded, and
+"piano_roll", "spectrogram", "events", "notes", "nothing_played", "diffs",
+"anomalies", "metrics", "machine", "clock_hz", "fps"}` — `verdict` is
+`"PASS"` or `"FAIL"`, `failures` is the reasons behind a FAIL,
+`nothing_played` is true when no voice sounded and the recording (if there
+was one) agrees, `events` counts note events (rests included) against
+`notes` for the ones that sounded, and
 `metrics` is null without a WAV (it carries `duration_s`, `clipped_samples`,
 and `silence_windows`; the full RMS profile stays in the report).
 
