@@ -56,6 +56,21 @@ with the first `warp on` reply discarded each cycle and count stalls. If the
 baselines to compare against are 39/39 rescued stalls over 240 cycles, and
 10 failures in 1663 opens (0.60%) in the un-retried population.
 
+**There is now a reproducer in the test suite.** `test_capture_hears_a_live_arpeggio`
+(`tests/test_audio.py`, marked `vice`) fails when the wedge fires, so the suite is
+intermittently red through no fault of the code under test. This was confirmed
+**not** to be a regression from any of the audio work: a clean worktree checked out
+at `7983b57` fails identically. Whoever picks this up gets a live reproduction for
+free — but note it is intermittent, so a single green run proves nothing. Run it
+repeatedly and count, the way the original measurement did.
+
+**One shipped change moves the odds.** The input-validation hardening added to the
+capture primitives puts roughly 100 ms of extra work inside the exact
+real-time-with-no-recorder window this defect lives in. It was measured as harmless
+and it is not a reason to revert anything, but if the wedge rate is ever
+re-measured, that 100 ms is a variable that changed between the original 0.60%
+baseline and the current code. Compare like with like.
+
 **Related, also open:** in `audio.capture`'s unpin handler, a disarm failure
 *followed by* a restore failure keeps the pin sidecar and so takes the
 survivable branch, because the sidecar is the only discriminator available.
