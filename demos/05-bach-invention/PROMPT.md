@@ -57,8 +57,8 @@ and rendered artifacts, not by asserting it sounded fine:
    so a 30-second capture takes at least 30 seconds of wall clock and in
    practice two to three times that — budget for it rather than cutting the
    capture short.
-3. **The report must pass.** Show the verdict, the score diff (empty), and
-   the anomalies (empty).
+3. **The report must pass**, with the one exception step 5 names. Show the
+   verdict, the score diff (empty), and the anomalies (empty).
 4. **Read your own piano roll**, the way you would read a screenshot, and
    say in words what you see: voice 1 and voice 2 as two independent lines,
    the subject appearing in the answering voice after it appears in the

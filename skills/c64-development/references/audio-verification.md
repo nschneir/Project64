@@ -171,8 +171,8 @@ sample is caught only in part, and how much depends on how long arming took.
 the note is still checked, its truncated length is not. Continuous music
 closes the window the same way, so omit `frames` on the last entry too,
 unless the passage ends in silence you arranged to be there (a capture that
-runs past the final gate-off is pinned at both ends and can be durationed
-throughout).
+runs past the final gate-off has that last note pinned at both its ends, so
+it can carry a duration — the first entry's rule above still applies).
 
 **Score the window, not the phrase.** Silence past the end of a voice's list
 is exempt, but an extra *sounding* note is a diff by design — so a score that

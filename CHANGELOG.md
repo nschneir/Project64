@@ -21,18 +21,20 @@ registers predict. Piano-roll voice colors are fixed (voice 1 red, 2 green,
 duration — warp off, `Speed` 100 — so real time is the floor on what it
 costs: every logged frame is a monitor round trip on top, which puts a
 30-second capture at 60–80 seconds of wall clock. The five full-build demo
-prompts — Snake, Invaders, Ms.
-Muncher, La Galaxia and 1812 — now require the artifact set under
+prompts — Snake, Invaders, Ms. Muncher, La Galaxia and 1812 — now require
+the artifact set under
 `evidence/audio/` and a passing report, alongside the SID shadow bytes they
 already required: the shadows prove a write was issued, the capture proves
 what came out of the chip. Finally, the method — capturing, authoring a
 score from your note tables, reading a roll and a spectrogram, and the
 register facts behind all of it — is written up in the new reference at
 `skills/c64-development/references/audio-verification.md`. Two demos arrive
-with it, both prompt-only for now: `demos/05-bach-invention/`, a test demo
-asking for Bach's two-part Invention No. 13 out of BASIC and proved by
-capture, and `demos/fugue/`, BWV 847 on three voices in assembly with its
-score scrolling past as it plays.
+with it: `demos/05-bach-invention/`, a test demo asking for Bach's two-part
+Invention No. 13 out of BASIC and proved by capture — prompt-only like the
+rest of that tier, where the run is the deliverable and nothing is
+committed — and `demos/fugue/`, BWV 847 on three voices in assembly with
+its score scrolling past as it plays, prompt-only so far and waiting to be
+built.
 
 ## [0.9.5] — 2026-08-03
 
