@@ -53,8 +53,10 @@ and rendered artifacts, not by asserting it sounded fine:
    gate that cannot fail proves nothing.
 2. **Capture against it** with `c64 audio capture` (or `c64_audio_capture`),
    long enough to cover the passage you claim to play. Real time is pinned
-   for the duration, so a 30-second capture takes 30 seconds of wall clock —
-   budget for it rather than cutting the capture short.
+   for the duration and every logged frame costs a monitor round trip on top,
+   so a 30-second capture takes at least 30 seconds of wall clock and in
+   practice two to three times that — budget for it rather than cutting the
+   capture short.
 3. **The report must pass.** Show the verdict, the score diff (empty), and
    the anomalies (empty).
 4. **Read your own piano roll**, the way you would read a screenshot, and
@@ -65,8 +67,14 @@ and rendered artifacts, not by asserting it sounded fine:
    are bugs — report them as bugs.
 5. **Show the tempo held.** The reference's per-note frame durations are
    what catch drift: if the loop slows under load, the transcribed durations
-   diverge from the reference and the diff says so. A passing diff across
-   the whole passage *is* the tempo evidence.
+   diverge from the reference and the diff says so. Durations are compared
+   with no tolerance, and a BASIC loop clocked off a frame counter has a
+   frame of granularity per event — so a scattered one-frame difference is
+   that resolution, not drift. Drift is a run of them, growing through the
+   passage and all in the same direction. If the report fails on a handful of
+   isolated ±1-frame diffs, report the verdict as it came out and say which
+   they were; do not loosen the score to match the capture, which is the
+   mistake in step 1 wearing a different hat.
 6. **Show the WAV metrics** — no clipped samples, and no silence window
    where the music should be playing.
 7. **Hand over `capture.wav`** at the end for a human listen. That listen is
