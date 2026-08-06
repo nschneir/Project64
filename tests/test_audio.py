@@ -956,10 +956,13 @@ def test_sid_log_names_the_spent_budget_when_it_samples_nothing(tmp_path):
     advance fails the other way — it fills a whole log with identical
     frames — so the message must not offer that as the explanation."""
     out = tmp_path / "sid.jsonl"
+    machine = FakeMachine(_states(2))
     with pytest.raises(AudioError, match="timeout"):
-        sid_log_detail(_machine_session(FakeMachine(_states(2))), 2, str(out),
-                       timeout=0)
+        sid_log_detail(_machine_session(machine), 2, str(out), timeout=0)
     assert not out.exists()
+    # The REAL branch, not an injected empty list: the loop body never ran,
+    # so the only monitor traffic is the resume that leaves it running.
+    assert machine.calls == ["resume"]
 
 
 def test_sid_log_runs_the_loop_in_the_daemon_when_there_is_one(tmp_path):
