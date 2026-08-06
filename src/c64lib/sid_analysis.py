@@ -86,7 +86,16 @@ MAX_ROW_LABELS = 12
 
 # --- audio ---------------------------------------------------------------
 
-#: A sample at or above this fraction of full scale is clipped.
+#: A sample at or above this fraction of the format's positive full scale is
+#: clipped. Measured against the FORMAT's rail, not against 1.0, because PCM's
+#: rails are not symmetric: signed formats have one more negative code than
+#: positive (16-bit runs -32768 to +32767), and 8-bit unsigned maps 0-255 onto
+#: -1.0 to +127/128 the same way. At 8 bits the positive rail is 0.9922, so a
+#: flat 0.999 could never see positive full-scale clipping at all — the width
+#: `SAMPLE_DTYPES` advertises but the live path (VICE records 16-bit) never
+#: produces. Scaling 8-bit by 127.5 instead would centre the rails at the cost
+#: of turning the format's own silence (the code 128) into a -48 dBFS DC
+#: offset, which is the worse trade.
 CLIP_THRESHOLD = 0.999
 #: Resolution of the RMS profile, and therefore of silence detection.
 RMS_WINDOW_S = 0.1
@@ -103,6 +112,18 @@ SAMPLE_DTYPES = {1: "u1", 2: "<i2", 4: "<i4"}
 #: STFT geometry.
 FFT_WINDOW = 1024
 FFT_HOP = 512
+#: Column cap for the spectrogram, the piano roll's ``MAX_ROLL_WIDTH`` applied
+#: to the other PNG. Past it the hop widens instead, so both the image and the
+#: arrays behind it stay bounded whatever the capture's length.
+#:
+#: Arithmetic, at the 48 kHz mono VICE records. Uncapped a 60 s capture is
+#: 2880000 samples, so (2880000 - 1024) // 512 + 1 = 5624 columns: a
+#: 5624-pixel-wide PNG behind a 5624 x 1024 float64 block (46 MB) and its
+#: 5624 x 513 complex128 rFFT (46 MB). At the cap those are 4096 x 1024
+#: (33.6 MB) and 4096 x 513 (33.6 MB), and no capture can exceed them. The
+#: widening starts once the uncapped count would pass 4096, which is
+#: 4095 * 512 + 1024 = 2097664 samples — about 44 s at 48 kHz.
+MAX_SPECTROGRAM_WIDTH = 4096
 #: The SID's musical content lives well under this; higher bins are noise.
 SPECTROGRAM_MAX_HZ = 8000.0
 #: dB below the loudest bin that maps to the bottom of the ramp.
@@ -162,6 +183,24 @@ class NoteEvent:
     cents_off: float
 
 
+def _register_byte(value) -> int:
+    """One logged register: a whole number in 0-255, or a ValueError.
+
+    A bare ``int(value)`` accepted anything numeric, and both ways it was
+    wrong: a float truncated silently, and an out-of-range value corrupted
+    the 16-bit frequency through ``regs[base + 1] << 8`` with no complaint
+    anywhere downstream — a producer bug arriving as a plausible
+    transcription. The wrong register COUNT is already a named parse error;
+    this puts the register's VALUE on the same footing. ``bool`` is an
+    ``int`` subclass, so it is excluded by name.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"register {value!r} is not an integer")
+    if not 0 <= value <= 255:
+        raise ValueError(f"register {value} is outside 0-255")
+    return value
+
+
 def parse_log(path: str | Path) -> list[FrameRecord]:
     """Read a captured SID log (JSONL, one frame per line)."""
     records = []
@@ -173,7 +212,8 @@ def parse_log(path: str | Path) -> list[FrameRecord]:
             frame, regs = row["frame"], row["regs"]
             if len(regs) != LOG_REGISTERS:
                 raise ValueError(f"{len(regs)} registers, expected {LOG_REGISTERS}")
-            records.append(FrameRecord(frame=int(frame), regs=tuple(int(r) for r in regs)))
+            records.append(FrameRecord(frame=int(frame),
+                                       regs=tuple(_register_byte(r) for r in regs)))
         except (KeyError, TypeError, ValueError) as exc:
             # JSONDecodeError is a ValueError, so every malformed line — bad
             # JSON, missing key, wrong shape — is reported with its line number.
@@ -215,6 +255,15 @@ def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[s
     capture window ended, not a mistake — so an empty list means "this voice
     should be silent" and a score need not predict its own trailing rest. An
     extra *sounding* note past the end still is a diff.
+
+    Silence BEFORE the start of a voice's list is exempt the same way, and for
+    the same reason: a free-running `sid_log` normally opens a few frames
+    before the player's first gate, which is where the capture window began
+    and not a mistake either. A leading rest is dropped before the positional
+    comparison unless the score lists one, so the common case costs one
+    skipped event instead of cascading a wrong-note diff onto every entry in
+    the voice. Score a leading rest explicitly when its length is part of the
+    claim — then it is compared like any other entry.
     """
     voices = _load_score(ref).get("voices")
     if not isinstance(voices, Mapping):
@@ -223,8 +272,9 @@ def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[s
     diffs = []
     for key in sorted(voices, key=int):
         voice = int(key)
-        expected = list(voices[key] or [])
-        heard = [e for e in events if e.voice == voice]
+        expected = _voice_entries(voices[key], voice)
+        heard = _drop_unscored_leading_rest(
+            [e for e in events if e.voice == voice], expected, voice)
         for index in range(max(len(expected), len(heard))):
             label = f"voice {voice} event {index + 1}"
             if index >= len(heard):
@@ -342,8 +392,9 @@ def wav_metrics(wav_path: str | Path) -> dict:
     """Level metrics for a captured WAV: clipping, silence, and an RMS profile.
 
     Returns ``duration_s``, ``clipped_samples`` (samples at or above
-    ``CLIP_THRESHOLD`` of full scale, counted across every channel before the
-    mixdown, because clipping is a per-channel event), ``silence_windows``
+    ``CLIP_THRESHOLD`` of the FORMAT's positive full scale — see that
+    constant — counted across every channel before the mixdown, because
+    clipping is a per-channel event), ``silence_windows``
     (``(start_s, end_s)`` pairs) and ``rms_db_profile`` (dBFS per
     ``RMS_WINDOW_S``).
 
@@ -353,7 +404,8 @@ def wav_metrics(wav_path: str | Path) -> dict:
     channel of a stereo recording is a mix problem, not the SID's.
     """
     audio = _read_wav(wav_path)
-    clipped = int(np.count_nonzero(np.abs(audio.samples) >= CLIP_THRESHOLD))
+    clipped = int(np.count_nonzero(
+        np.abs(audio.samples) >= CLIP_THRESHOLD * audio.positive_full_scale))
     window = max(1, round(RMS_WINDOW_S * audio.rate))
     profile = [_rms_db(audio.mono[start:start + window])
                for start in range(0, len(audio.mono), window)]
@@ -362,6 +414,46 @@ def wav_metrics(wav_path: str | Path) -> dict:
         "clipped_samples": clipped,
         "silence_windows": _silence_windows(profile, window, len(audio.mono), audio.rate),
         "rms_db_profile": profile,
+    }
+
+
+def dominant_partial_hz(wav_path: str | Path) -> dict:
+    """The loudest frequency in a recording, and how precise that answer is.
+
+    Returns ``{"peak_hz", "bin_hz", "bin", "resolution_cents", "seconds"}``.
+    One rFFT over the whole mono mixdown, no windowing and no averaging, so
+    ``bin_hz`` is ``rate / samples`` and the answer is the centre of the bin
+    that holds the partial — never a sub-bin estimate. ``resolution_cents`` is
+    what half a bin is worth at that pitch, which is the tightest agreement
+    this measurement can honestly claim.
+
+    This exists because the branch's central alignment evidence — that VICE's
+    WAV writer paces on emulated time, checked against the recording's PITCH
+    and not only its length — was produced by an ad-hoc probe script that was
+    deleted with its scratch WAV. ``wav_metrics`` reports levels and cannot
+    produce a frequency, so nothing shipped could re-derive the number that
+    argument rests on. Now `c64 audio report --peak-hz` can.
+
+    DC is excluded: a recording with a level offset has no musical partial at
+    0 Hz, and an offset is often the largest bin. Digital silence has no
+    partial at all and answers ``peak_hz`` 0.0 with ``resolution_cents``
+    ``None``.
+    """
+    audio = _read_wav(wav_path)
+    if audio.frames < 1:
+        raise ValueError(f"{wav_path}: no samples to measure")
+    magnitude = np.abs(np.fft.rfft(audio.mono))
+    magnitude[0] = 0.0
+    index = int(np.argmax(magnitude)) if len(magnitude) > 1 else 0
+    bin_hz = audio.rate / len(audio.mono)
+    peak = index * bin_hz
+    return {
+        "peak_hz": peak,
+        "bin_hz": bin_hz,
+        "bin": index,
+        "resolution_cents": (1200 * math.log2((peak + bin_hz / 2) / peak)
+                             if peak > 0 else None),
+        "seconds": len(audio.mono) / audio.rate,
     }
 
 
@@ -382,13 +474,21 @@ def render_spectrogram(wav_path: str | Path, png_path: str | Path) -> None:
 
     A recording shorter than one window is zero-padded to one rather than
     refused: a single column is still a truthful picture of what was captured.
+
+    A long one widens the hop instead of growing without limit: past
+    ``MAX_SPECTROGRAM_WIDTH`` columns the windows are spaced further apart, so
+    the time axis still spans the whole recording and neither the PNG nor the
+    arrays behind it scale with its length. Windows never overlap less than
+    they abut, so no audio is skipped.
     """
     audio = _read_wav(wav_path)
     mono = audio.mono
     if len(mono) < FFT_WINDOW:
         mono = np.pad(mono, (0, FFT_WINDOW - len(mono)))
 
-    starts = range(0, len(mono) - FFT_WINDOW + 1, FFT_HOP)
+    span = len(mono) - FFT_WINDOW
+    hop = max(FFT_HOP, math.ceil(span / (MAX_SPECTROGRAM_WIDTH - 1)))
+    starts = range(0, span + 1, hop)
     windowed = np.stack([mono[s:s + FFT_WINDOW] for s in starts]) * np.hanning(FFT_WINDOW)
     # +1e-12 keeps digital silence at a finite floor instead of -inf.
     decibels = 20 * np.log10(np.abs(np.fft.rfft(windowed, axis=1)) + 1e-12)
@@ -508,6 +608,38 @@ def _load_score(ref: Mapping | str | Path) -> Mapping:
     return ref
 
 
+def _voice_entries(entries, voice: int) -> list:
+    """One voice's reference list, or a ValueError naming what was there.
+
+    `list(entries or [])` alone turns the commonest hand-editing slip — a
+    scalar where a list belongs, `1: 5` — into a bare `TypeError`, while
+    every other malformed shape in this module raises a descriptive
+    `ValueError`. A string is rejected for the same reason: iterating it
+    would silently yield one entry per character.
+    """
+    if entries is None:
+        return []
+    if isinstance(entries, (str, bytes, Mapping)) or not isinstance(entries, Sequence):
+        raise ValueError(
+            f"reference voice {voice} is not a list of note entries: {entries!r}")
+    return list(entries)
+
+
+def _drop_unscored_leading_rest(
+    heard: list[NoteEvent], expected: Sequence, voice: int
+) -> list[NoteEvent]:
+    """Drop a leading rest the score does not claim — see `diff_score`.
+
+    The score keeps its rest when it lists one: only an UNSCORED leading rest
+    is the capture window opening early, and only that one is skipped.
+    """
+    if not heard or heard[0].note != REST:
+        return heard
+    if expected and _reference_note(expected[0], f"voice {voice} event 1") == REST:
+        return heard
+    return heard[1:]
+
+
 def _reference_note(entry: Mapping, label: str) -> str:
     try:
         return str(entry["note"]).strip()
@@ -518,11 +650,22 @@ def _reference_note(entry: Mapping, label: str) -> str:
 def _stuck_gates(
     records: Sequence[FrameRecord], voice: int
 ) -> list[tuple[int, int, str]]:
-    """Runs of frames where the gate is held but the frequency is zero."""
+    """Runs of frames where the gate is held but the frequency is zero.
+
+    Measured in ``record.frame`` deltas, not in records: a producer that drops
+    frames would otherwise under-count a run against wall time, and
+    ``MAX_ZERO_FREQUENCY_FRAMES`` would quietly mean something different for
+    every log. On a gapless log the two are identical, which is the case the
+    threshold was chosen against.
+    """
     found = []
-    run_start, held = 0, 0
+    run_start: int | None = None
+    run_end = 0
 
     def close() -> None:
+        if run_start is None:
+            return
+        held = run_end - run_start + 1
         if held > MAX_ZERO_FREQUENCY_FRAMES:
             found.append((voice, run_start, (
                 f"voice {voice}: gate held over a zero frequency for {held} frames "
@@ -532,12 +675,12 @@ def _stuck_gates(
     for record in records:
         reg16, control = _voice_state(record.regs, voice)
         if control & GATE_BIT and reg16 == 0:
-            if held == 0:
+            if run_start is None:
                 run_start = record.frame
-            held += 1
+            run_end = record.frame
         else:
             close()
-            held = 0
+            run_start = None
     close()
     return found
 
@@ -588,12 +731,18 @@ def _midi_range(events: Sequence[NoteEvent]) -> tuple[int, int]:
 
 
 class _Audio(NamedTuple):
-    """A decoded WAV: full-scale floats, plus the mono mixdown analysis uses."""
+    """A decoded WAV: full-scale floats, plus the mono mixdown analysis uses.
+
+    ``positive_full_scale`` is the largest value this format can actually
+    encode — 127/128 at 8 bits, 32767/32768 at 16 — which is what clipping is
+    measured against. See ``CLIP_THRESHOLD``.
+    """
 
     samples: np.ndarray
     mono: np.ndarray
     rate: int
     frames: int
+    positive_full_scale: float
 
 
 def _read_wav(path: str | Path) -> _Audio:
@@ -611,12 +760,16 @@ def _read_wav(path: str | Path) -> _Audio:
         raise ValueError(f"{path}: sample rate is {rate}, expected a positive rate")
     samples = np.frombuffer(raw, dtype=dtype).astype(np.float64)
     # 8-bit WAV is unsigned with a 128 midpoint; every wider format is signed.
-    samples = samples / 128.0 - 1.0 if width == 1 else samples / 2 ** (8 * width - 1)
+    # Either way the divisor is the NEGATIVE rail, so the code for silence maps
+    # to exactly 0.0 and the positive rail lands one step short of 1.0.
+    scale = 128.0 if width == 1 else 2.0 ** (8 * width - 1)
+    samples = samples / 128.0 - 1.0 if width == 1 else samples / scale
     if channels > 1:
         mono = samples[:frames * channels].reshape(-1, channels).mean(axis=1)
     else:
         mono = samples
-    return _Audio(samples=samples, mono=mono, rate=rate, frames=frames)
+    return _Audio(samples=samples, mono=mono, rate=rate, frames=frames,
+                  positive_full_scale=(scale - 1.0) / scale)
 
 
 def _rms_db(chunk: np.ndarray) -> float:
@@ -724,13 +877,27 @@ def _artifacts_section(outdir: Path) -> list[str]:
     return lines + [""]
 
 
-def _unexpected_silence(events: Sequence[NoteEvent], metrics: Mapping) -> bool:
-    """A silent recording is only a failure when the log says something sounded."""
+def _silence_failure(events: Sequence[NoteEvent], metrics: Mapping) -> str | None:
+    """Why a recording's silence fails the verdict, or ``None``.
+
+    Silence is only a failure when the log says something sounded. Two
+    different faults reach that point and they need different sentences: a
+    recording that ran and came back quiet, and a recording that never
+    happened. The second is the warp signature — VICE writes a header and no
+    frames — and telling its owner "the recording is silent" sends them
+    looking at ``$D418`` instead of at the speed pin.
+    """
     if not any(event.note != REST for event in events):
-        return False
+        return None
     duration = float(metrics.get("duration_s") or 0.0)
+    if duration <= 0.0:
+        return ("the recording has no samples at all, though the register log has "
+                "sounding notes — a WAV with a header and no frames is what a "
+                "capture window that was not at real time produces")
     silent = sum(end - start for start, end in metrics.get("silence_windows") or [])
-    return silent >= duration * ALL_SILENT_COVERAGE
+    if silent >= duration * ALL_SILENT_COVERAGE:
+        return "the recording is silent, but the register log has sounding notes"
+    return None
 
 
 def _verdict_failures(
@@ -748,6 +915,7 @@ def _verdict_failures(
         clipped = int(metrics.get("clipped_samples") or 0)
         if clipped:
             failures.append(f"{_count(clipped, 'clipped sample')} in the recording")
-        if _unexpected_silence(events, metrics):
-            failures.append("the recording is silent, but the register log has sounding notes")
+        silence = _silence_failure(events, metrics)
+        if silence is not None:
+            failures.append(silence)
     return failures

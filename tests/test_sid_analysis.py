@@ -8,16 +8,22 @@ was written, not a restatement of the implementation.
 """
 
 import json
+import math
 import wave
 
 import numpy as np
 import pytest
 from PIL import Image
 
+from c64lib import sid_analysis
 from c64lib.sid_analysis import (
+    ROLL_LEGEND_HEIGHT,
     FrameRecord,
     NoteEvent,
+    _midi_name,
+    _midi_range,
     diff_score,
+    dominant_partial_hz,
     find_anomalies,
     freq_to_note,
     parse_log,
@@ -27,6 +33,14 @@ from c64lib.sid_analysis import (
     wav_metrics,
     write_report,
 )
+
+#: The pitch ``_midi_range`` centres an all-rest roll on. Derived, not spelled
+#: "C4": the per-voice colour test scores each voice against an all-rest
+#: baseline and needs both rolls to have the SAME geometry, which holds only
+#: while the bars are drawn at this pitch. Pinning C4 by hand made that
+#: dependency invisible, so moving the fallback would have failed the test
+#: with "voice N painted another voice's channel" instead of naming geometry.
+FALLBACK_NOTE = _midi_name(sum(_midi_range([])) // 2)
 
 PAL_CLOCK = 985248
 NTSC_CLOCK = 1022727
@@ -143,6 +157,39 @@ def test_parse_log_rejects_missing_keys(tmp_path):
     path.write_text(json.dumps({"regs": [0] * 25}) + "\n")
     with pytest.raises(ValueError, match="line 1"):
         parse_log(path)
+
+
+def _one_line_log(tmp_path, regs):
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text(json.dumps({"frame": 0, "regs": list(regs)}) + "\n")
+    return path
+
+
+@pytest.mark.parametrize("bad", [5.0, 300, -1, "12", True, None])
+def test_parse_log_rejects_a_register_that_is_not_a_byte(tmp_path, bad):
+    """A bare ``int(r)`` took anything numeric: a float truncated silently and
+    an out-of-range value went straight through. Both arrive as a plausible
+    transcription rather than as an error, so the parse has to refuse them —
+    the same footing the wrong register COUNT is already on."""
+    regs = [0] * 25
+    regs[3] = bad
+    with pytest.raises(ValueError, match="line 1"):
+        parse_log(_one_line_log(tmp_path, regs))
+
+
+def test_parse_log_accepts_both_ends_of_the_byte_range(tmp_path):
+    regs = [0, 255] + [0] * 23
+    assert parse_log(_one_line_log(tmp_path, regs))[0].regs[:2] == (0, 255)
+
+
+def test_parse_log_rejects_a_register_before_it_corrupts_the_frequency(tmp_path):
+    """``regs[base + 1] << 8`` is where an out-of-range byte does its damage:
+    300 in the frequency-high register would report a voice 44 * 256 units
+    sharp, with nothing anywhere to say the log was malformed."""
+    regs = [0] * 25
+    regs[1] = 300
+    with pytest.raises(ValueError, match="outside 0-255"):
+        parse_log(_one_line_log(tmp_path, regs))
 
 
 # --- transcribe -----------------------------------------------------------
@@ -281,6 +328,63 @@ def test_diff_score_does_not_require_the_score_to_predict_trailing_silence():
     assert diff_score(events, {"voices": {1: [{"note": "A4", "frames": 25}]}}) == []
 
 
+def _late_start_log(*after):
+    """5 frames of silence, then whatever the player does — the shape a
+    free-running `sid_log` records when it opens before the first gate."""
+    return _log((5, {1: (0, TRIANGLE_OFF)}), *after)
+
+
+def test_diff_score_does_not_require_the_score_to_predict_a_leading_rest():
+    """The mirror of the trailing-silence exemption, and the likelier of the
+    two: a capture normally opens a few frames before the player's first
+    gate."""
+    events = transcribe(_late_start_log((25, {1: (A4_REG, TRIANGLE_ON)})), PAL_CLOCK)
+    assert diff_score(events, {"voices": {1: [{"note": "A4", "frames": 25}]}}) == []
+
+
+def test_diff_score_a_leading_rest_does_not_cascade_onto_the_whole_voice():
+    """THE regression: one unscored opening rest used to shift every later
+    comparison by a slot, so a correct three-note phrase came back as three
+    wrong notes plus a missing one."""
+    records = _late_start_log(
+        (10, {1: (A4_REG, TRIANGLE_ON)}),
+        (10, {1: (C4_REG, TRIANGLE_ON)}),
+        (10, {1: (E4_REG, TRIANGLE_ON)}),
+    )
+    ref = {"voices": {1: [{"note": "A4", "frames": 10},
+                          {"note": "C4", "frames": 10},
+                          {"note": "E4", "frames": 10}]}}
+    assert diff_score(transcribe(records, PAL_CLOCK), ref) == []
+
+
+def test_diff_score_compares_a_leading_rest_the_score_does_list():
+    """Only an UNSCORED opening rest is skipped. Score one and it is checked
+    like any other entry — otherwise the exemption would erase a claim."""
+    events = transcribe(_late_start_log((25, {1: (A4_REG, TRIANGLE_ON)})), PAL_CLOCK)
+    ref = {"voices": {1: [{"note": "rest", "frames": 7},
+                          {"note": "A4", "frames": 25}]}}
+    diffs = diff_score(events, ref)
+    assert len(diffs) == 1
+    assert "rest expected 7 frames, heard 5" in diffs[0]
+
+
+def test_diff_score_still_reports_a_voice_that_only_ever_rests():
+    """Dropping the leading rest must not hide a voice that never sounded:
+    with nothing behind it, the score's first note has nothing to match."""
+    events = transcribe(_log((30, {1: (0, TRIANGLE_OFF)})), PAL_CLOCK)
+    diffs = diff_score(events, {"voices": {1: [{"note": "A4"}]}})
+    assert len(diffs) == 1
+    assert "heard nothing" in diffs[0]
+
+
+@pytest.mark.parametrize("bad", [5, "A4", {"note": "A4"}])
+def test_diff_score_rejects_a_voice_that_is_not_a_list(bad):
+    """`1: 5` in hand-written YAML used to raise a bare TypeError from inside
+    `list()`, while every other malformed shape names the offending entry."""
+    with pytest.raises(ValueError, match="voice 1 is not a list of note entries"):
+        diff_score([], {"voices": {1: bad}})
+
+
 def test_diff_score_empty_voice_list_means_silent():
     events = transcribe(_log((10, {1: (C4_REG, TRIANGLE_ON)})), PAL_CLOCK)
     assert diff_score(events, {"voices": {2: [], 3: []}}) == []
@@ -347,6 +451,20 @@ def test_find_anomalies_flags_a_gate_held_over_zero_frequency():
     findings = find_anomalies(transcribe(records, PAL_CLOCK), records)
     assert len(findings) == 1
     assert "voice 1" in findings[0] and "51" in findings[0]
+
+
+def test_find_anomalies_measures_a_stuck_gate_in_frames_not_records():
+    """The threshold is 50 FRAMES, so it has to be measured in frame numbers.
+    Counting records instead let a log with gaps under-count against wall
+    time — 51 elapsed frames sampled every 5th frame is 11 records, and the
+    same drone would go unreported purely because the producer dropped
+    frames."""
+    regs = _regs({1: (0, TRIANGLE_ON)})
+    sparse = [FrameRecord(frame=n, regs=regs) for n in range(0, 51, 5)]
+    assert len(sparse) == 11
+    findings = find_anomalies(transcribe(sparse, PAL_CLOCK), sparse)
+    assert len(findings) == 1
+    assert "for 51 frames" in findings[0] and "from frame 0" in findings[0]
 
 
 def test_find_anomalies_tolerates_a_short_zero_frequency_gate():
@@ -445,6 +563,25 @@ def test_render_piano_roll_writes_a_png_of_at_least_the_minimum_size(tmp_path):
         assert img.format == "PNG"
 
 
+def _plot_rows(path, channel):
+    """Image rows where `channel` leads, excluding the legend strip.
+
+    The legend paints all three voice colours on every render, so anything
+    measuring bars has to cut it off first.
+    """
+    with Image.open(path) as img:
+        pixels = np.asarray(img.convert("RGB"), dtype=int)
+        # height = ROLL_PAD + plot_height + ROLL_LEGEND_HEIGHT, so the plot
+        # ends exactly one legend strip above the bottom.
+        plot_bottom = img.height - ROLL_LEGEND_HEIGHT
+    leads = pixels[:, :, channel] > 128
+    for other in range(3):
+        if other != channel:
+            leads &= pixels[:, :, channel] - pixels[:, :, other] > 64
+    return {int(row) for row in np.flatnonzero(leads.any(axis=1))
+            if row < plot_bottom}
+
+
 def test_render_piano_roll_colors_voice_1_red_2_green_3_blue(tmp_path):
     """The pinned voice->colour mapping, measured on bars rather than chrome.
 
@@ -454,14 +591,30 @@ def test_render_piano_roll_colors_voice_1_red_2_green_3_blue(tmp_path):
     byte-identical to the all-rest baseline — and scored as the *increase* over
     that baseline. The `== baseline` assertions on the other two channels are
     what make swapping voice 2 and voice 3 fail.
+
+    The bars are drawn at ``FALLBACK_NOTE``, which is derived from
+    ``_midi_range``'s own empty-list fallback rather than written out as C4:
+    the baseline is an all-rest roll, so only a bar at that exact pitch gives
+    the two rolls the same geometry. The size assertion below states that
+    dependency out loud, so moving the fallback fails as a geometry mismatch
+    instead of as "voice N painted another voice's channel".
     """
     span = 40
-    baseline = _voice_colour_counts(tmp_path / "rest.png", [_note(1, "rest", 0, span)])
+    rest_png = tmp_path / "rest.png"
+    baseline = _voice_colour_counts(rest_png, [_note(1, "rest", 0, span)])
     assert all(count > 0 for count in baseline), "legend should paint all three colours"
+    with Image.open(rest_png) as img:
+        baseline_size = img.size
 
     for voice, channel in ((1, 0), (2, 1), (3, 2)):
-        counts = _voice_colour_counts(tmp_path / f"voice{voice}.png",
-                                      [_note(voice, "C4", 0, span)])
+        png = tmp_path / f"voice{voice}.png"
+        counts = _voice_colour_counts(png, [_note(voice, FALLBACK_NOTE, 0, span)])
+        with Image.open(png) as img:
+            assert img.size == baseline_size, (
+                f"a {FALLBACK_NOTE} roll no longer has the same geometry as the "
+                f"all-rest baseline, so the counts below are not comparable — "
+                f"_midi_range's empty-range fallback has moved"
+            )
         for other in range(3):
             if other == channel:
                 assert counts[other] > baseline[other] * 10, (
@@ -471,6 +624,23 @@ def test_render_piano_roll_colors_voice_1_red_2_green_3_blue(tmp_path):
                 assert counts[other] == baseline[other], (
                     f"voice {voice} painted channel {other}, which belongs to another voice"
                 )
+
+
+def test_render_piano_roll_draws_three_simultaneous_voices_without_overdraw(tmp_path):
+    """Nothing else renders more than two voices at once, so an overdraw that
+    only shows up with all three had nowhere to be caught. C4 < E4 < G4 and Y
+    runs high pitch at the top, so each voice owns its own band of rows: a
+    dropped voice empties one set, a colour swap reorders them, and a bar that
+    paints past its row makes two of them intersect."""
+    png = tmp_path / "trio.png"
+    render_piano_roll([_note(1, "C4", 0, 40), _note(2, "E4", 0, 40),
+                       _note(3, "G4", 0, 40)], png, PAL_FPS)
+    red, green, blue = (_plot_rows(png, channel) for channel in range(3))
+    assert red and green and blue, "a voice went missing from a three-voice roll"
+    assert not red & green and not green & blue and not red & blue, \
+        "two voices share plot rows: bars are overdrawing each other"
+    assert max(blue) < min(green) < max(green) < min(red), \
+        "the three bands are not in pitch order G4 (top) / E4 / C4 (bottom)"
 
 
 def test_render_piano_roll_draws_at_least_two_colors_for_two_voices(tmp_path):
@@ -543,6 +713,17 @@ def _write_wav(path, samples, rate=RATE, channels=1, width=2):
     return path
 
 
+def _write_codes(path, codes, rate=RATE, width=2):
+    """A PCM WAV from raw sample CODES rather than floats, so a test can sit
+    on one exact quantization step of a threshold."""
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(width)
+        out.setframerate(rate)
+        out.writeframes(np.asarray(codes, dtype="u1" if width == 1 else "<i2").tobytes())
+    return path
+
+
 def _tone(seconds, hz=440.0, amplitude=0.5, rate=RATE):
     t = np.arange(int(seconds * rate)) / rate
     return amplitude * np.sin(2 * np.pi * hz * t)
@@ -593,6 +774,69 @@ def test_wav_metrics_ignores_a_silence_shorter_than_the_minimum(tmp_path):
     assert wav_metrics(_write_wav(tmp_path / "gap.wav", samples))["silence_windows"] == []
 
 
+def test_wav_metrics_reports_a_silence_of_exactly_the_minimum(tmp_path):
+    """MIN_SILENCE_S is 0.25 s and the comparison is inclusive.
+
+    Exactly 0.25 s is only reachable at the END of a file — the profile's
+    resolution is 0.1 s, so an interior run is always a multiple of that, and
+    only the last window is clamped to the real sample count. 22050 tone
+    samples then 11025 silent ones is 0.5 s to 0.75 s exactly.
+    """
+    samples = np.concatenate([_tone(0.5), np.zeros(int(0.25 * RATE))])
+    metrics = wav_metrics(_write_wav(tmp_path / "tail.wav", samples))
+    assert metrics["silence_windows"] == [pytest.approx((0.5, 0.75))]
+
+
+def test_wav_metrics_ignores_a_trailing_silence_just_under_the_minimum(tmp_path):
+    """0.24 s: one hundredth short, on the same clamped-tail path."""
+    samples = np.concatenate([_tone(0.5), np.zeros(int(0.24 * RATE))])
+    assert wav_metrics(_write_wav(tmp_path / "tail.wav", samples))["silence_windows"] == []
+
+
+def test_wav_metrics_silence_level_boundary_sits_between_two_16_bit_codes(tmp_path):
+    """SILENCE_DB is -60.0 dBFS, tested strictly (`<`), and the silence
+    fixtures elsewhere all sit at -120 — so the LEVEL half of the threshold
+    was never exercised at all.
+
+    Exactly -60.000 dBFS is not representable: it needs a mean square of
+    1073.741824 in 16-bit codes. The tightest the boundary can be pinned is
+    the adjacent pair that straddles it — code 32 is 20*log10(32/32768) =
+    -60.21 dBFS and silent, code 33 is -59.94 dBFS and is not.
+    """
+    quiet = _write_codes(tmp_path / "quiet.wav", [32] * RATE)
+    loud = _write_codes(tmp_path / "loud.wav", [33] * RATE)
+    assert wav_metrics(quiet)["rms_db_profile"][0] == pytest.approx(-60.21, abs=0.01)
+    assert wav_metrics(loud)["rms_db_profile"][0] == pytest.approx(-59.94, abs=0.01)
+    assert wav_metrics(quiet)["silence_windows"] == [pytest.approx((0.0, 1.0))]
+    assert wav_metrics(loud)["silence_windows"] == []
+
+
+def test_wav_metrics_detects_clipping_at_8_bit_positive_full_scale(tmp_path):
+    """8-bit unsigned tops out at code 255 = +127/128 = 0.9922 of full scale,
+    which a flat 0.999 threshold could never reach: positive clipping in the
+    one width `SAMPLE_DTYPES` advertises besides 16-bit was undetectable, and
+    only the negative rail (code 0) ever counted."""
+    metrics = wav_metrics(_write_codes(tmp_path / "hot.wav", [255, 0] * 500, width=1))
+    assert metrics["clipped_samples"] == 1000
+
+
+def test_wav_metrics_does_not_call_a_loud_8_bit_sample_clipped(tmp_path):
+    """Threshold, not "anything above the midpoint": +-0.5625 is not clipping."""
+    metrics = wav_metrics(_write_codes(tmp_path / "warm.wav", [200, 56] * 500, width=1))
+    assert metrics["clipped_samples"] == 0
+
+
+def test_wav_metrics_keeps_8_bit_silence_silent(tmp_path):
+    """Code 128 is the format's zero, and it has to stay there. Re-centring
+    the rails on 127.5 to make them symmetric — the other way of fixing the
+    clipping asymmetry above — would give 8-bit silence a -48 dBFS DC offset
+    and stop it registering as silence at all."""
+    metrics = wav_metrics(_write_codes(tmp_path / "quiet8.wav", [128] * RATE, width=1))
+    assert metrics["rms_db_profile"][0] == -120.0
+    assert metrics["silence_windows"] == [pytest.approx((0.0, 1.0))]
+    assert metrics["clipped_samples"] == 0
+
+
 def test_wav_metrics_mixes_stereo_channels_to_mono(tmp_path):
     """One silent channel halves the amplitude: -9.03 dBFS becomes -15.05."""
     mono = _tone(1.0)
@@ -620,6 +864,56 @@ def test_wav_metrics_rejects_an_unsupported_sample_width(tmp_path):
         out.writeframes(b"\x00\x00\x00" * 100)
     with pytest.raises(ValueError, match="24-bit"):
         wav_metrics(path)
+
+
+# --- dominant_partial_hz --------------------------------------------------
+
+def test_dominant_partial_hz_finds_a_synthesized_tone(tmp_path):
+    """One second at 44100 gives 1 Hz bins, so a 440 Hz tone is bin 440."""
+    out = dominant_partial_hz(_write_wav(tmp_path / "tone.wav", _tone(1.0, hz=440.0)))
+    assert out["bin"] == 440
+    assert out["bin_hz"] == pytest.approx(1.0)
+    assert out["peak_hz"] == pytest.approx(440.0)
+    assert out["seconds"] == pytest.approx(1.0)
+    assert out["resolution_cents"] == pytest.approx(
+        1200 * math.log2(440.5 / 440.0), rel=1e-9)
+
+
+def test_dominant_partial_hz_ignores_a_dc_offset(tmp_path):
+    """A level offset is not a partial, and it is often the largest bin: 0.7
+    of DC over a second is 30870 in bin 0 against the tone's 4410."""
+    samples = _tone(1.0, hz=1000.0, amplitude=0.2) + 0.7
+    assert dominant_partial_hz(_write_wav(tmp_path / "dc.wav", samples))["bin"] == 1000
+
+
+def test_dominant_partial_hz_reports_silence_as_no_partial(tmp_path):
+    out = dominant_partial_hz(_write_wav(tmp_path / "silence.wav", np.zeros(RATE)))
+    assert out["peak_hz"] == 0.0
+    assert out["resolution_cents"] is None
+
+
+def test_dominant_partial_hz_refuses_a_wav_with_no_samples(tmp_path):
+    with pytest.raises(ValueError, match="no samples"):
+        dominant_partial_hz(_write_wav(tmp_path / "empty.wav", np.zeros(0)))
+
+
+def test_dominant_partial_hz_reproduces_the_alignment_gates_measurement(tmp_path):
+    """The branch's central evidence, re-derivable from the repo at last.
+
+    `audio.py`'s module docstring rests on a live capture whose registers
+    predicted 440.0041 Hz and whose WAV's dominant partial fell in the bin
+    holding that prediction. The probe that measured it was a scratch script,
+    deleted with its WAV — so the numbers it quotes (0.4788 Hz bins over
+    100256 samples of 48 kHz, bin 919, +-0.94 cents) could not be checked
+    against anything. Same geometry, synthesized: same bin, same resolution.
+    """
+    rate, frames = 48000, 100256
+    tone = 0.5 * np.sin(2 * np.pi * 440.0041 * np.arange(frames) / rate)
+    out = dominant_partial_hz(_write_wav(tmp_path / "a4.wav", tone, rate=rate))
+    assert out["bin"] == 919
+    assert out["bin_hz"] == pytest.approx(0.4788, abs=0.0001)
+    assert out["peak_hz"] == pytest.approx(439.9937, abs=0.0005)
+    assert out["resolution_cents"] == pytest.approx(0.94, abs=0.005)
 
 
 # --- render_spectrogram ---------------------------------------------------
@@ -680,6 +974,34 @@ def test_render_spectrogram_still_normalizes_a_quiet_recording(tmp_path):
     assert _brightest_row_fraction(quiet) == pytest.approx(1 - 1000 / 8000, abs=0.05)
     with Image.open(quiet) as img:
         assert np.asarray(img.convert("L"), dtype=float).max() > 200
+
+
+def test_render_spectrogram_widens_its_hop_instead_of_growing_without_limit(
+        tmp_path, monkeypatch):
+    """Columns used to scale with the recording, and so did the arrays behind
+    them: a 60 s capture at the 48 kHz VICE records asked for 5624 columns and
+    about 46 MB each of windowed samples and rFFT output. Past
+    MAX_SPECTROGRAM_WIDTH the hop widens instead, the way the roll's
+    MAX_ROLL_WIDTH shares columns.
+
+    Exercised at a lowered cap: the shipped 4096 does not engage until about
+    44 s of 48 kHz audio, and synthesizing that per test run is not worth it.
+    """
+    wav = _write_wav(tmp_path / "long.wav", _tone(25.0, hz=1000.0))
+    png = tmp_path / "long.png"
+
+    render_spectrogram(wav, png)
+    with Image.open(png) as img:
+        # 25 s at 44100 is 1102500 samples: (1102500 - 1024) // 512 + 1 = 2152.
+        assert img.width == 2152, "the shipped cap must not touch a real capture"
+
+    monkeypatch.setattr(sid_analysis, "MAX_SPECTROGRAM_WIDTH", 700)
+    render_spectrogram(wav, png)
+    with Image.open(png) as img:
+        assert MIN_ROLL_SIZE[0] <= img.width <= 700
+    # The time axis still spans the whole recording, so the tone is still at
+    # its own frequency rather than smeared or truncated.
+    assert _brightest_row_fraction(png) == pytest.approx(1 - 1000 / 8000, abs=0.05)
 
 
 def test_render_spectrogram_handles_a_wav_shorter_than_one_window(tmp_path):
@@ -784,7 +1106,34 @@ def test_write_report_links_only_the_artifacts_that_exist(tmp_path):
 
 
 def test_write_report_reports_the_wav_metrics(tmp_path):
-    metrics = _metrics(duration_s=2.5, silence_windows=[(1.0, 1.5)])
+    """Asserted as whole rendered table cells. A bare `"2.5" in text` matches
+    any 2.5 anywhere in the report — a cents offset, a frame count, a piece of
+    the RMS line — so it could pass with the metrics table empty."""
+    metrics = _metrics(duration_s=2.5, clipped_samples=7,
+                       silence_windows=[(1.0, 1.5)], profile=(-9.0, -12.0, -3.0))
     text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
-    assert "2.5" in text
-    assert "1.0" in text and "1.5" in text
+    assert "| Duration | 2.50 s |" in text
+    assert "| Clipped samples | 7 |" in text
+    assert "| Silence windows | 1.00-1.50 s |" in text
+    assert "| RMS min / median / max | -12.0 / -9.0 / -3.0 dBFS over 3 windows of 0.1 s |" \
+        in text
+
+
+def test_write_report_names_a_recording_that_never_happened(tmp_path):
+    """Right verdict, wrong sentence: a WAV with a header and no frames is
+    the warp signature, and "the recording is silent" sends its owner looking
+    at $D418 and the filter instead of at the speed pin."""
+    metrics = _metrics(duration_s=0.0, profile=(), silence_windows=())
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    assert "**FAIL**" in text
+    assert "no samples at all" in text
+    assert "the recording is silent" not in text
+
+
+def test_write_report_still_says_silent_when_the_recording_really_ran(tmp_path):
+    """The other half of the same branch, so the two sentences stay distinct."""
+    metrics = _metrics(duration_s=1.0, silence_windows=[(0.0, 1.0)],
+                       profile=(-120.0,) * 10)
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    assert "the recording is silent" in text
+    assert "no samples at all" not in text
