@@ -104,25 +104,7 @@ def test_supported_machines_table_matches_profiles():
             f"{name}: screen cell {cells[4]!r}"
 
 
-INDEX = Path("index.html")
-
-
-def test_site_capability_counts_match_reality():
-    """The site advertises a command and tool count. Nothing generated it, so
-    it went stale the moment a command was added — `c64 audio score` shipped
-    and the card still said 75. Both numbers are now checked against the
-    real inventories: the click tree, and the server's @srv.tool() defs."""
-    from tests.doc_helpers import all_command_paths
-
-    m = re.search(r"A (\d+)-command CLI, (\d+) MCP tools", INDEX.read_text())
-    assert m, "index.html lost its capability-count sentence"
-    commands = len(all_command_paths())
-    assert int(m.group(1)) == commands, (
-        f"index.html advertises {m.group(1)} commands; the CLI has {commands}")
-    # counted from the source rather than by import: the MCP package pulls in
-    # a win32 module that does not load under this interpreter, and the count
-    # is a property of the decorated defs either way.
-    server = Path("src/c64lib/mcp_server.py").read_text()
-    tools = len(re.findall(r"^@srv\.tool\(\)\ndef (c64_\w+)", server, re.M))
-    assert int(m.group(2)) == tools, (
-        f"index.html advertises {m.group(2)} MCP tools; the server has {tools}")
+# index.html's headline CLI/MCP/skills counts are gated by
+# tests/test_mcp_scaffold.py::test_index_html_counts_match_the_real_inventory,
+# which owns the definition of what "N-command CLI" counts (invocable leaves,
+# groups excluded — `c64 reg` is both, and is counted once).
