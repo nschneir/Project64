@@ -7,7 +7,7 @@ import pytest
 
 from c64lib.session import Session
 from c64lib.text import ascii_to_petscii
-from tests.vice_helpers import wait_for_text
+from tests.vice_helpers import timeout_scale, wait_for_text
 
 REF = Path("skills/c64-development/references")
 
@@ -150,6 +150,168 @@ def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
         assert not clobbered, f"doc-claimed ZP bytes clobbered: {clobbered}"
     finally:
         s.stop()
+
+
+#: A program that owns the machine: no ROM calls, no return to BASIC, and no
+#: zero page of its own — but interrupts left enabled, so the KERNAL's jiffy
+#: update, keyboard scan and cursor blink all keep running over the seeded
+#: bytes. The GO byte lets the harness seed them before the clock starts.
+_OWNED_MACHINE_ASM = """\
+JIFFY   = $A2
+GO      = $C001
+DONE    = $C000
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  lda     #0
+        sta     DONE
+        sta     count
+        sta     count+1
+        sta     GO
+wgo:    lda     GO
+        beq     wgo
+loop:   lda     JIFFY
+tick:   cmp     JIFFY
+        beq     tick
+        inc     count
+        bne     nohi
+        inc     count+1
+nohi:   lda     count+1
+        cmp     #$02                    ; 600 frames = $0258
+        bcc     loop
+        bne     fin
+        lda     count
+        cmp     #$58
+        bcc     loop
+fin:    lda     #$5A
+        sta     DONE
+hold:   jmp     hold
+count:  .res    2
+"""
+
+#: Bytes the KERNAL's own interrupt handler maintains every frame. They are
+#: not free on an owned machine either, and a row claiming one would be a
+#: doc bug this test refuses rather than a measurement it re-runs.
+_IRQ_OWNED = {0xA0, 0xA1, 0xA2, 0xC5, 0xC6, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF}
+
+
+def _owned_machine_claims() -> list[int]:
+    """The addresses the owned-machine table claims, parsed from the doc so
+    the two cannot drift. Each row states its own byte count, which is
+    checked against its range — a table that miscounts is a doc bug."""
+    import re
+
+    text = (REF / "zero-page.md").read_text()
+    section = text.split("## Free zero page once your program owns the machine")[1]
+    section = section.split("\n## ")[0]
+    claimed: list[int] = []
+    for row in re.finditer(
+            r"^\|\s*([0-9A-F]{2})(?:-([0-9A-F]{2}))?\s*\|\s*(\d+)\s*\|",
+            section, re.M):
+        lo = int(row.group(1), 16)
+        hi = int(row.group(2), 16) if row.group(2) else lo
+        span = list(range(lo, hi + 1))
+        assert len(span) == int(row.group(3)), (
+            f"row ${lo:02X}-${hi:02X} says {row.group(3)} bytes, spans {len(span)}")
+        claimed += span
+    assert claimed, "no address rows under the owned-machine heading"
+    return claimed
+
+
+def test_owned_machine_table_excludes_the_irq_bytes():
+    """The KERNAL IRQ runs whatever else the program owns, so the bytes it
+    maintains can never appear here — a cheap guard that costs no emulator."""
+    stolen = sorted(_IRQ_OWNED.intersection(_owned_machine_claims()))
+    assert not stolen, ("the owned-machine table claims bytes the KERNAL IRQ "
+                        f"maintains: {[f'${a:02x}' for a in stolen]}")
+
+
+@pytest.mark.vice
+@pytest.mark.skipif(
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
+)
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+@pytest.mark.parametrize("model", ["c64", "c64pal"])
+def test_user_zp_bytes_survive_owned_machine_live(tmp_path, monkeypatch, model):
+    """The table's premise, measured rather than reasoned: with no BASIC
+    running and no ROM routine called, far more of the zero page is free than
+    the under-BASIC table admits — and the KERNAL's interrupt handler, which
+    keeps running, is the thing that decides how much."""
+    import time as _t
+
+    from c64lib.build import build_asm
+
+    claimed = _owned_machine_claims()
+    src = tmp_path / "zpown.s"
+    src.write_text(_OWNED_MACHINE_ASM)
+    prg = Path(build_asm(src).prg).resolve()
+
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    s = Session.launch(model=model, name=f"zpown-{model}", headless=True,
+                       warp=True)
+    try:
+        wait_for_text(s, "READY.")
+        with s.monitor() as mon:
+            try:
+                mon.autostart(prg, run=True)
+            finally:
+                mon.resume()
+        _wait_byte(s, 0xC000, 0x00, "the program never reached its GO spin")
+
+        sentinels = {a: ((0xA5 + i * 7) % 255) + 1
+                     for i, a in enumerate(claimed)}
+        with s.monitor() as mon:
+            try:
+                for a, v in sentinels.items():
+                    mon.memory_write(a, bytes([v]))
+                mon.memory_write(0xC001, b"\x01")        # release the clock
+            finally:
+                mon.resume()
+        _t.sleep(1.0)
+        with s.monitor() as mon:                          # give the scan work
+            try:
+                mon.keyboard_feed(ascii_to_petscii("abc\n"))
+            finally:
+                mon.resume()
+        _wait_byte(s, 0xC000, 0x5A, "the program never reported 600 frames")
+
+        with s.monitor() as mon:
+            try:
+                after = {a: mon.memory_read(a, 1)[0] for a in claimed}
+            finally:
+                mon.resume()
+        clobbered = {f"${a:02x}": (sentinels[a], after[a])
+                     for a in claimed if after[a] != sentinels[a]}
+        assert not clobbered, f"doc-claimed ZP bytes clobbered: {clobbered}"
+    finally:
+        s.stop()
+
+
+def _wait_byte(s, addr: int, want: int, message: str, timeout: float = 60.0):
+    import time as _t
+
+    deadline = _t.monotonic() + timeout * timeout_scale()
+    while _t.monotonic() < deadline:
+        with s.monitor() as mon:
+            try:
+                got = mon.memory_read(addr, 1)[0]
+            finally:
+                mon.resume()
+        if got == want:
+            return
+        _t.sleep(0.25)
+    raise AssertionError(message)
 
 
 @pytest.mark.vice

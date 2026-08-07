@@ -77,6 +77,56 @@ plus seconds of jiffy IRQs, and checking they survived —
 is the caveat: cassette operations use zero-page scratch; if your program
 does tape I/O, re-verify with a sentinel test first.
 
+## Free zero page once your program owns the machine *(live)*
+
+Six bytes is not much when `(ptr),y` is the only indirect mode there is, and
+the table above is deliberately conservative: it answers "free **while BASIC
+is running**". A game that has taken the machine over — SYS'd in and never
+coming back, no interpreter running, no ROM routine called — is in a
+different situation. Almost everything BASIC owns is idle, and the only
+thing still writing zero page is the KERNAL's own interrupt handler.
+
+Measured the same way as the table above, on live `c64` and `c64pal`: a
+program that owns the machine, uses no zero page itself, and paces on the
+jiffy for 600 frames with interrupts **enabled** (so the jiffy update,
+`SCNKEY` and the cursor blink all run, with real keystrokes fed partway
+through). Every one of these 75 bytes came back holding its sentinel:
+
+| Addr    | Bytes | Normally |
+|---------|-------|----------|
+| 02      | 1     | Unused by BASIC and the KERNAL — free under BASIC too. |
+| 22-2A   | 9     | BASIC's INDEX1/INDEX2 scratch pointers ($22-$25) and its multiply work area ($26-$2A). |
+| 4E-53   | 6     | BASIC numeric work area; $53 is the garbage collector's step size. |
+| 57-60   | 10    | BASIC's floating-point temporaries (TEMPF1-TEMPF3). |
+| 62-6E   | 13    | The working bytes of FAC1 and FAC2, BASIC's two floating-point accumulators. |
+| 70-8F   | 32    | BASIC scratch, the CHRGET routine copied into RAM at $73-$8A, and the RND seed (RNDX) at $8B-$8F. |
+| FB-FE   | 4     | The conventional user pointers — free under BASIC as well. |
+
+**The caveats are the point.** These bytes are free *because* nothing that
+uses them is running, so:
+
+- **One ROM call takes them back.** A single `jsr CHROUT`, `jsr GETIN` or
+  any other KERNAL/BASIC entry may use its own zero-page scratch, and
+  returning to `READY.` puts all of it back in play at once. If your program
+  prints through the ROM, treat only `$FB-$FE`/`$02` as yours.
+- **$73-$8A is code, not scratch.** CHRGET is a subroutine living in RAM;
+  overwrite it and BASIC cannot tokenize or execute another line until the
+  machine is reset. That is fine for a game that never returns — and fatal
+  for one that does.
+- **The KERNAL IRQ still runs**, so everything it maintains stays off this
+  table and is never free: `$A0-$A2` (jiffy clock), `$C5`/`$CB` (last and
+  current key), `$C6` (buffer count), `$CC-$CF` (cursor blink state). Mask
+  interrupts and you may have those too — but then you have also stopped the
+  clock and the keyboard, which is usually not what you wanted.
+- **Tape I/O reclaims low scratch**, exactly as in the under-BASIC table.
+
+The standing advice below — save and restore, or move to `$C000` — still
+applies to anything you are unsure of. What this table buys is the handful
+of *fast* pointer pairs a game actually needs: `demos/ms-muncher` keeps its
+screen and colour-RAM pointers in `$FB-$FE` and its tile-map and two blit
+pointers in `$22-$27` on this basis — three pairs it could not otherwise
+have had.
+
 ## Low memory (outside zero page)
 
 | Addr        | Meaning |
