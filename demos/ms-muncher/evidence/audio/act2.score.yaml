@@ -1,0 +1,51 @@
+# Written from the sequencer tables in sound.s, not from the
+# transcription -- a score pasted back from a capture passes by
+# construction, with whatever the player got wrong baked in as the
+# specification.  Durations are omitted on purpose: the tick is paced
+# on the jiffy clock, which drifts a frame over a few hundred, so the
+# claim here is the note sequence, one entry per sequencer event
+# after consecutive equal pitches merge.
+#
+# Act 2, the chase: a semiquaver arpeggio over a walking bass.  The bass
+# pairs equal rows, which merge into one event each.
+tempo_frames_per_row: 8
+voices:
+  1:
+    - {note: A4}
+    - {note: C5}
+    - {note: E5}
+    - {note: A5}
+    - {note: E5}
+    - {note: C5}
+    - {note: A4}
+    - {note: C5}
+    - {note: B4}
+    - {note: D5}
+    - {note: F5}
+    - {note: A5}
+    - {note: F5}
+    - {note: D5}
+    - {note: B4}
+    - {note: D5}
+    - {note: C5}
+    - {note: E5}
+    - {note: G5}
+    - {note: C5}
+    - {note: G5}
+    - {note: E5}
+    - {note: C5}
+    - {note: E5}
+  2:
+    - {note: A4}
+    - {note: G4}
+    - {note: F4}
+    - {note: E4}
+    - {note: A4}
+    - {note: G4}
+  3:
+    - {note: A2}
+    - {note: G3}
+    - {note: F3}
+    - {note: E3}
+    - {note: A2}
+    - {note: G3}

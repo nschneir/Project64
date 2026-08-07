@@ -1,0 +1,24 @@
+# Written from the sequencer tables in sound.s, not from the
+# transcription -- a score pasted back from a capture passes by
+# construction, with whatever the player got wrong baked in as the
+# specification.  Durations are omitted on purpose: the tick is paced
+# on the jiffy clock, which drifts a frame over a few hundred, so the
+# claim here is the note sequence, one entry per sequencer event
+# after consecutive equal pitches merge.
+#
+# Act 3, the delivery.
+tempo_frames_per_row: 8
+voices:
+  1:
+    - {note: C5}
+    - {note: E5}
+    - {note: G5}
+    - {note: F5}
+    - {note: E5}
+  2:
+    - {note: E4}
+    - {note: C4}
+    - {note: F4}
+  3:
+    - {note: C3}
+    - {note: F3}

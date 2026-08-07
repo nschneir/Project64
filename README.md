@@ -121,9 +121,9 @@ built — [`demos/invaders/`](demos/invaders/)
 and [`demos/snake/`](demos/snake/) each have the sources an agent wrote, a
 [fidelity](demos/invaders/AUDIT.md) [audit](demos/snake/AUDIT.md), a
 regression test, and a runnable disk: `x64sc -ntsc demos/invaders/invaders.d64`
-and play it with A/D and space, or `x64sc -ntsc demos/snake/snake.d64` and
-play it with W/A/S/D. Ms. Muncher, La Galaxia and Fugue are prompt-only
-so far.
+and play it with A/D and space, `x64sc -ntsc demos/snake/snake.d64` and play
+it with W/A/S/D, or `x64sc -ntsc demos/ms-muncher/ms-muncher.d64` and play
+that with W/A/S/D too. La Galaxia and Fugue are prompt-only so far.
 
 <p align="center">
   <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">

@@ -1,0 +1,26 @@
+# Written from the sequencer tables in sound.s, not from the
+# transcription -- a score pasted back from a capture passes by
+# construction, with whatever the player got wrong baked in as the
+# specification.  Durations are omitted on purpose: the tick is paced
+# on the jiffy clock, which drifts a frame over a few hundred, so the
+# claim here is the note sequence, one entry per sequencer event
+# after consecutive equal pitches merge.
+#
+# Act 1, they meet: the whole 24-row cue, opening and closing in silence.
+tempo_frames_per_row: 8
+voices:
+  1:
+    - {note: E4}
+    - {note: G4}
+    - {note: C5}
+    - {note: rest}
+    - {note: D5}
+    - {note: C5}
+  2:
+    - {note: C4}
+    - {note: F4}
+    - {note: G4}
+  3:
+    - {note: C3}
+    - {note: F3}
+    - {note: G3}

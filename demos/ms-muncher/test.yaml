@@ -1,0 +1,128 @@
+name: ms-muncher
+machine: c64
+program: ms-muncher.s
+timeout: 60
+steps:
+  # ---- the attract screen -------------------------------------------------
+  - wait:   { text: "PRESS SPACE TO PLAY" }
+  - assert: { text: "MEET THE CAST" }
+  - assert: { text: "BRUISER" }
+  - assert: { text: "PIXIE" }
+  - assert: { text: "IVY" }
+  - assert: { text: "SABLE" }
+  - assert: { text: "TOP SCORES" }
+  - assert: { mem: "gstate", equals: 0 }
+  - assert: { mem: "$D015", equals: 31 }         # five cast sprites, no fruit
+
+  # ---- graphics mode ------------------------------------------------------
+  # $D018 = $1E (screen $0400 + charset $3800); bit 0 is unused and reads 1.
+  - assert: { mem: "$D018", mask: { and: "$fe", equals: ["$1e"] } }
+  - assert: { mem: "$D016", mask: { and: "$10", equals: ["$10"] } }  # multicolor text
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }
+  - assert: { mem: "$D023", mask: { and: "$0f", equals: [10] } }     # the door's pink
+  - assert: { mem: "$D01C", equals: "$3f" }      # all six actors multicolor
+  - assert: { mem: "$D025", mask: { and: "$0f", equals: [1] } }      # sprite white
+  - assert: { mem: "$D026", mask: { and: "$0f", equals: [6] } }      # sprite blue
+  # the charset really is the patched RAM copy: code 112 is the dot glyph,
+  # two multicolor pixels on rows 3 and 4 -- $3800 + 112*8 = $3B80
+  - assert: { mem: "$3B80", equals: [0, 0, 0, "$3c", "$3c", 0, 0, 0] }
+  # ... and the sprite shapes really were composited at $3000: shape 0 is
+  # Ms. Muncher with her bow, whose first three rows are transparent
+  - assert: { mem: "$07F8", equals: [192] }
+
+  # ---- the title tune is running ------------------------------------------
+  - until:  { ref: tick, count: 200 }
+  - assert: { mem: "musplay", equals: 1 }
+  - assert: { mem: "sidshad+24", equals: "$1f" }     # low-pass, volume 15
+  # bit 0 of each control register is the gate: all three voices sounding
+  - assert: { mem: "sidshad+4", mask: { and: "$01", equals: [1] } }
+  - assert: { mem: "sidshad+11", mask: { and: "$01", equals: [1] } }
+  - assert: { mem: "sidshad+18", mask: { and: "$01", equals: [1] } }
+
+  # ---- start a game: $CB is the held-key matrix code, not a buffered key --
+  - until:  { ref: tick, count: 120 }            # past the key-ignore window
+  - poke:   { addr: "$CB", values: [60] }        # SPACE
+  - until:  { ref: tick, count: 3 }              # the state handler draws on
+                                                 # the tick after the change
+  - assert: { mem: "gstate", equals: 1 }         # get ready
+  - assert: { mem: "board", equals: 1 }
+  - assert: { mem: "lives", equals: 3 }
+  - assert: { mem: "score", equals: [0, 0, 0] }
+  - assert: { text: "READY!" }
+  - assert: { text: "SCORE" }
+  - assert: { text: "HIGH SCORE" }
+  - assert: { text: "BOARD" }
+
+  # ---- the maze ------------------------------------------------------------
+  - assert: { mem: "maze", equals: 0 }
+  - assert: { mem: "dotsleft", equals: 234 }     # maze 1's dot count
+  # maze 1 row 0 is solid wall, and off-map counts as wall so the border
+  # closes: the corner cell has all four neighbours (glyph 15), and the cell
+  # beside it loses only its downward one, which is the row-1 dot (glyph 11)
+  - assert: { mem: "@2,6", equals: 111 }         # WALLBASE + 15
+  - assert: { mem: "@2,7", equals: 107 }         # WALLBASE + 11
+  - assert: { mem: "@2,33", equals: 111 }        # WALLBASE + 15
+  - assert: { mem: "@3,7", equals: 112 }         # a dot
+  - assert: { mem: "@5,7", equals: 113 }         # an energizer
+  - assert: { mem: "@11,19", equals: 114 }       # the ghost-house door
+  # wall cells are multicolor (bit 3 of the colour nybble), dots are not the
+  # same colour as walls -- colour RAM reads back 4-bit, so mask
+  - assert: { mem: "@@2,6", mask: { and: "$0f", equals: ["$0e"] } }
+  - assert: { mem: "@@3,7", mask: { and: "$0f", equals: ["$0f"] } }
+
+  # ---- the actors start where the arcade puts them -------------------------
+  - assert: { mem: "axhi", equals: [108, 108, 108, 100, 124] }
+  - assert: { mem: "ayhi", equals: [132, 68, 92, 92, 92] }
+  - assert: { mem: "astate+1", equals: [2, 0, 0, 0] }   # one out, three home
+  - assert: { mem: "$D015", equals: "$3f" }
+
+  # ---- into play, and the speed classes are exact --------------------------
+  # a `wait` polls without resuming, and the last `until` left the machine
+  # stopped -- step the ready countdown out on the frame anchor instead
+  - until:  { ref: tick, count: 130 }
+  - assert: { mem: "gstate", equals: 2 }
+  # board 1: the player is the 80% class, $0100 -- exactly one pixel a frame
+  - assert: { mem: "aspdlo", equals: 0 }
+  - assert: { mem: "aspdhi", equals: 1 }
+  # ... and Bruiser is the 75% class, $00F0
+  - assert: { mem: "aspdlo+1", equals: "$f0" }
+  - assert: { mem: "aspdhi+1", equals: 0 }
+
+  # ---- steering: hold D and she really moves right ------------------------
+  - sample: { mem: "axhi", as: x0 }
+  - sample: { mem: "score", as: sc0 }
+  - sample: { mem: "dotsleft", as: d0 }
+  - poke:   { addr: "$CB", values: [18] }        # D
+  - until:  { ref: tick, count: 30 }
+  - assert: { mem: "axhi", greater_than: x0 }
+  - assert: { mem: "adir", equals: 3 }
+  # 30 frames at exactly one pixel a frame, minus the frames she spent
+  # blocked before the first corner: she has eaten dots and scored
+  - assert: { mem: "dotsleft", less_than: d0 }
+  - assert: { mem: "score", differs: sc0 }
+
+  # ---- the ghosts leave the house on a staggered schedule -----------------
+  # Bruiser starts outside, Pixie follows on her slice of the board clock,
+  # and Ivy and Sable are still waiting for their own dot counts: never all
+  # at once, which is the arcade's rule.
+  - assert: { mem: "greleased", equals: [1, 1, 0, 0] }
+  - sample: { mem: "astate+4", as: gs0 }   # Sable, still GS_HOUSE
+  - poke:   { addr: "dotseaten", values: [60] }  # past every dot threshold
+  - poke:   { addr: "boardfrm", values: [255, 1] }   # ... and every timed one
+  - until:  { ref: tick, count: 10 }
+  - assert: { mem: "greleased", equals: [1, 1, 1, 1] }
+  - assert: { mem: "astate+4", differs: gs0 }
+
+  # ---- an energizer frightens them, and the chain doubles ------------------
+  - poke:   { addr: "frtimer", values: [200, 1] }
+  - poke:   { addr: "astate+1", values: [4, 4, 4, 4] }
+  - poke:   { addr: "ghcombo", values: [0] }
+  - poke:   { addr: "animframe", values: [0] }   # pin the body frame so the
+  - poke:   { addr: "animcount", values: [0] }   # shape assert is not a race
+  - until:  { ref: tick, count: 4 }
+  - assert: { mem: "aspdlo+1", equals: "$a0" }   # the 50% frightened class
+  - assert: { mem: "$07F9", equals: 209 }        # the frightened shape
+  - poke:   { addr: "ghcombo", values: [3] }
+  - call:   { routine: sfxeaten }
+  - assert: { mem: "vprio", equals: 4 }          # the ghost-eaten effect owns
+                                                 # voice 1, at its priority

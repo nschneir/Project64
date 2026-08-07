@@ -46,11 +46,12 @@ writes the program wherever it likes, proves it on a live session, and
 nothing is committed — the run itself is the deliverable. Every demo outside
 the test tier keeps everything: sources, plan, audit, `evidence/`
 screenshots, and the artefact the prompt tells the agent to build, so
-`invaders/invaders.d64`, `snake/snake.d64` and `1812/1812.d64` run in stock
-VICE without a checkout of this toolset. Ms. Muncher, La Galaxia and Fugue
-are prompt-only so far; their directories fill in the same way once built.
-The three finished builds are written up in
-[invaders/AUDIT.md](invaders/AUDIT.md), [snake/AUDIT.md](snake/AUDIT.md), and
+`invaders/invaders.d64`, `snake/snake.d64`, `ms-muncher/ms-muncher.d64` and
+`1812/1812.d64` run in stock VICE without a checkout of this toolset. La
+Galaxia and Fugue are prompt-only so far; their directories fill in the same
+way once built. The four finished builds are written up in
+[invaders/AUDIT.md](invaders/AUDIT.md), [snake/AUDIT.md](snake/AUDIT.md),
+[ms-muncher/AUDIT.md](ms-muncher/AUDIT.md), and
 [1812/AUDIT.md](1812/AUDIT.md).
 
 <p align="center">

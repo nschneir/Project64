@@ -1,0 +1,6 @@
+# sidshad, 25 bytes mirroring $D400-$D418, captured on the title
+# tune at frame 120.  The chip is write-only: these are the only
+# bytes a test can assert a sound happened at all.
+0b61: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+0b71: 00 00 00 00 00 00 80 f0 1f                       .........
+# text column: ascii

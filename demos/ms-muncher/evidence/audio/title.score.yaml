@@ -1,0 +1,53 @@
+# Written from the sequencer tables in sound.s, not from the
+# transcription -- a score pasted back from a capture passes by
+# construction, with whatever the player got wrong baked in as the
+# specification.  Durations are omitted on purpose: the tick is paced
+# on the jiffy clock, which drifts a frame over a few hundred, so the
+# claim here is the note sequence, one entry per sequencer event
+# after consecutive equal pitches merge.
+#
+# The title tune: pulse lead, sawtooth harmony, triangle bass.
+tempo_frames_per_row: 8
+voices:
+  1:
+    - {note: A4}
+    - {note: C5}
+    - {note: E5}
+    - {note: D5}
+    - {note: C5}
+    - {note: B4}
+    - {note: A4}
+    - {note: C5}
+    - {note: E5}
+    - {note: G5}
+    - {note: E5}
+    - {note: A5}
+    - {note: G5}
+    - {note: E5}
+    - {note: D5}
+    - {note: C5}
+    - {note: B4}
+    - {note: A4}
+    - {note: E5}
+    - {note: D5}
+    - {note: C5}
+  2:
+    - {note: C4}
+    - {note: E4}
+    - {note: A4}
+    - {note: E4}
+    - {note: C4}
+    - {note: E4}
+    - {note: A4}
+    - {note: C5}
+    - {note: B4}
+    - {note: G4}
+    - {note: D4}
+    - {note: G4}
+    - {note: A4}
+    - {note: E4}
+  3:
+    - {note: A2}
+    - {note: F3}
+    - {note: C3}
+    - {note: E3}
