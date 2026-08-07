@@ -374,3 +374,169 @@ def test_two_character_aliasing_warns():
 
 def test_aliasing_respects_separate_namespaces():
     assert lint_source('10 spa=1\n20 spa$="x"\n30 end\n') == []
+
+
+# --- W150 / W160: the two timing footguns ----------------------------------
+
+def _rule(text, code):
+    return [(i.line, i.severity, i.rule) for i in lint_source(text)
+            if i.rule == code]
+
+
+def test_wait_pair_on_the_raster_is_flagged():
+    """`wait d,128 : wait d,128,128` reads as "wait for the raster msb, then
+    wait for it to clear", and it does not give you a frame boundary: $D011
+    bit 7 is set for seven lines (0.44 ms) and the second WAIT's own statement
+    setup costs about 3 ms, so it overshoots and returns mid-frame. Measured
+    2026-08-06 on NTSC: raster line 120-190, under 8 ms of budget left."""
+    src = "10 wait 53265,128 : wait 53265,128,128\n20 end\n"
+    assert _rule(src, "W150") == [(10, "warning", "W150")]
+    # the message has to point somewhere, or the reader learns only that
+    # something is wrong
+    text = next(i.message for i in lint_source(src) if i.rule == "W150")
+    # names the recipe by its heading — "pace a loop to the frame" is the
+    # rem line inside its block, which is not what a reader searches for
+    assert "single" in text
+    assert "Pace a BASIC loop to the frame" in text
+
+
+def test_wait_pair_is_flagged_across_two_lines():
+    """Adjacency is in statement order, not within a line: splitting the pair
+    over two lines changes nothing about why it fails."""
+    src = "10 wait 53266,128\n20 wait 53266,128,128\n30 end\n"
+    assert _rule(src, "W150") == [(20, "warning", "W150")]
+
+
+def test_a_single_wait_on_the_raster_is_not_flagged():
+    """The fix the rule points at must not itself be flagged."""
+    src = "10 for k=1 to 300 : wait 53265,128 : next k\n20 end\n"
+    assert _rule(src, "W150") == []
+
+
+def test_a_wait_pair_on_a_non_raster_address_is_not_flagged():
+    """$DC01 is the keyboard port; waiting twice on it is an ordinary idiom
+    and has nothing to do with the raster's seven-line window."""
+    src = "10 wait 56321,16 : wait 56321,16,16\n20 end\n"
+    assert _rule(src, "W150") == []
+
+
+def test_two_waits_on_different_raster_registers_are_not_flagged():
+    """The rule is about polling ONE window twice, so the addresses have to
+    match. $D011 then $D012 is two different reads."""
+    src = "10 wait 53265,128 : wait 53266,128,128\n20 end\n"
+    assert _rule(src, "W150") == []
+
+
+TI_DELAY = "10 t=ti\n20 if ti-t<480 goto 20\n"
+
+
+def test_ti_paced_sid_loop_is_flagged():
+    """TI runs at exactly 60.00 Hz and an NTSC frame at 59.826, and the sid
+    log counts FRAMES — so a sequencer paced on TI drifts about one frame
+    every 340. Measured on the 05-bach-invention run: 2190 jiffies over 2184
+    frames."""
+    src = TI_DELAY + "30 for i=0 to 100 : poke 54273,i : next i\n40 end\n"
+    assert _rule(src, "W160") == [(30, "warning", "W160")]
+    text = next(i.message for i in lint_source(src) if i.rule == "W160")
+    assert "59.826" in text and "60.00" in text
+
+
+def test_ti_paced_sid_loop_through_a_named_address_is_flagged():
+    """Step 3c's case, and the reason the resolver earns its place: a poke's
+    address resolves only when it is written as a literal, but a well-written
+    player holds its SID addresses in variables because a literal address
+    costs +4.7 ms. Without _literal_scalars this rule would go quiet exactly
+    as authors improve."""
+    src = (TI_DELAY + "25 f1=54272\n"
+           "30 for i=0 to 100 : poke f1,i : next i\n40 end\n")
+    assert _rule(src, "W160") == [(30, "warning", "W160")]
+
+
+def test_a_sid_loop_with_no_ti_delay_is_not_flagged():
+    """The TI delay is what says the program is pacing itself on the jiffy
+    clock. Without one there is nothing to warn about."""
+    src = "30 for i=0 to 100 : poke 54273,i : next i\n40 end\n"
+    assert _rule(src, "W160") == []
+
+
+def test_a_ti_delay_outside_a_loop_is_not_flagged():
+    """A gosub'd beep — the cookbook's own — legitimately paces on TI: it is
+    one-shot, so there is no drift to accumulate. The `for` qualifier is what
+    keeps it out."""
+    src = ("10 gosub 900\n20 end\n"
+           "900 poke 54296,15 : poke 54273,17 : poke 54276,17\n"
+           "910 t=ti\n920 if ti-t<30 goto 920\n"
+           "930 poke 54276,16 : return\n")
+    assert _rule(src, "W160") == []
+
+
+def test_the_sid_clear_idiom_is_not_flagged():
+    """`for m=54272 to 54296 : poke m,0 : next m` sweeps the whole register
+    file, and its address is a `for` control variable — which no resolver may
+    treat as a constant. This is the false positive the fourth condition of
+    _literal_scalars exists to prevent."""
+    src = TI_DELAY + "30 for m=54272 to 54296 : poke m,0 : next m\n40 end\n"
+    assert _rule(src, "W160") == []
+
+
+def test_a_reassigned_address_does_not_resolve():
+    """Two assignments and the value is a guess, so the name is simply absent
+    from the map — conditions 1 and 2 of _literal_scalars."""
+    src = (TI_DELAY + "25 f1=54272\n26 f1=54279\n"
+           "30 for i=0 to 100 : poke f1,i : next i\n40 end\n")
+    assert _rule(src, "W160") == []
+
+
+def test_an_address_assigned_inside_a_loop_does_not_resolve():
+    """Condition 3: a swept address is not a constant, whatever its RHS."""
+    src = (TI_DELAY + "30 for i=0 to 100 : f1=54272 : poke f1,i : next i\n"
+           "40 end\n")
+    assert _rule(src, "W160") == []
+
+
+def test_a_computed_address_does_not_resolve():
+    """Condition 2: `c1=b+4` is not a bare numeric literal."""
+    src = (TI_DELAY + "24 b=54272\n25 c1=b+4\n"
+           "30 for i=0 to 100 : poke c1,i : next i\n40 end\n")
+    assert _rule(src, "W160") == []
+
+
+def test_a_named_address_reaches_the_range_check():
+    """Step 3b: _check_ranges only ever saw literal arguments, so an
+    out-of-range poke through a named ADDRESS was invisible. (The value
+    argument was always visible — `poke sc,300` fires with or without the
+    resolver, which is why the address is what this pins.)"""
+    assert _rule("10 sc=70000\n20 poke sc,32\n30 end\n", "E150") == \
+        [(20, "error", "E150")]
+
+
+def test_the_range_check_still_ignores_an_unresolvable_address():
+    """It must not start guessing. A swept name has no constant value, and a
+    name assigned twice has no provable one — a false ?illegal quantity on a
+    correct program is worse than silence."""
+    assert _rule("10 for m=1024 to 2023 : poke m,32 : next m\n20 end\n",
+                 "E150") == []
+    assert _rule("10 sc=53281\n20 sc=70000\n30 poke sc,32\n40 end\n",
+                 "E150") == []
+
+
+def test_a_raster_synced_sid_loop_is_not_flagged():
+    """The narrowing the corpus forced, and the case W160 exists to spare:
+    `demos/05-bach-invention/bach-invention.bas` holds its SID addresses in
+    variables AND opens with an `if ti` delay — but its play loop syncs on
+    $D011 every slice, and its TI delay is a one-shot lead-in before the music
+    starts. A loop holding a raster WAIT is paced by the frame whatever else
+    the program does."""
+    src = (TI_DELAY + "25 d=53265 : mk=128 : c1=54276\n"
+           "30 for i=0 to 100 : wait d,mk : poke c1,i : next i\n40 end\n")
+    assert _rule(src, "W160") == []
+
+
+def test_an_outer_raster_sync_covers_an_inner_loop():
+    """The sync need not be in the same loop as the poke: an inner loop inside
+    a frame-synced outer one is still frame-paced."""
+    src = (TI_DELAY + "25 d=53265 : mk=128 : c1=54276\n"
+           "30 for i=0 to 9 : wait d,mk\n"
+           "35 for j=0 to 2 : poke c1,j : next j\n"
+           "36 next i\n40 end\n")
+    assert _rule(src, "W160") == []

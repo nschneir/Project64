@@ -513,13 +513,82 @@ def _args(stmt: list[Token], k: int) -> list[list[Token]]:
     return [g for g in groups if g]
 
 
-def _check_ranges(line: Line, stmt: list[Token]) -> list[LintIssue]:
+def _literal_scalars(prog: Program) -> dict[str, int]:
+    """name -> value for scalars that provably hold one integer literal.
+
+    Deliberately dull, and it must stay that way: this is not constant
+    propagation, it exists so a rule that can only read literal addresses also
+    sees `poke c1,x` after `c1=54276`. A well-written BASIC player holds its
+    SID addresses in variables precisely because a literal address costs about
+    4.7 ms per POKE, so a literal-only rule goes quiet exactly as authors
+    improve.
+
+    A name qualifies only when all four hold; anything else is simply absent:
+
+    1. It is followed by ``=`` exactly once in the whole program. Two and the
+       value is a guess — and this counts every occurrence, so an assignment
+       under an IF, or a comparison, disqualifies it too.
+    2. That assignment's right-hand side is a bare integer literal. `c1=54276`
+       qualifies, `c1=b+4` does not.
+    3. The assignment is not inside a ``for``…``next`` body: a swept value is
+       not a constant.
+    4. The name is never a ``for`` control variable. This is what keeps the
+       SID-clear idiom `for m=54272 to 54296:poke m,0:next m` out — its
+       address is swept, and no resolver may call that constant.
+    """
+    seen: dict[str, int] = {}
+    value_at: dict[str, int | None] = {}
+    for_vars: set[str] = set()
+    depth = 0
+    for line in prog.lines:
+        for stmt in line.statements:
+            head, depths = _head(stmt), _depths(stmt)
+            for k, t in enumerate(stmt):
+                if t.kind == "IDENT" and depths[k] == 0 \
+                        and k + 1 < len(stmt) and stmt[k + 1].kind == "OP" \
+                        and stmt[k + 1].text == "=":
+                    seen[t.text] = seen.get(t.text, 0) + 1
+            if head == "for":
+                depth += 1
+                var = next((t.text for t in stmt[1:] if t.kind == "IDENT"), "")
+                if var:
+                    for_vars.add(var)
+                continue
+            if head == "next":
+                names = [t.text for t in stmt[1:] if t.kind == "IDENT"] or [""]
+                depth = max(0, depth - len(names))
+                continue
+            if head not in (None, "let"):
+                continue
+            first = 1 if head == "let" else 0
+            if len(stmt) < first + 3 or stmt[first].kind != "IDENT" \
+                    or stmt[first + 1].kind != "OP" or stmt[first + 1].text != "=":
+                continue
+            v = _literal(stmt[first + 2:])
+            value_at[stmt[first].text] = (
+                None if depth or v is None or v != int(v) else int(v))
+    return {n: v for n, v in value_at.items()
+            if v is not None and seen.get(n) == 1 and n not in for_vars}
+
+
+def _value(arg: list[Token], scalars: dict[str, int]) -> float | None:
+    """An argument's provable numeric value: a literal, or a resolved name."""
+    v = _literal(arg)
+    if v is not None:
+        return v
+    if len(arg) == 1 and arg[0].kind == "IDENT" and arg[0].text in scalars:
+        return float(scalars[arg[0].text])
+    return None
+
+
+def _check_ranges(line: Line, stmt: list[Token],
+                  scalars: dict[str, int]) -> list[LintIssue]:
     out = []
     for k, t in enumerate(stmt):
         if t.kind != "KEYWORD" or t.text not in _RANGES:
             continue
         for arg, (lo, hi) in zip(_args(stmt, k), _RANGES[t.text], strict=False):
-            v = _literal(arg)
+            v = _value(arg, scalars)
             if v is not None and not lo <= v <= hi:
                 shown = int(v) if v == int(v) else v
                 out.append(LintIssue(line.number, "error", "E150",
@@ -586,6 +655,7 @@ def _check_assignment(line: Line, stmt: list[Token]) -> list[LintIssue]:
 
 def _check_values(prog: Program) -> list[LintIssue]:
     out = []
+    scalars = _literal_scalars(prog)
     for line in prog.lines:
         for t in line.tokens:
             if t.kind == "NUMBER" and float(t.text) > _FLOAT_MAX:
@@ -593,7 +663,7 @@ def _check_values(prog: Program) -> list[LintIssue]:
                                      f"?overflow: literal {t.text} exceeds "
                                      "C64 float range"))
         for stmt in line.statements:
-            out.extend(_check_ranges(line, stmt))
+            out.extend(_check_ranges(line, stmt, scalars))
             out.extend(_check_assignment(line, stmt))
     return out
 
@@ -743,6 +813,103 @@ def _check_dim_subscripts(prog: Program) -> list[LintIssue]:
     return out
 
 
+#: $D011 (raster line's 9th bit) and $D012 (its low byte) — the two registers
+#: a BASIC program syncs a frame on.
+_RASTER_REGS = frozenset({53265, 53266})
+
+#: SID frequency (+0/+1) and control (+4) registers for all three voices —
+#: the writes a sequencer makes on every tick. Voice v is based at
+#: $D400 + 7*(v-1).
+_SID_TIMING_REGS = frozenset({54272, 54273, 54276,
+                              54279, 54280, 54283,
+                              54286, 54287, 54290})
+
+_RECIPE = "the cookbook's \"Pace a BASIC loop to the frame\""
+
+
+def _has_ti_delay(prog: Program) -> bool:
+    """An `if ti…goto` busy-wait: the program is pacing itself on the jiffy."""
+    return any(_head(stmt) == "if"
+               and any(t.kind == "IDENT" and t.text == "ti" for t in stmt)
+               and any(t.kind == "KEYWORD" and t.text == "goto" for t in stmt)
+               for line in prog.lines for stmt in line.statements)
+
+
+def _check_timing(prog: Program) -> list[LintIssue]:
+    """W150 and W160: the two ways a BASIC program silently loses the frame.
+
+    Both are warnings. Neither is wrong BASIC — they run, they just do not
+    hold the rate that something outside the program is counting.
+    """
+    out: list[LintIssue] = []
+    # W150: two adjacent WAITs polling the same raster register. Adjacency is
+    # in statement order, so splitting the pair across two lines is the same
+    # bug. A triple reports twice, which is what it is.
+    prev: float | None = None
+    for line in prog.lines:
+        for stmt in line.statements:
+            if _head(stmt) != "wait":
+                prev = None
+                continue
+            args = _args(stmt, 0)
+            addr = _literal(args[0]) if args else None
+            if prev is not None and addr == prev:
+                out.append(LintIssue(
+                    line.number, "warning", "W150",
+                    "two adjacent WAITs on the same raster register: $d011 "
+                    "bit 7 is set for only 7 lines (0.44 ms) and the second "
+                    "WAIT's own setup costs about 3 ms, so it overshoots the "
+                    "window and returns mid-frame, leaving under 8 ms of "
+                    f"budget. A single WAIT is the frame sync — see {_RECIPE}"))
+            prev = addr if addr in _RASTER_REGS else None
+    if not _has_ti_delay(prog):
+        return out
+    # W160: a SID sequencer inside a loop that is NOT frame-synced, in a
+    # program that keeps time with TI. A loop holding a raster WAIT is paced
+    # by the frame whatever else the program does — which is the difference
+    # between a drifting sequencer and a correct one with a one-shot TI
+    # lead-in, and the reason the corpus stays quiet. Reported once, at the
+    # first offending POKE: the finding is about how the program keeps time,
+    # not about each of the ten writes it makes per tick.
+    scalars = _literal_scalars(prog)
+    synced: set[int] = set()                  # loops whose body holds a sync
+    found: list[tuple[int, tuple[int, ...]]] = []   # (line, enclosing loops)
+    stack: list[int] = []
+    opened = 0
+    for line in prog.lines:
+        for stmt in line.statements:
+            head = _head(stmt)
+            if head == "for":
+                stack.append(opened)
+                opened += 1
+            elif head == "next":
+                names = [t.text for t in stmt[1:] if t.kind == "IDENT"] or [""]
+                for _each in names:           # `next k,j` closes two loops
+                    if stack:
+                        stack.pop()
+            elif not stack:
+                continue
+            elif head == "wait":
+                args = _args(stmt, 0)
+                if args and _value(args[0], scalars) in _RASTER_REGS:
+                    synced.update(stack)
+            elif head == "poke":
+                args = _args(stmt, 0)
+                if args and _value(args[0], scalars) in _SID_TIMING_REGS:
+                    found.append((line.number, tuple(stack)))
+    for number, enclosing in found:
+        if not synced.intersection(enclosing):
+            out.append(LintIssue(
+                number, "warning", "W160",
+                "SID sequencer in a loop with no frame sync, in a program "
+                "paced on TI: the jiffy clock runs at 60.00 Hz and the NTSC "
+                "frame at 59.826, and a sid log counts FRAMES — so this "
+                "drifts about one frame every 340. Sync each slice on the "
+                f"raster instead — see {_RECIPE}"))
+            break
+    return out
+
+
 _W90_CONSEQUENCE = {"new": "wipes the running program",
                     "list": "stops the program", "cont": "cannot continue"}
 
@@ -799,7 +966,7 @@ def _drop_redundant(issues: list[LintIssue]) -> list[LintIssue]:
 
 _CHECKS = (_check_line_length, _check_size, _check_shape, _check_flow,
            _check_loops, _check_reach, _check_values, _check_defs,
-           _check_dim_subscripts, _check_vocab)
+           _check_dim_subscripts, _check_vocab, _check_timing)
 
 
 def lint_source(text: str) -> list[LintIssue]:
