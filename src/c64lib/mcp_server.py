@@ -1201,6 +1201,29 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
 
 
 @srv.tool()
+def c64_audio_score(file: str) -> dict:
+    """Read a reference score YAML and report what it claims — no machine, no
+    capture. The cheap half of the audio loop: `c64_audio_capture` costs
+    several times its emulated length in wall clock, so check the arithmetic
+    in a hand-written score here first and spend the capture window once.
+
+    Returns one object per voice — how many entries it lists, how many frames
+    those entries account for, and its first and last note — plus the totals.
+    Only the voices the score lists appear: an empty list is the claim "this
+    voice sits out" and comes back with no entries, while a voice the score
+    omits claims nothing and is absent. `frames` is optional per entry (it is
+    normally omitted on the window's first and last notes), so the frame total
+    counts only the durations that are there.
+
+    Raises on anything malformed, with the same message the capture would have
+    given you after spending its window — which is the point.
+    """
+    # Imported here, not at module scope: the module brings numpy and Pillow.
+    from .sid_analysis import score_summary
+    return score_summary(file)
+
+
+@srv.tool()
 def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
                       session: str | None = None) -> dict:
     """Record the running program's audio and report on what it played — the

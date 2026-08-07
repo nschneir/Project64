@@ -316,6 +316,61 @@ def load_score(ref: Mapping | str | Path) -> list[tuple[int, list]]:
     return sorted(out, key=lambda pair: pair[0])
 
 
+def score_summary(ref: Mapping | str | Path) -> dict:
+    """What a reference score claims, without a capture to check it against.
+
+    A capture costs several times its emulated length in wall clock, so the
+    arithmetic in a hand-written score — did I really list every event in the
+    window? do the durations add up to the passage I meant? — should be
+    checkable before spending one. This reads the score through `load_score`,
+    the same and only reader, so nothing can summarise here and fail there.
+
+    Returns ``{"voices": {"<voice>": {"entries", "frames", "first", "last"}},
+    "entries", "frames"}``. Only the voices the score LISTS appear: an empty
+    list is the positive claim "this voice sits out", and comes back with zero
+    entries and ``None`` for its first and last note, while a voice the score
+    omits claims nothing and is absent entirely — the same asymmetry
+    `diff_score` compares by.
+
+    ``frames`` is the sum of the durations actually present. An entry that
+    omits ``frames`` — which is how the window's first and last notes are
+    normally scored — counts toward ``entries`` and contributes nothing to
+    ``frames``, so the two numbers disagreeing is information, not an error.
+
+    Raises ValueError for everything `load_score` rejects, plus the two
+    entry-level slips it deliberately leaves to `diff_score`: an entry with no
+    ``note``, and a ``frames`` that is not a number. Catching those here is
+    most of the point — after a capture they cost the window.
+    """
+    voices: dict[str, dict] = {}
+    for voice, entries in load_score(ref):
+        names: list[str] = []
+        frames = 0
+        for index, entry in enumerate(entries, 1):
+            label = f"voice {voice} event {index}"
+            names.append(_reference_note(entry, label))
+            value = entry.get("frames")
+            if value is None:
+                continue
+            try:
+                frames += int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"reference {label} has a non-numeric 'frames': {value!r}"
+                ) from exc
+        voices[str(voice)] = {
+            "entries": len(names),
+            "frames": frames,
+            "first": names[0] if names else None,
+            "last": names[-1] if names else None,
+        }
+    return {
+        "voices": voices,
+        "entries": sum(v["entries"] for v in voices.values()),
+        "frames": sum(v["frames"] for v in voices.values()),
+    }
+
+
 def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[str]:
     """Compare transcribed events against a reference score; empty means pass.
 

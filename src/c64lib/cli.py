@@ -2474,6 +2474,51 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     _verdict_report(ctx, out, headline)
 
 
+@audio.command("score")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False))
+@click.pass_context
+def audio_score(ctx, file):
+    """Read a reference score and say what it claims. No machine needed.
+
+    The cheap half of the audio loop. A capture costs several times its
+    emulated length in wall clock, so check the arithmetic in a hand-written
+    score here first — that every voice has the number of events the window
+    holds, and that the durations add up to the passage you meant — and spend
+    the capture window once.
+
+    Prints one line per voice: how many entries it lists, how many frames
+    those entries account for, and the first and last note. Only the voices
+    the score lists appear. An empty list is the claim "this voice sits out"
+    and shows as silent; a voice the score omits claims nothing and is not
+    reported at all.
+
+    `frames` is optional per entry — the window's first and last notes are
+    normally scored without one — so the frame total counts only the durations
+    that are there. Exits 1 on anything malformed, with the same message the
+    capture would have given you after spending its window.
+    """
+    # Imported here for the reason `audio report` imports its own: numpy and
+    # Pillow come with the module and double the startup of every command.
+    from .sid_analysis import score_summary
+    try:
+        out = score_summary(file)
+    except (OSError, ValueError) as e:
+        fail(ctx, f"audio score: {e}")
+        return
+    lines = []
+    for voice, info in out["voices"].items():
+        count = info["entries"]
+        span = ("silent" if not count
+                else f"first {info['first']}, last {info['last']}")
+        lines.append(f"voice {voice}: {count} "
+                     f"{'entry' if count == 1 else 'entries'}, "
+                     f"{info['frames']} frames, {span}")
+    voices = len(out["voices"])
+    lines.append(f"total: {out['entries']} entries, {out['frames']} frames "
+                 f"across {voices} {'voice' if voices == 1 else 'voices'}")
+    emit(ctx, out, "\n".join(lines))
+
+
 @audio.command("capture")
 @click.argument("seconds", type=float)
 @click.argument("outdir", type=click.Path(file_okay=False))
@@ -2509,6 +2554,9 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     Count that lead-in with warp OFF. This command clears warp when it arms,
     but the program's delay runs before that, and under warp an eight-second
     jiffy delay is over in a fraction of a real second.
+
+    Check the score with `c64 audio score` before you get here. A typo'd voice
+    key costs nothing to find there and the whole window to find here.
     """
     s = attach(ctx)
     try:

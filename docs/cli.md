@@ -1583,6 +1583,49 @@ was one) agrees, `events` counts note events (rests included) against
 `metrics` is null without a WAV (it carries `duration_s`, `clipped_samples`,
 and `silence_windows`; the full RMS profile stays in the report).
 
+### `c64 audio score`
+
+Read a reference score YAML and say what it claims. No session, no capture,
+no log — just the file.
+
+- `FILE` — the score. Same shape `--ref` takes, read by the same reader.
+
+**This is the cheap half of the loop, and `audio report` above is the other
+half.** A capture costs several times its emulated length in wall clock; this
+costs nothing. Check the score's arithmetic here — that each voice lists as
+many events as the window holds, and that the durations add up to the passage
+you meant — then spend the capture window once. A score with a typo'd voice
+key or a missing `note` currently announces itself *after* the window closes,
+which is the most expensive moment for it to.
+
+Prints one line per voice: how many entries it lists, how many frames those
+entries account for, and its first and last note; then a total line.
+
+```
+voice 1: 371 entries, 2600 frames, first E4, last A4
+voice 2: 375 entries, 2600 frames, first A2, last A2
+voice 3: 135 entries, 1072 frames, first F#4, last rest
+total: 881 entries, 6272 frames across 3 voices
+```
+
+Only the voices the score lists appear, matching how `--ref` compares them: an
+empty list is the positive claim "this voice sits out the passage" and shows
+as `silent`, while a voice the score omits claims nothing about that voice and
+is absent from the output entirely.
+
+`frames` is optional per entry — it is normally omitted on the first and last
+note of every voice, because the capture window cuts both in half — so the
+frame total counts only the durations that are there. An entry count and a
+frame count that do not divide evenly is information, not a complaint.
+
+Exits 1 on a malformed score, with the same message the capture would have
+raised: a voice key the SID does not have, a voice that is not a list, an
+entry with no `note`, or a `frames` that is not a number. Entry-level slips
+are named by position (`voice 1 event 2`).
+
+JSON: `{"voices": {"1": {"entries", "frames", "first", "last"}, …},
+"entries", "frames"}`, with `first` and `last` null for a voice scored empty.
+
 ---
 
 ## Test runner

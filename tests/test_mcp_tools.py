@@ -382,3 +382,35 @@ def test_basic_check_clean_program(tmp_path):
     src.write_text('10 print "hi"\n20 goto 10\n')
     is_error, data = call_tool("c64_basic_check", {"source_path": str(src)})
     assert not is_error and data["issues"] == []
+
+
+# --- audio score ------------------------------------------------------------
+
+def test_audio_score_summarises_a_score_without_a_session(tmp_path):
+    """The MCP twin of `c64 audio score`. It must need no session at all —
+    a score is a file, and reading it is what makes it the cheap half of the
+    loop."""
+    path = tmp_path / "score.yaml"
+    path.write_text("voices:\n  1:\n    - {note: E4}\n"
+                    "    - {note: A4, frames: 9}\n  3: []\n")
+    err, out = call_tool("c64_audio_score", {"file": str(path)})
+    assert err is False
+    assert out == {
+        "voices": {
+            # first entry has no `frames`, so it counts as an entry and adds
+            # nothing to the frame total — the two numbers disagreeing is
+            # information, not an error
+            "1": {"entries": 2, "frames": 9, "first": "E4", "last": "A4"},
+            "3": {"entries": 0, "frames": 0, "first": None, "last": None},
+        },
+        "entries": 2,
+        "frames": 9,
+    }
+
+
+def test_audio_score_reports_a_voice_the_sid_does_not_have(tmp_path):
+    path = tmp_path / "score.yaml"
+    path.write_text("voices:\n  4: []\n")
+    err, out = call_tool("c64_audio_score", {"file": str(path)})
+    assert err is True
+    assert "voice 4" in str(out)

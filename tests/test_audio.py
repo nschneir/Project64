@@ -2120,3 +2120,101 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
     wrong_frames["voices"][1][1]["frames"] = 7
     assert any("7 frames" in diff
                for diff in sid_analysis.diff_score(events, wrong_frames))
+
+
+# --- audio score ----------------------------------------------------------
+
+THREE_VOICE_SCORE = """
+voices:
+  1:
+    - {note: E4, frames: 7}
+    - {note: rest, frames: 1}
+    - {note: A4, frames: 7}
+  2:
+    - {note: A2, frames: 15}
+  3: []
+"""
+
+
+def _score_file(tmp_path, text=THREE_VOICE_SCORE):
+    path = tmp_path / "score.yaml"
+    path.write_text(text)
+    return str(path)
+
+
+def test_audio_score_reports_one_line_per_voice(tmp_path):
+    """The cheap half of the loop: a capture costs several times its emulated
+    length in wall clock, so a score's arithmetic has to be checkable without
+    spending one."""
+    r = CliRunner().invoke(main, ["audio", "score", _score_file(tmp_path)])
+    assert r.exit_code == 0, r.output
+    assert "voice 1: 3 entries, 15 frames, first E4, last A4" in r.output
+    assert "voice 2: 1 entry, 15 frames, first A2, last A2" in r.output
+    assert "voice 3: 0 entries, 0 frames, silent" in r.output
+    assert "total: 4 entries, 30 frames across 3 voices" in r.output
+
+
+def test_audio_score_counts_an_undurationed_entry_but_not_its_frames(tmp_path):
+    """`frames` is optional per entry — the window's first and last notes are
+    normally scored without one. The entry still exists, so it counts toward
+    `entries`; there is no duration to add, so it must not perturb `frames`."""
+    text = "voices:\n  1:\n    - {note: E4}\n    - {note: A4, frames: 9}\n"
+    r = CliRunner().invoke(main, ["--json", "audio", "score",
+                                  _score_file(tmp_path, text)])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output)["voices"]["1"] == {
+        "entries": 2, "frames": 9, "first": "E4", "last": "A4"}
+
+
+def test_audio_score_json_payload(tmp_path):
+    r = CliRunner().invoke(main, ["--json", "audio", "score",
+                                  _score_file(tmp_path)])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output) == {
+        "voices": {
+            "1": {"entries": 3, "frames": 15, "first": "E4", "last": "A4"},
+            "2": {"entries": 1, "frames": 15, "first": "A2", "last": "A2"},
+            # An empty list is the positive claim "this voice sits out", so it
+            # is present with nothing in it. A voice the score OMITS is absent
+            # from the payload entirely — omitting one claims nothing.
+            "3": {"entries": 0, "frames": 0, "first": None, "last": None},
+        },
+        "entries": 4,
+        "frames": 30,
+    }
+
+
+def test_audio_score_omitted_voice_is_absent_rather_than_empty(tmp_path):
+    r = CliRunner().invoke(main, ["--json", "audio", "score",
+                                  _score_file(tmp_path, "voices:\n  2: []\n")])
+    assert json.loads(r.output)["voices"] == {
+        "2": {"entries": 0, "frames": 0, "first": None, "last": None}}
+
+
+def test_audio_score_rejects_a_voice_the_sid_does_not_have(tmp_path):
+    """`load_score` is the single reader for a score's shape and the source of
+    every complaint about it — this command must not grow a second parser, so
+    the message has to arrive verbatim."""
+    r = CliRunner().invoke(main, ["audio", "score",
+                                  _score_file(tmp_path, "voices:\n  4: []\n")])
+    assert r.exit_code == 1
+    assert "voice 4" in r.output + r.stderr
+    assert "the SID's voices are 1, 2, 3" in r.output + r.stderr
+
+
+def test_audio_score_names_the_entry_that_has_no_note(tmp_path):
+    """An entry-level slip is not `load_score`'s to catch (it checks shape,
+    not contents), and the whole point of this command is to find it before a
+    capture does. The label must say which entry."""
+    text = "voices:\n  1:\n    - {note: E4, frames: 7}\n    - {frames: 7}\n"
+    r = CliRunner().invoke(main, ["audio", "score", _score_file(tmp_path, text)])
+    assert r.exit_code == 1
+    assert "voice 1 event 2" in r.output + r.stderr
+
+
+def test_audio_score_needs_no_session(tmp_path):
+    """Pure analysis, like `audio report`. It must not attach."""
+    with patch("c64lib.cli.attach") as attach_mock:
+        r = CliRunner().invoke(main, ["audio", "score", _score_file(tmp_path)])
+    assert r.exit_code == 0, r.output
+    attach_mock.assert_not_called()
