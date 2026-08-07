@@ -105,6 +105,32 @@ def test_disk_io_entry_points_agree_with_the_kernal_reference():
 
 
 C64_DEV = Path("skills/c64-development/SKILL.md")
+AUDIO_REF = Path("skills/c64-development/references/audio-verification.md")
+
+
+def test_audio_lead_in_covers_assembly():
+    """The section was written entirely for BASIC, and an assembly program
+    has the same problem with a different fix: a lead-in consumed once per
+    start, not one baked into the track data — which repeats on every loop."""
+    text = AUDIO_REF.read_text()
+    section = text[text.index("### Give the program a silent lead-in"):
+                   text.index("## Writing a reference score")]
+    assert "In assembly" in section
+    assert "loop" in section and "baking the silence into the track data" in section
+    assert "84" in section, "the measured arming cost is the number to size against"
+
+
+def test_audio_has_one_shot_cue_recipe():
+    """The manoeuvre that actually made the dogfood's act scores
+    deterministic, as opposed to the mitigations for window-edge fragility."""
+    text = AUDIO_REF.read_text()
+    assert "one-shot cue" in text
+    assert "Both edges then fall in silence" in text
+
+
+def test_audio_says_durations_drift():
+    text = AUDIO_REF.read_text()
+    assert "jiffy" in text and "omitting `frames` is a legitimate score" in text
 
 
 def test_skill_says_call_ends_the_run():

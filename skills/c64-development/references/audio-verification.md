@@ -136,9 +136,14 @@ there. Same discipline as a screenshot: stage the state, then sample it.
 
 ### Give the program a silent lead-in
 
-For a BASIC program there is usually nothing to drive it *to* — you type
-`run` and the music starts. Two things then go wrong at once, and one line in
-the program fixes both: **start the program with a silent delay, and make sure
+Whether the program is BASIC or assembly, arming the capture takes real time
+and the first thing the program plays is lost to it. The fix is the same
+shape in both — start with a silent delay — but where the delay lives
+differs, and putting it in the wrong place makes the tune worse.
+
+**In BASIC** there is usually nothing to drive it *to*: you type `run` and
+the music starts. Two things then go wrong at once, and one line in the
+program fixes both: **start the program with a silent delay, and make sure
 warp is off.**
 
 Arming the capture is not instant. Starting the WAV recorder, clearing warp
@@ -156,6 +161,27 @@ turn warp off *before* the program starts its delay, not as part of arming.
 In a BASIC program the delay itself is the usual `t=ti : if ti-t<480 goto …`
 one-shot — a legitimate use of `TI`, and not the same thing as pacing a
 sequencer on it.
+
+**In assembly the music usually starts on a state entry** — the title screen
+comes up, an act begins — and you *can* drive the machine to that moment, so
+the lead-in is smaller but not optional: arming still consumed about **84
+frames (1.4 s)** on the run this was measured on (2026-08-07, NTSC), which
+is a phrase and a half of a fast tune.
+
+The mistake to avoid is baking the silence into the track data. A player
+that loops its pattern replays the lead-in every time round, which puts a
+two-second hole in the middle of the tune to solve a problem that only
+exists at the start. **Take the lead-in as a parameter to the player's start
+routine — a row count, consumed once and cleared — so looping is
+unaffected.** Sixteen rows at 8 frames a row is 128 frames, which cleared
+the measured 84 comfortably:
+
+    ; musstart: A = rows of silence to play before row 0
+    musstart:
+            sta     muslead         ; ... and mustick decrements it to zero
+            lda     #0              ;     before it fetches its first row
+            sta     musrow
+            rts
 
 ## Writing a reference score
 
@@ -208,6 +234,30 @@ reason to do what the next paragraph forbids. In the Project64 repo,
 first note because the fixture was already sounding, two whole notes pinned
 to the frame, and a window that closes inside the fixture's own trailing
 silence.
+
+**Durations drift, and omitting `frames` is a legitimate score.** The frame
+tick is paced on the jiffy clock, which is not the video frame rate, so a
+note's measured length wanders by a frame over a few hundred. A score
+without `frames` still claims the note sequence — which is the substantive
+claim about the music — and is what to reach for when the passage is long.
+Pin durations where a specific length *is* the claim (a tempo change, a
+staccato figure) and leave them off elsewhere.
+
+#### Make the passage a one-shot cue
+
+The window's edges are only a problem while the music is still playing at
+both of them. For anything that is a *cue* rather than a loop — an
+intermission's music, a jingle, a death spiral — you can arrange for neither
+edge to land on a note at all: give the track a terminator that stops the
+voice for good, make the cue shorter than the window, and capture a window
+that opens before it and closes after it. Both edges then fall in silence,
+both are exempt from the diff, and the score becomes the whole phrase with
+no dependence on how long arming took.
+
+This is worth restructuring a player for. The dogfood's three intermission
+cues are 24 rows inside a 360-frame window; their scores passed unchanged
+across four separate capture runs, where durationed scores against a looping
+tune had failed on every one.
 
 **Write it from your note data, not from the transcription.** Capturing
 first and pasting the transcribed notes back in as the score produces a
