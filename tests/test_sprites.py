@@ -295,7 +295,7 @@ def test_charset_multicolor_row_encodes_two_bits_per_pixel():
     from c64lib.charset import encode_row, parse_charset
     glyphs = parse_charset("name: g\n.123\n" + "....\n" * 7)
     assert glyphs == [("g", [".123", "....", "....", "....",
-                             "....", "....", "....", "...."])]
+                             "....", "....", "....", "...."], True)]
     # '.123' -> 00 01 10 11 -> 0b00011011 (multicolor-text pair order:
     # 00=$D021, 01=$D022, 10=$D023, 11=cell color — hardware.md's table)
     assert encode_row(".123") == 0b00011011
@@ -312,7 +312,7 @@ def test_charset_hires_row_encodes_one_bit_per_pixel():
 def test_charset_bare_label_headers_comments_and_blanks():
     from c64lib.charset import parse_charset
     text = "# a comment\n\nsquid:\n" + "3333\n" * 8 + "\nname: bolt\n" + "1111\n" * 8
-    names = [n for n, _ in parse_charset(text)]
+    names = [g.name for g in parse_charset(text)]
     assert names == ["squid", "bolt"]     # file order IS screen-code order
 
 
@@ -344,3 +344,75 @@ def test_charset_format_glyphs_emits_the_consumer_shape():
     assert "; code 64: g" in text
     assert "        .byte   %00011011    ; .123" in text
     assert text.endswith("\n") and "c64 charset encode" in text.splitlines()[0]
+
+
+# --- the sheet grammars: per-block modes, and naming the block that is wrong ---
+
+def _mc_block(name: str, mode: str = "") -> str:
+    return f"{name}:{mode}\n" + "....\n" * 8
+
+
+def test_charset_mixed_modes_in_one_sheet():
+    """A game whose maze charset is multicolor and whose HUD glyphs are hires
+    used to need two invocations and two output blocks; a block may now name
+    its own mode, so the design picks the mode instead of the tool."""
+    from c64lib.charset import encode_row, parse_charset
+    sheet = ("wall:multicolor\n" + ".123\n" * 8
+             + "\nletter:hires\n" + "##......\n" * 8)
+    glyphs = parse_charset(sheet)
+    assert [(g.name, g.multicolor) for g in glyphs] == [("wall", True),
+                                                        ("letter", False)]
+    hires_only = parse_charset("letter:\n" + "##......\n" * 8, multicolor=False)
+    assert [encode_row(r, False) for r in glyphs[1].rows] == \
+           [encode_row(r, False) for r in hires_only[0].rows]
+
+
+def test_charset_bare_header_follows_file_mode():
+    from c64lib.charset import parse_charset
+    sheet = "squid:\n" + "##......\n" * 8
+    assert parse_charset(sheet, multicolor=False)[0].multicolor is False
+    assert parse_charset(_mc_block("squid"))[0].multicolor is True
+
+
+def test_charset_rejects_unknown_mode():
+    import pytest
+
+    from c64lib.charset import CharsetError, parse_charset
+    with pytest.raises(CharsetError, match=(
+            r"^charset sheet line 3: unknown mode 'mono' — "
+            r"use 'hires' or 'multicolor'$")):
+        parse_charset("# a sheet\n\nwall:mono\n" + ".123\n" * 8)
+
+
+def _sprite_rows(n: int) -> str:
+    return ("." * 12 + "\n") * n
+
+
+def test_sprite_encode_names_the_short_block():
+    """A sheet of 27 shapes reporting only "must be 21 rows, got 14" costs a
+    hand bisection; the block index and its first line end that."""
+    import pytest
+
+    from c64lib.sprites import encode_sheet
+    sheet = (_sprite_rows(21) + "\n\n"          # lines 1-21, blanks 22-23
+             + _sprite_rows(14) + "\n"          # lines 24-37
+             + _sprite_rows(21))
+    with pytest.raises(ValueError, match=(
+            r"^sprite 2 \(line 24\): art must be 21 rows, got 14$")):
+        encode_sheet(sheet)
+
+
+def test_sprite_encode_first_block_still_reported():
+    import pytest
+
+    from c64lib.sprites import encode_sheet
+    with pytest.raises(ValueError,
+                       match=r"^sprite 1 \(line 1\): art must be 21 rows, got 3$"):
+        encode_sheet(_sprite_rows(3))
+
+
+def test_sprite_encode_sheet_round_trips_every_block():
+    from c64lib.sprites import encode_sheet, encode_sprite
+    rows = ["." * 12] * 21
+    assert encode_sheet(_sprite_rows(21) + "\n" + _sprite_rows(21)) == \
+           [encode_sprite(rows), encode_sprite(rows)]

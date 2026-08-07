@@ -26,6 +26,17 @@ already works — `--area` passed for a `.bas`, a `.prg`, or a cartridge.
 With no areas the generated config is byte-identical to what it has always
 been, pinned by a test.
 
+Two sheet-encoder frictions the same dogfood turned up. `c64 charset encode`
+takes a per-block mode — `wall:multicolor`, `letter:hires` — so a multicolor
+playfield charset and a hires HUD font are one sheet and one invocation
+instead of two of each; `--hires` now sets the file's default, which a block
+may override, and an unrecognized suffix is rejected by name. The JSON
+payload carries `multicolor` per glyph. And `c64 sprite encode` says *which*
+block is malformed: `sprite 12 (line 265): art must be 21 rows, got 14`,
+where before a sheet of 27 shapes reported only the row count and had to be
+bisected by hand. Sheets that name no mode encode byte-identically to before
+— both committed demo sheets re-encode to their existing `.inc` files.
+
 Sound is verifiable now. `c64 audio capture` (MCP `c64_audio_capture`)
 records the machine's audio to a WAV while sampling `$D400–$D418` once per
 frame, transcribes the register log into notes, diffs them against a

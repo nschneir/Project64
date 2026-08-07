@@ -107,6 +107,59 @@ def _mc_pixels(row: str) -> list[int]:
         raise ValueError(f"unknown multicolor sprite glyph {e.args[0]!r}") from None
 
 
+ROWS_PER_SPRITE = 21
+
+
+def parse_sprite_sheet(text: str) -> list[tuple[int, list[str]]]:
+    """Split a sheet into blank-line-separated blocks of (first line, rows).
+
+    A separator is a truly EMPTY line (no characters at all) — a row of
+    all-background pixels is a legitimate 12/24-char row of spaces, and must
+    not be confused with the blank line between sprites. Rows are kept
+    exactly as written (no stripping); trailing spaces are significant
+    (background pixels).
+
+    The line number travels with the block so a rejection can point at the
+    art rather than at the sheet: a file of 27 shapes reporting only "must
+    be 21 rows" costs a hand bisection to place.
+    """
+    sheet: list[tuple[int, list[str]]] = []
+    current: list[str] = []
+    start = 0
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if line == "":
+            if current:
+                sheet.append((start, current))
+                current = []
+        else:
+            if not current:
+                start = lineno
+            current.append(line)
+    if current:
+        sheet.append((start, current))
+    return sheet
+
+
+def encode_sheet(text: str, multicolor: bool = True) -> list[bytes]:
+    """Encode every block in a sheet, naming the block that is wrong.
+
+    Blocks are numbered from 1 the way a reader counts them; the emitted
+    `spriteN:` labels are 0-based, which is exactly why the message carries
+    the line number too.
+    """
+    out: list[bytes] = []
+    for index, (lineno, rows) in enumerate(parse_sprite_sheet(text), start=1):
+        where = f"sprite {index} (line {lineno})"
+        if len(rows) != ROWS_PER_SPRITE:
+            raise ValueError(f"{where}: art must be {ROWS_PER_SPRITE} rows, "
+                             f"got {len(rows)}")
+        try:
+            out.append(encode_sprite(rows, multicolor=multicolor))
+        except ValueError as e:
+            raise ValueError(f"{where}: {e}") from None
+    return out
+
+
 def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
     """Encode ASCII-art rows to 63 sprite bytes (the inverse of `sprite_ascii`).
 

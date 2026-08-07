@@ -1263,7 +1263,11 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   rows are 24 characters using `' #'`. Either mode also accepts the
   glyphs `c64 sprite show` emits (`·▒█▓` multicolor, `█·` hires — including
   its double-wide 24-char multicolor rows), so `show` output round-trips
-  straight back through `encode`.
+  straight back through `encode`. A block that is the wrong shape is
+  rejected by position — `sprite 12 (line 265): art must be 21 rows, got 14`
+  — because "must be 21 rows" alone costs a hand bisection in a sheet of 27.
+  Blocks are counted from 1 the way you read them; the emitted labels are
+  0-based, which is why the line number travels with the number.
 - `--hires` — encode as hires (1 bit/pixel, 24 chars/row) instead of the
   default multicolor pairs (12 chars/row).
 - `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte %...` rows,
@@ -1340,7 +1344,15 @@ twin of `c64 sprite encode`. Needs no session.
   characters of `.#`. Blank lines and `#` comments are ignored (a comment
   cannot consist solely of legend characters at exactly row width). Block
   order is screen-code order.
-- `--hires` — 1 bit/pixel, 8 chars/row (`.#`) instead of multicolor pairs.
+- A header may name its own mode: `wall:multicolor`, `letter:hires`. Row
+  width then follows that block — 4 characters of `.123` or 8 of `.#` — so
+  a multicolor playfield charset and a hires HUD font live in one sheet and
+  come out of one invocation, and the design picks the mode rather than the
+  tool. A bare `name:` takes the file's mode. An unrecognized suffix is
+  rejected by name: `unknown mode 'mono' — use 'hires' or 'multicolor'`.
+- `--hires` — make hires (1 bit/pixel, 8 chars/row, `.#`) the *file's* mode
+  instead of multicolor pairs. It is the default a bare `name:` header
+  takes; a block that names its own mode overrides it.
 - `--first-code N` (default `0`) — screen code of the first glyph; sets
   the `; code N: name` comments (the data itself is position-independent).
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
@@ -1351,7 +1363,8 @@ per glyph (each echoing its art row as a trailing comment), and a
 `cpx #(glyphs_end - glyphs)` and patches over `CHARSET + code*8`. See the
 cookbook's custom-character-set recipe for the RAM-charset setup.
 
-JSON: `{"glyphs": [{"name", "bytes"}, ...]}` — 8 ints per glyph, file order.
+JSON: `{"glyphs": [{"name", "multicolor", "bytes"}, ...]}` — 8 ints per glyph,
+file order, each with the mode it was encoded in.
 
 ---
 

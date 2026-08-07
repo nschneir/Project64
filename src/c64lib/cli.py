@@ -2035,27 +2035,6 @@ def sprite() -> None:
     """Inspect, render, and convert VIC-II sprites."""
 
 
-def _parse_sprite_art(text: str) -> list[list[str]]:
-    """Split FILE contents into blank-line-separated groups of rows.
-
-    A separator is a truly EMPTY line (no characters at all) — a row of
-    all-background pixels is a legitimate 12/24-char row of spaces, and
-    must not be confused with the blank line between sprites. Rows are
-    kept exactly as written (no stripping); trailing spaces are
-    significant (background pixels).
-    """
-    sprites: list[list[str]] = []
-    current: list[str] = []
-    for line in text.splitlines():
-        if line == "":
-            if current:
-                sprites.append(current)
-                current = []
-        else:
-            current.append(line)
-    if current:
-        sprites.append(current)
-    return sprites
 
 
 def _sprite_states(s):
@@ -2212,18 +2191,21 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
     with `c64 sprite from-png` (image input instead of ASCII art) and
     `c64 sprite show` (the inverse: bytes back to ASCII).
     """
-    from .sprites import encode_sprite, format_bytes
+    from .sprites import encode_sheet, format_bytes
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
-    blocks = _parse_sprite_art(file.read_text())
-    if not blocks:
+    text_in = file.read_text()
+    if not text_in.strip():
         fail(ctx, f"no sprite art found in {file}")
         return
     try:
-        sprites = [encode_sprite(rows, multicolor=not hires) for rows in blocks]
+        sprites = encode_sheet(text_in, multicolor=not hires)
     except ValueError as e:
         fail(ctx, str(e))
+        return
+    if not sprites:
+        fail(ctx, f"no sprite art found in {file}")
         return
     try:
         # numbering runs on across sprites (21 rows each) so a multi-sprite
@@ -2251,8 +2233,9 @@ def charset() -> None:
 @charset.command("encode")
 @click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--hires", is_flag=True,
-              help="Encode as hires (1 bit/pixel, 8 chars/row, legend '.#') "
-                   "instead of the default multicolor pairs.")
+              help="Make hires (1 bit/pixel, 8 chars/row, legend '.#') the "
+                   "file's mode instead of multicolor pairs; a `name:hires` "
+                   "or `name:multicolor` header overrides it per block.")
 @click.option("--first-code", default=0, show_default=True,
               help="Screen code of the first glyph (sets the per-glyph "
                    "comments; the data itself is position-independent).")
@@ -2266,7 +2249,10 @@ def charset_encode(ctx, file, hires, first_code, out_path):
     default) are 4 characters of `.123` — pair values 00/01/10/11 =
     background $D021 / $D022 / $D023 / the cell's own color, the
     multicolor-text order (NOT the sprite legend's). Hires rows are 8
-    characters of `.#`. `#` comment lines and blank lines are ignored;
+    characters of `.#`. A block may name its own mode — `wall:multicolor`,
+    `letter:hires` — so a multicolor playfield and a hires HUD font are one
+    sheet; a bare `name:` takes the file's mode (`--hires` or not).
+    `#` comment lines and blank lines are ignored;
     block order is screen-code order. Emits one contiguous block under a
     `glyphs:` label with a `glyphs_end:` end label, 8 `.byte` rows per
     glyph, each glyph introduced by a `; code N: name` comment. Needs no
@@ -2281,9 +2267,10 @@ def charset_encode(ctx, file, hires, first_code, out_path):
     text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires)
     if out_path:
         Path(out_path).write_text(text)
-    emit(ctx, {"glyphs": [{"name": name,
-                           "bytes": [encode_row(r, not hires) for r in rows]}
-                          for name, rows in glyphs]},
+    emit(ctx, {"glyphs": [{"name": g.name,
+                           "multicolor": g.multicolor,
+                           "bytes": [encode_row(r, g.multicolor) for r in g.rows]}
+                          for g in glyphs]},
          text if not out_path else f"wrote {out_path}")
 
 
