@@ -357,6 +357,42 @@ Push the SID to its **full potential** across all three voices (see the
 c64-development hardware reference). A custom player, called once per
 frame from the raster tick, runs the music and ducks it under the effects.
 
+### The title theme
+
+The attract screen carries a **theme song**, and it is the first thing
+anyone hears, so treat it as a piece of music rather than a jingle.
+
+**What it should sound like: 1960s sci-fi scoring played by a mariachi band
+on acid.** Take the era's space-music vocabulary — the wandering theremin
+lead, whole-tone and chromatic slides, tritones, the ominous held low
+drone — and play it on a mariachi ensemble's instincts: bright trumpet
+lead in parallel thirds or sixths, a *guitarrón* bass walking in twos, an
+off-beat *vihuela* chop on the upbeats, the 6/8-against-3/4 *sesquiáltera*
+lilt, and the *grito*-style rip up into a held note. Then bend it: let the
+tuning drift and slide where a real band would land clean, let the pulse
+width breathe until the trumpets sound seasick, let a phrase repeat one
+beat too many, wander into a key nobody asked for and find its way back.
+It should be recognisably festive and recognisably wrong at the same
+time — a mariachi band scoring a flying saucer. Vibrato, portamento,
+ring modulation and hard sync are the tools; use them.
+
+Two hard requirements:
+
+* **At least one minute long** before it repeats. Not a four-bar loop with
+  variations — a minute of actual written music, with sections that go
+  somewhere and come back.
+* **It must loop seamlessly.** The end has to lead back into the beginning
+  so that a listener who has not been counting cannot tell where the seam
+  is. That is a compositional requirement, not a playback one: the last
+  bar's harmony must resolve *into* the first bar's, the melodic line must
+  hand over without a jump, and every voice's gate, envelope and pulse
+  width must be in the state the opening expects — a note left sounding, a
+  filter left swept, or a drifting index that has not been reset all
+  announce the loop point as loudly as a gap would.
+
+The theme owns all three voices while the title screen is up; nothing
+ducks it there, because no effects play on the attract screen.
+
 ### Channel allocation
 
 * **Voice 1 (lead / high-priority FX):** main melody, player laser fire.
@@ -566,10 +602,21 @@ cannot prove the melody is in tune or that a seized voice ever came back.
 Capture the sound itself with `c64_audio_capture` (`c64 audio capture` from
 the shell) and commit its five artifacts — `capture.wav`, `sid-log.jsonl`,
 `piano-roll.png`, `spectrogram.png`, `report.md` — under
-`demos/la-galaxia/evidence/audio/`: the title music undisturbed, a capture
+`demos/la-galaxia/evidence/audio/`: the title theme's opening, a capture
 across a laser volley and an explosion, and one over the tractor beam. Write
 a reference score (YAML) from your own music data and capture against it;
-the report must pass. Then read your piano roll the way you read the
+the report must pass.
+
+The theme's **loop seam** (§9) needs its own capture, and it is the one
+place where you must aim the window rather than just start recording.
+A minute of music is two to three minutes of wall clock to capture, and
+would prove nothing about the seam anyway — so drive the player to a few
+seconds before the loop point (poke its row/pattern index, or `c64 until`
+your tick label the right number of times), and capture a short window that
+straddles it. Score that window as one continuous phrase across the seam:
+if the score passes, the notes really do hand over, and the piano roll will
+show whether any voice gated off or re-attacked where the music says it
+should have sustained. Then read your piano roll the way you read the
 screenshots above — a wrong contour, a missing voice, or bars that drift off
 the rhythm are bugs — and read it specifically against the priority rule of
 §9: an effect that takes a voice and never returns it shows up as a color
