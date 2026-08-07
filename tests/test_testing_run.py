@@ -544,6 +544,35 @@ def test_unknown_sample_name_fails_actionably():
     assert "no sample named" in result.steps[0].detail
 
 
+def test_comparator_literal_operand_hints_at_sample():
+    """`differs: 0` and `less_than: 234` read like comparisons against a
+    number and are not; the dogfood wrote three broken steps in a row before
+    working that out. The hint fires only when the operand parses as one."""
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = [bytes([10]), bytes([10])]
+    spec = _spec(steps=[{"sample": {"mem": "$D000", "as": "x0"}},
+                        {"assert": {"mem": "$FB", "differs": 234}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is False
+    assert result.steps[1].detail == (
+        "no sample named '234' (have: x0) — differs/greater_than/less_than "
+        "compare against a sample, not a literal: record one first with "
+        '`- sample: { mem: "dotsleft", as: d0 }`')
+
+
+def test_comparator_unknown_name_has_no_hint():
+    """A genuine typo in a sample name must still read as one, or the hint
+    masks the commoner mistake."""
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = [bytes([10])]
+    spec = _spec(steps=[{"assert": {"mem": "$D000", "differs": "nope"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is False
+    assert result.steps[0].detail == "no sample named 'nope' (have: none)"
+
+
 @pytest.mark.parametrize("cmp_key", ["differs", "greater_than", "less_than", "unchanged"])
 def test_assert_mem_between_with_a_sample_key_is_judged_not_crashed(cmp_key):
     """An assert step naming both `between` and a sample comparison used to

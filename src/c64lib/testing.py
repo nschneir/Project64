@@ -67,6 +67,17 @@ def _num(v) -> int:
     return int(s)
 
 
+def _looks_numeric(v) -> bool:
+    """Would this operand have been a sensible literal? Drives the comparator
+    hint, and nothing else — a sample name that happens to be `0x1` is not a
+    name anyone types by accident."""
+    try:
+        _num(v)
+    except ValueError:
+        return False
+    return True
+
+
 def _spec_path(spec_dir: str | Path, value: str | Path) -> Path:
     """A spec's `cart:`/`disk:` is relative to the spec's own directory, never
     the cwd, so a test runs the same from anywhere. An absolute path is left
@@ -574,8 +585,17 @@ def _do_step(session, kind: str, arg, default_timeout: float,
             name = str(arg[cmp_key])
             if name not in captures:
                 # still before the read, so an unknown name costs no monitor trip
-                return False, (f"no sample named {name!r} "
-                               f"(have: {', '.join(sorted(captures)) or 'none'})")
+                detail = (f"no sample named {name!r} "
+                          f"(have: {', '.join(sorted(captures)) or 'none'})")
+                # `differs: 0` and `less_than: 234` read like comparisons
+                # against a number and are not. Hint only when the operand
+                # parses as one, so a typo'd sample name still reads as a typo.
+                if _looks_numeric(name):
+                    detail += (
+                        " — differs/greater_than/less_than compare against a "
+                        "sample, not a literal: record one first with "
+                        '`- sample: { mem: "dotsleft", as: d0 }`')
+                return False, detail
             ref_val = captures[name]
             val = _read(1)[0]
             ok = {"differs": val != ref_val,

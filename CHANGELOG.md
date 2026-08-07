@@ -37,6 +37,15 @@ where before a sheet of 27 shapes reported only the row count and had to be
 bisected by hand. Sheets that name no mode encode byte-identically to before
 — both committed demo sheets re-encode to their existing `.inc` files.
 
+A `c64 test run` comparator given a literal now says what it wanted.
+`differs`, `greater_than`, `less_than` and `unchanged` compare against a
+recorded `sample:`, never against a number — `differs: 0` used to fail with
+"no sample named '0'", which is true and unhelpful. When the operand parses
+as a number the error names the design and shows the `sample:` step to add;
+when it does not, the message is unchanged, so a typo'd sample name still
+reads as a typo. `docs/cli.md` gains the table of which assert keys take a
+literal and which take a sample name.
+
 Sound is verifiable now. `c64 audio capture` (MCP `c64_audio_capture`)
 records the machine's audio to a WAV while sampling `$D400–$D418` once per
 frame, transcribes the register log into notes, diffs them against a

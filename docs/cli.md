@@ -1797,6 +1797,28 @@ and `call` (JSR `routine` in isolation with optional `a`/`x`/`y` on
 entry, stopping at its RTS — routine-level unit testing; fails on
 timeout, which usually means the routine never returns from that entry
 state).
+**What an assert's operand is.** Half the comparison keys take a value and
+half take the *name* of an earlier `sample:` step; they are not
+interchangeable, and mixing them up is the commonest way to write a broken
+spec:
+
+| Key | Operand |
+|---|---|
+| `equals`, `equals_any`, `equals_text`, `mask`, `between`, `in_range` | a literal, or a list of literals |
+| `differs`, `greater_than`, `less_than`, `unchanged` | the `as:` name of an earlier `sample:` step — never a literal |
+
+So `differs: 234` is not "differs from 234"; there is no such assertion.
+Sample the byte first and compare against the name:
+
+```yaml
+  - sample: { mem: "dotsleft", as: d0 }
+  - until:  { ref: tick, count: 30 }
+  - assert: { mem: "dotsleft", less_than: d0 }
+```
+
+A comparator given something that parses as a number says so, rather than
+reporting an unknown sample and leaving you to work out why.
+
 The screen-substring check is spelled `text` in both `wait` and `assert`,
 and `screen` is accepted as an alias in both — so a copied step survives a
 change of verb.
