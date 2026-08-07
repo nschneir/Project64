@@ -145,6 +145,10 @@ LIVE_RECIPES = [
         {"wait": {"mem": "$03F2", "equals": 89}},
         {"assert": {"mem": "$03F0", "equals": 21}},
         {"assert": {"mem": "$03F1", "equals": 178}},
+        # ... and the recipe proves the property rather than claiming it:
+        # a maximal 8-bit Galois LFSR visits 255 of the 256 values over
+        # 1024 draws. A generator that has quietly died visits 1.
+        {"wait": {"text": "DISTINCT 255"}},
     ]),
     ("asm-qsmul", "asm", "qsmul.s", [
         # $03F3 is stored last, so it is the done marker

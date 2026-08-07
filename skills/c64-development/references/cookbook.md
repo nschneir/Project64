@@ -805,11 +805,18 @@ jiffy clock so each run differs:
 
 The demo below uses a fixed seed instead so its output is reproducible
 (it stores the first three values at $03F0-$03F2 in the cassette-buffer
-scratch area: 21, 178, 89).
+scratch area: 21, 178, 89). It then **proves** the property rather than
+claiming it: 1024 draws are tallied into a 256-byte page and the number of
+distinct values printed. A maximal 8-bit LFSR visits 255 of the 256; a dead
+one visits 1, which is the whole point of the two failure modes below.
 
 ```asm
 ; random.s — pseudo-random bytes from an 8-bit maximal Galois LFSR.
 ; Call `random`: a fresh pseudo-random byte comes back in A (and `seed`).
+
+CHROUT  = $FFD2
+LINPRT  = $BDCD                 ; print A/X as an unsigned 16-bit decimal
+TALLY   = $C000                 ; 256 bytes BASIC never touches
 
         .segment "LOADADDR"
         .word   $0801
@@ -828,6 +835,44 @@ start:  lda     #$2a            ; fixed demo seed (must be nonzero)
         sta     $03f1
         jsr     random
         sta     $03f2
+
+        lda     #0              ; clear the tally page
+        tax
+clr:    sta     TALLY,x
+        inx
+        bne     clr
+
+        lda     #4              ; 4 x 256 = 1024 draws
+        sta     rounds
+outer:  ldy     #0
+inner:  jsr     random
+        tax                     ; the draw IS the tally index
+        inc     TALLY,x
+        iny
+        bne     inner
+        dec     rounds
+        bne     outer
+
+        ldx     #0              ; how many of the 256 came up at all?
+        ldy     #0
+cnt:    lda     TALLY,x
+        beq     skip
+        iny
+skip:   inx
+        bne     cnt
+        sty     distinct
+
+        ldx     #0
+msgl:   lda     msg,x
+        beq     msgd
+        jsr     CHROUT
+        inx
+        bne     msgl
+msgd:   lda     #0              ; LINPRT wants the high byte in A, low in X
+        ldx     distinct
+        jsr     LINPRT
+        lda     #$0d
+        jsr     CHROUT
         rts                     ; back to BASIC (READY.)
 
 random: lda     seed
@@ -837,8 +882,32 @@ random: lda     seed
 nofb:   sta     seed
         rts
 
+msg:    .byte   "DISTINCT ", $00
 seed:   .byte   1
+rounds: .byte   0
+distinct: .byte 0
 ```
+
+**Two ways this stops being random, both silent.**
+
+**A state of zero is absorbing** — every shift of zero is zero — so a
+generator seeded by the same loop that clears your variables returns a
+constant from the first frame. Seed it with a non-zero literal at startup,
+*after* the clear, and never from `BSS`.
+
+**An LFSR you also write from outside is not an LFSR.** Stirring entropy into
+the state every frame overwrites what the last shift produced; if the
+stirred-in value is constant — a keyboard byte reading "no key", say — the
+output collapses to a constant too. Stir *only* when there is real entropy,
+on the frame a key actually arrives, and let the register own its state the
+rest of the time.
+
+Neither failure looks like a failure. The program runs, the values are
+plausible, nothing on screen is wrong: the Ms. Muncher dogfood shipped both
+at once and spent two full audit iterations believing its ghosts opened
+differently every game when every board was identical. Test it the way you
+would test any other claim — count distinct values as above, or run the same
+scenario twice with different input timing and diff the result.
 
 Range tricks, applied after `jsr random`: `and #$1f` masks to 0-31
 (powers of two only). Reject-and-retry — `retry: jsr random / cmp #40 /
@@ -1541,6 +1610,52 @@ Five more things this encodes:
   Reverse text is also invisible to `wait --text` — `c64 screen` decodes
   reverse space as a block — so assert reverse-video headings by screen
   code, not text.
+
+#### The bank-0 budget
+
+"Check `load_addr + len - 2` lands below `$3000`" is the one-consumer
+version. A real game has three consumers of the same 16 KB, and the
+arithmetic shapes the whole program layout before a line is written:
+
+| Consumer | Cost |
+|---|---|
+| VIC bank 0, total | `$0000`-`$3FFF` |
+| Screen RAM (fixed — the toolset assumes `$0400`) | `$0400`-`$07FF` |
+| A `.prg` starts at | `$0801` |
+| **Left for program + charset + sprite blocks** | **14,335 bytes** |
+| A RAM charset | 2,048 bytes, on a 2 KB boundary — only `$2000`, `$2800`, `$3000` or `$3800` are usable (`$1000`/`$1800` are the char-ROM shadow) |
+| Each sprite shape | 64 bytes, on a 64-byte boundary |
+
+A charset and a couple of dozen sprite shapes is ~3.7 KB before your code
+exists, and it all has to be *below* whatever else you place. Three ways
+out, in order of preference:
+
+1. **Relocate data the VIC never reads.** Sprite *source* art, charset
+   source glyphs and level tables are read by the CPU only — they have no
+   reason to be in the bank at all. Link them last, between two labels, and
+   copy them above `$4000` (`$C000`-`$CFFF` is the 4 KB BASIC never touches)
+   in the first instructions of `start:`. `demos/ms-muncher` moved 2,545
+   bytes this way and its low program ended at `$2DE5` instead of `$36CA` —
+   1,738 bytes over the ceiling before, 755 bytes of headroom after.
+2. **`c64 build --area NAME=START:SIZE`** when the data has to be *at* a
+   fixed address rather than merely out of the way. The flag pads the gap
+   below the area so the segment really lands there; the cost is that the
+   padding is real file bytes.
+3. **Put variables in `CODE` with `.res`, not in `BSS`,** if anything must
+   be linked after them. BSS is placed last, so a `.prg` whose tail is
+   relocatable art would otherwise have its variables land on top of the
+   sprite blocks.
+
+**Then make the ceiling a build failure.** The overrun is otherwise a
+wrong-pixels mystery found at the end, when the layout is expensive to
+change. A deferred `.assert` next to the boundary costs one line:
+
+    .import __BSS_LOAD__, __BSS_SIZE__
+    .assert (__BSS_LOAD__ + __BSS_SIZE__) <= $3000, error, "BSS ran into the charset"
+
+(the 6502-assembly skill's "BSS consumes address space" note has the full
+version, and `--area` declares its areas `define = yes` so `__NAME_LOAD__`
+works the same way).
 
 ### Multicolor bitmap: mode, clear, and one masked span
 
