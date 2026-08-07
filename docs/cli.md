@@ -1511,6 +1511,15 @@ Analyse a captured SID log — and its WAV, when there is one — into a verdict
 Pure analysis: it needs no running session, so it re-runs on artifacts from
 any earlier capture.
 
+**This is the score-iteration loop, and using it as one is the difference
+between minutes and an afternoon.** A capture costs several times its emulated
+length in wall clock; `audio report` costs a fraction of a second and needs no
+machine at all. So capture *once*, without `--ref`, and keep the log — then
+edit the score and re-run `audio report --ref` against that same log as many
+times as it takes. Re-capturing to test a score change buys nothing: the log
+is already the evidence, and it does not change when the score does. Spend a
+new capture only when the *program* changes.
+
 - `LOG` — the JSONL register log (`c64 audio sidlog` or a capture writes one).
 - `OUTDIR` — where `report.md`, `piano-roll.png`, and `spectrogram.png` go.
 - `--wav PATH` — the recording captured alongside LOG. Without it the report

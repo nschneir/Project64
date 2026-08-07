@@ -36,6 +36,12 @@ at 3-4 calls per move spends minutes in process startup while the emulated
 machine, at warp, is idle. The MCP tools run in a live process and have no
 such floor. The CLI is right for a handful of commands; a loop wants MCP.
 
+The rule inverts for a one-shot sequence where the *gap between* two commands
+is what matters — arming a capture the instant a `wait` returns, say. Two tool
+calls put a model round trip in that gap; one shell line with `&&` closes it
+to process startup. Reach for the CLI when the timing between commands is part
+of what you are doing, and for MCP when the number of commands is.
+
 ## The loop
 
 Write → run → observe → fix:
@@ -423,6 +429,13 @@ hand. The fixes are simple:
   not naming it — start one, or pass `--session <name>`.
 - **A session seems wedged.** `c64 session stop <name>` and start a new one;
   a fresh session is cheap.
+- **A capture died mid-window** — `audio capture: no response to EXIT`. The
+  window is lost and no artifacts are written: no WAV, no register log, not
+  even a partial one. The machine is left stopped, so the next command on
+  that session will not behave either. Stop the session, start a fresh one,
+  and capture again. The *program* is fine — this costs you the capture's
+  wall clock and nothing else, so retry before you go looking for a bug in
+  the player.
 
 ## Verifying a change
 

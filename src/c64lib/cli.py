@@ -2502,6 +2502,13 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     list is tolerated — it is skipped, the way trailing silence is — but a
     capture that opens on silence still spends part of its window recording
     nothing.
+
+    A BASIC program you just RUN has nothing to be driven to, so give it a
+    silent lead-in of its own and start it a few seconds before you call this:
+    arming takes about 0.75 s and the opening notes are lost without one.
+    Count that lead-in with warp OFF. This command clears warp when it arms,
+    but the program's delay runs before that, and under warp an eight-second
+    jiffy delay is over in a fraction of a real second.
     """
     s = attach(ctx)
     try:

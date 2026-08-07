@@ -307,6 +307,19 @@ clock rounding):
 
 An octave up doubles Fn; an octave down halves it.
 
+**For more than a phrase, build the table on the machine instead of copying
+it.** The relation above is the whole of it — `hz = reg16 × clock / 2**24`,
+inverted — so a dozen lines at program start fill a table for every note you
+need, at the clock the machine actually has. That costs a second of startup
+and buys three things a transcribed table does not: no typos, no octave to
+extend by hand, and no PAL/NTSC mistuning (an NTSC-tuned table on a PAL
+machine is 65 cents flat on every note). Compute `fr = 440 * 2^((m-69)/12)`
+for MIDI number `m`, round `fr * 2**24 / clock`, and split it into the two
+bytes. Hold the *addresses* in variables while you do it — a literal address
+costs about 4.7 ms per POKE in BASIC; see
+[Pace a BASIC loop to the frame](cookbook.md#pace-a-basic-loop-to-the-frame)
+in the cookbook for that measurement and for the loop's frame pacing.
+
 ### SID technique and gotchas
 
 - **Zero all SID registers at program start.** SID registers keep their values
