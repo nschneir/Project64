@@ -46,6 +46,7 @@ Debian / Ubuntu:
     c64 disk create work.d64 && c64 disk put work.d64 game.prg game
     c64 session start --disk work.d64      # boot with the disk attached
     c64 disk boot work.d64                 # or attach+run mid-session
+    c64 build game.s --area 'HIGH=$4000:$2000'   # link a segment at a fixed address
     c64 package game.s -o game.crt         # build a bootable cartridge
     c64 cart verify game.crt               # catch the silent no-boot cases
     c64 run game.crt                       # reboot the session with it mapped
@@ -132,6 +133,10 @@ that with W/A/S/D too. La Galaxia and Fugue are prompt-only so far.
 <p align="center">
   <img src="demos/snake/evidence/title.png" alt="Snake title screen" width="300">
   <img src="demos/snake/evidence/levelup.png" alt="Snake at level 2, recoloured" width="300">
+</p>
+<p align="center">
+  <img src="demos/ms-muncher/evidence/title.png" alt="Ms. Muncher attract screen" width="300">
+  <img src="demos/ms-muncher/evidence/chase.png" alt="Ms. Muncher board 1 in play" width="300">
 </p>
 
 The reference example programs (with expected screen output, runnable as

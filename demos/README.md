@@ -69,3 +69,12 @@ way once built. The four finished builds are written up in
 </p>
 <p align="center"><sub>The Snake run's output: the title screen, level 2 after the snake has been
 recoloured, and the game-over panel — same protocol, same frame anchor.</sub></p>
+
+<p align="center">
+  <img src="ms-muncher/evidence/title.png" alt="Ms. Muncher attract screen with the cast and the top five" width="260">
+  <img src="ms-muncher/evidence/chase.png" alt="Ms. Muncher board 1 in play" width="260">
+  <img src="ms-muncher/evidence/frightened.png" alt="Every ghost turned blue after an energizer" width="260">
+</p>
+<p align="center"><sub>The Ms. Muncher run's output: the attract screen, board 1 under way, and the
+four ghosts frightened by an energizer — the maze's walls are auto-tiled from
+their neighbours, so no maze stores any wall art.</sub></p>

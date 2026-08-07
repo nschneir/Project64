@@ -249,14 +249,14 @@
       <h2><span class="mk">&#x2500;&#x2500;</span> CAPABILITIES <span class="mk">&#x2500;&#x2500;</span></h2>
       <div class="grid">
         <div class="card c-red"><b>&#x25B8; SESSIONS</b><small>c64 session</small><p>Boot a C64 (NTSC or PAL) headless, in warp, with a disk attached.</p></div>
-        <div class="card c-orange"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step.</p></div>
+        <div class="card c-orange"><b>&#x25B8; BUILD</b><small>ca65 / petcat</small><p>Assemble 6502 with cc65 or tokenize BASIC; load and RUN in one step, and link a segment at a fixed address when the VIC has to see it there.</p></div>
         <div class="card c-yellow"><b>&#x25B8; DEBUG</b><small>break / step / watch</small><p>Symbolic breakpoints and watchpoints, single-step, memory and register inspection.</p></div>
         <div class="card c-green"><b>&#x25B8; WAIT</b><small>the sync primitive</small><p>Block until screen text appears, memory hits a value, or a checkpoint fires.</p></div>
         <div class="card c-cyan"><b>&#x25B8; DISK</b><small>d64 / d71 / d81</small><p>Build a whole game disk from a manifest, copy files in and out, rename and scratch, read and write raw sectors, validate, attach and boot &mdash; via c1541.</p></div>
         <div class="card c-purple"><b>&#x25B8; CARTRIDGES</b><small>crt / EasyFlash</small><p>Build 8K/16K/Ultimax and bank-switched EasyFlash carts, wrap a .prg, verify, boot, and debug banks live.</p></div>
         <div class="card c-red"><b>&#x25B8; ROM TOOLS</b><small>info / disasm</small><p>Identify the ROM set and disassemble live memory with symbol annotations.</p></div>
         <div class="card c-orange"><b>&#x25B8; TEST RUNNER</b><small>declarative YAML</small><p>Boot, load, feed input, assert on screen / memory / registers. CI-ready.</p></div>
-        <div class="card c-yellow"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>A 75-command CLI, 68 MCP tools, five skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
+        <div class="card c-yellow"><b>&#x25B8; MCP + SKILLS</b><small>agent-native</small><p>A 76-command CLI, 68 MCP tools, five skills, memory maps, and a live-tested recipe cookbook &mdash; sprites and SID included.</p></div>
       </div>
     </section>
 
@@ -351,7 +351,22 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
               </div>
             </td>
           </tr>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td><td class="no">&mdash;</td></tr>
+          <tr>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td>
+            <td class="shotcell">
+              <div class="shots">
+                <a class="shot" href="demos/ms-muncher/evidence/title.png" title="Attract screen: the block-graphics logo, the cast, and the top five">
+                  <img src="demos/ms-muncher/evidence/title.png" width="640" height="400" loading="lazy" decoding="async" alt="Ms. Muncher attract screen: MS MUNCHER in large block letters above the four named ghosts and a table of top scores">
+                </a>
+                <a class="shot" href="demos/ms-muncher/evidence/chase.png" title="Board 1 under way: dots, energizers, the ghost house and the travelling fruit">
+                  <img src="demos/ms-muncher/evidence/chase.png" width="640" height="400" loading="lazy" decoding="async" alt="Board 1 in play: a blue auto-tiled maze full of yellow dots with four coloured ghosts and Ms. Muncher">
+                </a>
+                <a class="shot" href="demos/ms-muncher/evidence/frightened.png" title="An energizer taken: every ghost turned blue and reversed">
+                  <img src="demos/ms-muncher/evidence/frightened.png" width="640" height="400" loading="lazy" decoding="async" alt="The same board after an energizer: all four ghosts drawn as blue frightened shapes">
+                </a>
+              </div>
+            </td>
+          </tr>
           <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a></td><td>6502 assembly</td><td>A fixed shooter &mdash; sprite multiplexing, dive patterns, the capture/dual-fighter mechanic</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
@@ -385,7 +400,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       miscellaneous builds) ships its whole solution beside its prompt once it
       has been built &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
-      runnable .d64 for stock VICE; Ms. Muncher, La Galaxia and Fugue are
+      runnable .d64 for stock VICE; La Galaxia and Fugue are
       prompt-only so far.</small></p>
     </section>
 
