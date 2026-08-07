@@ -16,6 +16,22 @@ def test_hardware_doc_base_addresses():
         assert needle in doc
 
 
+def test_asm_skill_warns_about_indexed_loop_calls():
+    """The worst bug of the Ms. Muncher dogfood, and then the same pattern a
+    second time: a loop keeping its counter in X called a routine that uses X
+    as a table index, and the store wrote outside the array."""
+    text = SKILL.read_text()
+    assert "dec table,x" in text, "the gotcha needs the exemplar that hurts"
+    assert "reload" in text
+    assert "c64 watch add" in text, "the one-step diagnosis is the payoff"
+
+
+def test_asm_skill_branch_range_count():
+    """The parenthetical cites the dogfood; it hit four build failures across
+    four files, ten branches — not the three the bullet claimed."""
+    assert "four separate build failures" in SKILL.read_text()
+
+
 @pytest.mark.skipif(
     shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",

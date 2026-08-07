@@ -99,7 +99,8 @@ The cookbook's "Time a routine and print the jiffies" recipe uses it.
   `jmp` trampoline from the start — invert the branch over it:
   `beq :+ / jmp far_target / :` — and expect to convert several
   `bne`/`bcc` this way once a routine passes ~120 bytes (the Ms. Muncher
-  dogfood hit this three separate times while adding features).
+  dogfood hit this in four separate build failures across four files — ten
+  branches — while adding features).
 - Zero page is scarce and shared with BASIC/kernal — see the
   `c64-development` skill's zero-page reference before claiming zero-page
   locations.
@@ -126,6 +127,19 @@ The cookbook's "Time a routine and print the jiffies" recipe uses it.
   (`asl`/`lsr`/`rol`/`ror`/`inc`/`dec`) accept **no `,Y` form at all**. ca65
   rejects the illegal encodings — a surprise when mechanically swapping an
   `,X` loop to `,Y`.
+- **An indexed loop that calls a subroutine must reload its index.** `X` and
+  `Y` are the only index registers, so any routine doing table work claims
+  one — and a loop that keeps its counter there gets it back as whatever the
+  callee left. The store is what hurts: `dec table,x` with a stale `X` writes
+  outside `table`, usually into code, and the crash arrives thousands of
+  frames later somewhere unrelated. Stash the counter in a scratch byte
+  across the call (`stx tmp` / `jsr …` / `ldx tmp`), or index the loop with
+  the register the callee does not use. A store watchpoint on the corrupted
+  address (`c64 watch add ADDR --store`) names the culprit in one step; the
+  Ms. Muncher dogfood found both of its instances that way — a music loop
+  whose counter came back as a SID register offset and wrote 114 bytes past
+  its array into the program's own code, and the same shape again in a
+  collision loop around the scoring routine.
 - **Segment state carries across `.include`.** ca65 does not reset the
   active segment at file boundaries: if one included file ends in
   `.segment "BSS"`, the next include's code assembles into BSS — address
