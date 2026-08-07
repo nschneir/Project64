@@ -143,6 +143,29 @@ def test_no_status_column_or_dogfood_framing():
             f"{path} still carries demo status / dogfood framing"
 
 
+GRAPHICS_POLICY = Path("docs/graphics-and-sprites.md")
+
+
+def test_graphics_policy_has_evidence_script_shape():
+    """Two demos have now written the same evidence protocol from scratch,
+    each rediscovering the same rules the hard way. It is repo policy, so it
+    lives in the policy doc rather than travelling with the skill."""
+    text = GRAPHICS_POLICY.read_text()
+    section = text[text.index("## 5."):text.index("## 6.")]
+    assert "The shape of an evidence script" in section
+    assert "key hold" in section and "--at" in section
+    assert "does not resume" in section, \
+        "the wait-after-until rule is the one that costs a debugging pass"
+    assert "c64 call" in section
+    for demo in ("invaders", "ms-muncher"):
+        script = DEMOS_DIR / demo / "tools" / "evidence.sh"
+        assert script.exists(), f"{script} is the cited worked example"
+        body = script.read_text()
+        assert re.search(r"until \w+", body), \
+            f"{script} no longer parks on a frame anchor before capturing"
+        assert "screen --png" in body
+
+
 def test_every_demo_directory_is_listed():
     dirs = {p.name for p in DEMOS_DIR.iterdir() if p.is_dir()}
     listed = set(_md_roster(DEMOS_README.read_text()))

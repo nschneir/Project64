@@ -162,6 +162,41 @@ Two channels, used for different things:
 - Committed evidence PNGs are small and load-bearing for review; they are
   not compared programmatically.
 
+### The shape of an evidence script
+
+`demos/invaders/tools/evidence.sh` and `demos/ms-muncher/tools/evidence.sh`
+are the same protocol, written twice, each time by rediscovering the same
+rules the hard way. A demo that commits evidence should ship a script that
+regenerates all of it in one command, and it should follow these five:
+
+| Rule | Why |
+|---|---|
+| One `run`, then `until <anchor> --count N` before every capture | At warp a screenshot of a running machine is a race. `until` parks it on an exact frame, and inspection never advances it — so the same script produces the same frames every time. |
+| Never `wait --mem/--text` straight after an `until` | A wait polls and **does not resume**. After `until`/`step`/`finish`/`wait --break` the machine is stopped, so the wait can only time out. Use another `until`, or `c64 continue` first. |
+| Stage unreachable states by poking the program's own state bytes | Cheaper and far more repeatable than playing to them — and they are the same bytes the YAML spec asserts on, so the evidence and the regression test agree by construction. |
+| Use `c64 call` only as the final action before a capture, then `run` again | The call's fake return address replaces the program's control flow; that run is over. A following `until` will time out on a label nothing executes any more, and it looks exactly like a wedged machine. |
+| A capture that needs a key uses `key hold KEY --at <anchor>` | `key type` fills the type-ahead buffer, which a game reading the live matrix code at `$CB` never looks at. |
+
+The two helpers are worth stealing verbatim — one line each, and every
+capture in the file reads as a single verb:
+
+```sh
+C=".venv/bin/c64"; S="-s mmev"
+shot()  { $C screen --png "$OUT/$1.png" --scale 2 $S >/dev/null; echo "  $1.png"; }
+ticks() { $C until tick --count "$1" --timeout 120 $S >/dev/null; }
+```
+
+A staged capture then reads as the claim it is making. This one is the
+fourth maze, which would take ten boards of play to reach:
+
+```sh
+$C run $SRC $S >/dev/null          # a fresh run: the last call ended the one before
+ticks 400                          # the attract demo is playing by now
+$C mem write board 10 $S >/dev/null
+$C call newboard $S >/dev/null     # ... and nothing after this but the shot
+shot maze4
+```
+
 ## 6. Deferred tooling
 
 - **Pixel assertions (golden-image diff) are ruled out** (2026-07-30, on
