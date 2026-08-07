@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from c64lib.build import BuildError, BuildResult, build_asm, linker_config
+from c64lib.build import Area, BuildError, BuildResult, build_asm, linker_config
+from c64lib.ops import parse_areas
 
 
 def test_linker_config_contents():
@@ -24,6 +25,115 @@ def test_zeropage_starts_above_the_6510_port():
     cfg = linker_config(0x0801)
     assert "ZP:     start = $0002, size = $00FE;" in cfg
     assert "start = $0000, size = $0100" not in cfg
+
+
+_NO_AREAS = """\
+MEMORY {
+    ZP:     start = $0002, size = $00FE;
+    HEADER: file = %O, start = $0000, size = $0002;
+    MAIN:   file = %O, start = $0801, size = $97FF;
+}
+SEGMENTS {
+    ZEROPAGE: load = ZP,     type = zp,  optional = yes;
+    LOADADDR: load = HEADER, type = ro;
+    EXEHDR:   load = MAIN,   type = ro,  optional = yes;
+    CODE:     load = MAIN,   type = rw;
+    RODATA:   load = MAIN,   type = ro,  optional = yes;
+    DATA:     load = MAIN,   type = rw,  optional = yes;
+    BSS:      load = MAIN,   type = bss, optional = yes, define = yes;
+}
+"""
+
+_ONE_AREA = """\
+MEMORY {
+    ZP:     start = $0002, size = $00FE;
+    HEADER: file = %O, start = $0000, size = $0002;
+    MAIN:   file = %O, start = $0801, size = $37FF, fill = yes;
+    HIGH:   file = %O, start = $4000, size = $2000;
+}
+SEGMENTS {
+    ZEROPAGE: load = ZP,     type = zp,  optional = yes;
+    LOADADDR: load = HEADER, type = ro;
+    EXEHDR:   load = MAIN,   type = ro,  optional = yes;
+    CODE:     load = MAIN,   type = rw;
+    RODATA:   load = MAIN,   type = ro,  optional = yes;
+    DATA:     load = MAIN,   type = rw,  optional = yes;
+    BSS:      load = MAIN,   type = bss, optional = yes, define = yes;
+    HIGH:     load = HIGH,   type = ro,  optional = yes, define = yes;
+}
+"""
+
+
+def test_linker_config_unchanged_without_areas():
+    """Pinned to the literal, so the no-areas path cannot drift when --area
+    grows: every program built before this flag existed must still link to
+    exactly the same layout."""
+    assert linker_config(0x0801) == _NO_AREAS
+
+
+def test_linker_config_one_area():
+    assert linker_config(0x0801, [Area("HIGH", 0x4000, 0x2000)]) == _ONE_AREA
+
+
+def test_linker_config_two_areas_sorted():
+    """A .prg is a flat file: areas are emitted low to high whatever order
+    they arrive in, and every one but the last is filled, because a hole
+    below an area would shift everything above it."""
+    cfg = linker_config(0x0801, [Area("TOP", 0x6000, 0x1000),
+                                 Area("HIGH", 0x4000, 0x2000)])
+    memory = cfg.split("SEGMENTS")[0]
+    assert memory.index("HIGH:") < memory.index("TOP:")
+    assert "    MAIN:   file = %O, start = $0801, size = $37FF, fill = yes;" in cfg
+    assert "    HIGH:   file = %O, start = $4000, size = $2000, fill = yes;" in cfg
+    assert "    TOP:    file = %O, start = $6000, size = $1000;" in cfg
+    segments = cfg.split("SEGMENTS")[1]
+    assert segments.index("HIGH:") < segments.index("TOP:")
+
+
+def test_parse_areas_accepts_hex_and_decimal():
+    for spelling in ("HIGH=$4000:$2000", "HIGH=0x4000:0x2000", "HIGH=16384:8192"):
+        assert parse_areas([spelling]) == [Area("HIGH", 0x4000, 0x2000)]
+
+
+def test_parse_areas_rejects_malformed():
+    with pytest.raises(ValueError,
+                       match=r"^--area needs NAME=START:SIZE, got 'HIGH'$"):
+        parse_areas(["HIGH"])
+
+
+def test_parse_areas_rejects_reserved_name():
+    with pytest.raises(ValueError, match=(
+            r"^--area name 'MAIN' is reserved — ZP, HEADER, MAIN, ZEROPAGE, "
+            r"LOADADDR, EXEHDR, CODE, RODATA, DATA and BSS cannot be reused$")):
+        parse_areas(["MAIN=$4000:$2000"])
+
+
+def test_parse_areas_rejects_area_at_or_below_the_load_address():
+    with pytest.raises(ValueError, match=(
+            r"^--area HIGH starts at \$0400, at or below the load address "
+            r"\$0801 — an area must sit above the program$")):
+        parse_areas(["HIGH=$0400:$2000"])
+
+
+def test_parse_areas_rejects_zero_size():
+    with pytest.raises(ValueError,
+                       match=r"^--area HIGH=\$4000:\$0 has size 0$"):
+        parse_areas(["HIGH=$4000:$0"])
+
+
+def test_parse_areas_rejects_overlap():
+    with pytest.raises(ValueError, match=(
+            r"^--area TOP starts at \$5000, inside --area HIGH=\$4000:\$2000 "
+            r"which ends at \$6000$")):
+        parse_areas(["HIGH=$4000:$2000", "TOP=$5000:$1000"])
+
+
+def test_parse_areas_rejects_gap_before_the_next_area():
+    with pytest.raises(ValueError, match=(
+            r"^--area HIGH=\$4000:\$1000 leaves a \$1000-byte gap before "
+            r"--area TOP at \$6000 — a \.prg is a flat file, so raise HIGH's "
+            r"size to \$2000 or move TOP down$")):
+        parse_areas(["HIGH=$4000:$1000", "TOP=$6000:$1000"])
 
 
 def _stub_tool(dir: Path, name: str, body: str) -> Path:
@@ -180,3 +290,41 @@ def test_include_resolves_relative_to_the_including_file(tmp_path, monkeypatch):
     monkeypatch.chdir(elsewhere)
     res = build_asm(src / "main.s", basic_start=0x0801)
     assert Path(res.prg).exists()
+
+
+_STUB = (
+    '        .segment "LOADADDR"\n'
+    '        .word $0801\n'
+    '        .segment "EXEHDR"\n'
+    '        .word nextln\n'
+    '        .word 10\n'
+    '        .byte $9E, "2061", $00\n'
+    'nextln: .word $0000\n'
+)
+#: EXEHDR is 12 bytes (two words, the SYS token + "2061" + terminator, and
+#: the zero link word); CODE below adds one `rts`.
+_STUB_BYTES = 13
+
+
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+def test_build_area_places_segment_live(tmp_path):
+    """The whole point of --area: a segment lands at the address you asked
+    for. A .prg is a flat file, so that only works if the gap below the area
+    ships as zero bytes — which is what `fill = yes` on MAIN buys."""
+    src = tmp_path / "prog.s"
+    src.write_text(_STUB
+                   + '        .segment "CODE"\n'
+                     'start:  rts\n'
+                     '        .segment "HIGH"\n'
+                     '        .byte $DE, $AD, $BE, $EF\n')
+    res = build_asm(src, areas=[Area("HIGH", 0x4000, 0x0100)])
+    data = Path(res.prg).read_bytes()
+    assert data[:2] == b"\x01\x08"
+    area_off = 2 + (0x4000 - 0x0801)
+    assert data[area_off:area_off + 4] == b"\xde\xad\xbe\xef"
+    assert set(data[2 + _STUB_BYTES:area_off]) == {0}, "the gap was not filled"
+    assert len(data) == area_off + 4, "the last area must not be padded"
+    assert "__HIGH_LOAD__" in Path(res.labels).read_text()

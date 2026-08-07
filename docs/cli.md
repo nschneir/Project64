@@ -610,8 +610,51 @@ Assemble 6502 source (ca65 syntax) to a `.prg` plus a VICE label file.
 - `SOURCE` — the `.s` file.
 - `-o, --output PATH` — output `.prg` (defaults next to the source).
 - `--model MODEL` (default `c64`) — selects the BASIC load address.
+- `--area NAME=START:SIZE` — link segment `NAME` at a fixed address, and
+  declare a linker MEMORY area of the same name to hold it. Repeatable;
+  `START` and `SIZE` take `$hex`, `0x` or decimal.
 
 JSON: `{"prg", "labels"}`. No session required.
+
+**`--area`.** The default layout gives you one region, `$0801` upward, and
+ld65 packs `CODE`/`RODATA`/`DATA`/`BSS` into it in that order — which is
+what you want until something has to be *at* a particular address: a RAM
+character set on its 2 KB boundary, sprite blocks on their 64-byte ones, a
+table the VIC has to be able to see. `--area` adds a region and puts the
+identically named segment in it:
+
+```sh
+c64 build game.s --area 'HIGH=$4000:$2000'
+```
+
+```asm
+        .segment "HIGH"
+glyphs: .incbin "chars.bin"        ; assembles at $4000, wherever CODE ended
+```
+
+A `.prg` is a flat file — the KERNAL reads the 2-byte header, then copies
+every following byte to consecutive addresses — so a segment only lands at
+`$4000` if all 14,335 bytes below it ship too. The flag arranges that: `MAIN`
+is capped at `area.start - load_address` and filled, so the gap between the
+end of your code and the area is written out as zero bytes. Two consequences
+worth knowing before you reach for it:
+
+- **The file gets big.** `--area 'HIGH=$4000:$2000'` produces a `.prg` of at
+  least 14 KB no matter how small the program is. For data the VIC never
+  reads — sprite *source* art, level tables, anything the CPU alone touches —
+  copying it above `$4000` in the first instructions of your start routine
+  costs nothing and keeps the file the size of the program.
+- **Areas must be contiguous and above the load address.** A gap between two
+  areas would shift everything above it, so it is rejected with the size to
+  raise; so are an area at or below the load address, a zero size, an
+  overlap, and a name that would redefine one of the config's own
+  (`ZP`, `HEADER`, `MAIN`, `ZEROPAGE`, `LOADADDR`, `EXEHDR`, `CODE`,
+  `RODATA`, `DATA`, `BSS`).
+
+Each area is declared `define = yes`, so `__NAME_LOAD__` and `__NAME_SIZE__`
+exist for a link-time `.assert` — the ceiling check is worth writing, because
+overrunning it is otherwise a wrong-pixels mystery rather than a build
+failure.
 
 ### `c64 package`
 
@@ -640,6 +683,13 @@ not from here.
   wrap it in a launcher cartridge, instead of building cart-native code.
 - `--model MODEL` (default `c64`) — selects the BASIC load address and
   is pinned in the reported run command.
+- `--area NAME=START:SIZE` — exactly `c64 build`'s flag, forwarded to the
+  assembler step, so a program that needs a segment at a fixed address can
+  still be packaged in one command. Repeatable. Assembly sources only:
+  passing it for a `.bas` or a `.prg` is an error, and so is passing it for a
+  cartridge, which brings its own memory map. Same rule as `--cart-type`,
+  and for the same reason — an option that cannot apply says so instead of
+  being ignored.
 
 **Cartridges.** A `.s` is treated as cart-native code (it owns the boot
 sequence: export `cart_main`, or supply your own `STARTUP` segment) unless

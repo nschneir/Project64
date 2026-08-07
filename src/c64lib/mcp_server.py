@@ -51,6 +51,7 @@ from .ops import (
     key_type,
     live_screen_base,
     machine_state,
+    parse_areas,
     parse_byte_values,
     parse_number,
     parse_ref,
@@ -557,17 +558,27 @@ def c64_wait_break(timeout: float = 30.0, session: str | None = None,
 
 
 @srv.tool()
-def c64_build(source: str, model: str = "c64") -> dict:
-    """Assemble 6502 source (ca65 syntax) to a .prg + VICE label file."""
+def c64_build(source: str, model: str = "c64",
+              areas: list[str] | None = None) -> dict:
+    """Assemble 6502 source (ca65 syntax) to a .prg + VICE label file.
+
+    `areas` links extra segments at fixed addresses: each entry is
+    "NAME=START:SIZE" (e.g. "HIGH=$4000:$2000"), naming both a MEMORY area
+    and the segment loaded into it. A .prg is a flat file, so the gap below
+    an area ships as zero bytes — that padding is what makes the segment land
+    where you asked, and it is why areas must be contiguous and above the
+    load address."""
     profile = get_profile(model)
-    res = build_asm(Path(source), basic_start=profile.basic_start)
+    res = build_asm(Path(source), basic_start=profile.basic_start,
+                    areas=parse_areas(areas or (), profile.basic_start))
     return {"prg": str(res.prg), "labels": str(res.labels)}
 
 
 @srv.tool()
 def c64_package(source: str, output: str | None = None, title: str | None = None,
                 model: str = "c64", fmt: str | None = None,
-                cart_type: str | None = None, wrap: bool = False) -> dict:
+                cart_type: str | None = None, wrap: bool = False,
+                areas: list[str] | None = None) -> dict:
     """Package a .s/.bas/.prg into an artifact any VICE user can run: a .prg,
     a disk image whose first file autostarts (output ends in .d64/.d71/.d81),
     or a bootable cartridge (fmt="crt", or output ends in .crt). For a
@@ -575,9 +586,15 @@ def c64_package(source: str, output: str | None = None, title: str | None = None
     outside one; a .s builds cart-native code unless wrap=True, and .bas/.prg
     are always wrapped in a launcher stub — a wrapped .bas needs cart_type 8k,
     since 16k maps ROM over BASIC. An fmt that disagrees with the output
-    extension is an error too. Returns the exact run command in "run"."""
+    extension is an error too. Returns the exact run command in "run".
+
+    `areas` is c64_build's, and applies to assembly sources only: each entry
+    is "NAME=START:SIZE" linking segment NAME at a fixed address. Passing it
+    for a .bas, a .prg or a cartridge is an error rather than a no-op."""
+    profile = get_profile(model)
     return package_program(Path(source), out=output, title=title, model=model,
-                           fmt=fmt, cart_type=cart_type, wrap=wrap)
+                           fmt=fmt, cart_type=cart_type, wrap=wrap,
+                           areas=parse_areas(areas or (), profile.basic_start))
 
 
 @srv.tool()

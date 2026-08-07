@@ -100,6 +100,24 @@ def test_package_rejects_cart_type_outside_a_cartridge(tmp_path):
     assert not list(tmp_path.iterdir())          # nothing was built
 
 
+def test_package_rejects_area_where_it_cannot_apply(tmp_path):
+    """--area rewrites the .prg linker config, which a tokenized .bas and a
+    cartridge never go through. Loud, for the same reason --cart-type is."""
+    bas = tmp_path / "p.bas"
+    bas.write_text('10 print "hi"\n')
+    r = CliRunner().invoke(main, ["--json", "package", str(bas), "-o",
+                                  str(tmp_path / "x.prg"),
+                                  "--area", "HIGH=$4000:$2000"])
+    assert r.exit_code == 1
+    assert json.loads(r.output)["error"] == (
+        "--area applies to assembly sources only")
+    r = CliRunner().invoke(main, ["--json", "package", SRC, "-o",
+                                  str(tmp_path / "g.crt"),
+                                  "--area", "HIGH=$4000:$2000"])
+    assert r.exit_code == 1
+    assert "--area does not apply to cartridges" in json.loads(r.output)["error"]
+
+
 def test_package_cart_type_defaults_to_8k_for_a_cartridge(tmp_path):
     """The sentinel changes only the outside-a-cartridge case: the CLI forwards
     it untouched and inside a cartridge it still means 8k."""

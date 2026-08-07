@@ -232,20 +232,37 @@ is the reason that demo works.
 **Getting a linked-in segment there.** A `.prg` is a *flat* binary — file
 bytes map straight onto consecutive addresses starting at the load
 address. That's no trouble for a hand-picked address you poke into
-directly (like `$3000` above), but if you instead give the linker a
-*second* MEMORY area at a high address, the gap between it and `CODE`
-must ship as real zero bytes in the file, or everything after the gap
-loads at the wrong address. Tell ld65 to pad the low area with
-`fill = yes`:
+directly (like `$3000` above), but a segment you want the *linker* to place
+at a high address needs the gap between it and `CODE` to ship as real zero
+bytes in the file, or everything after the gap loads at the wrong address.
+`c64 build --area` declares the area and writes that padding for you:
 
-```
-MAIN: start = $080D, size = $37F3, fill = yes, file = %O;
-HIGH: start = $4000, size = $2000, file = %O;
+```sh
+c64 build game.s --area 'HIGH=$4000:$2000'
 ```
 
-`fill = yes` on `MAIN` pads `$080D-$3FFF` with zeros so a segment linked
-into `HIGH` lands at `$4000` in the finished file instead of collapsing to
-right after `MAIN`'s last real byte.
+```asm
+        .segment "HIGH"
+glyphs: .incbin "chars.bin"        ; assembles at $4000, wherever CODE ended
+```
+
+The flag caps `MAIN` at `$4000 - $0801` and adds `fill = yes` to it, which
+pads `$0801-$3FFF` with zeros so the `HIGH` segment lands at `$4000` in the
+finished file instead of collapsing to right after `MAIN`'s last real byte.
+Areas are declared `define = yes`, so `__HIGH_LOAD__`/`__HIGH_SIZE__` are
+available for the same kind of `.assert` as `__BSS_*` above. Repeat the flag
+for more areas; they must be contiguous, since a hole between two of them
+would shift the upper one.
+
+The cost is file size: that padding is real bytes, so `--area 'HIGH=$4000:…'`
+makes every build at least 14 KB. **For data the VIC never reads** — sprite
+source art, charset source glyphs, level tables, anything only the CPU
+touches — the cheaper move is to link it normally, last, and copy it above
+`$4000` in the first instructions of your start routine. It then costs no
+low RAM and no file size at all, which is what `demos/ms-muncher` does with
+2,545 bytes of art. Reach for `--area` when the data has to be *at* a fixed
+address (a charset on its 2 KB boundary, sprite blocks on their 64-byte
+ones) rather than merely out of the way.
 
 ## Debugging
 

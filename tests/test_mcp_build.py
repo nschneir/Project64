@@ -31,7 +31,7 @@ def test_build(tmp_path):
     with patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
         err, out = call_tool("c64_build", {"source": str(src)})
     assert err is False and out["prg"].endswith("p.prg")
-    ba.assert_called_once_with(Path(str(src)), basic_start=0x0801)
+    ba.assert_called_once_with(Path(str(src)), basic_start=0x0801, areas=[])
 
 
 def test_run_dispatch_bas(tmp_path):

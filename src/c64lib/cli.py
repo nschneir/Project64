@@ -52,6 +52,7 @@ from .ops import (
     find_bytes,
     live_screen_base,
     machine_state,
+    parse_areas,
     parse_byte_values,
     parse_number,
     parse_ref,
@@ -687,16 +688,21 @@ def reg_set(ctx, name, value):
               help="Output .prg path (defaults next to SOURCE).")
 @click.option("--model", default="c64", show_default=True,
               help="Target model — selects the BASIC load address.")
+@click.option("--area", "areas", multiple=True, metavar="NAME=START:SIZE",
+              help="Link segment NAME at a fixed address (repeatable, "
+                   "e.g. 'HIGH=$4000:$2000'). The gap below it ships as zero "
+                   "bytes, which is what makes the segment land there.")
 @click.pass_context
-def build_cmd(ctx, source, output, model):
+def build_cmd(ctx, source, output, model, areas):
     """Assemble 6502 SOURCE to a .prg (+ VICE label file) with ca65/ld65.
 
     Offline; no session required.
     """
     try:
         profile = get_profile(model)
-        res = build_asm(source, out_prg=output, basic_start=profile.basic_start)
-    except (BuildError, KeyError) as e:
+        res = build_asm(source, out_prg=output, basic_start=profile.basic_start,
+                        areas=parse_areas(areas, profile.basic_start))
+    except (BuildError, ValueError, KeyError) as e:
         fail(ctx, str(e))
         return
     emit(ctx, {"prg": str(res.prg), "labels": str(res.labels)},
@@ -726,8 +732,11 @@ def build_cmd(ctx, source, output, model):
 @click.option("--model", default="c64", show_default=True,
               help="Target model — selects the BASIC load address and is "
                    "pinned in the reported run command.")
+@click.option("--area", "areas", multiple=True, metavar="NAME=START:SIZE",
+              help="Link segment NAME at a fixed address (repeatable, "
+                   "e.g. 'HIGH=$4000:$2000'). Assembly sources only.")
 @click.pass_context
-def package_cmd(ctx, source, output, title, fmt, cart_type, wrap, model):
+def package_cmd(ctx, source, output, title, fmt, cart_type, wrap, model, areas):
     """Package SOURCE into an artifact any VICE user can run.
 
     The reported run command pins the model: stock x64sc boots its own
@@ -738,10 +747,12 @@ def package_cmd(ctx, source, output, title, fmt, cart_type, wrap, model):
     # disagrees with -o) lives in package_program so the MCP tool rejects the
     # same combinations in the same words; PackageError arrives below.
     try:
+        profile = get_profile(model)
         res = package_program(source, out=output, title=title, model=model,
-                              fmt=fmt, cart_type=cart_type, wrap=wrap)
+                              fmt=fmt, cart_type=cart_type, wrap=wrap,
+                              areas=parse_areas(areas, profile.basic_start))
     except (BuildError, BasicError, DiskError, PackageError, CartError,
-            KeyError) as e:
+            ValueError, KeyError) as e:
         fail(ctx, str(e))
         return
     if res.get("cart_type"):

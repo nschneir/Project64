@@ -12,6 +12,7 @@ import time
 from collections import deque
 from pathlib import Path
 
+from .build import RESERVED_AREA_NAMES, Area
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
 from .screen import read_screen_text, screen_base
@@ -79,6 +80,62 @@ def parse_number(s) -> int:
     if s.lower().startswith("0x"):
         return int(s, 16)
     return int(s, 10)
+
+
+def _area_spelling(a: Area) -> str:
+    """The NAME=START:SIZE form, for error messages that quote the area back."""
+    return f"{a.name}=${a.start:04X}:${a.size:X}"
+
+
+def parse_areas(values, basic_start: int = 0x0801) -> list[Area]:
+    """Parse `--area NAME=START:SIZE` tokens into sorted, checked `Area`s.
+
+    Every rejection here is one ld65 would either accept and mis-link, or
+    reject in terms that name its own generated config rather than the flag
+    the user typed. The gap check is the load-bearing one: a `.prg` is a flat
+    file, so a hole between two areas would shift everything above it down by
+    the size of the hole and land nothing where it was asked for.
+    """
+    areas: list[Area] = []
+    for raw in values:
+        token = str(raw).strip()
+        name, sep, rest = token.partition("=")
+        start_s, colon, size_s = rest.partition(":")
+        if not (sep and colon and name):
+            raise ValueError(f"--area needs NAME=START:SIZE, got {token!r}")
+        try:
+            start, size = parse_number(start_s), parse_number(size_s)
+        except ValueError:
+            raise ValueError(
+                f"--area needs NAME=START:SIZE, got {token!r}") from None
+        if name.upper() in RESERVED_AREA_NAMES:
+            listed = (", ".join(RESERVED_AREA_NAMES[:-1])
+                      + f" and {RESERVED_AREA_NAMES[-1]}")
+            raise ValueError(
+                f"--area name {name!r} is reserved — {listed} cannot be reused")
+        area = Area(name, start, size)
+        if size == 0:
+            raise ValueError(f"--area {_area_spelling(area)} has size 0")
+        if start <= basic_start:
+            raise ValueError(
+                f"--area {name} starts at ${start:04X}, at or below the load "
+                f"address ${basic_start:04X} — an area must sit above the program")
+        areas.append(area)
+    areas.sort(key=lambda a: a.start)
+    for below, above in zip(areas, areas[1:], strict=False):
+        end = below.start + below.size
+        if end > above.start:
+            raise ValueError(
+                f"--area {above.name} starts at ${above.start:04X}, inside "
+                f"--area {_area_spelling(below)} which ends at ${end:04X}")
+        if end < above.start:
+            raise ValueError(
+                f"--area {_area_spelling(below)} leaves a "
+                f"${above.start - end:04X}-byte gap before --area "
+                f"{above.name} at ${above.start:04X} — a .prg is a flat file, "
+                f"so raise {below.name}'s size to "
+                f"${above.start - below.start:X} or move {above.name} down")
+    return areas
 
 
 def parse_byte_values(tokens) -> bytes:

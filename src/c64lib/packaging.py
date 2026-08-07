@@ -6,10 +6,11 @@ running session involved."""
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 
 from .basic import tokenize
-from .build import build_asm
+from .build import Area, build_asm
 from .cart_build import build_cart, wrap_prg
 from .disk import IMAGE_DRIVE_TYPES, create_image, put_file
 from .machines import get_profile
@@ -41,7 +42,8 @@ def cbm_title(raw: str) -> str:
 
 def package_program(source, out=None, title: str | None = None,
                     model: str = "c64", fmt: str | None = None,
-                    cart_type: str | None = None, wrap: bool = False) -> dict:
+                    cart_type: str | None = None, wrap: bool = False,
+                    areas: Sequence[Area] = ()) -> dict:
     """Build SOURCE (.s/.bas/.prg) and package it as OUT.
 
     The format comes from `fmt` when given, otherwise from OUT's extension:
@@ -75,6 +77,16 @@ def package_program(source, out=None, title: str | None = None,
         raise PackageError(
             "--cart-type only applies to cartridges; pass --format crt "
             "or name a .crt output")
+    # --area rewrites the .prg linker config, which neither a tokenized .bas,
+    # a copied .prg, nor a cartridge (which brings its own memory map) goes
+    # through. Rejected rather than ignored, for the same reason --cart-type is.
+    if areas:
+        if cart_out:
+            raise PackageError(
+                "--area does not apply to cartridges; a cartridge brings its "
+                "own memory map, so link it with a STARTUP segment instead")
+        if source.suffix.lower() != ".s":
+            raise PackageError("--area applies to assembly sources only")
     cart_type = cart_type or "8k"
     if cart_out:
         crt_out = out if out is not None else source.with_suffix(".crt")
@@ -112,7 +124,7 @@ def package_program(source, out=None, title: str | None = None,
     src_ext = source.suffix.lower()
     if src_ext == ".s":
         prg = build_asm(source, out_prg=prg_path,
-                        basic_start=profile.basic_start).prg
+                        basic_start=profile.basic_start, areas=areas).prg
     elif src_ext == ".bas":
         prg = tokenize(source, prg_path, profile.basic_version)
     elif src_ext == ".prg":

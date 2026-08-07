@@ -8,6 +8,24 @@ commit).
 
 ## [Unreleased]
 
+A segment can be linked where the VIC needs it. `c64 build --area
+NAME=START:SIZE` (repeatable; also on `c64 package`, and `areas` on the
+`c64_build`/`c64_package` MCP tools) declares an extra linker MEMORY area
+and puts the identically named segment in it — so a RAM character set lands
+on its 2 KB boundary and sprite blocks on their 64-byte ones without a
+startup copy loop. A `.prg` is a flat file, so the flag caps `MAIN` at
+`area.start - load_address` and fills it: the gap below the area ships as
+real zero bytes, which is what makes the segment land there. Areas are
+declared `define = yes`, so `__NAME_LOAD__`/`__NAME_SIZE__` are available
+for a link-time `.assert` on the ceiling. Everything a wrong `--area` could
+do quietly is a rejection instead, naming the flag rather than the config
+generated behind it: a gap between two areas (with the size to raise), an
+overlap, an area at or below the load address, a zero size, a name that
+would redefine one of the config's own, and — the same way `--cart-type`
+already works — `--area` passed for a `.bas`, a `.prg`, or a cartridge.
+With no areas the generated config is byte-identical to what it has always
+been, pinned by a test.
+
 Sound is verifiable now. `c64 audio capture` (MCP `c64_audio_capture`)
 records the machine's audio to a WAV while sampling `$D400–$D418` once per
 frame, transcribes the register log into notes, diffs them against a
