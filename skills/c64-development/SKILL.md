@@ -312,6 +312,17 @@ Three of those four halting commands *also resume first*: `until`, `step` and
 arrival is passive. That is why an extra `c64 continue` before one of them
 costs you a hit.
 
+**`c64 wait --text` and `c64 wait --mem` poll; they do not resume.** They are
+the two that are purely passive, which makes them the trap: issue one after
+`until`, `step`, `finish` or a `wait --break` that fired and it polls a
+machine that is not executing, so the value it is waiting for can never
+arrive and the only outcome is the timeout. Resume first with `c64 continue`,
+or — better, when you want the frame count to stay deterministic — step the
+state out on the frame anchor with `c64 until <label> --count N`, which
+resumes and re-parks in one command. **The same is true inside a spec:** in
+`c64 test run`, a `wait:` step after an `until:` step polls a stopped machine
+and times out exactly the same way. Replace it with another `until:`.
+
 ## Text encodings — keep three straight
 
 The C64 uses three different byte encodings, and confusing them is a frequent
@@ -407,6 +418,8 @@ reproduction, use the `6502-debugging` skill.)
 | Sampled values step by exactly 2× the delta the code says | A `c64 continue` in front of `c64 wait --break` — the wait resumes too, so you see every second hit. Drop the `continue`. |
 | The machine stops somewhere you set no breakpoint | A stale watchpoint. `c64 break list` (it lists watchpoints too); `c64 break clear` does NOT remove them — use `c64 watch clear`. |
 | `c64 wait --mem '$FB=20'` never fires on a counter | Waits poll, so a counter can step over 20 between polls. Use an inequality: `c64 wait --mem '$FB>=20'`. |
+| `c64 wait --mem`/`--text` times out and the value never moves at all | The machine is stopped — `until`/`step`/`finish`/`wait --break` leave it that way, and a wait only polls, so it can never fire. `c64 continue` first, or advance deterministically with `c64 until <label> --count N`. Same inside a spec: a `wait:` step after an `until:` step. |
+| After `c64 call`, `until`/`continue` behave as if the program is gone | It is. The call's fake return address replaced the program's own control flow. Reload with `c64 run`; treat a call as the end of that run. |
 | Program vanished after `c64 run` | Autostart resets the machine first — that's normal; reload anything else you need. |
 | A color register or color-RAM assert fails with `f0 != 00` (or `fd != 0d`) | VIC-II color registers AND color RAM (`$D800-$DBE7`) are 4-bit — the high nybble is junk on readback. Mask with `and: "$0f"`. |
 | Disk command misbehaves | Read the error channel from a program: `open 15,8,15 : input#15,e,e$,t,s` (error table in references/basic-internals.md; INPUT# is illegal in direct mode). Then inspect the image itself from the host — `c64 disk ls`, `c64 disk validate`, `c64 disk block read IMAGE 18 0` for the BAM. |
@@ -482,6 +495,16 @@ Boundary sweeps that would take hours in-game take seconds this way:
 prove a scoring routine at shot counts 1/5/22/23/24 in one loop instead
 of engineering the 23rd live shot. `c64 profile ROUTINE` prices the same
 bracket in cycles (IRQs masked, so the sample is clean).
+
+**A call ends that run.** `c64 call` reaches its routine by pushing a fake
+return address, so when the routine returns it returns to the harness, not
+to whatever your program was doing — the program that was running is gone
+(the same warning `c64 call` carries in docs/cli.md). Inspect all you like
+afterwards, but a following `until` will time out on a label nothing
+executes any more, and it will look exactly like a wedged machine. `c64 run`
+again to play on. In a YAML spec this is why `call:` steps go last, or in
+their own file; in a hand-driven evidence protocol it is why a call is the
+final action before a capture.
 
 ## References
 

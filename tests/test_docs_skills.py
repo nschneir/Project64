@@ -104,6 +104,39 @@ def test_disk_io_entry_points_agree_with_the_kernal_reference():
             f"kernal-routines.md says {known.get(addr)}")
 
 
+C64_DEV = Path("skills/c64-development/SKILL.md")
+
+
+def test_skill_says_call_ends_the_run():
+    """docs/cli.md states plainly that `c64 call` replaces the running
+    program's control flow; the skill that recommends `c64 call` did not, and
+    the Ms. Muncher dogfood lost two debugging passes to a machine that looked
+    wedged before re-reading the CLI reference."""
+    text = C64_DEV.read_text()
+    section = text[text.index("## Verifying a change"):]
+    assert "ends that run" in section
+    assert "docs/cli.md" in section
+
+
+def test_skill_says_wait_does_not_resume():
+    """The skill stated the stopped-state rule and separately stated that
+    waits poll, and never joined them: a wait issued after `until` polls a
+    stopped machine and can only time out."""
+    text = C64_DEV.read_text()
+    start = text.index("**The stopped-state rule.**")
+    section = text[start:text.index("## Text encodings")]
+    assert "poll" in section and "do not resume" in section
+    assert "c64 continue" in section
+    assert "c64 test run" in section or "YAML" in section, \
+        "the same rule applies inside a spec, where the runner behaves the same"
+
+
+def test_skill_diagnosis_rows_present():
+    rows = C64_DEV.read_text()
+    assert "The machine is stopped —" in rows
+    assert "the program is gone" in rows
+
+
 def test_cartridge_reference_commands_exist():
     """The EasyFlash reference is prose the agent acts on too, so its `c64 ...`
     mentions get the same reality check the SKILL.md files get."""
