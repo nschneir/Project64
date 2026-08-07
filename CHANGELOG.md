@@ -46,6 +46,28 @@ when it does not, the message is unchanged, so a typo'd sample name still
 reads as a typo. `docs/cli.md` gains the table of which assert keys take a
 literal and which take a sample name.
 
+Six things the skills and references were silent about, each of which cost
+the Ms. Muncher dogfood a debugging pass or a whole audit iteration. The
+`c64-development` skill now says that `c64 call` **ends the run** it is
+called in (the CLI reference always said so; the skill that recommends the
+command did not) and that `c64 wait --text/--mem` **poll and do not
+resume**, so one issued after `until`/`step`/`finish`/`wait --break` can
+only time out — inside a YAML spec too. Both get a diagnosis-table row.
+`zero-page.md` gains a second, live-measured table: the 75 bytes a program
+that owns the machine may claim, with the caveats that make them free (one
+ROM call takes them back; `$73-$8A` is the CHRGET *routine*; everything the
+KERNAL IRQ maintains stays off the list). The `6502-assembly` skill gains
+the gotcha that an indexed loop calling a subroutine must reload its index.
+The cookbook gains the bank-0 budget — all three consumers of the VIC's
+16 KB, the three ways out, and the `.assert` that turns the ceiling into a
+build failure — and the two ways a Galois LFSR silently stops being random,
+with the recipe extended to *prove* its 255-value cycle as a live-tested
+`DISTINCT 255`. `audio-verification.md` covers assembly lead-ins (taken per
+start, not baked into looping track data) and the one-shot cue that makes a
+score independent of arming latency. Finally, `docs/graphics-and-sprites.md`
+§5 writes down the deterministic evidence protocol both game demos had
+reinvented separately.
+
 Sound is verifiable now. `c64 audio capture` (MCP `c64_audio_capture`)
 records the machine's audio to a WAV while sampling `$D400–$D418` once per
 frame, transcribes the register log into notes, diffs them against a
