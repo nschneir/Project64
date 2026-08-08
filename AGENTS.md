@@ -182,6 +182,26 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   ruling, 2026-08-01). A short pinned snippet is fine only when the snippet
   *is* the spec (an exact error message, a test case, a linker line).
 
+## Dogfood post-mortems
+
+A dogfood run ends by writing its friction into `docs/todo.md` in that file's
+format — anchor, what's wrong now, fix direction, how to verify. Those items
+are claims about this repo, so they get the evidence discipline this repo
+applies to everything else: **quote the file before asserting a gap in it.**
+Grep the reference, paste the sentence that is or is not there, and let the
+quote carry the finding.
+
+The trap is inferring upstream from downstream. A demo's prompt, a generated
+artifact, or your own earlier code being wrong about a hardware fact does not
+imply the skills references are silent on it — they usually are not, and the
+finding you actually have is about the thing that was wrong. (La Galaxia,
+2026-08-08: the prompt put the custom charset under the character-ROM image
+and argued for it from the right premise. `references/hardware.md` and
+`references/memory-maps.md` both state the fact plainly. The post-mortem's
+first draft blamed them anyway; the real gap was one clause narrower — the
+image's 4 KB *size*, which is what makes two of the eight charset bases
+unusable rather than one.)
+
 ## Git
 
 - Commit messages follow the existing `type(scope): summary` style
