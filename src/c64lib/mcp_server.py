@@ -689,6 +689,7 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
             mon.resume()
     if symbols:
         s.set_labels_path(str(Path(symbols).resolve()))
+    s.record_loaded(p, [p])
     return {"loaded": str(p), "run": run, "symbols": symbols}
 
 

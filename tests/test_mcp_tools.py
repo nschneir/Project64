@@ -258,6 +258,19 @@ def test_load_no_run_with_symbols(tmp_path):
     s.set_labels_path.assert_called_once_with(str(lbl.resolve()))
 
 
+def test_load_records_loaded_program(tmp_path):
+    # without this the session forgets what it is running, and c64_status
+    # cannot warn that the source has moved on since the load
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_load", {"prg": str(prg)})
+    assert err is False
+    s.record_loaded.assert_called_once_with(prg.resolve(), [prg.resolve()])
+
+
 def test_basic_type_appends_newline_and_run():
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
