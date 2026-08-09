@@ -750,7 +750,7 @@ music rather than as numbers.
 
 ## Task 15: The improvement loop
 
-Not a one-shot task — the numbered cycle `PROMPT.md` requires, logged in
+Not a single-pass task — the numbered cycle `PROMPT.md` requires, logged in
 `AUDIT.md`. Each iteration:
 
 - [ ] **Evaluate.** Run the proof protocol and mark every `SPEC.md` §12

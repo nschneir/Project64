@@ -7,8 +7,7 @@ directory contains:
   keywords and string text lowercase) or `program.s` (ca65 assembly)
 - `expect.txt` — screen text that must appear after the program runs
   (one required substring per non-empty line)
-- `prompt.md` — the one-shot task the program solves (kept for AI-evaluation
-  use)
+- `prompt.md` — the task the program solves (kept for AI-evaluation use)
 - `test.yaml` (optional) — extra declarative steps (asserts, until/sample
   motion checks) appended after the expect.txt gate — see sprite-ball
 
