@@ -112,11 +112,11 @@ def _leaf_command_paths() -> set[str]:
 
 # The commands docs/agent-setup.md and skills/c64-development/SKILL.md tell an
 # MCP-wired agent to shell out for.
-DOCUMENTED_CLI_ONLY = ["c64 sprite encode", "c64 charset encode"]
+DOCUMENTED_CLI_ONLY = ["c64 charset encode"]
 
 
 def test_documented_cli_only_commands_really_have_no_tool():
-    """Both docs promise these two have no MCP twin. When one grows a tool the
+    """Both docs promise this one has no MCP twin. When it grows a tool the
     docs go stale silently — which is exactly what happened to the disk verbs'
     entry while the disk plan landed."""
     registered = {t.name for t in list_tools().tools}

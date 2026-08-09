@@ -1185,6 +1185,34 @@ def c64_sprite_from_png(image: str, multicolor: bool = False) -> dict:
 
 
 @srv.tool()
+def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
+                      start_line: int | None = None,
+                      line_step: int = 10) -> dict:
+    """Encode ASCII-art sprite(s) from `file` into 63 sprite bytes each (no
+    session needed). The file holds one or more 21-row sprites separated by a
+    blank line, in the friendly authoring legend (multicolor ' .#+', hires
+    ' #') or the glyphs c64_sprite_show emits — so show output round-trips
+    straight back through encode. Returns the bytes plus a paste-ready
+    rendering (fmt "asm" ca65 .byte rows, or "basic" data lines that
+    start_line numbers)."""
+    from .sprites import encode_sheet, render_sheet
+    if start_line is not None and fmt != "basic":
+        raise ValueError("start_line only applies to fmt='basic'")
+    text_in = Path(file).read_text()
+    if not text_in.strip():
+        raise ValueError(f"no sprite art found in {file}")
+    sprites = encode_sheet(text_in, multicolor=not hires)
+    if not sprites:
+        raise ValueError(f"no sprite art found in {file}")
+    # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
+    # stdout, so without it fmt/start_line would be no-ops here. The CLI omits
+    # it from --json only because it prints the same text itself.
+    return {"sprites": [list(data) for data in sprites],
+            "rendered": render_sheet(sprites, fmt, multicolor=not hires,
+                                     start_line=start_line, line_step=line_step)}
+
+
+@srv.tool()
 def c64_audio_record(action: str, path: str | None = None,
                      session: str | None = None) -> dict:
     """Record the emulated SID to a WAV file. action="start" arms the

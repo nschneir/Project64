@@ -453,6 +453,57 @@ def test_basic_detokenize_returns_listing(tmp_path):
     det.assert_called_once_with(prg, "2.0")
 
 
+# --- sprite encode ----------------------------------------------------------
+
+def _sheet(n: int = 1) -> str:
+    """n blank-line-separated blocks of 21 all-background multicolor rows."""
+    return "\n".join([("." * 12 + "\n") * 21] * n)
+
+
+def test_sprite_encode_returns_bytes_and_rendering(tmp_path):
+    """The MCP twin of `c64 sprite encode`: the CLI's --json `sprites` plus
+    the rendering the CLI prints, since MCP has no stdout to print it to."""
+    from c64lib.sprites import encode_sheet, render_sheet
+    src = tmp_path / "two.txt"
+    src.write_text(_sheet(2))
+    err, out = call_tool("c64_sprite_encode", {"file": str(src)})
+    assert err is False, out
+    sprites = encode_sheet(src.read_text())
+    assert out["sprites"] == [list(data) for data in sprites]
+    assert len(out["sprites"]) == 2 and len(out["sprites"][0]) == 63
+    assert out["rendered"] == render_sheet(sprites)
+
+
+def test_sprite_encode_hires_and_basic_numbering(tmp_path):
+    """hires flips multicolor off (24-char rows), and start_line numbers the
+    basic rows with the same run-on numbering the CLI emits."""
+    src = tmp_path / "hires.txt"
+    src.write_text(("#" * 24 + "\n") * 21)      # 24 chars/row: hires only
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "hires": True, "fmt": "basic",
+                          "start_line": 1000})
+    assert err is False, out
+    assert out["sprites"] == [[255] * 63]
+    assert out["rendered"].splitlines()[0] == "1000 data 255,255,255"
+
+
+def test_sprite_encode_start_line_needs_basic_format(tmp_path):
+    src = tmp_path / "sprite.txt"
+    src.write_text(_sheet())
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "start_line": 100})
+    assert err is True
+    assert "start_line only applies to fmt='basic'" in str(out)
+
+
+def test_sprite_encode_empty_file_is_an_error(tmp_path):
+    src = tmp_path / "empty.txt"
+    src.write_text("\n   \n")
+    err, out = call_tool("c64_sprite_encode", {"file": str(src)})
+    assert err is True
+    assert f"no sprite art found in {src}" in str(out)
+
+
 # --- audio score ------------------------------------------------------------
 
 def test_audio_score_summarises_a_score_without_a_session(tmp_path):

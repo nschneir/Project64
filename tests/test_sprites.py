@@ -416,3 +416,33 @@ def test_sprite_encode_sheet_round_trips_every_block():
     rows = ["." * 12] * 21
     assert encode_sheet(_sprite_rows(21) + "\n" + _sprite_rows(21)) == \
            [encode_sprite(rows), encode_sprite(rows)]
+
+
+def test_render_sheet_matches_inline_rendering():
+    """Numbering runs on across sprites: the second block starts a full
+    sprite (21 rows) past the first, so a two-sprite file is one ascending
+    listing rather than two that overwrite each other."""
+    from c64lib.sprites import encode_sheet, render_sheet
+    sprites = encode_sheet(_sprite_rows(21) + "\n" + _sprite_rows(21))
+    text = render_sheet(sprites, fmt="basic", start_line=100)
+    numbers = [int(ln.split()[0]) for ln in text.splitlines() if ln.strip()]
+    assert len(numbers) == 42
+    assert numbers[0] == 100 and numbers[21] == 100 + 21 * 10
+    assert numbers == sorted(numbers) and len(set(numbers)) == 42
+    assert text.endswith("\n")
+
+
+def test_render_sheet_asm_joins_with_blank_line():
+    from c64lib.sprites import encode_sheet, format_bytes, render_sheet
+    sprites = encode_sheet(_sprite_rows(21) + "\n" + _sprite_rows(21))
+    text = render_sheet(sprites)
+    assert text == "\n\n".join(
+        format_bytes(data, "asm", index=i) for i, data in enumerate(sprites)) + "\n"
+    assert "sprite0: .byte %" in text and "sprite1: .byte %" in text
+
+
+def test_render_sheet_rejects_a_bad_format():
+    from c64lib.sprites import encode_sheet, render_sheet
+    sprites = encode_sheet(_sprite_rows(21))
+    with pytest.raises(ValueError, match=r"^unknown format 'c'; use 'asm' or 'basic'$"):
+        render_sheet(sprites, fmt="c")

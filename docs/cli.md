@@ -1324,7 +1324,10 @@ sprite0: .byte %00000001, %01101001, %01000000
 ```
 
 JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in
-FILE.
+FILE. (MCP note: `c64_sprite_encode` is the twin, taking the same file
+path and options, and returns the same `sprites` array plus the text this
+command prints to stdout under `"rendered"` — MCP has no stdout, so
+without it `fmt`/`start_line` would be no-ops.)
 
 ---
 
