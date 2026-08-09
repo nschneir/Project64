@@ -126,6 +126,13 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   — that config is what stands between you and ~70 phantom missing-import
   errors, so keep the venv installed and let pyright find the config (it
   looks upward from wherever you run it; the repo root always works).
+  A **worktree** has no `.venv`, and running from the main checkout only
+  type-checks main's files — worktree-only changes are invisible to it. To
+  gate a branch that lives in a worktree: symlink the main checkout's
+  `.venv` into the worktree root, run bare `pyright` there, remove the
+  symlink. And not every worktree banner is a phantom: first-party
+  annotations resolve without the venv, so an error against one of our own
+  signatures is real wherever it appears.
   pyright is a developer-local tool, deliberately **not** in `[dev]` — the
   PyPI wrapper downloads a Node toolchain, heavier than anything else this
   project installs. Get it with `brew install pyright` or `npm i -g pyright`.
