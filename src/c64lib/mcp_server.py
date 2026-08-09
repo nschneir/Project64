@@ -115,6 +115,9 @@ def c64_session_start(model: str = "c64", name: str | None = None,
     """Boot a fresh emulated C64 (headless, warp). Models: c64 (NTSC,
     the default) or c64pal. Optionally attach a d64/d71/d81 disk image, or a
     .crt cartridge that is mapped at power-on and boots itself."""
+    # headless/warp are hardcoded here and everywhere else in this server,
+    # rather than exposed as flags the way `c64 session start` does: an MCP
+    # client is an automation, not someone watching a window.
     s = Session.launch(model=model, name=name, headless=True, warp=True,
                        disk8=disk, cart=cart)
     lbl = None

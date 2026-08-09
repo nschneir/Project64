@@ -9,6 +9,7 @@ from tests.doc_helpers import (
     mentioned_commands,
     valid_mention_paths,
 )
+
 # Imported at module scope, not inside the tests that use them: conftest's
 # session-wide `_track_launches` swaps `subprocess.Popen` for a plain
 # function, and importing `mcp` after that point dies on its
