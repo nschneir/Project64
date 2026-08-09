@@ -584,8 +584,12 @@ def c64_wait_break(timeout: float = 30.0, session: str | None = None,
 
 @srv.tool()
 def c64_build(source: str, model: str = "c64",
-              areas: list[str] | None = None) -> dict:
+              areas: list[str] | None = None,
+              output: str | None = None) -> dict:
     """Assemble 6502 source (ca65 syntax) to a .prg + VICE label file.
+
+    `output` names the .prg path (defaults beside the source), matching the
+    CLI's `-o`.
 
     `areas` links extra segments at fixed addresses: each entry is
     "NAME=START:SIZE" (e.g. "HIGH=$4000:$2000"), naming both a MEMORY area
@@ -594,7 +598,8 @@ def c64_build(source: str, model: str = "c64",
     where you asked, and it is why areas must be contiguous and above the
     load address."""
     profile = get_profile(model)
-    res = build_asm(Path(source), basic_start=profile.basic_start,
+    res = build_asm(Path(source), out_prg=Path(output) if output else None,
+                    basic_start=profile.basic_start,
                     areas=parse_areas(areas or (), profile.basic_start))
     return {"prg": str(res.prg), "labels": str(res.labels)}
 

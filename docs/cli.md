@@ -608,7 +608,8 @@ a loop. The error says so and carries the PCs it last saw — feed one to
 Assemble 6502 source (ca65 syntax) to a `.prg` plus a VICE label file.
 
 - `SOURCE` — the `.s` file.
-- `-o, --output PATH` — output `.prg` (defaults next to the source).
+- `-o, --output PATH` — output `.prg` (defaults next to the source). (MCP
+  note: the same path is `output` on `c64_build`.)
 - `--model MODEL` (default `c64`) — selects the BASIC load address.
 - `--area NAME=START:SIZE` — link segment `NAME` at a fixed address, and
   declare a linker MEMORY area of the same name to hold it. Repeatable;
