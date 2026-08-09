@@ -108,7 +108,7 @@ three-voice SID sound:
 | [Snake](demos/snake/) | 6502 assembly | Arcade Snake on a custom hires charset — `$CB` held-key steering, SID sound, nine speeding-up levels |
 | [Invaders](demos/invaders/) | 6502 assembly | The 1978 arcade original — sprites and custom charset, the one-invader-per-tick march, 3-voice SID |
 | [Ms. Muncher](demos/ms-muncher/) | 6502 assembly | A maze chase — four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes |
-| [La Galaxia](demos/la-galaxia/) | 6502 assembly | A fixed shooter — sprite multiplexing, dive patterns, the capture/dual-fighter mechanic |
+| [La Galaxia](demos/la-galaxia/) | 6502 assembly | A fixed shooter in Spanish — a 40-enemy formation in character RAM, raster-IRQ sprite multiplexing, the capture and dual-fighter mechanic |
 
 **Miscellaneous cool stuff**:
 

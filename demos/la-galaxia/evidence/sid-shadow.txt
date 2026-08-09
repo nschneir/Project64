@@ -1,0 +1,179 @@
+La Galaxia -- the SID shadow block, read at three moments
+=========================================================
+
+PROMPT.md §9 requires every SID write to be mirrored into a 25-byte block in
+RAM at the moment it is issued, because $D400-$D418 is write-only on real
+hardware and audio otherwise leaves no trace a debugger can inspect.  In
+sound.s that mirroring is `sidput`, and it is the only way a SID register is
+ever written:
+
+        sidput: sta     SID,x
+                sta     sidshad,x
+                rts
+
+These are `c64 mem read sidshad 25` with the machine STOPPED, taken from a
+build of these sources (`--area 'ENGINE=$4000:$6000'`) on an NTSC headless
+VICE.  The load addresses in the left column move every time anything ahead
+of sidshad changes size and mean nothing; the symbol names and the bytes are
+the evidence.
+Each moment was reached by aiming the effect with `sfxpend`/`sfxdelay` (see
+sound.s) and stepping to it with `c64 until tick --count N`, so every read
+below is at a known frame of a known effect.
+
+The block is the register file in order.  Voice v is based at 7*(v-1):
+
+    +0 freq lo   +1 freq hi   +2 pw lo   +3 pw hi
+    +4 control (bit 0 gate, bits 4-7 waveform)
+    +5 attack/decay   +6 sustain/release
+
+    byte  0- 6  voice 1        byte 21-22  filter cutoff
+    byte  7-13  voice 2        byte 23     resonance + routing
+    byte 14-20  voice 3        byte 24     volume + filter mode
+
+The music is playing on the title screen through all three reads, so the
+voices the effect does NOT hold show the sequencer's own writes -- which is
+half the evidence: an effect takes one voice, not the player.
+
+
+1.  THE LASER  (§9: voice 1, triangle, pitch swept $4000 down to $1000)
+----------------------------------------------------------------------
+    c64 mem write sfxpend 1 / sfxdelay 3   then   c64 until tick --count 5
+
+    51a1: 00 34 00 00 11 08 00 b5 04 00 03 21 6a e8 00 00
+    51b1: 00 00 00 00 00 00 00 00 0f
+
+    c64 mem read vprio 12  ->  51d8: 02 00 00  04 00 00  00 00 00  02 00 00
+                                     vprio     vtimer    vfx       vfxstep
+
+    byte 4  = $11   VOICE 1 CONTROL: waveform bits 4-7 are 0001 = triangle,
+                    bit 0 = 1 = gate on.  §9 asks for triangle; this is the
+                    byte that says so, and it is on voice 1 as §9 assigns.
+    byte 1  = $34   VOICE 1 FREQ HI, byte 0 = $00 freq lo -> $3400.  vfxstep
+                    reads 2, so this is the second entry of lasertab
+                    ($40 $34 $28 $1C $10): the sweep from $4000 towards
+                    $1000, two frames in.  hz = reg16 * 1022727 / 2**24
+                    makes $4000 998.8 Hz and $1000 249.7 Hz, two octaves
+                    down in five frames.
+    byte 5  = $08   attack 0, decay 8 -- the instant attack a shot needs.
+    byte 6  = $00   sustain 0, release 0: the decay is the whole envelope.
+    vprio[0]= 2     the laser's priority, and vfx[0] = 0 = SFX_LASER.  The
+                    voice is HELD, which is what makes the next line matter.
+    bytes 7-13      voice 2 is $04B5 / control $21 (sawtooth, gated) /
+                    AD $6A / SR $E8 -- the theme's bass, instrument 4, still
+                    playing under the laser.  Nothing about the music
+                    changed because voice 1 was taken.
+    byte 24 = $0F   master volume 15, filter off.
+
+
+2.  THE EXPLOSION  (§9: voice 3, noise ($80), sharp attack, exponential decay)
+-----------------------------------------------------------------------------
+    c64 mem write sfxpend 4 / sfxdelay 1   then   c64 until tick --count 3
+
+    51a1: 00 10 00 00 11 08 00 b9 04 00 03 21 6a e8 00 4f
+    51b1: 00 00 81 09 00 00 00 00 0f
+
+    c64 mem read vprio 12  ->  51d8: 02 00 03  01 00 16  00 00 03  05 00 02
+
+    byte 18 = $81   VOICE 3 CONTROL: waveform bits 1000 = noise, gate on.
+                    §9 names the control register $80 for this effect; $81
+                    is that with the gate raised, and it is on voice 3 as
+                    §9 assigns.
+    byte 19 = $09   attack 0, decay 9.  Attack 0 is the sharp attack; decay
+                    9 is 750 ms of the SID's exponential decay curve, and
+                    with...
+    byte 20 = $00   ...sustain 0 and release 0, the decay curve IS the
+                    fade.  Nothing else writes the volume: §9's "the volume
+                    envelope carrying the fade", in two bytes.
+    byte 15 = $4F   VOICE 3 FREQ HI (freq lo $00) -> $4F00.  On a noise
+                    voice the oscillator clocks the LFSR, so this sets how
+                    bright the noise is, not what pitch it is; fx_explode
+                    walks it down to $4A00 across the 24 frames, which is
+                    the sound getting duller as it dies.
+    vprio[2]= 3     the explosion's priority, vfx[2] = 3 = SFX_EXPLODE.
+    bytes 0-6       voice 1 is still $1000 / $11 -- the laser from read 1 is
+                    on its last frame.  Two effects on two voices at once,
+                    neither disturbing the other.
+
+
+3.  THE TRACTOR BEAM  (§9: voice 2, pulse, dynamic PWM, a two-note arpeggio
+                       alternating every frame)
+---------------------------------------------------------------------------
+    c64 mem write enemy_flags 8 / beamslot 0 / sfxpend 3 / sfxdelay 1
+    then   c64 until tick --count 4
+
+    51a1: 00 00 00 00 00 00 00 00 2e 10 05 41 00 f0 00 00
+    51b1: 00 00 00 00 00 00 00 00 0f
+
+    c64 mem read vprio 12  ->  51d8: 00 02 00  00 0d 00  00 02 00  00 03 00
+
+    byte 11 = $41   VOICE 2 CONTROL: waveform bits 0100 = pulse, gate on.
+                    §9 asks for pulse, on voice 2, and this is it.
+    byte 8  = $2E   VOICE 2 FREQ HI (byte 7, freq lo, is $00) -> $2E00 =
+                    717.9 Hz.
+                    beamarp is $2E, $3B and fx_beam indexes it with
+                    vfxstep & 1, so the very next frame reads $3B00 =
+                    920.7 Hz and the one after that $2E00 again: the
+                    two-note arpeggio, alternating every frame, exactly as
+                    §9 words it.
+    bytes 9-10      $10 / $05 -- the pulse width, which is $0510 here and a
+                    different value every frame: fx_beam drives the low byte
+                    from vfxstep*8 and the high nibble from vfxstep>>1,
+                    so the width sweeps and wraps continuously.  That is
+                    §9's "dynamic pulse-width modulation", and it is the
+                    thing a shadow read at one instant can only show as one
+                    sample of -- the beam capture's spectrogram is where the
+                    sweep itself is visible.
+    byte 12 = $00   attack 0, decay 0, and byte 13 = $F0: sustain 15,
+                    release 0.  A hum holds at full level rather than
+                    decaying, which is why this effect needs a sustain and
+                    the explosion needs none.
+    vprio[1]= 2, vfx[1] = 2 = SFX_BEAM, vtimer[1] = 13 -- re-armed, because
+                    beamslot names a Flagship whose enemy_flags still has
+                    EFL_BEAM: the hum lasts as long as the beam is out.
+
+
+4.  THE PRIORITY RULE, AT REGISTER LEVEL
+----------------------------------------
+§9: "An effect seizes its voice only if its priority is greater than or
+equal to that of whatever holds the voice now; a lower-priority effect is
+dropped, never queued."  Continuing from read 3, with the beam (priority 2)
+holding voice 2:
+
+    a DIVE is offered -- SFX_DIVE is voice 2, priority 1, which is LOWER
+    c64 mem write sfxpend 2 / sfxdelay 0   then   c64 until tick --count 2
+
+    51d8: 00 02 00  00 0d 00  00 02 00  00 05 00
+    c64 mem read sfxpend 1  ->  51e4: 00
+
+    vprio[1] is still 2, vfx[1] is still 2 = SFX_BEAM, vtimer[1] is still
+    13.  sfxpend has been consumed -- sfxstart really was called and really
+    did look at the priorities -- and nothing changed.  DROPPED.
+
+    forty ticks later, to prove it was not queued behind the beam either
+    c64 until tick --count 40
+
+    51d8: 00 02 00  00 0d 00  00 02 00  00 2d 00
+    51a1: a9 1a 00 08 15 38 c8 00 2e 60 0a 41 00 f0 00 00
+
+    vfx[1] is STILL SFX_BEAM 45 frames on (vfxstep $2d), and voice 2's
+    control byte is still $41 with freq hi still $2E: the beam, not the
+    dive.  A queue would have played the dive by now.  Voice 1 meanwhile
+    reads control $15 -- triangle + ring modulation, gated -- which is the
+    theme's theremin, instrument 3: the music never stopped.
+
+    a CAPTURE is offered -- SFX_CAPTURE is voice 2, priority 3, HIGHER
+    c64 mem write sfxpend 5 / sfxdelay 0   then   c64 until tick --count 3
+
+    51d8: 00 03 00  00 25 00  00 04 00  00 03 00
+    51a1: af 1a 00 08 15 38 c8 00 09 60 0a 15 0a a8 00 00
+
+    vprio[1] is now 3, vfx[1] is 4 = SFX_CAPTURE, vtimer[1] = $25 = 37 of
+    its 40 frames.  Voice 2's control byte changed from $41 (pulse) to $15
+    (triangle + ring modulation, gated) and its envelope from $00/$F0 to
+    $0A/$A8: fx_capture has the voice.  SEIZED.
+
+The half of the rule this file cannot show is the resume -- that the
+sequencer kept running silently under the effect and came back at the
+position it would have reached.  A shadow byte is one instant; that claim is
+about a span, and evidence/audio/priority/ is where it is proved, four times
+over, against a score generated from the note data.

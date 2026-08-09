@@ -1,0 +1,64 @@
+# La Galaxia -- a laser volley and its explosions, during a game
+#
+# Written by hand from the effect tables in sound.s, not from a
+# transcription.  The title theme does not play here -- title.s clears
+# mus_on when a game starts -- so the window is effects only, and every note
+# below is a sweep some routine in sound.s draws:
+#
+#   voice 1  fx_laser    lasertab = $40 $34 $28 $1C $10 as the frequency
+#                        high byte, one frame each, low byte held at zero.
+#                        hz = reg16 * 1022727 / 2**24 makes those 998.8 /
+#                        811.5 / 624.2 / 436.9 / 249.7 Hz, which name as
+#                        B5 G#5 D#5 A4 B3.  Five sampled frames and not six:
+#                        the sixth tick writes $10 and releases the gate in
+#                        the same frame it writes it.
+#   voice 2  --          silent, and an empty list is how a score says so.
+#   voice 3  fx_explode  noise.  freq hi = (~step >> 2) + $10: 79 78 77 76
+#                        75 74, four frames each, 1232.7 Hz down to 1154.6.
+#                        The D6/D#6 boundary is at 1209.1 Hz, so the 23
+#                        gated frames always split 8 then 15.  Sustain 0,
+#                        decay 9: the envelope carries the fade, and no
+#                        register write does.
+#
+# Three shots and their three hits, aimed with the cue -- sfxpend and sfxalt
+# alternating laser and explosion every 26 frames (see audio-evidence.sh),
+# because the fighter fires on the input EDGE and a held $CB gives exactly
+# one of those.
+#
+# The formation is cleared to enemy_state 0 before the window opens, and
+# that is deliberate rather than convenient: with enemies alive the five
+# seconds also pick up whatever dive whines and collisions the game happened
+# to raise, and where those land moves whenever anything in the game's
+# timing moves.  Scoring them makes this file a hostage to formation.s.  The
+# effect routines under test are the same either way, and the rests below
+# carry no `frames` because their lengths are the cue's spacing and not a
+# claim about the effects.
+voices:
+  1:
+    - {note: B5, frames: 1}
+    - {note: G#5, frames: 1}
+    - {note: D#5, frames: 1}
+    - {note: A4, frames: 1}
+    - {note: B3, frames: 1}
+    - {note: rest}
+    - {note: B5, frames: 1}
+    - {note: G#5, frames: 1}
+    - {note: D#5, frames: 1}
+    - {note: A4, frames: 1}
+    - {note: B3, frames: 1}
+    - {note: rest}
+    - {note: B5, frames: 1}
+    - {note: G#5, frames: 1}
+    - {note: D#5, frames: 1}
+    - {note: A4, frames: 1}
+    - {note: B3, frames: 1}
+  2: []
+  3:
+    - {note: D#6, frames: 8}
+    - {note: D6, frames: 15}
+    - {note: rest}
+    - {note: D#6, frames: 8}
+    - {note: D6, frames: 15}
+    - {note: rest}
+    - {note: D#6, frames: 8}
+    - {note: D6, frames: 15}

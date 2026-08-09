@@ -1,0 +1,7 @@
+# the challenging stage -- the tightest frames in the game (§11).
+# tick_endline saturates at 255: the tick ends inside the frame's
+# last few lines.  Zero overruns, but this is the state with the
+# least margin, and the band in raster-time.png is that margin.
+samples=40x10 ticks  mux_count_peak=9  mux_overflow=0
+cells_drawn_peak=88 (ceiling 64)  tick_endline_peak=255
+tick_overrun=0 (must be 0)

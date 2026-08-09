@@ -55,6 +55,49 @@ Spend the visual detail instead, and record the trade in `PLAN.md`.
 
 ---
 
+## 1a. The cold open
+
+Before the title screen there is one more screen, and it is the first thing
+anyone sees. It is **the only place in this game where the text is English**,
+because it is the narrator speaking rather than the cabinet:
+
+> In the back of a Mexico City arcade, behind the broken pinball machines,
+> sits a forgotten relic...
+
+Set it **large** — four times the size of ordinary text, each 8×8 glyph
+scaled to 32×32 pixels. That does not fit the character grid, so **this
+screen is a hires bitmap** (`$D011` bit 5), the one place the game leaves
+text mode; you already have the glyph bitmaps in the custom charset, and
+scaling them is a pixel-doubling blit, not a second font.
+
+Do the arithmetic before you lay it out. A 320×200 bitmap at 32×32 per glyph
+is **10 characters per line and 6 lines per screen** — 60 characters — and
+the line above is 98. It therefore **cannot be one static screen at that
+size**. Split it across pages that advance on a timer, or crawl it; do not
+silently shrink the text to make it fit, and do not let a word break across
+a page. Centre each page horizontally and sit it **above** the vertical
+centre, nearer the top than the bottom.
+
+Pinned at the bottom of every page, in Spanish like the rest of the game:
+
+> PULSA ESPACIO PARA COMENZAR TU VIAJE
+
+That line is 36 characters and does not fit on one row above 1× scale, so
+set it smaller than the narration — two rows at 2× is the obvious fit — and
+keep it in the same place on every page so it reads as a fixed instruction
+rather than part of the story.
+
+`SPACE` leaves for the title screen at any point, including part-way through
+the first page: a player who has seen it once must never be made to sit
+through it again. The attract loop returns here, so this screen is the top
+of the cycle, not a one-shot splash.
+
+**Evidence:** `cold-open.png` — a page of the narration at full size with
+the Spanish line beneath it, captured from the stopped machine like every
+other frame in §13.
+
+---
+
 ## 2. Controls & input
 
 The engine reads three input sources every frame and folds them into one
@@ -66,12 +109,21 @@ title screen, the stage select — reads that byte and nothing else.
 | **Move left** | Joystick left | Left | `A` | 10 | Fighter is fixed to the bottom Y coordinate. |
 | **Move right** | Joystick right | Right | `D` | 18 | Bounded by the playfield window (§4). |
 | **Fire missile** | Fire button | Fire | `SPACE` | 60 | Two missiles in flight per fighter — four when dual. |
-| **Start 1P** | 1P start | — | `F1` | 4 | Single-player game, from stage 1. |
-| **Start 2P** | 2P start | — | `F3` | 5 | Alternating two-player game. |
+| **Start 1P** | 1P start | — | `SPACE` | 60 | Single-player game, from stage 1. |
+| **Start 2P** | 2P start | — | `X` | 23 | Alternating two-player game. |
 
 The arcade's arrow controls are not mapped: the C64 has one horizontal
 cursor key and reaching left requires SHIFT, so an arrow mapping would be
 worse than `A`/`D`, not an alternative to it.
+
+**The start keys are letters, not function keys.** `F1`/`F3` are the
+obvious mapping of the arcade's start buttons and they were the first
+choice here; they do not survive the trip from a Mac keyboard through
+VICE's keymap, so a player cannot reliably start the game at all. `SPACE`
+starts one player — it is already the fire key, so it is under the thumb —
+and `X` starts two. `SPACE` doing double duty is safe because it only
+starts a game from the title state, but the press that starts the game
+must not also launch a missile on the first frame of play.
 
 ### The three input sources
 
@@ -552,8 +604,11 @@ sample it while the machine is stopped.
   it re-pokes the matrix code into `$CB` before each tick, which is
   exactly why the input layer of §2 reads that byte. `c64 key type` is
   useless here: buffered keys never touch `$CB`, and this game calls no
-  KERNAL input routine. Everything, including `F1` and the stage-select
-  digits, goes through `c64 key hold`.
+  KERNAL input routine. Everything, including the start keys and the
+  stage-select digits, goes through `c64 key hold`. Note that this game
+  switches the KERNAL's keyboard scan off, so nothing ever writes 64 back
+  to `$CB`: a hold never releases by itself, and every hold in the
+  evidence protocol must be followed by `c64 mem write '$CB' 64`.
 * **The joystick path** has no CLI driver, so prove it in isolation:
   `c64 call <joy_decode> --a $6F` with the port byte you want, then read
   the normalized bits back out of `input_state` with `c64 mem read`.
@@ -577,6 +632,7 @@ with the demo.
 
 | File | What it must prove |
 | :--- | :--- |
+| `cold-open.png` | The cold open (§1a) — a page of the English narration at 4x in the hires bitmap, with `PULSA ESPACIO PARA COMENZAR TU VIAJE` pinned beneath it. |
 | `title.png` | The attract/title screen, with `LA GALAXIA` on screen and the starfield running. Add `--border` so the bezel and border read correctly. |
 | `entrance.png` | An entrance wave mid-flight (§6.2) — a group of 8 tracing its LUT trajectory before it reaches the grid. |
 | `formation.png` | The 40-enemy grid fully assembled: 4 Flagships, 16 Sentinels, 20 Drones. Pair it with a `c64 screen --codes` dump showing the settled enemies really live in character RAM (§3.1). |

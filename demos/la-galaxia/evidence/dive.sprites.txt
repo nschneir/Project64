@@ -1,0 +1,9 @@
+0  off  x=172 y=218  ptr=128 @$2000  color=1
+1  off  x=172 y=218  ptr=129 @$2040  color=3
+2  on   x=136 y=174  ptr=137 @$2240  color=2 MC
+3  off  x=139 y=157  ptr=137 @$2240  color=2 MC
+4  off  x=218 y=137  ptr=135 @$21c0  color=7 MC
+5  off  x=196 y=134  ptr=135 @$21c0  color=7 MC
+6  off  x=181 y=137  ptr=135 @$21c0  color=7 MC
+7  off  x=166 y=137  ptr=134 @$2180  color=7 MC
+shared: bg=0 border=0 mc1=2 mc2=6

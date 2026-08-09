@@ -1,0 +1,148 @@
+# La Galaxia -- the tractor beam hum
+#
+# Written by hand from fx_beam in sound.s, not from a transcription.  The
+# effect writes voice 2 every frame it holds it:
+#
+#   waveform  $41 -- pulse, gate on
+#   pulse     $D402/$D403 driven from vfxstep: the low byte steps by 8 a
+#             frame and the high nibble climbs 4..11 and wraps, so the width
+#             is never still -- that is the dynamic PWM the spec asks for
+#   pitch     beamarp = $2E $3B on alternate frames, so frequency high
+#             alternates $2E00 and $3B00 with the low byte held at zero.
+#             hz = reg16 * 1022727 / 2**24 gives 717.9 Hz and 920.7 Hz,
+#             which name as F5 (+48 cents) and A#5 (-22).  A hum built from
+#             a two-note arpeggio is not a melody and is not tuned like one;
+#             every event is one frame long, so the detune check -- which
+#             needs 25 -- correctly leaves it alone.
+#
+# The beam is out for the whole window (enemy_flags bit 3 on the Flagship
+# beamslot names), so the effect re-arms itself every frame and voice 2 is
+# gated at both edges.  That is the claim: 120 frames, every one of them a
+# note, alternating without a gap.  Voices 1 and 3 are scored empty -- the
+# positive claim that nothing else fired, which is also what proves the dive
+# whine (voice 2, priority 1) was dropped rather than queued while the beam
+# (priority 2) held the voice.
+voices:
+  1: []
+  2:
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+    - {note: F5, frames: 1}
+    - {note: A#5, frames: 1}
+  3: []

@@ -1,0 +1,152 @@
+# La Galaxia — the deterministic regression spec (PROMPT.md §13).
+#
+#   c64 test run demos/la-galaxia/test.yaml
+#
+# It tests the packaged disk, not the source, and that is not a preference:
+# this program needs `--area 'ENGINE=$4000:$6000'` to link, and a test spec
+# has nowhere to put that flag. Naming the built `.prg` instead does not work
+# either — `program:` with a `.prg` resolves no symbols at all (an empty
+# `known:` list), while `cart:` and `disk:` both pick up a sibling `.lbl`.
+# So `disk:` is the only route to a spec that can say `until: {ref: tick}`.
+# Rebuild the image first if the sources have changed:
+#
+#   c64 package demos/la-galaxia/la-galaxia.s -o demos/la-galaxia/la-galaxia.d64 \
+#       --title "LA GALAXIA" --area 'ENGINE=$4000:$6000'
+#
+# Serial-loading a 35 KB image costs ~13 s before step 1, hence the timeout.
+#
+# Everything here is anchored on `tick`, the once-per-frame label the whole
+# evidence protocol uses. Nothing asserts a free-running frame count, and
+# nothing waits on a stopped machine — a `wait:` after an `until:` polls a
+# machine that is not executing and can only time out.
+
+name: la-galaxia
+disk: la-galaxia.d64
+timeout: 120
+
+steps:
+  # ---- the cold open and the attract screen ------------------------------
+  # SPACE leaves the cold open for the title (§1a). The KERNAL keyboard scan
+  # is off in this game, so $CB keeps whatever was poked into it — every hold
+  # is followed by writing 64 back, or the key stays down for ever.
+  - until:  { ref: tick, count: 30 }
+  - poke:   { addr: "$CB", values: [60] }
+  - until:  { ref: tick, count: 4 }
+  - poke:   { addr: "$CB", values: [64] }
+  - until:  { ref: tick, count: 40 }
+
+  # The title screen draws the game's name through the custom charset. The
+  # font sits on the ordinary letter screen codes on purpose, so decoded text
+  # still reads even though every glyph is original art.
+  - assert: { text: "LA GALAXIA" }
+  - assert: { mem: "gstate", equals: 0 }
+
+  # The border is black outside the tick: the $D020 timing band of §11 is
+  # instrumentation and ships switched off. VIC colour registers read back
+  # with the high nybble set, so the compare is masked.
+  - assert: { mem: "rasterband", equals: 0 }
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }
+
+  # ---- the hidden stage select (§2) --------------------------------------
+  # `3` starts a one-player game on stage 3, which is the first challenging
+  # stage — the stage select grants the stage and nothing else, so the score
+  # starts at zero and the lives at three.
+  - poke:   { addr: "$CB", values: [8] }
+  - until:  { ref: tick, count: 4 }
+  - poke:   { addr: "$CB", values: [64] }
+  - until:  { ref: tick, count: 20 }
+  - assert: { mem: "stage", equals: 3 }
+  - assert: { mem: "score", equals: [0, 0, 0] }
+  - assert: { mem: "lives", equals: 3 }
+  - assert: { mem: "pldual", equals: 0 }
+
+  # A challenging stage sweeps and never fires (§6.4).
+  - until:  { ref: tick, count: 400 }
+  - assert: { mem: "bullets_live", equals: 0 }
+
+  # The multiplexer carried objects and no raster band overflowed (§3).
+  - assert: { mem: "mux_overflow", equals: 0 }
+
+  # The frame budget held across the sweep — the tightest state in the game.
+  # This is the §11 evidence: a tick that crossed a frame boundary increments
+  # tick_overrun, so zero is the claim, and it is memory rather than a
+  # photograph of a border.
+  - assert: { mem: "tick_overrun", equals: 0 }
+
+  # ---- an ordinary stage: the formation lands in character RAM -----------
+  # The wait rides out the rest of the idle game: the challenge ends, stage 4
+  # eats the remaining lives, and the game over returns through the COLD OPEN
+  # (§1a) — four narration pages, ~1,310 ticks — before parking at the title,
+  # which has no timeout. 600 ticks was enough when the attract loop returned
+  # straight to the title; the cold open in the path is why it is 5000 now.
+  - until:  { ref: tick, count: 5000 }
+  - poke:   { addr: "$CB", values: [56] }
+  - until:  { ref: tick, count: 4 }
+  - poke:   { addr: "$CB", values: [64] }
+  - until:  { ref: tick, count: 900 }
+  - assert: { mem: "stage", equals: 1 }
+
+  # Forty settled enemies are 2x2 blocks of glyphs in the screen matrix, not
+  # sprites (§3.1). Screen codes 64-87 are the enemy blocks; row 3 column 16
+  # is inside the Flagship row. `c64 screen` decodes these through their ROM
+  # meanings, so the assertion is on the code, never on decoded text.
+  - assert: { mem: "@3,16", between: { min: 64, max: 87 } }
+  - assert: { mem: "tick_overrun", equals: 0 }
+
+  # §11's redraw ceiling, measured where it is actually under pressure: a
+  # settled grid, whose breathing repaints formation rows.  Three things make
+  # this assertion mean something.
+  #   - It reads `cells_peak`, the high-water mark the program keeps, not the
+  #     live counter — cells_drawn spikes only on repaint frames, so a spot
+  #     read passes on any frame that happens not to be one.
+  #   - The mark is zeroed first, because it is a LIFETIME figure and §11's
+  #     ceiling is "at most 64 cells per frame *outside a stage transition*".
+  #     The stage-announcement screen rebuild legitimately reaches 72-88.
+  #   - The window is short and `stage` is checked after it, so a run that
+  #     wandered into the NEXT stage's announcement fails loudly rather than
+  #     quietly on the exempt redraw.  The guard is `stage`, not `gstate`:
+  #     the exemption is about stage transitions, and an idle fighter dies
+  #     inside 200 ticks now that the game is hard — ST_DEAD is a state
+  #     change but not a screen rebuild, so it must not fail this.
+  - poke:   { addr: "cells_peak", values: [0] }
+  - until:  { ref: tick, count: 200 }
+  - assert: { mem: "stage", equals: 1 }
+  - assert: { mem: "cells_peak", at_most: 64 }
+
+  # ---- the fighter moves at exactly 1.5 px/frame (§7) --------------------
+  # Position is 8.8 fixed point in window pixels, so 40 frames of held `A`
+  # is exactly 60 pixels — an alternating 1-and-2 would read as a stutter and
+  # would not land on 60.
+  - sample: { mem: "plx", as: x0 }
+  - poke:   { addr: "$CB", values: [10] }
+  - until:  { ref: tick, count: 40 }
+  - poke:   { addr: "$CB", values: [64] }
+  - assert: { mem: "plx", less_than: x0 }
+
+  # ---- sound left a trace (§9) -------------------------------------------
+  # The SID is write-only, so the 25-byte shadow block is the only evidence a
+  # sound happened at all. Voice 1's control register is byte 4.
+  - assert: { mem: "sidshad+24", equals: 15 }
+  - assert: { mem: "sidshad+4", not_equals: 0 }
+
+  # ---- the joystick decoder, proved in isolation (§2) --------------------
+  # There is no joystick command in the CLI, so the decoder is unit-tested
+  # against the port byte directly. Active low: bit 2 clear is left, bit 3
+  # clear is right, bit 4 clear is fire. `call:` steps go last — a call
+  # replaces the running program's control flow, so nothing may follow it.
+  # The register arguments are decimal on purpose: a `call:` step hands them
+  # to the monitor's set_register raw, and a "$fb" string is rejected with
+  # "required argument is not an integer" — hex strings are only resolved
+  # for addresses. 251/247/239 are $fb/$f7/$ef.
+  # input_state is zeroed before each call: the decoders OR their bits in —
+  # readinput clears the byte once per frame before folding all three
+  # sources — so isolated back-to-back calls would accumulate.
+  - poke:   { addr: "input_state", values: [0] }
+  - call:   { routine: joydecode, a: 251 }
+  - assert: { mem: "input_state", mask: { and: "$03", equals: [1] } }
+  - poke:   { addr: "input_state", values: [0] }
+  - call:   { routine: joydecode, a: 247 }
+  - assert: { mem: "input_state", mask: { and: "$03", equals: [2] } }
+  - poke:   { addr: "input_state", values: [0] }
+  - call:   { routine: joydecode, a: 239 }
+  - assert: { mem: "input_state", mask: { and: "$04", equals: [4] } }

@@ -1,0 +1,4 @@
+# the entrance, where the most objects are in the air at once (§3)
+samples=30x10 ticks  mux_count_peak=9  mux_overflow=0
+cells_drawn_peak=88 (ceiling 64)  tick_endline_peak=220
+tick_overrun=0 (must be 0)
