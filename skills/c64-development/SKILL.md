@@ -29,6 +29,8 @@ encode`, `c64 charset encode`, and `c64 break enable`/`disable` map to
 Every `c64 disk` and `c64 cart` verb has a twin; `c64 watch remove` is the
 same command as `c64 break remove`, so `c64_break_remove` removes watchpoints
 too, and `c64 mem get` is only a print-formatting variant of `c64_mem_read`.
+The complete map — every tool, the command it twins, and the one-line
+difference where there is one — is `docs/mcp.md`.
 
 **Driving a game move by move? Use MCP.** Each `c64` CLI invocation is a
 fresh Python process — measured at ~130 ms of startup on a 2026 laptop,
@@ -108,7 +110,8 @@ common mistake.
 - `c64 basic type prog.bas --run` — type the program in through the keyboard
   instead, which works mid-session and exercises the real ROM tokenizer.
 - `c64 basic tokenize` / `c64 basic detokenize` — convert between `.bas` and
-  `.prg` without a session.
+  `.prg` without a session (`c64_basic_tokenize` / `c64_basic_detokenize`
+  over MCP).
 
 Conventions `c64 basic check` enforces (know them even without running it):
 
@@ -414,7 +417,7 @@ reproduction, use the `6502-debugging` skill.)
 | `c64 until LABEL` returned, but the numbers are nonsense | It answered a different question: the current state does not reach LABEL every tick, so the run sailed an arbitrary number of frames before landing there. Check the state/mode byte before anchoring timing on LABEL — and for a routine's cost, `c64 profile` needs no anchor at all. |
 | Program seems to hang | Sample it: run `c64 reg` two or three times and compare PC. PC stuck in your code = your loop is wrong — then follow the wedged-machine playbook in the `6502-debugging` skill; PC around $E5xx = the machine is idling in BASIC waiting for input. |
 | Assembly crashes or drops to READY immediately | The SYS stub math is off — `c64 rom disasm 2061 16` and confirm your first instruction is at $080D. |
-| `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg`. |
+| `?SYNTAX ERROR` when running a loaded program | Inspect what actually loaded: `c64 basic detokenize file.prg` (`c64_basic_detokenize` over MCP). |
 | Machine appears frozen after debugging | It's stopped (step/finish/until/wait --break leave it stopped) — `c64 continue`. |
 | Sampled values step by exactly 2× the delta the code says | A `c64 continue` in front of `c64 wait --break` — the wait resumes too, so you see every second hit. Drop the `continue`. |
 | The machine stops somewhere you set no breakpoint | A stale watchpoint. `c64 break list` (it lists watchpoints too); `c64 break clear` does NOT remove them — use `c64 watch clear`. |

@@ -2,7 +2,8 @@
 
 A complete reference for the `c64` command line — everything the toolset can
 do without the MCP server. For MCP-native clients the `c64-tools-mcp` server
-exposes the same operations; see the README.
+exposes the same operations; [`docs/mcp.md`](mcp.md) maps every tool to the
+command it twins.
 
 ## Conventions
 
