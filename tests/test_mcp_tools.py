@@ -504,6 +504,39 @@ def test_sprite_encode_empty_file_is_an_error(tmp_path):
     assert f"no sprite art found in {src}" in str(out)
 
 
+# --- charset encode ---------------------------------------------------------
+
+# One sheet, both modes: the mixed-mode case is the one a per-block override
+# exists for, so it is what the tool is tested on.
+_MIXED_SHEET = ("wall:multicolor\n" + ".123\n" * 8 +
+                "\nletter:hires\n" + "##......\n" * 8)
+
+
+def test_charset_encode_returns_glyphs_and_rendering(tmp_path):
+    """The MCP twin of `c64 charset encode`: the CLI's --json `glyphs` plus
+    the rendering the CLI prints, since MCP has no stdout to print it to."""
+    from c64lib.charset import format_glyphs, parse_charset
+    src = tmp_path / "chars.txt"
+    src.write_text(_MIXED_SHEET)
+    err, out = call_tool("c64_charset_encode", {"file": str(src)})
+    assert err is False, out
+    assert out["glyphs"] == [
+        {"name": "wall", "multicolor": True, "bytes": [0b00011011] * 8},
+        {"name": "letter", "multicolor": False, "bytes": [0b11000000] * 8},
+    ]
+    assert out["rendered"] == format_glyphs(parse_charset(_MIXED_SHEET))
+
+
+def test_charset_encode_bad_sheet_is_an_error(tmp_path):
+    """CharsetError reaches the caller with its message intact — a short
+    block names itself and its row count, which is the whole diagnosis."""
+    src = tmp_path / "short.txt"
+    src.write_text("wall:\n" + ".123\n" * 7)
+    err, out = call_tool("c64_charset_encode", {"file": str(src)})
+    assert err is True
+    assert "glyph 'wall' (ending at line 8) has 7 rows, expected 8" in str(out)
+
+
 # --- audio score ------------------------------------------------------------
 
 def test_audio_score_summarises_a_score_without_a_session(tmp_path):

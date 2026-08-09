@@ -1213,6 +1213,33 @@ def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
 
 
 @srv.tool()
+def c64_charset_encode(file: str, hires: bool = False,
+                       first_code: int = 0) -> dict:
+    """Encode ASCII-art glyphs from `file` into 8 charset bytes each (no
+    session needed). The file holds `name:` blocks of exactly 8 rows.
+    Multicolor rows (the default) are 4 characters of '.123' — pair values
+    00/01/10/11 = background $D021 / $D022 / $D023 / the cell's own color,
+    the multicolor-*text* order, which is NOT the sprite legend's. Hires
+    rows are 8 characters of '.#'. A block may name its own mode —
+    `wall:multicolor`, `letter:hires` — so a multicolor playfield and a
+    hires HUD font are one sheet; a bare `name:` takes the file's mode
+    (`hires` or not). Returns each glyph's bytes plus a paste-ready ca65
+    rendering under a `glyphs:`/`glyphs_end:` pair. The charset twin of
+    c64_sprite_encode."""
+    from .charset import encode_row, format_glyphs, parse_charset
+    glyphs = parse_charset(Path(file).read_text(), multicolor=not hires)
+    # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
+    # stdout, so without it first_code would be a no-op here. The CLI omits
+    # it from --json only because it prints the same text itself.
+    return {"glyphs": [{"name": g.name,
+                        "multicolor": g.multicolor,
+                        "bytes": [encode_row(r, g.multicolor) for r in g.rows]}
+                       for g in glyphs],
+            "rendered": format_glyphs(glyphs, first_code=first_code,
+                                      multicolor=not hires)}
+
+
+@srv.tool()
 def c64_audio_record(action: str, path: str | None = None,
                      session: str | None = None) -> dict:
     """Record the emulated SID to a WAV file. action="start" arms the

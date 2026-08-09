@@ -21,8 +21,11 @@ same sessions, semantics, and stopped-state rule. Known differences: `c64 wait`
 is split into `c64_wait_text` / `c64_wait_mem` / `c64_wait_break` /
 `c64_wait_idle`; top-level `c64 disasm` is an alias for `c64 rom disasm`, so
 its tool keeps the older name `c64_rom_disasm` (there is no `c64_disasm`); wait
-timeouts return `{"fired": null, ...}` as data instead of an error; and a few
-commands have no MCP twin yet — `c64 charset encode`. Shell out for those.
+timeouts return `{"fired": null, ...}` as data instead of an error.
+Every command has a tool; `c64 basic tokenize`/`detokenize`, `c64 sprite
+encode`, `c64 charset encode`, and `c64 break enable`/`disable` map to
+`c64_basic_tokenize`, `c64_basic_detokenize`, `c64_sprite_encode`,
+`c64_charset_encode`, `c64_break_enable`, and `c64_break_disable`.
 Every `c64 disk` and `c64 cart` verb has a twin; `c64 watch remove` is the
 same command as `c64 break remove`, so `c64_break_remove` removes watchpoints
 too, and `c64 mem get` is only a print-formatting variant of `c64_mem_read`.

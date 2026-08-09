@@ -1367,7 +1367,11 @@ per glyph (each echoing its art row as a trailing comment), and a
 cookbook's custom-character-set recipe for the RAM-charset setup.
 
 JSON: `{"glyphs": [{"name", "multicolor", "bytes"}, ...]}` — 8 ints per glyph,
-file order, each with the mode it was encoded in.
+file order, each with the mode it was encoded in. (MCP note:
+`c64_charset_encode` is the twin, taking the same file path and options, and
+returns the same `glyphs` array plus the text this command prints to stdout
+under `"rendered"` — MCP has no stdout, so without it `first_code` would be a
+no-op.)
 
 ---
 

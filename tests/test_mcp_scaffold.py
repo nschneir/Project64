@@ -111,14 +111,19 @@ def _leaf_command_paths() -> set[str]:
 
 
 # The commands docs/agent-setup.md and skills/c64-development/SKILL.md tell an
-# MCP-wired agent to shell out for.
-DOCUMENTED_CLI_ONLY = ["c64 charset encode"]
+# MCP-wired agent to shell out for. Empty since the 2026-08-08 MCP/CLI parity
+# plan: every CLI capability now has a tool, so both docs promise a shell is
+# never needed. The list (and its test) stay because the entries it once held
+# were only ever descriptive backlog — commands nobody had wrapped yet, never
+# design exclusions — so any FUTURE carve-out belongs here with the reason it
+# is one, and the test keeps that promise from going stale in silence.
+DOCUMENTED_CLI_ONLY: list[str] = []
 
 
 def test_documented_cli_only_commands_really_have_no_tool():
-    """Both docs promise this one has no MCP twin. When it grows a tool the
-    docs go stale silently — which is exactly what happened to the disk verbs'
-    entry while the disk plan landed."""
+    """Whatever the docs promise has no MCP twin must really have none. When
+    such a command grows a tool the docs go stale silently — which is exactly
+    what happened to the disk verbs' entry while the disk plan landed."""
     registered = {t.name for t in list_tools().tools}
     commands = _leaf_command_paths()
     for path in DOCUMENTED_CLI_ONLY:
