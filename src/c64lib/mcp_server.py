@@ -1297,7 +1297,8 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
 
 @srv.tool()
 def c64_sid_report(log: str, outdir: str, wav: str | None = None,
-                   ref: str | None = None, session: str | None = None) -> dict:
+                   ref: str | None = None, session: str | None = None,
+                   peak_hz: bool = False) -> dict:
     """Turn a captured SID register log (and its WAV, if there is one) into a
     verdict you can read: `report.md` in `outdir`, beside `piano-roll.png` and
     — with a WAV — `spectrogram.png`. Pure analysis, so it needs no running
@@ -1314,10 +1315,23 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     log does not carry its clock, so with no session PAL is assumed (985248
     Hz, 50 fps) and an NTSC log transcribes about 65 cents out — a plausible
     report of the wrong pitches. Returns the artifact paths, the verdict, and
-    the findings behind it.
+    the findings behind it. `peak_hz` adds a `peak` object measuring the WAV's
+    loudest frequency — one rFFT over the whole file with DC excluded, so it is
+    a bin centre and `resolution_cents` names how precise that answer is.
     """
+    if peak_hz and not wav:
+        raise ValueError("peak_hz needs wav: a dominant partial is a property "
+                         "of the recording, not of the register log")
     timing = report_timing_for(_attach(session).model if session else None)
-    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
+    out = sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
+    # `and wav` re-states what the guard above already refused, and narrows
+    # `wav` to str for the call that needs a path.
+    if peak_hz and wav:
+        # Imported here for the reason c64_audio_score imports it here: the
+        # module brings numpy and Pillow.
+        from .sid_analysis import dominant_partial_hz
+        out["peak"] = dominant_partial_hz(wav)
+    return out
 
 
 @srv.tool()

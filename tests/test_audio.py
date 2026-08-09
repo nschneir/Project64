@@ -1649,6 +1649,39 @@ def test_mcp_sid_report_uses_the_named_sessions_clock(tmp_path):
     assert report.call_args.kwargs["timing"]["clock_hz"] == NTSC
 
 
+def test_mcp_sid_report_peak_hz_needs_wav():
+    """A dominant partial is a property of the recording, so peak_hz without a
+    wav is refused — and refused BEFORE the analysis runs, the way the CLI
+    checks its flag before calling sid_report, so a bad call costs nothing."""
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report",
+               return_value={"verdict": "PASS"}) as report:
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                                "outdir": "/tmp/out",
+                                                "peak_hz": True})
+    assert err is True
+    assert "peak_hz needs wav" in str(out)
+    report.assert_not_called()
+
+
+def test_mcp_sid_report_peak_hz_threads_through():
+    """With a wav, peak_hz adds the CLI's --peak-hz measurement to the same
+    payload — one `peak` object beside the verdict."""
+    peak = {"peak_hz": 440.0, "bin_hz": 1.0, "bin": 440,
+            "resolution_cents": 1.97, "seconds": 1.0}
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report",
+               return_value={"verdict": "PASS"}), \
+         patch("c64lib.sid_analysis.dominant_partial_hz",
+               return_value=peak) as dominant:
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                                "outdir": "/tmp/out",
+                                                "wav": "/tmp/cap.wav",
+                                                "peak_hz": True})
+    assert err is False and out["peak"] == peak
+    dominant.assert_called_once_with("/tmp/cap.wav")
+
+
 def test_mcp_audio_capture():
     s, _ = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \

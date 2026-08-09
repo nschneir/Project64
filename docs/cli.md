@@ -1608,7 +1608,8 @@ new capture only when the *program* changes.
     piano-roll bar over silence. A recording that is silent end to end is
     exempt: that is one failure with a cause, reported once by the verdict.
 - `--peak-hz` — also measure the recording's loudest frequency. Needs
-  `--wav`.
+  `--wav`. (MCP note: the same measurement is `peak_hz` on `c64_sid_report`,
+  which refuses it without a `wav` for the same reason.)
 
 Exits 1 when the verdict is FAIL, same as `audio capture`.
 
