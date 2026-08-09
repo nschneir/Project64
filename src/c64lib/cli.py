@@ -2191,7 +2191,7 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
     with `c64 sprite from-png` (image input instead of ASCII art) and
     `c64 sprite show` (the inverse: bytes back to ASCII).
     """
-    from .sprites import encode_sheet, format_bytes
+    from .sprites import encode_sheet, render_sheet
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
@@ -2208,14 +2208,8 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
         fail(ctx, f"no sprite art found in {file}")
         return
     try:
-        # numbering runs on across sprites (21 rows each) so a multi-sprite
-        # file comes out as one ascending listing, not three restarts
-        text = "\n\n".join(
-            format_bytes(data, fmt, index=i, multicolor=not hires,
-                         start_line=(None if start_line is None
-                                     else start_line + i * 21 * line_step),
-                         line_step=line_step)
-            for i, data in enumerate(sprites)) + "\n"
+        text = render_sheet(sprites, fmt, multicolor=not hires,
+                            start_line=start_line, line_step=line_step)
     except ValueError as e:
         fail(ctx, str(e))
         return

@@ -31,7 +31,21 @@ def test_build(tmp_path):
     with patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
         err, out = call_tool("c64_build", {"source": str(src)})
     assert err is False and out["prg"].endswith("p.prg")
-    ba.assert_called_once_with(Path(str(src)), basic_start=0x0801, areas=[])
+    ba.assert_called_once_with(Path(str(src)), out_prg=None,
+                               basic_start=0x0801, areas=[])
+
+
+def test_build_output_threads_through(tmp_path):
+    src = tmp_path / "p.s"
+    src.write_text("; x\n")
+    out_prg = tmp_path / "elsewhere" / "game.prg"
+    res = BuildResult(prg=out_prg, labels=out_prg.with_suffix(".lbl"))
+    with patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
+        err, out = call_tool("c64_build",
+                             {"source": str(src), "output": str(out_prg)})
+    assert err is False and out["prg"] == str(out_prg)
+    ba.assert_called_once_with(Path(str(src)), out_prg=Path(out_prg),
+                               basic_start=0x0801, areas=[])
 
 
 def test_run_dispatch_bas(tmp_path):

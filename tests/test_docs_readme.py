@@ -4,13 +4,21 @@ from pathlib import Path
 
 from tests.doc_helpers import (
     BOOT_FREE,
+    all_command_paths,
     code_blocks,
     mentioned_commands,
     valid_mention_paths,
 )
 
+# Imported at module scope, not inside the tests that use them: conftest's
+# session-wide `_track_launches` swaps `subprocess.Popen` for a plain
+# function, and importing `mcp` after that point dies on its
+# `subprocess.Popen[bytes]` annotation. Collection-time imports run first.
+from tests.test_mcp_scaffold import _leaf_command_paths, list_tools
+
 README = Path("README.md")
 AGENT_SETUP = Path("docs/agent-setup.md")
+MCP_DOC = Path("docs/mcp.md")
 
 
 def test_install_section_near_top():
@@ -60,7 +68,7 @@ def test_readme_names_the_domain_skills_beside_their_sections():
 
 def test_readme_c64_commands_exist():
     valid = valid_mention_paths()  # leaf commands plus bare group names
-    for doc in (README, AGENT_SETUP):
+    for doc in (README, AGENT_SETUP, MCP_DOC):
         unknown = {c for c in mentioned_commands(doc.read_text()) if c not in valid}
         assert not unknown, f"{doc} mentions nonexistent commands: {sorted(unknown)}"
 
@@ -102,6 +110,57 @@ def test_supported_machines_table_matches_profiles():
         assert p.basic_version in cells[3], f"{name}: BASIC cell {cells[3]!r}"
         assert f"{p.screen_cols}×{p.screen_rows}" in cells[4], \
             f"{name}: screen cell {cells[4]!r}"
+
+
+def test_mcp_md_names_every_tool():
+    """`docs/mcp.md` claims to map every registered tool. A tool added
+    without a row would leave that claim false and silently wrong — the same
+    drift index.html's counts used to have. The tool docstrings remain the
+    per-tool reference (guarded by test_mcp_scaffold's roster test); this
+    only pins that the map is complete."""
+    text = MCP_DOC.read_text()
+    missing = sorted(t.name for t in list_tools().tools
+                     if f"`{t.name}`" not in text)
+    assert not missing, f"docs/mcp.md never names: {missing}"
+
+
+def _invocable_paths() -> set[str]:
+    """Everything a table row may point at. `_leaf_command_paths()` is the
+    inventory index.html's command count uses (leaves only);
+    `all_command_paths()` adds the groups that also run bare — `c64 reg` is
+    one, and it is the command `c64_reg_get` twins."""
+    return _leaf_command_paths() | all_command_paths()
+
+
+def _mcp_table_commands() -> set[str]:
+    """Every `c64 ...` command backticked inside a table row of docs/mcp.md,
+    trimmed to its command path (trailing options/arguments dropped by
+    longest-prefix match). A span that matches no real command is returned
+    whole, so the caller reports it verbatim."""
+    invocable = _invocable_paths()
+    out: set[str] = set()
+    for line in MCP_DOC.read_text().splitlines():
+        if not line.startswith("|"):
+            continue
+        for span in re.findall(r"`(c64 [^`]+)`", line):
+            words = span.split()
+            for depth in range(len(words), 1, -1):
+                cand = " ".join(words[:depth])
+                if cand in invocable:
+                    out.add(cand)
+                    break
+            else:
+                out.add(span)
+    return out
+
+
+def test_mcp_md_commands_exist():
+    """The CLI side of the map is measured too: a renamed or dropped command
+    must fail here rather than leave the table pointing at a command that no
+    longer exists."""
+    invocable = _invocable_paths()
+    unknown = sorted(c for c in _mcp_table_commands() if c not in invocable)
+    assert not unknown, f"docs/mcp.md maps nonexistent commands: {unknown}"
 
 
 # index.html's headline CLI/MCP/skills counts are gated by

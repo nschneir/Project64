@@ -233,6 +233,23 @@ def format_bytes(data: bytes, fmt: str, index: int = 0,
                      for n, line in zip(numbers, lines, strict=True))
 
 
+def render_sheet(sprites: list[bytes], fmt: str = "asm", multicolor: bool = True,
+                 start_line: int | None = None, line_step: int = 10) -> str:
+    """Render a whole encoded sheet as one paste-ready block, trailing newline.
+
+    Blocks are separated by a blank line and the numbering runs on across
+    sprites (21 rows each) so a multi-sprite file comes out as one ascending
+    listing, not three restarts. Rejects a bad `fmt` / line number the way
+    `format_bytes` does.
+    """
+    return "\n\n".join(
+        format_bytes(data, fmt, index=i, multicolor=multicolor,
+                     start_line=(None if start_line is None
+                                 else start_line + i * ROWS_PER_SPRITE * line_step),
+                     line_step=line_step)
+        for i, data in enumerate(sprites)) + "\n"
+
+
 def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
     """Render a 63-byte shape to a PIL image (24x21 logical pixels)."""
     from PIL import Image

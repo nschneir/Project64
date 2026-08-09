@@ -2,7 +2,8 @@
 
 A complete reference for the `c64` command line — everything the toolset can
 do without the MCP server. For MCP-native clients the `c64-tools-mcp` server
-exposes the same operations; see the README.
+exposes the same operations; [`docs/mcp.md`](mcp.md) maps every tool to the
+command it twins.
 
 ## Conventions
 
@@ -608,7 +609,8 @@ a loop. The error says so and carries the PCs it last saw — feed one to
 Assemble 6502 source (ca65 syntax) to a `.prg` plus a VICE label file.
 
 - `SOURCE` — the `.s` file.
-- `-o, --output PATH` — output `.prg` (defaults next to the source).
+- `-o, --output PATH` — output `.prg` (defaults next to the source). (MCP
+  note: the same path is `output` on `c64_build`.)
 - `--model MODEL` (default `c64`) — selects the BASIC load address.
 - `--area NAME=START:SIZE` — link segment `NAME` at a fixed address, and
   declare a linker MEMORY area of the same name to hold it. Repeatable;
@@ -1324,7 +1326,10 @@ sprite0: .byte %00000001, %01101001, %01000000
 ```
 
 JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in
-FILE.
+FILE. (MCP note: `c64_sprite_encode` is the twin, taking the same file
+path and options, and returns the same `sprites` array plus the text this
+command prints to stdout under `"rendered"` — MCP has no stdout, so
+without it `fmt`/`start_line` would be no-ops.)
 
 ---
 
@@ -1364,7 +1369,11 @@ per glyph (each echoing its art row as a trailing comment), and a
 cookbook's custom-character-set recipe for the RAM-charset setup.
 
 JSON: `{"glyphs": [{"name", "multicolor", "bytes"}, ...]}` — 8 ints per glyph,
-file order, each with the mode it was encoded in.
+file order, each with the mode it was encoded in. (MCP note:
+`c64_charset_encode` is the twin, taking the same file path and options, and
+returns the same `glyphs` array plus the text this command prints to stdout
+under `"rendered"` — MCP has no stdout, so without it `first_code` would be a
+no-op.)
 
 ---
 
@@ -1601,7 +1610,8 @@ new capture only when the *program* changes.
     piano-roll bar over silence. A recording that is silent end to end is
     exempt: that is one failure with a cause, reported once by the verdict.
 - `--peak-hz` — also measure the recording's loudest frequency. Needs
-  `--wav`.
+  `--wav`. (MCP note: the same measurement is `peak_hz` on `c64_sid_report`,
+  which refuses it without a `wav` for the same reason.)
 
 Exits 1 when the verdict is FAIL, same as `audio capture`.
 

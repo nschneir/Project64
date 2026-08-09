@@ -20,7 +20,7 @@ from .audio import (
     sid_log_detail,
     sid_report,
 )
-from .basic import tokenize
+from .basic import detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
 from .cart_build import build_easyflash
@@ -115,6 +115,9 @@ def c64_session_start(model: str = "c64", name: str | None = None,
     """Boot a fresh emulated C64 (headless, warp). Models: c64 (NTSC,
     the default) or c64pal. Optionally attach a d64/d71/d81 disk image, or a
     .crt cartridge that is mapped at power-on and boots itself."""
+    # headless/warp are hardcoded here and everywhere else in this server,
+    # rather than exposed as flags the way `c64 session start` does: an MCP
+    # client is an automation, not someone watching a window.
     s = Session.launch(model=model, name=name, headless=True, warp=True,
                        disk8=disk, cart=cart)
     lbl = None
@@ -374,6 +377,31 @@ def c64_break_clear(session: str | None = None) -> dict:
 
 
 @srv.tool()
+def c64_break_enable(checkpoint_id: int, session: str | None = None) -> dict:
+    """Re-enable a disabled breakpoint/watchpoint by id."""
+    s = _attach(session)
+    with s.monitor() as mon:
+        try:
+            mon.checkpoint_toggle(checkpoint_id, True)
+        finally:
+            mon.release()
+    return {"enabled": checkpoint_id}
+
+
+@srv.tool()
+def c64_break_disable(checkpoint_id: int, session: str | None = None) -> dict:
+    """Disable a breakpoint/watchpoint by id without removing it; it stays set
+    and c64_break_list still shows it, with enabled false."""
+    s = _attach(session)
+    with s.monitor() as mon:
+        try:
+            mon.checkpoint_toggle(checkpoint_id, False)
+        finally:
+            mon.release()
+    return {"disabled": checkpoint_id}
+
+
+@srv.tool()
 def c64_watch_clear(session: str | None = None) -> dict:
     """Remove ALL watchpoints (load/store checkpoints); breakpoints are kept."""
     s = _attach(session)
@@ -559,8 +587,12 @@ def c64_wait_break(timeout: float = 30.0, session: str | None = None,
 
 @srv.tool()
 def c64_build(source: str, model: str = "c64",
-              areas: list[str] | None = None) -> dict:
+              areas: list[str] | None = None,
+              output: str | None = None) -> dict:
     """Assemble 6502 source (ca65 syntax) to a .prg + VICE label file.
+
+    `output` names the .prg path (defaults beside the source), matching the
+    CLI's `-o`.
 
     `areas` links extra segments at fixed addresses: each entry is
     "NAME=START:SIZE" (e.g. "HIGH=$4000:$2000"), naming both a MEMORY area
@@ -569,7 +601,8 @@ def c64_build(source: str, model: str = "c64",
     where you asked, and it is why areas must be contiguous and above the
     load address."""
     profile = get_profile(model)
-    res = build_asm(Path(source), basic_start=profile.basic_start,
+    res = build_asm(Path(source), out_prg=Path(output) if output else None,
+                    basic_start=profile.basic_start,
                     areas=parse_areas(areas or (), profile.basic_start))
     return {"prg": str(res.prg), "labels": str(res.labels)}
 
@@ -689,6 +722,7 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
             mon.resume()
     if symbols:
         s.set_labels_path(str(Path(symbols).resolve()))
+    s.record_loaded(p, [p])
     return {"loaded": str(p), "run": run, "symbols": symbols}
 
 
@@ -729,6 +763,28 @@ def c64_basic_type(text: str, run: bool = False,
         finally:
             mon.release()
     return {"typed_chars": len(petscii), "run": run}
+
+
+@srv.tool()
+def c64_basic_tokenize(source: str, output: str | None = None,
+                       model: str = "c64") -> dict:
+    """Tokenize a BASIC .bas source file into a .prg via petcat, offline —
+    no session and no emulator. `output` defaults to `source` with a .prg
+    suffix; `model` selects the BASIC version."""
+    src = Path(source)
+    out = Path(output) if output else src.with_suffix(".prg")
+    profile = get_profile(model)
+    prg = tokenize(src, out, profile.basic_version)
+    return {"prg": str(prg)}
+
+
+@srv.tool()
+def c64_basic_detokenize(prg: str, model: str = "c64") -> dict:
+    """Detokenize a .prg back into a BASIC listing via petcat — the inverse
+    of c64_basic_tokenize, offline; no session. `model` selects the BASIC
+    version."""
+    profile = get_profile(model)
+    return {"listing": detokenize(Path(prg), profile.basic_version)}
 
 
 @srv.tool()
@@ -1137,6 +1193,61 @@ def c64_sprite_from_png(image: str, multicolor: bool = False) -> dict:
 
 
 @srv.tool()
+def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
+                      start_line: int | None = None,
+                      line_step: int = 10) -> dict:
+    """Encode ASCII-art sprite(s) from `file` into 63 sprite bytes each (no
+    session needed). The file holds one or more 21-row sprites separated by a
+    blank line, in the friendly authoring legend (multicolor ' .#+', hires
+    ' #') or the glyphs c64_sprite_show emits — so show output round-trips
+    straight back through encode. Returns the bytes plus a paste-ready
+    rendering (fmt "asm" ca65 .byte rows, or "basic" data lines that
+    start_line numbers)."""
+    from .sprites import encode_sheet, render_sheet
+    if start_line is not None and fmt != "basic":
+        raise ValueError("start_line only applies to fmt='basic'")
+    text_in = Path(file).read_text()
+    if not text_in.strip():
+        raise ValueError(f"no sprite art found in {file}")
+    sprites = encode_sheet(text_in, multicolor=not hires)
+    if not sprites:
+        raise ValueError(f"no sprite art found in {file}")
+    # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
+    # stdout, so without it fmt/start_line would be no-ops here. The CLI omits
+    # it from --json only because it prints the same text itself.
+    return {"sprites": [list(data) for data in sprites],
+            "rendered": render_sheet(sprites, fmt, multicolor=not hires,
+                                     start_line=start_line, line_step=line_step)}
+
+
+@srv.tool()
+def c64_charset_encode(file: str, hires: bool = False,
+                       first_code: int = 0) -> dict:
+    """Encode ASCII-art glyphs from `file` into 8 charset bytes each (no
+    session needed). The file holds `name:` blocks of exactly 8 rows.
+    Multicolor rows (the default) are 4 characters of '.123' — pair values
+    00/01/10/11 = background $D021 / $D022 / $D023 / the cell's own color,
+    the multicolor-*text* order, which is NOT the sprite legend's. Hires
+    rows are 8 characters of '.#'. A block may name its own mode —
+    `wall:multicolor`, `letter:hires` — so a multicolor playfield and a
+    hires HUD font are one sheet; a bare `name:` takes the file's mode
+    (`hires` or not). Returns each glyph's bytes plus a paste-ready ca65
+    rendering under a `glyphs:`/`glyphs_end:` pair. The charset twin of
+    c64_sprite_encode."""
+    from .charset import encode_row, format_glyphs, parse_charset
+    glyphs = parse_charset(Path(file).read_text(), multicolor=not hires)
+    # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
+    # stdout, so without it first_code would be a no-op here. The CLI omits
+    # it from --json only because it prints the same text itself.
+    return {"glyphs": [{"name": g.name,
+                        "multicolor": g.multicolor,
+                        "bytes": [encode_row(r, g.multicolor) for r in g.rows]}
+                       for g in glyphs],
+            "rendered": format_glyphs(glyphs, first_code=first_code,
+                                      multicolor=not hires)}
+
+
+@srv.tool()
 def c64_audio_record(action: str, path: str | None = None,
                      session: str | None = None) -> dict:
     """Record the emulated SID to a WAV file. action="start" arms the
@@ -1194,7 +1305,8 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
 
 @srv.tool()
 def c64_sid_report(log: str, outdir: str, wav: str | None = None,
-                   ref: str | None = None, session: str | None = None) -> dict:
+                   ref: str | None = None, session: str | None = None,
+                   peak_hz: bool = False) -> dict:
     """Turn a captured SID register log (and its WAV, if there is one) into a
     verdict you can read: `report.md` in `outdir`, beside `piano-roll.png` and
     — with a WAV — `spectrogram.png`. Pure analysis, so it needs no running
@@ -1211,10 +1323,23 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     log does not carry its clock, so with no session PAL is assumed (985248
     Hz, 50 fps) and an NTSC log transcribes about 65 cents out — a plausible
     report of the wrong pitches. Returns the artifact paths, the verdict, and
-    the findings behind it.
+    the findings behind it. `peak_hz` adds a `peak` object measuring the WAV's
+    loudest frequency — one rFFT over the whole file with DC excluded, so it is
+    a bin centre and `resolution_cents` names how precise that answer is.
     """
+    if peak_hz and not wav:
+        raise ValueError("peak_hz needs wav: a dominant partial is a property "
+                         "of the recording, not of the register log")
     timing = report_timing_for(_attach(session).model if session else None)
-    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
+    out = sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
+    # `and wav` re-states what the guard above already refused, and narrows
+    # `wav` to str for the call that needs a path.
+    if peak_hz and wav:
+        # Imported here for the reason c64_audio_score imports it here: the
+        # module brings numpy and Pillow.
+        from .sid_analysis import dominant_partial_hz
+        out["peak"] = dominant_partial_hz(wav)
+    return out
 
 
 @srv.tool()

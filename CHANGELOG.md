@@ -8,6 +8,53 @@ commit).
 
 ## [Unreleased]
 
+An MCP-wired agent no longer needs a shell. The six commands both
+`docs/agent-setup.md` and the `c64-development` skill told it to shell
+out for have tools now — `c64_break_enable`/`c64_break_disable`, the MCP
+twin of the monitor's `checkpoint_toggle`, and the four offline ones that
+need no session at all: `c64_basic_tokenize`/`c64_basic_detokenize`,
+`c64_sprite_encode` and `c64_charset_encode`. That takes the server from
+68 tools to 74, and every one of the 75 CLI capabilities has a tool. The
+two counts differ in both directions. Seven commands have no tool of
+their own: `c64 help`, whose usage text the protocol already delivers
+with every tool's schema; `c64 mem get`, a print-formatting variant of
+`c64_mem_read`; and five second spellings of commands that already have
+one. Six tools have no command of their own: `c64 wait` splits into
+four, `c64 screen` into three, and the bare `c64 reg` group is spelled
+`c64_reg_get`. 75 - 7 + 6 = 74. The carve-out list in
+`tests/test_mcp_scaffold.py` is empty as a result; the list and its test
+stay, so a future exclusion has to be written down with the reason it is
+one instead of accumulating in silence. Encoding is shared with the CLI
+rather than reimplemented — `sprites.render_sheet` is now the one place a
+multi-sprite sheet gets its running line numbers, called by both — and
+the two encode tools are the one place a payload deliberately exceeds the
+CLI's `--json`: they add `rendered`, the paste-ready text the command
+prints to stdout, because MCP has no stdout and without it `fmt`,
+`start_line` and `first_code` would be no-ops.
+
+Three smaller gaps went with them. `c64_build` takes `output`, the CLI's
+`-o`, which the tool had no way to spell — a build could only land beside
+its source. `c64_sid_report` takes `peak_hz`, the same rFFT measurement
+as the command's `--peak-hz`, and refuses it without a `wav` because a
+dominant partial is a property of the recording and not of the register
+log. And `c64_load` records what it loaded, so `c64_status`'s stale-source
+warning fires after an MCP load: it had been reporting `"stale": []` no
+matter how old the binary was, because the tool never called
+`record_loaded` the way `c64 load` and `c64_run` always have.
+
+The map itself is written down and measured, in the new `docs/mcp.md`:
+one row per registered tool, naming the command it twins and the one-line
+difference where there is one — the folded rows, the renamed parameters
+(`--from` → `src`, `--format` → `fmt`), the headless-and-warp sessions
+the tools hardcode, and the wait timeouts that return
+`{"fired": null, ...}` as data where the CLI exits 1. The page
+states no tool or command counts of its own, since a second uncounted
+copy of index.html's numbers is the drift it exists to prevent; two tests
+guard it the way those counts are guarded — every registered tool must
+appear in it, and every command its tables name must still exist in the
+CLI. `README.md`, `docs/cli.md`, `docs/agent-setup.md` and the
+`c64-development` skill point at it, and index.html reads 74 tools.
+
 A segment can be linked where the VIC needs it. `c64 build --area
 NAME=START:SIZE` (repeatable; also on `c64 package`, and `areas` on the
 `c64_build`/`c64_package` MCP tools) declares an extra linker MEMORY area

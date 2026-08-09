@@ -192,7 +192,8 @@ resulting image rather than from the exit code alone. `c64 disk validate` is
 the exception that proves it: a DOS error there describes the *image*, so it
 is reported in the result rather than raised.
 
-Full command reference: [docs/cli.md](docs/cli.md#disk-images). The
+Full command reference: [docs/cli.md](docs/cli.md#disk-images); the MCP twins
+of these commands are mapped in [docs/mcp.md](docs/mcp.md#disk-images). The
 `disk-io-programming` skill covers the runtime half — the KERNAL `LOAD`/`SAVE`
 and channel calls, and the secondary address that decides where a file lands.
 
@@ -217,7 +218,8 @@ banking on the running machine (`bank`), and shells out to VICE's `cartconv`
 for types this tool does not model natively (`convert`). Recipients need only
 stock VICE: `x64sc -ntsc -cartcrt game.crt`.
 
-Full command reference: [docs/cli.md](docs/cli.md#cartridges). The
+Full command reference: [docs/cli.md](docs/cli.md#cartridges); the MCP twins
+of these commands are mapped in [docs/mcp.md](docs/mcp.md#cartridges). The
 `cartridge-programming` skill covers the boot mechanisms, the memory modes,
 and the EasyFlash banking discipline.
 

@@ -112,6 +112,26 @@ def test_break_remove():
     mon.checkpoint_delete.assert_called_once_with(3)
 
 
+def test_break_enable_toggles_on():
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_break_enable", {"checkpoint_id": 4})
+    assert err is False and out == {"enabled": 4}
+    mon.checkpoint_toggle.assert_called_once_with(4, True)
+    mon.release.assert_called_once()
+
+
+def test_break_disable_toggles_off():
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_break_disable", {"checkpoint_id": 4})
+    assert err is False and out == {"disabled": 4}
+    mon.checkpoint_toggle.assert_called_once_with(4, False)
+    mon.release.assert_called_once()
+
+
 def test_watch_add_defaults_to_load_and_store():
     s, mon = _fake_session()
     mon.checkpoint_set.return_value = _ck(number=9, op=CP_LOAD | CP_STORE)
@@ -258,6 +278,19 @@ def test_load_no_run_with_symbols(tmp_path):
     s.set_labels_path.assert_called_once_with(str(lbl.resolve()))
 
 
+def test_load_records_loaded_program(tmp_path):
+    # without this the session forgets what it is running, and c64_status
+    # cannot warn that the source has moved on since the load
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_load", {"prg": str(prg)})
+    assert err is False
+    s.record_loaded.assert_called_once_with(prg.resolve(), [prg.resolve()])
+
+
 def test_basic_type_appends_newline_and_run():
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
@@ -382,6 +415,126 @@ def test_basic_check_clean_program(tmp_path):
     src.write_text('10 print "hi"\n20 goto 10\n')
     is_error, data = call_tool("c64_basic_check", {"source_path": str(src)})
     assert not is_error and data["issues"] == []
+
+
+def test_basic_tokenize_defaults_output_beside_source(tmp_path):
+    """The MCP twin of `c64 basic tokenize`: same default output path (SOURCE
+    with a .prg suffix) and the same model-selected BASIC version."""
+    src = tmp_path / "game.bas"
+    src.write_text('10 print "hi"\n')
+    out = tmp_path / "game.prg"
+    with patch("c64lib.mcp_server.tokenize", return_value=out) as tok:
+        is_error, data = call_tool("c64_basic_tokenize", {"source": str(src)})
+    assert not is_error, data
+    assert data == {"prg": str(out)}
+    tok.assert_called_once_with(src, out, "2.0")
+
+
+def test_basic_tokenize_honours_an_explicit_output(tmp_path):
+    src = tmp_path / "game.bas"
+    src.write_text('10 print "hi"\n')
+    out = tmp_path / "elsewhere.prg"
+    with patch("c64lib.mcp_server.tokenize", return_value=out) as tok:
+        is_error, data = call_tool(
+            "c64_basic_tokenize", {"source": str(src), "output": str(out)})
+    assert not is_error, data
+    assert data == {"prg": str(out)}
+    tok.assert_called_once_with(src, out, "2.0")
+
+
+def test_basic_detokenize_returns_listing(tmp_path):
+    """The MCP twin of `c64 basic detokenize` — the inverse, same payload."""
+    prg = tmp_path / "game.prg"
+    prg.write_bytes(b"\x01\x08")
+    with patch("c64lib.mcp_server.detokenize", return_value='10 print "hi"\n') as det:
+        is_error, data = call_tool("c64_basic_detokenize", {"prg": str(prg)})
+    assert not is_error, data
+    assert data == {"listing": '10 print "hi"\n'}
+    det.assert_called_once_with(prg, "2.0")
+
+
+# --- sprite encode ----------------------------------------------------------
+
+def _sheet(n: int = 1) -> str:
+    """n blank-line-separated blocks of 21 all-background multicolor rows."""
+    return "\n".join([("." * 12 + "\n") * 21] * n)
+
+
+def test_sprite_encode_returns_bytes_and_rendering(tmp_path):
+    """The MCP twin of `c64 sprite encode`: the CLI's --json `sprites` plus
+    the rendering the CLI prints, since MCP has no stdout to print it to."""
+    from c64lib.sprites import encode_sheet, render_sheet
+    src = tmp_path / "two.txt"
+    src.write_text(_sheet(2))
+    err, out = call_tool("c64_sprite_encode", {"file": str(src)})
+    assert err is False, out
+    sprites = encode_sheet(src.read_text())
+    assert out["sprites"] == [list(data) for data in sprites]
+    assert len(out["sprites"]) == 2 and len(out["sprites"][0]) == 63
+    assert out["rendered"] == render_sheet(sprites)
+
+
+def test_sprite_encode_hires_and_basic_numbering(tmp_path):
+    """hires flips multicolor off (24-char rows), and start_line numbers the
+    basic rows with the same run-on numbering the CLI emits."""
+    src = tmp_path / "hires.txt"
+    src.write_text(("#" * 24 + "\n") * 21)      # 24 chars/row: hires only
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "hires": True, "fmt": "basic",
+                          "start_line": 1000})
+    assert err is False, out
+    assert out["sprites"] == [[255] * 63]
+    assert out["rendered"].splitlines()[0] == "1000 data 255,255,255"
+
+
+def test_sprite_encode_start_line_needs_basic_format(tmp_path):
+    src = tmp_path / "sprite.txt"
+    src.write_text(_sheet())
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "start_line": 100})
+    assert err is True
+    assert "start_line only applies to fmt='basic'" in str(out)
+
+
+def test_sprite_encode_empty_file_is_an_error(tmp_path):
+    src = tmp_path / "empty.txt"
+    src.write_text("\n   \n")
+    err, out = call_tool("c64_sprite_encode", {"file": str(src)})
+    assert err is True
+    assert f"no sprite art found in {src}" in str(out)
+
+
+# --- charset encode ---------------------------------------------------------
+
+# One sheet, both modes: the mixed-mode case is the one a per-block override
+# exists for, so it is what the tool is tested on.
+_MIXED_SHEET = ("wall:multicolor\n" + ".123\n" * 8 +
+                "\nletter:hires\n" + "##......\n" * 8)
+
+
+def test_charset_encode_returns_glyphs_and_rendering(tmp_path):
+    """The MCP twin of `c64 charset encode`: the CLI's --json `glyphs` plus
+    the rendering the CLI prints, since MCP has no stdout to print it to."""
+    from c64lib.charset import format_glyphs, parse_charset
+    src = tmp_path / "chars.txt"
+    src.write_text(_MIXED_SHEET)
+    err, out = call_tool("c64_charset_encode", {"file": str(src)})
+    assert err is False, out
+    assert out["glyphs"] == [
+        {"name": "wall", "multicolor": True, "bytes": [0b00011011] * 8},
+        {"name": "letter", "multicolor": False, "bytes": [0b11000000] * 8},
+    ]
+    assert out["rendered"] == format_glyphs(parse_charset(_MIXED_SHEET))
+
+
+def test_charset_encode_bad_sheet_is_an_error(tmp_path):
+    """CharsetError reaches the caller with its message intact — a short
+    block names itself and its row count, which is the whole diagnosis."""
+    src = tmp_path / "short.txt"
+    src.write_text("wall:\n" + ".123\n" * 7)
+    err, out = call_tool("c64_charset_encode", {"file": str(src)})
+    assert err is True
+    assert "glyph 'wall' (ending at line 8) has 7 rows, expected 8" in str(out)
 
 
 # --- audio score ------------------------------------------------------------
