@@ -11,9 +11,9 @@ calls. There are two ways an agent can use it — pick either or both:
 - **The MCP server** — `c64-tools-mcp` exposes the same session, build, and
   debug operations as MCP tools over stdio, returning the same structured
   data the CLI's `--json` does. CLI and MCP share the same sessions, so they
-  mix freely. A few offline commands are CLI-only, though — `c64 basic
-  tokenize`/`detokenize`, `c64 sprite encode`, and `c64 charset encode` — so
-  an MCP-wired agent still needs a shell for those.
+  mix freely. A few offline commands are CLI-only, though — `c64 sprite
+  encode` and `c64 charset encode` — so an MCP-wired agent still needs a
+  shell for those.
   Every `c64 disk` and `c64 cart` verb has an MCP twin; `c64 watch remove` is
   the same command as `c64 break remove`, so `c64_break_remove` covers it.
 

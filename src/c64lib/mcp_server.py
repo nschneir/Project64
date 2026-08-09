@@ -20,7 +20,7 @@ from .audio import (
     sid_log_detail,
     sid_report,
 )
-from .basic import tokenize
+from .basic import detokenize, tokenize
 from .basic_lint import lint_source, tokenized_bytes
 from .build import build_asm
 from .cart_build import build_easyflash
@@ -755,6 +755,28 @@ def c64_basic_type(text: str, run: bool = False,
         finally:
             mon.release()
     return {"typed_chars": len(petscii), "run": run}
+
+
+@srv.tool()
+def c64_basic_tokenize(source: str, output: str | None = None,
+                       model: str = "c64") -> dict:
+    """Tokenize a BASIC .bas source file into a .prg via petcat, offline —
+    no session and no emulator. `output` defaults to `source` with a .prg
+    suffix; `model` selects the BASIC version."""
+    src = Path(source)
+    out = Path(output) if output else src.with_suffix(".prg")
+    profile = get_profile(model)
+    prg = tokenize(src, out, profile.basic_version)
+    return {"prg": str(prg)}
+
+
+@srv.tool()
+def c64_basic_detokenize(prg: str, model: str = "c64") -> dict:
+    """Detokenize a .prg back into a BASIC listing via petcat — the inverse
+    of c64_basic_tokenize, offline; no session. `model` selects the BASIC
+    version."""
+    profile = get_profile(model)
+    return {"listing": detokenize(Path(prg), profile.basic_version)}
 
 
 @srv.tool()

@@ -417,6 +417,42 @@ def test_basic_check_clean_program(tmp_path):
     assert not is_error and data["issues"] == []
 
 
+def test_basic_tokenize_defaults_output_beside_source(tmp_path):
+    """The MCP twin of `c64 basic tokenize`: same default output path (SOURCE
+    with a .prg suffix) and the same model-selected BASIC version."""
+    src = tmp_path / "game.bas"
+    src.write_text('10 print "hi"\n')
+    out = tmp_path / "game.prg"
+    with patch("c64lib.mcp_server.tokenize", return_value=out) as tok:
+        is_error, data = call_tool("c64_basic_tokenize", {"source": str(src)})
+    assert not is_error, data
+    assert data == {"prg": str(out)}
+    tok.assert_called_once_with(src, out, "2.0")
+
+
+def test_basic_tokenize_honours_an_explicit_output(tmp_path):
+    src = tmp_path / "game.bas"
+    src.write_text('10 print "hi"\n')
+    out = tmp_path / "elsewhere.prg"
+    with patch("c64lib.mcp_server.tokenize", return_value=out) as tok:
+        is_error, data = call_tool(
+            "c64_basic_tokenize", {"source": str(src), "output": str(out)})
+    assert not is_error, data
+    assert data == {"prg": str(out)}
+    tok.assert_called_once_with(src, out, "2.0")
+
+
+def test_basic_detokenize_returns_listing(tmp_path):
+    """The MCP twin of `c64 basic detokenize` — the inverse, same payload."""
+    prg = tmp_path / "game.prg"
+    prg.write_bytes(b"\x01\x08")
+    with patch("c64lib.mcp_server.detokenize", return_value='10 print "hi"\n') as det:
+        is_error, data = call_tool("c64_basic_detokenize", {"prg": str(prg)})
+    assert not is_error, data
+    assert data == {"listing": '10 print "hi"\n'}
+    det.assert_called_once_with(prg, "2.0")
+
+
 # --- audio score ------------------------------------------------------------
 
 def test_audio_score_summarises_a_score_without_a_session(tmp_path):
