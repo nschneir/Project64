@@ -374,6 +374,31 @@ def c64_break_clear(session: str | None = None) -> dict:
 
 
 @srv.tool()
+def c64_break_enable(checkpoint_id: int, session: str | None = None) -> dict:
+    """Re-enable a disabled breakpoint/watchpoint by id."""
+    s = _attach(session)
+    with s.monitor() as mon:
+        try:
+            mon.checkpoint_toggle(checkpoint_id, True)
+        finally:
+            mon.release()
+    return {"enabled": checkpoint_id}
+
+
+@srv.tool()
+def c64_break_disable(checkpoint_id: int, session: str | None = None) -> dict:
+    """Disable a breakpoint/watchpoint by id without removing it; it stays set
+    and c64_break_list still shows it, with enabled false."""
+    s = _attach(session)
+    with s.monitor() as mon:
+        try:
+            mon.checkpoint_toggle(checkpoint_id, False)
+        finally:
+            mon.release()
+    return {"disabled": checkpoint_id}
+
+
+@srv.tool()
 def c64_watch_clear(session: str | None = None) -> dict:
     """Remove ALL watchpoints (load/store checkpoints); breakpoints are kept."""
     s = _attach(session)

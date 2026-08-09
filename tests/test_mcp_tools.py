@@ -112,6 +112,26 @@ def test_break_remove():
     mon.checkpoint_delete.assert_called_once_with(3)
 
 
+def test_break_enable_toggles_on():
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_break_enable", {"checkpoint_id": 4})
+    assert err is False and out == {"enabled": 4}
+    mon.checkpoint_toggle.assert_called_once_with(4, True)
+    mon.release.assert_called_once()
+
+
+def test_break_disable_toggles_off():
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_break_disable", {"checkpoint_id": 4})
+    assert err is False and out == {"disabled": 4}
+    mon.checkpoint_toggle.assert_called_once_with(4, False)
+    mon.release.assert_called_once()
+
+
 def test_watch_add_defaults_to_load_and_store():
     s, mon = _fake_session()
     mon.checkpoint_set.return_value = _ck(number=9, op=CP_LOAD | CP_STORE)
