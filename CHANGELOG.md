@@ -14,10 +14,14 @@ out for have tools now — `c64_break_enable`/`c64_break_disable`, the MCP
 twin of the monitor's `checkpoint_toggle`, and the four offline ones that
 need no session at all: `c64_basic_tokenize`/`c64_basic_detokenize`,
 `c64_sprite_encode` and `c64_charset_encode`. That takes the server from
-68 tools to 74, covering all 75 CLI commands — the two counts differ
-because rows fold, not because anything is missing: `c64 wait` is four
-tools, `c64_break_remove` also removes watchpoints, and `c64 mem get` is
-a print-formatting variant of `c64_mem_read`. The carve-out list in
+68 tools to 74, and every one of the 75 CLI capabilities has a tool. The
+two counts differ in both directions. Seven commands have no tool of
+their own: `c64 help`, whose usage text the protocol already delivers
+with every tool's schema; `c64 mem get`, a print-formatting variant of
+`c64_mem_read`; and five second spellings of commands that already have
+one. Six tools have no command of their own: `c64 wait` splits into
+four, `c64 screen` into three, and the bare `c64 reg` group is spelled
+`c64_reg_get`. 75 - 7 + 6 = 74. The carve-out list in
 `tests/test_mcp_scaffold.py` is empty as a result; the list and its test
 stay, so a future exclusion has to be written down with the reason it is
 one instead of accumulating in silence. Encoding is shared with the CLI
@@ -41,9 +45,9 @@ matter how old the binary was, because the tool never called
 The map itself is written down and measured, in the new `docs/mcp.md`:
 one row per registered tool, naming the command it twins and the one-line
 difference where there is one — the folded rows, the renamed parameters
-(`--from` → `src`, `--format` → `fmt`, `--peak-hz` → `peak_hz`), the
-headless-and-warp sessions the tools hardcode, and the wait timeouts that
-return `{"fired": null, ...}` as data where the CLI exits 1. The page
+(`--from` → `src`, `--format` → `fmt`), the headless-and-warp sessions
+the tools hardcode, and the wait timeouts that return
+`{"fired": null, ...}` as data where the CLI exits 1. The page
 states no tool or command counts of its own, since a second uncounted
 copy of index.html's numbers is the drift it exists to prevent; two tests
 guard it the way those counts are guarded — every registered tool must
