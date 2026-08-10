@@ -813,6 +813,31 @@ def test_cli_audio_record_reports_a_capture_failure():
     assert "warp would not clear" in r.output
 
 
+@pytest.mark.parametrize("argv,target,prefix", [
+    (["audio", "capture", "2", "OUT"], "capture", "audio capture"),
+    (["audio", "record", "--start", "a.wav"], "pinned_record_start",
+     "audio record"),
+])
+def test_cli_audio_timeout_exits_1(argv, target, prefix):
+    """A timeout on the evidence path is a failure, not a note.
+
+    The la-galaxia dogfood (2026-08-08) recorded both of these as printing
+    `error: … timed out` and still exiting 0 — the shape that would let an
+    evidence script finish against a dead session and leave the previous
+    run's reports in place. They exit 1: TimeoutError is an OSError, which
+    both handlers already name, so it reaches `fail()`. Pinned for the
+    timeout that run actually hit, not just the AudioError and SessionError
+    the neighbouring tests cover.
+    """
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch(f"c64lib.cli.{target}", side_effect=TimeoutError("timed out")):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, argv)
+    assert r.exit_code == 1, r.output
+    assert f"error: {prefix}: timed out" in r.output
+
+
 @pytest.mark.parametrize("argv,target", [
     (["audio", "record", "--start", "a.wav"], "pinned_record_start"),
     (["audio", "record", "--stop"], "pinned_record_stop"),

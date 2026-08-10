@@ -157,6 +157,26 @@ def test_session_start_failure_is_json_error():
     assert "x64sc not found" in json.loads(r.output)["error"]
 
 
+def test_session_start_monitor_timeout_exits_1():
+    """The la-galaxia dogfood (2026-08-08) recorded this as printing its error
+    and still exiting 0, which would let `set -e` carry an evidence script on
+    against a dead session. It does not: `Session.launch` raises SessionError
+    and `session start` reports it through `fail()`. Verified end to end on
+    2026-08-09 against the real `.venv/bin/c64` under `/bin/sh -e`, with a fake
+    x64sc that accepts the monitor connection and never answers — exit 1, and
+    the line after the launch never ran. Pinned here so the claim is not
+    re-derived from the demo script's comment.
+    """
+    with patch("c64lib.cli.Session") as S:
+        S.launch.side_effect = SessionError(
+            "VICE started but its monitor never answered after 2 attempt(s): "
+            "timed out")
+        r = CliRunner().invoke(
+            main, ["session", "start", "--name", "X", "--headless"])
+    assert r.exit_code == 1, r.output
+    assert "never answered" in r.output
+
+
 def test_status_command():
     fake, _ = _fake()
     fake.pid, fake.port, fake.socket = 4242, 6510, "/tmp/s.sock"
