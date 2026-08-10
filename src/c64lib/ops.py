@@ -580,11 +580,15 @@ def profile_samples_loop(mon, addr: int, n: int, timeout: float,
     Re-reaching the routine between samples is `until --count`'s shape: one
     persistent checkpoint at `trap` for the whole run, one resume per
     arrival, the durable hit/hit_count fallback for a lost STOPPED event —
-    and the bracket re-armed in place (stack, SP, I flag, PC, timers) rather
+    and the bracket re-armed in place (stack, SP, flags, PC, timers) rather
     than a fresh profile round trip per sample. Each arrival is re-armed from
     the ENTRY SP, so a routine that leaves the stack unbalanced cannot walk
-    the pointer down across samples. `timeout` covers the whole run, not each
-    sample.
+    the pointer down across samples. Flags differ by mode, exactly as they do
+    at n == 1: the default rewrites the WHOLE FL byte from the entry snapshot
+    before every arrival (`fl | FLAG_I`), so no flag a sample leaves behind
+    reaches the next one, while with_irq writes no FL at all, so flags — the
+    routine's own I bit included — do carry over between arrivals.
+    `timeout` covers the whole run, not each sample.
 
     Runs unchanged inside the session daemon (`daemon.PetDaemon`), which
     passes the two hooks: `on_state(running: bool)` mirrors the machine's

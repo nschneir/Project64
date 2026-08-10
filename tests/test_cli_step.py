@@ -333,3 +333,21 @@ def test_profile_impossible_zero_count_is_a_clean_failure():
     assert r.exit_code == 1
     assert isinstance(r.exception, SystemExit)      # fail(), not a traceback
     assert "chip model" in r.output
+
+
+def test_profile_daemon_side_valueerror_is_a_message_not_a_traceback():
+    """The daemon path re-raises any ValueError that is not the old-daemon
+    handshake (falling back would re-run the routine), so `profile` has a
+    second exception type to report — and it must not claim to know where
+    the machine stopped, the way the zero-raw RuntimeError can."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine_samples",
+               side_effect=ValueError("daemon said no")), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000"])
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)      # fail(), not a traceback
+    out = json.loads(r.output)
+    assert "daemon said no" in out["error"]
+    assert "machine" not in out

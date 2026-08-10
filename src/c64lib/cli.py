@@ -1329,8 +1329,16 @@ def profile_cmd(ctx, ref, samples, with_irq, timeout):
     try:
         out = profile_routine_samples(s, addr, samples, timeout=timeout,
                                       with_irq=with_irq)
-    except RuntimeError as e:
-        fail(ctx, f"profile {where}: {e}", extra={"machine": "stopped"})
+    except (RuntimeError, ValueError) as e:
+        # ValueError as well as RuntimeError: on the daemon path any
+        # ValueError that is NOT the old-daemon handshake is re-raised rather
+        # than fallen back on (see ops), and a daemon-side one reaches here
+        # through rpc — it has to be a message, not a traceback. Only the
+        # zero-raw RuntimeError knows where the machine is (stopped at the
+        # trap, cleanup done); an escaped ValueError does not, so it says
+        # nothing about the machine rather than guessing.
+        extra = {"machine": "stopped"} if isinstance(e, RuntimeError) else None
+        fail(ctx, f"profile {where}: {e}", extra=extra)
         return
     if not out["fired"]:
         # Name what the abandoned window left behind: the docs say it, but a

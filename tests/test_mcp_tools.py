@@ -236,6 +236,25 @@ def test_profile_samples_reports_min_max_mean_in_lockstep_with_the_cli():
     assert pr.call_args.args[2] == 4
 
 
+def test_profile_valueerror_is_a_tool_error_not_a_crash():
+    """The CLI twin of this needed a widened `except`; the tool needs none —
+    FastMCP turns any exception into an error result — but that has to be
+    pinned, because ops gained a second exception type (the re-raised
+    non-handshake ValueError, and the `samples < 1` guard)."""
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine_samples",
+               side_effect=ValueError("daemon said no")):
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000"})
+    assert err is True and "daemon said no" in out["raw"]
+
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000", "samples": 0})
+    assert err is True and "at least 1 sample" in out["raw"]
+
+
 def test_wait_mem_parses_and_passes_through():
     s, _ = _fake_session()
     result = {"fired": "mem", "elapsed": 0.1}

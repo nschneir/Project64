@@ -806,7 +806,7 @@ def test_call_routine_durable_flag_fallback():
     assert out["fired"] is True
 
 
-def test_profile_routine_counts_cycles_via_the_cia_cascade():
+def test_profile_routine_samples_counts_cycles_via_the_cia_cascade():
     """507 emulated cycles: the counter ticks 504 of them ($FFFF-504=$FE07 in
     TA, TB untouched at $FFFF) and _CIA_START_SLACK adds the window's first
     three back — the live-verified correction."""
@@ -838,7 +838,7 @@ def test_profile_routine_counts_cycles_via_the_cia_cascade():
     assert out["registers"]["FL"] == 0x20
 
 
-def test_profile_routine_with_irq_leaves_the_flags_alone():
+def test_profile_routine_samples_with_irq_leaves_the_flags_alone():
     from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.side_effect = [
@@ -856,7 +856,7 @@ def test_profile_routine_with_irq_leaves_the_flags_alone():
     assert out["registers"]["FL"] == 0x24
 
 
-def test_profile_routine_cascades_timer_b_for_long_routines():
+def test_profile_routine_samples_cascades_timer_b_for_long_routines():
     """TB counts TA underflows: one underflow plus 0x0100 TA ticks is a
     65792-cycle routine (+ the start slack) — a frame and a half."""
     from c64lib.ops import profile_routine_samples
@@ -873,7 +873,7 @@ def test_profile_routine_cascades_timer_b_for_long_routines():
     assert out["cycles"] == 0x10000 + 0x0100 + 3
 
 
-def test_profile_routine_timeout_leaves_the_machine_running():
+def test_profile_routine_samples_timeout_leaves_the_machine_running():
     from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.return_value = {"SP": 0xF9, "FL": 0x20, "PC": 0x1234}
@@ -887,7 +887,7 @@ def test_profile_routine_timeout_leaves_the_machine_running():
     mon.resume.assert_called()          # machine left running on timeout
 
 
-def test_profile_routine_rejects_an_impossible_zero_count():
+def test_profile_routine_samples_rejects_an_impossible_zero_count():
     """Both timers reading back $FFFF is a raw count of 0, which no routine
     can cost (a bare RTS is 6 cycles): the CIA pokes never reached the chip
     model. _CIA_START_SLACK would dress that up as "cycles": 3 — a silent
@@ -1023,7 +1023,7 @@ def test_profile_routine_samples_timeout_reports_the_arrivals_it_got():
     mon.resume.assert_called()                  # machine left running
 
 
-def test_profile_routine_samples_rejects_an_impossible_zero_count():
+def test_profile_routine_samples_zero_count_aborts_the_whole_run():
     """The zero-raw guard survives sampling, and it aborts the whole run:
     the pokes are not reaching the chip model, so every later sample would be
     the same silent 3."""
@@ -1093,6 +1093,38 @@ def test_profile_samples_falls_back_on_an_old_daemon():
     s.monitor.return_value.__exit__ = Mock(return_value=False)
     out = profile_routine_samples(s, 0xC000, 2)
     assert out["samples"] == [_TICK, _REPAINT]
+
+
+def test_profile_samples_does_not_fall_back_on_an_unrelated_valueerror():
+    """The carve-out's whole point: falling back RUNS THE ROUTINE AGAIN, so
+    only the old-daemon handshake ('unknown daemon method') may trigger it.
+    Any other ValueError has to propagate — a partial daemon-side run
+    silently topped up with a second helping of side effects would be
+    unexplainable from the outside. The local loop here is fully stubbed, so
+    a fallback WOULD have succeeded and returned numbers."""
+    from c64lib.daemon_client import DaemonMonitorClient
+    from c64lib.ops import profile_routine_samples
+    s = Mock()
+    mon = DaemonMonitorClient.__new__(DaemonMonitorClient)
+    mon.profile_samples = Mock(side_effect=ValueError("something else"))
+    for name in ("checkpoint_set", "wait_for_stop", "registers", "memory_read",
+                 "memory_write", "set_register", "checkpoint_delete", "resume",
+                 "checkpoint_list"):
+        setattr(mon, name, Mock())
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)  # pyright: ignore[reportAttributeAccessIssue]
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)  # pyright: ignore[reportAttributeAccessIssue]
+    mon.registers.side_effect = [  # pyright: ignore[reportAttributeAccessIssue]
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},
+    ]
+    mon.memory_read.side_effect = _bimodal_reads([_TICK, _REPAINT])  # pyright: ignore[reportAttributeAccessIssue]
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    with pytest.raises(ValueError, match="something else"):
+        profile_routine_samples(s, 0xC000, 2)
+    # the local loop never started: no second run of the routine
+    mon.checkpoint_set.assert_not_called()  # pyright: ignore[reportAttributeAccessIssue]
+    mon.resume.assert_not_called()  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _idle_session(pcs):
