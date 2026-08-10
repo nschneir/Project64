@@ -93,7 +93,7 @@ them, and does.
 | `tools/build.sh` | build with `--area` and load with symbols — the cycle `c64 run` cannot do |
 | `tools/charset.txt` `punct.txt` `glyphs.txt` | ASCII-art glyph sheets → `chars.inc` |
 | `tools/enemies.txt` + `genblocks.py` | 16×16 enemy pictures split into the 8×8 quadrants the screen matrix needs |
-| `tools/sprites.txt` + `gensprites.py` | the readable sprite sheet, normalised into what `c64 sprite encode` reads |
+| `tools/sprites.txt` | every sprite shape, named and commented, read as authored by `c64 sprite encode --background .` |
 | `tools/gentraj.py` | velocity tables and flight paths → `traj.inc`, with the checks that keep a path on the map |
 | `tools/genmusic.py` | the score source → `music.inc` **and** its reference score YAML |
 | `tools/genart.sh` | regenerates `chars.inc` and `sprites.inc` from the art |

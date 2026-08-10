@@ -1195,34 +1195,44 @@ def c64_sprite_from_png(image: str, multicolor: bool = False) -> dict:
 @srv.tool()
 def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
                       start_line: int | None = None,
-                      line_step: int = 10) -> dict:
+                      line_step: int = 10, background: str = " ") -> dict:
     """Encode ASCII-art sprite(s) from `file` into 63 sprite bytes each (no
     session needed). The file holds one or more 21-row sprites separated by a
-    blank line, in the friendly authoring legend (multicolor ' .#+', hires
-    ' #') or the glyphs c64_sprite_show emits — so show output round-trips
-    straight back through encode. Returns the bytes plus a paste-ready
-    rendering (fmt "asm" ca65 .byte rows, or "basic" data lines that
-    start_line numbers)."""
-    from .sprites import encode_sheet, render_sheet
+    blank line or by a `name:` header — `fighter:hires`, `drone:multicolor`,
+    or a bare `drone:` that takes the file's mode, so one sheet holds both
+    modes exactly as a charset sheet does. `#` comment lines are ignored
+    unless they are a legal row at row width (an all-'#' row is art). Rows
+    use the friendly authoring legend (multicolor ' .#+', hires ' #'), the
+    digit legend '.123' (digit = pair value), or the glyphs c64_sprite_show
+    emits — so show output round-trips straight back through encode.
+    `background` is the character that means pair 00, a space by default;
+    pass "." to author with a visible background whose width is countable.
+    Returns each block's bytes and name plus a paste-ready rendering (fmt
+    "asm" ca65 .byte rows, or "basic" data lines that start_line
+    numbers)."""
+    from .sprites import encode_sheet_blocks, render_sheet
     if start_line is not None and fmt != "basic":
         raise ValueError("start_line only applies to fmt='basic'")
     text_in = Path(file).read_text()
     if not text_in.strip():
         raise ValueError(f"no sprite art found in {file}")
-    sprites = encode_sheet(text_in, multicolor=not hires)
-    if not sprites:
+    blocks = encode_sheet_blocks(text_in, multicolor=not hires,
+                                 background=background)
+    if not blocks:
         raise ValueError(f"no sprite art found in {file}")
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it fmt/start_line would be no-ops here. The CLI omits
     # it from --json only because it prints the same text itself.
-    return {"sprites": [list(data) for data in sprites],
-            "rendered": render_sheet(sprites, fmt, multicolor=not hires,
+    return {"sprites": [list(b.data) for b in blocks],
+            "blocks": [{"name": b.name, "multicolor": b.multicolor}
+                       for b in blocks],
+            "rendered": render_sheet(blocks, fmt, multicolor=not hires,
                                      start_line=start_line, line_step=line_step)}
 
 
 @srv.tool()
 def c64_charset_encode(file: str, hires: bool = False,
-                       first_code: int = 0) -> dict:
+                       first_code: int = 0, label: str = "glyphs") -> dict:
     """Encode ASCII-art glyphs from `file` into 8 charset bytes each (no
     session needed). The file holds `name:` blocks of exactly 8 rows.
     Multicolor rows (the default) are 4 characters of '.123' — pair values
@@ -1232,9 +1242,16 @@ def c64_charset_encode(file: str, hires: bool = False,
     `wall:multicolor`, `letter:hires` — so a multicolor playfield and a
     hires HUD font are one sheet; a bare `name:` takes the file's mode
     (`hires` or not). Returns each glyph's bytes plus a paste-ready ca65
-    rendering under a `glyphs:`/`glyphs_end:` pair. The charset twin of
-    c64_sprite_encode."""
+    rendering under a `glyphs:`/`glyphs_end:` pair — `label` renames both
+    ends, so several sheets concatenate into one include without being
+    renamed on the way out. The charset twin of c64_sprite_encode."""
+    import re
+
     from .charset import encode_row, format_glyphs, parse_charset
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        raise ValueError(
+            f"label {label!r} is not an assembler identifier (letters, digits "
+            f"and underscore, not starting with a digit)")
     glyphs = parse_charset(Path(file).read_text(), multicolor=not hires)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it first_code would be a no-op here. The CLI omits
@@ -1244,7 +1261,7 @@ def c64_charset_encode(file: str, hires: bool = False,
                         "bytes": [encode_row(r, g.multicolor) for r in g.rows]}
                        for g in glyphs],
             "rendered": format_glyphs(glyphs, first_code=first_code,
-                                      multicolor=not hires)}
+                                      multicolor=not hires, label=label)}
 
 
 @srv.tool()

@@ -1258,11 +1258,13 @@ alongside `c64 sprite from-png` (image input) and the inverse of
 `c64 sprite show` (bytes back to ASCII). Needs no session.
 
 - `FILE` — one or more sprites, each exactly 21 rows, separated by a
-  truly blank line (a row of all-background pixels is 12/24 spaces and is
-  *not* a separator — only a zero-character line splits sprites).
-  Multicolor rows (the default) are 12 characters using the friendly
-  legend `' .#+'` (background/mc_color1/sprite-color/mc_color2); hires
-  rows are 24 characters using `' #'`. Either mode also accepts the
+  truly blank line (a row of all-background pixels is 12/24 background
+  characters and is *not* a separator — only a zero-character line splits
+  sprites) or by a `name:` header. Multicolor rows (the default) are 12
+  characters using the friendly legend `' .#+'`
+  (background/mc_color1/sprite-color/mc_color2) or the digit legend
+  charset sheets use, `1 2 3` (the digit *is* the pair value); hires rows
+  are 24 characters using `' #'`. Either mode also accepts the
   glyphs `c64 sprite show` emits (`·▒█▓` multicolor, `█·` hires — including
   its double-wide 24-char multicolor rows), so `show` output round-trips
   straight back through `encode`. A block that is the wrong shape is
@@ -1270,8 +1272,28 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   — because "must be 21 rows" alone costs a hand bisection in a sheet of 27.
   Blocks are counted from 1 the way you read them; the emitted labels are
   0-based, which is why the line number travels with the number.
+- **`name:` headers** — `fighter:hires`, `drone:multicolor`, or a bare
+  `drone:` that takes the file's mode (`--hires` or not). Row width then
+  follows the block's own mode, so a game's hires ship and its multicolor
+  aliens are one sheet and one invocation — the same headers, spelled by
+  the same parser, that `c64 charset encode` reads. A name is echoed in the
+  block's header comment (`; sprite 5 (captured), …`) and reported in
+  errors and in `--json`; the emitted label stays positional (`sprite5:`).
+  Names must be unique, and an unrecognized suffix is rejected by name:
+  `sprite sheet line 12: unknown mode 'mono' — use 'hires' or 'multicolor'`.
+- **`#` comments** — ignored, *except* that `#` is also a legend character,
+  so a line counts as a comment only when it holds something the legend
+  does not. An all-`#` line at exactly row width is a solid row of
+  sprite-color pixels and is kept as art.
 - `--hires` — encode as hires (1 bit/pixel, 24 chars/row) instead of the
-  default multicolor pairs (12 chars/row).
+  default multicolor pairs (12 chars/row). It is the mode a bare `name:`
+  header takes; a block that names its own mode overrides it.
+- `--background CHAR` (default a space) — the character that means
+  background (pair `00`). `--background .` is the conventional visible
+  alternative: every pixel of the art is then a printing character, so a
+  row's width is countable and no editor can strip it. Claiming `.` for
+  `00` is why `1` also spells pair `01` — with a visible background a
+  multicolor sheet reads exactly like a charset sheet's `.123`.
 - `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte %...` rows,
   one sprite row (3 bytes) per line, under a `spriteN:` label with a header
   comment — the same shape `c64 sprite from-png` emits, so hand- and
@@ -1293,27 +1315,26 @@ alongside `c64 sprite from-png` (image input) and the inverse of
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Worked example (one 12x21 multicolor sprite — a small diamond, padded
-with all-background rows). Every content row below is exactly 12
-characters wide (trailing spaces are significant — some viewers trim
-them visually, so count columns rather than trusting the rendering if
-you retype this by hand):
+with all-background rows), authored with a visible background so every
+row is 12 printing characters:
 
 ```
-   ..##..   
-   .####.   
-   ######   
-   ######   
-   .####.   
-   ..##..   
-            
-            
-            
-... (12 more all-space rows to reach 21 total)
+gem:
+...11##11...
+...1####1...
+...######...
+...######...
+...1####1...
+...11##11...
+............
+............
+............
+... (12 more all-background rows to reach 21 total)
 ```
 
 ```
-$ c64 sprite encode diamond.txt
-; sprite 0, 24x21 multicolor (63 bytes: 3 bytes x 21 rows) — c64 sprite encode
+$ c64 sprite encode diamond.txt --background .
+; sprite 0 (gem), 24x21 multicolor (63 bytes: 3 bytes x 21 rows) — c64 sprite encode
 ; place in a 64-byte block; pointer = block_address / 64
 sprite0: .byte %00000001, %01101001, %01000000
          .byte %00000001, %10101010, %01000000
@@ -1325,11 +1346,12 @@ sprite0: .byte %00000001, %01101001, %01000000
 ... (14 more all-background rows to reach 21 total)
 ```
 
-JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in
-FILE. (MCP note: `c64_sprite_encode` is the twin, taking the same file
-path and options, and returns the same `sprites` array plus the text this
-command prints to stdout under `"rendered"` — MCP has no stdout, so
-without it `fmt`/`start_line` would be no-ops.)
+JSON: `{"sprites": [[...63 ints...], ...], "blocks": [{"name", "multicolor"},
+...]}` — one entry per sprite in FILE, in file order; `name` is `null` for a
+block the sheet never named. (MCP note: `c64_sprite_encode` is the twin,
+taking the same file path and options, and returns the same `sprites` and
+`blocks` plus the text this command prints to stdout under `"rendered"` —
+MCP has no stdout, so without it `fmt`/`start_line` would be no-ops.)
 
 ---
 
@@ -1360,13 +1382,20 @@ twin of `c64 sprite encode`. Needs no session.
   takes; a block that names its own mode overrides it.
 - `--first-code N` (default `0`) — screen code of the first glyph; sets
   the `; code N: name` comments (the data itself is position-independent).
+- `--label NAME` (default `glyphs`) — name the emitted block: `NAME:` and
+  `NAME_end:`. A program that installs several sheets (a font, its
+  punctuation, its playfield tiles) concatenates the three invocations into
+  one include and each block keeps its own pair of labels, instead of being
+  `sed`-renamed on the way out. Rejected unless it is an assembler
+  identifier.
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Output is one contiguous block: a `glyphs:` label, 8 `.byte %binary` rows
 per glyph (each echoing its art row as a trailing comment), and a
 `glyphs_end:` label — so an installer copies with
-`cpx #(glyphs_end - glyphs)` and patches over `CHARSET + code*8`. See the
-cookbook's custom-character-set recipe for the RAM-charset setup.
+`cpx #(glyphs_end - glyphs)` and patches over `CHARSET + code*8`
+(`--label` renames both ends together). See the cookbook's
+custom-character-set recipe for the RAM-charset setup.
 
 JSON: `{"glyphs": [{"name", "multicolor", "bytes"}, ...]}` — 8 ints per glyph,
 file order, each with the mode it was encoded in. (MCP note:

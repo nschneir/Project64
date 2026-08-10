@@ -93,6 +93,23 @@ def test_test_run_documents_the_always_present_tests_envelope():
         "the docs never promise `tests` is present whether or not the test ran"
 
 
+def test_sprite_encode_documents_named_blocks_and_a_visible_background():
+    """The sheet grew headers, comments and `--background`; and the old "count
+    columns rather than trusting the rendering" warning only ever existed
+    because the background pixel was an invisible space."""
+    section = _section(DOC.read_text(), "### `c64 sprite encode`")
+    assert "--background" in section, "the visible-background option is undocumented"
+    assert "`name:` headers" in section and ":hires" in section, \
+        "per-block mode headers are undocumented"
+    assert "count columns rather than trusting the rendering" not in section, \
+        "the trailing-whitespace warning outlived the space background"
+
+
+def test_charset_encode_documents_its_label_option():
+    section = _section(DOC.read_text(), "### `c64 charset encode`")
+    assert "--label" in section, "the block-label option is undocumented"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

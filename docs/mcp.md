@@ -192,8 +192,8 @@ each taking its own condition. On all four, a timeout returns
 | `c64_sprite_show` | `c64 sprite show` | — |
 | `c64_sprite_png` | `c64 sprite png` | `--out`/`-o` is `path` (required on both sides) |
 | `c64_sprite_from_png` | `c64 sprite from-png` | the ca65 rows come back in the payload under `rows`, so `--out`/`-o` has no counterpart |
-| `c64_sprite_encode` | `c64 sprite encode` | returns the text the CLI prints under `rendered`, which supersedes `--out`/`-o`; `--format` is `fmt` |
-| `c64_charset_encode` | `c64 charset encode` | same `rendered` key, superseding `--out`/`-o`; `--first-code` is `first_code` |
+| `c64_sprite_encode` | `c64 sprite encode` | returns the text the CLI prints under `rendered`, which supersedes `--out`/`-o`; `--format` is `fmt`, `--background` is `background` |
+| `c64_charset_encode` | `c64 charset encode` | same `rendered` key, superseding `--out`/`-o`; `--first-code` is `first_code`, `--label` is `label` |
 
 ### ROM tools
 
