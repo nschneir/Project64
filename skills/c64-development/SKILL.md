@@ -205,6 +205,19 @@ invisible to `c64 screen` text — inspect them with `c64 sprite status`
 (exact rendered shape), and assert on registers and state bytes. Screen
 relocation is followed automatically by `c64 screen` and `@row,col`.
 
+**More than eight objects, and things that must happen at a known
+scanline.** Eight sprites is a per-scanline ceiling, not a per-screen one:
+the cookbook's *sprite multiplexer* recipe sorts objects by Y, hands each
+the first register free by the time the beam reaches it, and — the part
+that makes it testable — publishes a displayed count and an overflow count
+as plain memory, because a screenshot shows the result and never the
+budget. Its reposition schedule is played out by the *raster event chain*
+recipe, one sorted `(line, kind, arg)` list per frame with a frame marker
+that paces the main loop. Read both before writing a raster handler by
+hand; between them they carry the two subtleties that cost the most time
+(arming `$D012` past the live raster, and the `$D019` re-acknowledge on the
+way out).
+
 **Anchoring an observation on a moving program.** Anything you sample or
 screenshot while the machine runs is a race — at warp the ball has flown on
 before the capture lands. Park the machine at the exact moment first, then
@@ -515,7 +528,8 @@ final action before a capture.
 Read the matching file when you need the detail:
 
 - `references/cookbook.md` — **start here for a new program**: tested,
-  copy-adaptable recipes (game loops, screen pokes, sprites, sound) in BASIC and asm.
+  copy-adaptable recipes (game loops, screen pokes, sprites, sprite
+  multiplexing, raster event chains, sound) in BASIC and asm.
 - `references/memory-maps.md` — the C64 memory layout (RAM, screen, ROM, I/O, banking).
 - `references/zero-page.md` — the 6510 port, BASIC pointer chain, low-memory
   usage, handy control-flag locations (RUN/STOP, key repeat, color, region),
