@@ -208,7 +208,7 @@ each taking its own condition. On all four, a timeout returns
 |------|-----|------------|
 | `c64_audio_record` | `c64 audio record` | `--start PATH` and `--stop` become `action="start"` with `path`, or `action="stop"` |
 | `c64_sid_log` | `c64 audio sidlog` | renamed: the tool is named for what it logs |
-| `c64_audio_capture` | `c64 audio capture` | — |
+| `c64_audio_capture` | `c64 audio capture` | `--at-frame N SPEC` (repeatable) is one `at_frame` mapping, `{"N": "SPEC"}` |
 | `c64_sid_report` | `c64 audio report` | renamed to match `c64_sid_log`; `--peak-hz` is `peak_hz` |
 | `c64_audio_score` | `c64 audio score` | — |
 

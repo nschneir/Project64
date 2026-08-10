@@ -8,6 +8,58 @@ commit).
 
 ## [Unreleased]
 
+A capture window can be **aimed** now, and it says what it cost to open.
+`c64 audio capture --at-frame N 'ADDR=VAL[,ADDR=VAL…]'` (repeatable;
+`at_frame={"N": "…"}` over MCP) performs those writes at frame N of the
+window. This is the la-galaxia dogfood's single biggest audio cost — about
+ninety minutes and a program change — and it was unreachable rather than
+merely awkward: arming spends emulated frames before log frame 0, and once
+the window is open the sampling loop owns the session, running as one round
+trip inside the daemon, so a poke from another command queues behind the
+whole capture instead of landing inside it. A six-frame laser was therefore
+always over before frame 0, and the game's own trigger was no better — the
+fighter fires on an input *edge*, `key hold` pins `$CB` to one value, and
+with the KERNAL scan off the state never falls. The writes travel with the
+sampling loop as a separate `sid_log_at` daemon method, deliberately not a
+third argument on `sid_log`: an older daemon drops extra positional args
+silently, and a capture that looks aimed and is not is the worst outcome
+available. A write lands while the machine is halted, immediately before the
+resume that runs its frame, so frame N is the first *logged* frame that shows
+it and the schedule costs no emulated time at all. A frame outside the window
+is refused before anything is pinned, where a malformed `--ref` already was.
+
+`lead_in_frames` is that arming cost, measured per capture instead of quoted
+from somebody else's run: the KERNAL jiffy read before the pin against the
+jiffy read after the arm, converted through the jiffy's 60.00 Hz — it is a
+clock, not a frame counter, and PAL ticks it 1.2 times a frame — plus the
+sampling loop's own first resume. It is **null**, never a plausible number,
+when the jiffy cannot answer: the KERNAL's IRQ handler is what increments it,
+so a player that owns the IRQ freezes it. The text monitor's cycle
+`STOPWATCH` would have been program-independent and cycle-exact, and it is
+not used on measurement grounds — opening that channel at real time costs
+several frames of the very lead-in it would report, where the jiffy read
+costs one round trip. VICE's binary monitor has neither counter.
+
+`sid-log.jsonl` now opens with a clock stamp — `{"machine", "clock_hz",
+"fps"}` from the session's own model — so `c64 audio report` needs `-s` only
+as an override. Before it, a re-score run after the session had stopped
+silently assumed PAL and renamed every note of an NTSC capture, which reads
+as a badly tuned program rather than a mistake in the tooling. The payload's
+new `clock_source` says which of the three answered (`session`, `log`,
+`default`), because "assumed PAL" and "told PAL" produce identical reports
+and only one of them is evidence. Logs written before the stamp still parse:
+the header is optional to the reader and mandatory for the writer.
+
+And the score diff compares **pitch, not spelling**. A score written from
+music data spells its black keys the way its key signature does, while the
+transcription only ever emits sharps — a frequency carries no key signature
+to choose from — so the first `--ref` run of one demo came back as seven
+diffs, every one of them a flat against its own sharp. `Ab4`, `A♭4`, `G#4`
+and `G♯4` are now one note; the round trip goes through MIDI rather than
+pitch class, so `Cb4` matches `B3` an octave digit down and a real
+wrong-octave bug still fails. A diff quotes both spellings when they differ:
+`expected Ab4 (= G#4), heard A4 at frame 96`.
+
 The `warp on` wedge is fixed at its cause, not just retried around — and
 fixing it surfaced a second latent race, so `pinned_record_stop` now does
 three things in an order where neither can fire. It re-arms the recorder

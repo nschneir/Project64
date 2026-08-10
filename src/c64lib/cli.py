@@ -15,9 +15,10 @@ import click
 from . import __version__
 from .audio import (
     capture,
+    parse_frame_writes,
     pinned_record_start,
     pinned_record_stop,
-    report_timing_for,
+    report_timing_from,
     sid_log_detail,
     sid_report,
 )
@@ -2423,11 +2424,14 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     --ref, and lists the anomalies no working tune produces. Exits 1 when the
     verdict is FAIL — the payload is still printed.
 
-    The transcription needs the machine's clock, and a register log does not
-    carry it: `-s NAME` takes it from that session's model, and without a
-    session PAL is assumed (985248 Hz, 50 fps). Reading an NTSC capture as PAL
-    transcribes every note about 65 cents out, which looks like a badly tuned
-    program rather than a mistake here, so name the session when it was NTSC.
+    The transcription needs the machine's clock. A log captured by these
+    tools STAMPS it on line 1, so a re-score needs nothing: `-s NAME` is an
+    override, taking the clock from that session's model instead, and only a
+    log written before the stamp existed (or by hand) falls back to PAL
+    (985248 Hz, 50 fps). `clock_source` in the payload says which of the
+    three it was. Reading an NTSC capture as PAL transcribes every note about
+    65 cents out, which looks like a badly tuned program rather than a
+    mistake here — that silent fallback is what the stamp closes.
 
     --peak-hz adds the recording's loudest frequency to the payload, measured
     by one rFFT over the whole file with DC excluded. It is a bin centre, not
@@ -2438,7 +2442,7 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     rests its emulated-time alignment on.
     """
     name = ctx.obj["session"]
-    timing = report_timing_for(attach(ctx).model if name else None)
+    timing = report_timing_from(log, attach(ctx).model if name else None)
     if peak_hz and not wav_path:
         fail(ctx, "audio report --peak-hz needs --wav: a dominant partial is "
                   "a property of the recording, not of the register log")
@@ -2455,8 +2459,15 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
         fail(ctx, f"audio report: {e}")
         return
     notes = f"{out['notes']} note" + ("" if out["notes"] == 1 else "s")
+    # Where the clock came from, not just which one it was: "assumed PAL"
+    # and "the log says PAL" produce identical transcriptions and only one
+    # of them is evidence.
+    source = {"session": "from the named session",
+              "log": "stamped on the log",
+              "default": "ASSUMED — the log carries no clock and no session "
+                         "was named"}.get(timing["clock_source"], "")
     headline = (f"transcribed {notes} as a {out['machine']} "
-                f"machine ({out['clock_hz']} Hz, {out['fps']} fps)")
+                f"machine ({out['clock_hz']} Hz, {out['fps']} fps, {source})")
     if peak_hz:
         peak = out["peak"]
         cents = ("" if peak["resolution_cents"] is None
@@ -2518,8 +2529,14 @@ def audio_score(ctx, file):
               help="Reference score YAML to diff the transcription against — "
                    "write it from your own note data BEFORE capturing, never "
                    "from a transcription this produced.")
+@click.option("--at-frame", "at_frames", nargs=2, multiple=True,
+              metavar="N ADDR=VAL[,ADDR=VAL...]",
+              help="Perform these memory writes at frame N of the capture "
+                   "window — the only way to trigger something inside it, "
+                   "since nothing else may drive the session while it is "
+                   "open. Repeatable; repeats of one frame merge in order.")
 @click.pass_context
-def audio_capture(ctx, seconds, outdir, ref_path):
+def audio_capture(ctx, seconds, outdir, ref_path, at_frames):
     """Record SECONDS of the running program and report on what it played.
 
     One call for the whole loop: pin real time, record `capture.wav`, log the
@@ -2547,12 +2564,25 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     but the program's delay runs before that, and under warp an eight-second
     jiffy delay is over in a fraction of a real second.
 
+    A short effect cannot be triggered from outside: arming costs emulated
+    frames before frame 0 (the payload's `lead_in_frames` measures how many
+    on this capture), and once the window is open the sampling loop owns the
+    session, so a poke from another command is queued behind it. Use
+    `--at-frame N 'ADDR=VAL'` — the writes happen while the machine is halted
+    just before frame N runs, so frame N is the first logged frame that shows
+    them: `--at-frame 30 '$d404=$81'` gates a voice 30 frames in.
+
     Check the score with `c64 audio score` before you get here. A typo'd voice
     key costs nothing to find there and the whole window to find here.
     """
+    try:
+        writes = parse_frame_writes(at_frames)
+    except ValueError as e:
+        fail(ctx, f"audio capture --at-frame: {e}")
+        return
     s = attach(ctx)
     try:
-        out = capture(s, seconds, outdir, ref_path=ref_path)
+        out = capture(s, seconds, outdir, ref_path=ref_path, writes=writes)
     except (RuntimeError, OSError, ValueError, MonitorError, SessionError) as e:
         # As wide as `audio record`: a capture drives two monitors, and a
         # MonitorError, a busy daemon's TimeoutError, or a failed respawn's
@@ -2561,6 +2591,12 @@ def audio_capture(ctx, seconds, outdir, ref_path):
         return
     headline = (f"{out['frames']} frames — {out['emulated_s']:.1f} s "
                 f"emulated in {out['wall_clock_s']:.1f} s of wall clock")
+    if out.get("lead_in_frames") is not None:
+        # The frames the arming spent before frame 0. Worth a line rather
+        # than only a JSON field: it is the answer to "why did my effect not
+        # appear", and the number an agent needs to aim --at-frame.
+        headline += (f"; lead-in {out['lead_in_frames']} frames before "
+                     f"frame 0")
     if out.get("unpin_error"):
         # A pointer, not a repeat: `capture` has already printed the whole
         # sentence to stderr. The verdict is about the audio, and this is about

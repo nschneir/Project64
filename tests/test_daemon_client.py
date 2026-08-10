@@ -333,6 +333,35 @@ def test_sid_log_samples_one_frame_per_resume_daemon_side(served):
     assert d.state == "running"
 
 
+def test_sid_log_at_writes_before_the_resume_for_that_frame(served):
+    """A capture owns the daemon for its whole window, so a trigger has to
+    ride the same RPC. The write lands while the machine is halted, before
+    the resume that runs frame N — so frame N is the first SAMPLED frame
+    carrying it, and the schedule costs no emulated time."""
+    c, mon, d = served
+    mon.memory_read.return_value = bytes(range(25))
+    calls: list = []
+    mon.memory_write.side_effect = lambda a, v: calls.append(("write", a, v))
+    mon.resume.side_effect = lambda: calls.append("resume")
+    mon.memory_read.side_effect = lambda *a, **k: (calls.append("read")
+                                                   or bytes(range(25)))
+    out = c.sid_log(3, 5.0, writes={1: [(0xD404, 0x11)]})
+    assert len(out) == 3
+    assert calls == ["resume", "read",
+                     ("write", 0xD404, b"\x11"), "resume", "read",
+                     "resume", "read", "resume"]
+
+
+def test_sid_log_at_rejects_a_byte_the_wire_should_never_have_carried(served):
+    """The daemon holds the session's only VICE connection, so a bad value
+    is re-checked here rather than raising out of `memory_write` in the
+    middle of somebody's window."""
+    c, mon, d = served
+    with pytest.raises(ValueError, match="0-255"):
+        c.sid_log(2, 5.0, writes={0: [(0xD404, 999)]})
+    mon.memory_write.assert_not_called()
+
+
 def test_sid_log_stops_when_the_client_vanishes_mid_log():
     """A Ctrl-C'd capture must not leave the daemon sampling to its deadline.
 

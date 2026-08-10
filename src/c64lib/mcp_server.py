@@ -14,9 +14,10 @@ from mcp.server.fastmcp import FastMCP
 
 from .audio import (
     capture,
+    parse_frame_writes,
     pinned_record_start,
     pinned_record_stop,
-    report_timing_for,
+    report_timing_from,
     sid_log_detail,
     sid_report,
 )
@@ -1319,18 +1320,22 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     but a score you wrote from your own note data BEFORE capturing is what
     turns this from a description into a test.
 
-    Name a `session` when the capture came from an NTSC machine: a register
-    log does not carry its clock, so with no session PAL is assumed (985248
-    Hz, 50 fps) and an NTSC log transcribes about 65 cents out — a plausible
-    report of the wrong pitches. Returns the artifact paths, the verdict, and
-    the findings behind it. `peak_hz` adds a `peak` object measuring the WAV's
-    loudest frequency — one rFFT over the whole file with DC excluded, so it is
-    a bin centre and `resolution_cents` names how precise that answer is.
+    A log captured by these tools STAMPS its machine on line 1, so a re-score
+    needs no session at all — `session` is an override for that clock, and
+    only an unstamped log (written by hand, or before the stamp existed) falls
+    back to PAL (985248 Hz, 50 fps), where an NTSC log transcribes about 65
+    cents out as a plausible report of the wrong pitches. `clock_source` in
+    the result says which of the three answered: `"session"`, `"log"`, or
+    `"default"` — and `"default"` is the one to look at twice. Returns the
+    artifact paths, the verdict, and the findings behind it. `peak_hz` adds a
+    `peak` object measuring the WAV's loudest frequency — one rFFT over the
+    whole file with DC excluded, so it is a bin centre and `resolution_cents`
+    names how precise that answer is.
     """
     if peak_hz and not wav:
         raise ValueError("peak_hz needs wav: a dominant partial is a property "
                          "of the recording, not of the register log")
-    timing = report_timing_for(_attach(session).model if session else None)
+    timing = report_timing_from(log, _attach(session).model if session else None)
     out = sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
     # `and wav` re-states what the guard above already refused, and narrows
     # `wav` to str for the call that needs a path.
@@ -1367,7 +1372,8 @@ def c64_audio_score(file: str) -> dict:
 
 @srv.tool()
 def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
-                      session: str | None = None) -> dict:
+                      session: str | None = None,
+                      at_frame: dict[str, str] | None = None) -> dict:
     """Record the running program's audio and report on what it played — the
     one call that verifies SID music end to end. Pins real time, records
     `capture.wav`, logs the SID's registers to `sid-log.jsonl`, restores the
@@ -1390,8 +1396,21 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     it, and let nothing else drive the session meanwhile — the capture window
     has to stay at real time, since a warped VICE writes a 0-frame WAV.
 
+    `at_frame` is how you make something HAPPEN inside the window, and it is
+    the only way: `{"30": "$d404=$81"}` performs those writes just before
+    frame 30 runs, so frame 30 is the first logged frame showing them.
+    Nothing outside can do it — arming costs emulated frames before frame 0
+    (`lead_in_frames` measures how many on this capture), and while the
+    window is open the sampling loop owns the session, so a
+    `c64_mem_write` from elsewhere waits until it closes. An effect shorter
+    than the lead-in is otherwise unreachable. Keys are frame numbers as
+    strings; values are `ADDR=VAL` lists, comma-separated, in decimal, `$hex`
+    or `0xhex`.
+
     Returns the artifact paths, the verdict, the score diff, the anomalies,
-    and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`).
+    and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`,
+    `lead_in_frames`). `lead_in_frames` is measured from the machine's own
+    jiffy clock, and is null when a program that owns the IRQ has frozen it.
 
     `unpin_error` is None on a capture that put its session back. When it is
     not, the artifacts and the verdict are still good — they were complete
@@ -1401,5 +1420,8 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     is a different failure and still raises: that one leaves no finalized WAV
     to report on.)
     """
+    # Parsed before the session is touched, and by the CLI's own parser: the
+    # two front ends must reject the same spellings with the same words.
+    writes = parse_frame_writes((at_frame or {}).items())
     s = _attach(session)
-    return capture(s, seconds, outdir, ref_path=ref)
+    return capture(s, seconds, outdir, ref_path=ref, writes=writes)

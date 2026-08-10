@@ -1439,10 +1439,17 @@ analysis side reads to work out what a tune actually played.
 - `FRAMES` — how many frames to sample (at least 1).
 - `PATH` — the JSONL file to write.
 
-One line per frame and nothing else: `{"frame": n, "regs": [25 ints]}`,
-where `regs[0]` is `$D400` and `regs[24]` is `$D418`. The whole block is
-one 25-byte read taken at a frame boundary, so the registers in a record
-are consistent with each other.
+Line 1 is a clock stamp — `{"machine", "clock_hz", "fps"}`, taken from the
+session's own model — and every line after it is one frame and nothing else:
+`{"frame": n, "regs": [25 ints]}`, where `regs[0]` is `$D400` and `regs[24]`
+is `$D418`. The whole block is one 25-byte read taken at a frame boundary, so
+the registers in a record are consistent with each other.
+
+The stamp exists because the records cannot carry a clock and the same
+registers are different notes on different machines: `c64 audio report` reads
+it back, so a re-score months later needs no `-s` and cannot silently assume
+PAL. Logs written before the stamp existed still parse — the header is
+optional to the reader, never to the writer.
 
 The sampling loop runs inside the session daemon, one frame per round trip
 — a per-frame round trip from the client would cost about half a second
@@ -1505,9 +1512,47 @@ into OUTDIR.
 - `SECONDS` — how much **emulated** time to capture.
 - `OUTDIR` — where the five artifacts go (created if needed).
 - `--ref PATH` — reference score YAML to diff the transcription against.
+- `--at-frame N ADDR=VAL[,ADDR=VAL...]` — perform those memory writes at
+  frame N of the window. Repeatable; two flags naming the same frame merge in
+  the order given, as do the writes inside one flag. Numbers are decimal,
+  `$hex`, or `0xhex`; a value is one byte. A frame the window never reaches
+  is refused before anything is pinned, like a malformed `--ref`.
 
 Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
+
+**`--at-frame` is the only way to trigger something inside the window, and
+short effects need it.** Two things close every other route. Arming costs
+emulated frames before frame 0 — `lead_in_frames` in the payload measures how
+many on *this* capture — so an effect fired just before the command starts is
+already over when the log opens. And once the window is open the sampling
+loop owns the session: it runs as one round trip inside the session daemon,
+so a `c64 mem write` from another shell is queued behind the whole capture,
+not interleaved with it. A six-frame laser is therefore unreachable from
+outside and trivial from inside:
+
+```
+c64 audio capture 1 out/ --at-frame 20 '$d404=$81' --at-frame 26 '$d404=$80'
+```
+
+The writes land while the machine is halted, immediately before the resume
+that runs frame N, so frame N is the first *logged* frame whose registers
+show them — and because the machine is already stopped, scheduling costs no
+emulated time and does not move the frame clock.
+
+**`lead_in_frames` is measured, not quoted.** It is the KERNAL jiffy read
+before the pin against the jiffy read after the arm, converted through the
+jiffy's 60.00 Hz to the machine's frames, plus the sampling loop's own first
+resume. It is accurate to about a frame — the jiffy quantizes to 1/60 s — and
+it includes the two round trips taking it costs, which is roughly one frame of
+what it reports. It is **null** when the jiffy cannot answer: the KERNAL's IRQ
+handler is what increments it, so a player that takes the IRQ over freezes it,
+and a program storing its own data at `$A0-$A2` poisons it (a delta outside
+ten emulated minutes is discarded rather than reported). Null means "not
+measured here", never "no lead-in". VICE's binary monitor has no frame or
+cycle counter of its own; its text monitor does carry a cycle `STOPWATCH`, and
+it is not used, because opening that channel costs several frames of the very
+number it would be measuring.
 
 **A capture in which nothing played still passes** — nothing sounded, so no
 check had anything to disagree with — but it says so: `nothing_played` is
@@ -1563,7 +1608,7 @@ the pitch half re-runs on any capture.
 
 JSON: everything `audio report` returns, plus `frames` (what landed),
 `requested_frames`, `emulated_s`, `wall_clock_s`, `wav_bytes`,
-`log_warning`, and `unpin_error`.
+`lead_in_frames`, `log_warning`, and `unpin_error`.
 
 A failed *restore* does not fail the capture. The WAV and the register log are
 already complete by the time the session is put back, so a restore that cannot
@@ -1624,12 +1669,30 @@ what the registers predict (`hz = reg16 * clock / 2**24`): that comparison is
 what establishes a capture's WAV and its register log share a time base, and
 it is the measurement `src/c64lib/audio.py`'s module docstring rests on.
 
-The transcription needs the machine's clock and a register log does not carry
-one: `-s NAME` takes it from that session's model, and with no session PAL is
-assumed (985248 Hz, 50 fps). The wrong clock is not an error, it is a
-plausible report of the wrong pitches — reading the NTSC capture above as PAL
-turns its A4 into "G#4, detuned +35.4 cents". Name the session when the
-capture was NTSC.
+The transcription needs the machine's clock, and a *record* does not carry
+one — but the log does, on line 1. Three sources, in this order, and the
+payload's `clock_source` says which answered:
+
+| `clock_source` | Where it came from |
+|---|---|
+| `session` | `-s NAME` was given: that session's model, overriding any stamp. |
+| `log` | The log's own clock stamp — what any capture by these tools writes. |
+| `default` | Neither: PAL is **assumed** (985248 Hz, 50 fps). |
+
+The wrong clock is not an error, it is a plausible report of the wrong
+pitches — reading the NTSC capture above as PAL turns its A4 into "G#4,
+detuned +35.4 cents" — and before the stamp existed a re-score run after the
+session had stopped did exactly that, silently, renaming every note. So
+`default` is the line to look at twice: it means nothing named the machine.
+It appears only for a hand-written log or one captured before the stamp.
+
+The reference score is compared by **pitch, not spelling**. A score written
+from music data spells the black keys however the key signature does, while
+the transcription only ever emits sharps — a frequency carries no key
+signature to choose from — so `Ab4`, `A♭4`, `G#4` and `G♯4` all match the
+same note, and `Cb4` correctly matches `B3` an octave digit down rather than
+`B4`. A diff quotes both spellings when they differ: `expected Ab4 (= G#4),
+heard A4 at frame 96`.
 
 The reference score is positional per voice — event *n* of a voice against
 entry *n* of that voice's list:
@@ -1648,7 +1711,8 @@ evidence.
 
 JSON: `{"outdir", "report", "verdict", "failures", "log", "wav",
 "piano_roll", "spectrogram", "events", "notes", "nothing_played", "diffs",
-"anomalies", "metrics", "machine", "clock_hz", "fps"}` — `verdict` is
+"anomalies", "metrics", "machine", "clock_hz", "fps", "clock_source"}` —
+`verdict` is
 `"PASS"` or `"FAIL"`, `failures` is the reasons behind a FAIL,
 `nothing_played` is true when no voice sounded and the recording (if there
 was one) agrees, `events` counts note events (rests included) against
