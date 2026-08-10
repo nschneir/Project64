@@ -833,10 +833,15 @@ def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
         # below (which would blame a checkpoint that never existed).
         return {"frames": 0, "requested": 0, "machine": "untouched"}
     if out["registers"] is None:
+        # An MCP error is text only — there is no extras dict — so the key
+        # state has to travel in the message the caller reads.
+        key_state = ("key released ($CB=64)" if out["released"] else
+                     f"$CB still holds {key!r} (release=false) — clear it "
+                     "with c64_mem_write addr='$CB' values=[64]")
         raise RuntimeError(
             f"timeout: only {out['frames']}/{frames} frame(s) reached "
             f"{format_addr(labels, addr)} — machine left RUNNING, checkpoint "
-            "removed. Is the anchor really executed every tick?")
+            f"removed, {key_state}. Is the anchor really executed every tick?")
     return {**_stopped_regs(s, out["registers"]), "frames": out["frames"],
             "released": out["released"]}
 

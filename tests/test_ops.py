@@ -500,13 +500,40 @@ def test_key_hold_timeout_reports_progress():
         out = key_hold(s, "a", 0x1000, frames=5)
     assert out["frames"] == 1 and out["requested"] == 5
     assert out["registers"] is None
-    # A timed-out hold never reached the anchor, so there was no "final
-    # tick" to release after: the machine is left RUNNING and untouched,
-    # and the result says so rather than claiming a release that the
-    # error path did not perform.
-    assert out["released"] is False
+
+
+def test_key_hold_timeout_still_releases_and_leaves_the_machine_running():
+    """The timeout is the case that needs the release most: a mistyped
+    anchor on a healthy game jams the key with no scan to clear it and
+    nothing stopped for the caller to notice. run_until leaves the machine
+    RUNNING on timeout, and a monitor write halts it — so the release must
+    poke 64 AND resume, or the "machine left RUNNING" promise in the error
+    message and docs/cli.md becomes a lie."""
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    with patch("c64lib.ops.run_until",
+               side_effect=[{"registers": {"PC": 1}, "reached": 1, "count": 1},
+                            {"registers": None, "reached": 0, "count": 1}]):
+        out = key_hold(s, "a", 0x1000, frames=5)
+    assert out["released"] is True
     assert mon.memory_write.call_args_list == [
-        call(0xCB, bytes([10]))] * 2
+        call(0xCB, bytes([10])), call(0xCB, bytes([10])),
+        call(0xCB, bytes([64]))]
+    mon.resume.assert_called_once_with()
+
+
+def test_key_hold_timeout_honours_no_release():
+    """`release=False` means the key stays down even on the error path —
+    the caller asked for it, so nothing is poked and nothing is resumed on
+    top of the resume run_until already did."""
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    with patch("c64lib.ops.run_until",
+               return_value={"registers": None, "reached": 0, "count": 1}):
+        out = key_hold(s, "a", 0x1000, frames=5, release=False)
+    assert out["released"] is False
+    assert mon.memory_write.call_args_list == [call(0xCB, bytes([10]))]
+    mon.resume.assert_not_called()
 
 
 def test_key_hold_zero_frames_is_a_no_op():

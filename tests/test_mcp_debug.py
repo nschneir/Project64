@@ -151,6 +151,32 @@ def test_key_hold_releases_by_default_over_mcp():
     assert out["released"] is True and out["frames"] == 2
 
 
+def test_key_hold_timeout_reports_the_key_state_over_mcp():
+    """Same lockstep on the error path: the timeout says the key was let
+    go, and with release=false it names $CB and the poke that clears it
+    (an MCP error is text only — there is no extras dict to carry it)."""
+    s, _ = _fake()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold",
+               return_value={"frames": 1, "requested": 5, "released": True,
+                             "registers": None}):
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 5})
+    assert err is True
+    assert "left RUNNING" in out["raw"] and "key released" in out["raw"]
+
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold",
+               return_value={"frames": 0, "requested": 3, "released": False,
+                             "registers": None}):
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 3, "release": False})
+    assert err is True
+    assert "$CB" in out["raw"] and "c64_mem_write" in out["raw"]
+
+
 def test_key_hold_release_false_is_forwarded_over_mcp():
     s, _ = _fake()
     with patch("c64lib.mcp_server.Session") as S, \

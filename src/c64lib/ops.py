@@ -758,11 +758,12 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
 
     Returns {"frames": done, "requested": frames, "registers": regs,
     "released": bool}; registers is None if a frame timed out (machine
-    left RUNNING, same contract as run_until) and "released" is then False
-    — a timed-out hold never reached a final tick to release after.
-    frames=0 is a validated no-op: the machine is untouched and the result
-    is {"frames": 0, "requested": 0, "registers": None, "released":
-    False}. frames < 0 raises ValueError."""
+    left RUNNING, same contract as run_until). A timed-out hold still
+    releases when `release` is set — a wrong anchor is the commonest cause
+    and jams the key exactly as above — and resumes afterwards so the
+    machine really is left RUNNING. frames=0 is a validated no-op: the
+    machine is untouched and the result is {"frames": 0, "requested": 0,
+    "registers": None, "released": False}. frames < 0 raises ValueError."""
     k = " " if key.lower() == "space" else key
     if len(k) != 1:
         raise ValueError(f"key must be one character or 'space', got {key!r}")
@@ -785,11 +786,21 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
             mon.memory_write(KEYDOWN_ADDR, code)
         out = run_until(session, at_addr, timeout=timeout, count=1)
         if out["registers"] is None:
-            # Timed out: the machine is RUNNING and never reached a final
-            # tick, so there is nothing to release after. Leave it alone
-            # rather than poking a running machine on the error path.
+            # Timed out — and this is the case that needs the release most:
+            # the usual cause is a wrong anchor on a perfectly healthy game,
+            # which leaves the key jammed down with no scan to clear it and
+            # nothing stopped for the caller to notice. So let the key go
+            # here too, then resume: run_until deliberately leaves the
+            # machine RUNNING on timeout (it deletes the checkpoint and
+            # resumes), and a monitor write halts it, so without the resume
+            # the "machine left RUNNING" promise in the error message and in
+            # docs/cli.md would be a lie.
+            if release:
+                with session.monitor() as mon:
+                    mon.memory_write(KEYDOWN_ADDR, bytes([KEY_NONE]))
+                    mon.resume()
             return {"frames": i, "requested": frames, "registers": None,
-                    "released": False}
+                    "released": release}
     if release:
         with session.monitor() as mon:
             mon.memory_write(KEYDOWN_ADDR, bytes([KEY_NONE]))

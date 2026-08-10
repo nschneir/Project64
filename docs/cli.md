@@ -232,8 +232,11 @@ deterministic first frame, stop at the anchor first (`c64 until REF`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "frames", "released"}`.
 With `--frames 0`: `{"frames": 0, "requested": 0, "machine": "untouched"}`. On
-a frame timeout: exit 1, machine left running, checkpoint removed, key not
-released.
+a frame timeout: exit 1, machine left running, checkpoint removed — the key is
+still released (a mistyped anchor is the commonest cause, and it would
+otherwise leave the key jammed on a running machine), and the failure says
+which, with `released` in the JSON. With `--no-release` the failure names the
+key `$CB` still holds and the `c64 mem write '$CB' 64` that clears it.
 
 ---
 

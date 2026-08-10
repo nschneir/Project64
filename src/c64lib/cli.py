@@ -2054,10 +2054,17 @@ def key_hold(ctx, keyname, at_ref, frames, timeout, release):
              "0 frames requested — nothing held; machine untouched")
         return
     if out["registers"] is None:
+        # The machine is left RUNNING, so the caller cannot look at $CB —
+        # say what happened to the key rather than making them guess.
+        key_state = ("key released ($CB=64)" if out["released"] else
+                     f"$CB still holds {keyname!r} (--no-release) — clear it "
+                     "with `c64 mem write '$CB' 64`")
         fail(ctx, f"timeout: only {out['frames']}/{frames} frame(s) reached "
                   f"{format_addr(labels, addr)} — machine left RUNNING, "
-                  "checkpoint removed. Is REF really executed every tick?",
-             extra={"frames": out["frames"], "requested": frames})
+                  f"checkpoint removed, {key_state}. "
+                  "Is REF really executed every tick?",
+             extra={"frames": out["frames"], "requested": frames,
+                    "released": out["released"]})
         return
     _emit_stopped_regs(ctx, labels, out["registers"],
                        extra={"frames": out["frames"],

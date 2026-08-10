@@ -97,7 +97,7 @@ def test_key_hold_releases_by_default_and_says_so():
     """No flag = the key is let go. The re-poke only works while the KERNAL
     scan is alive to clear $CB; a game that owns the IRQ has no scan, so a
     hold that did not release would leave the key down for the rest of the
-    session. The JSON reports `released` so a script never has to guess."""
+    session. The JSON carries `released` alongside the registers."""
     fake, mon = _fake()
     with patch("c64lib.cli.ops_key_hold",
                return_value={"frames": 2, "requested": 2, "released": True,
@@ -109,6 +109,43 @@ def test_key_hold_releases_by_default_and_says_so():
     assert r.exit_code == 0, r.output
     assert kh.call_args.kwargs["release"] is True
     assert json.loads(r.output)["released"] is True
+
+
+def test_key_hold_timeout_reports_the_key_state():
+    """A timeout is where `released` carries real information: the machine
+    is left RUNNING, so the caller cannot see $CB for themselves. The
+    failure says the key was let go and the JSON carries the flag."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.ops_key_hold",
+               return_value={"frames": 1, "requested": 5, "released": True,
+                             "registers": None}), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "key", "hold", "d",
+                                      "--at", "$0819", "--frames", "5"])
+    assert r.exit_code == 1, r.output
+    out = json.loads(r.output)
+    assert out["released"] is True and out["frames"] == 1
+    assert "left RUNNING" in out["error"] and "key released" in out["error"]
+
+
+def test_key_hold_timeout_names_the_stuck_key_with_no_release():
+    """With `--no-release` the key really is left down on a running
+    machine — the failure must name $CB and hand over the poke that clears
+    it, not leave the caller to work it out."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.ops_key_hold",
+               return_value={"frames": 0, "requested": 3, "released": False,
+                             "registers": None}), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "key", "hold", "d",
+                                      "--at", "$0819", "--frames", "3",
+                                      "--no-release"])
+    assert r.exit_code == 1, r.output
+    out = json.loads(r.output)
+    assert out["released"] is False
+    assert "$CB" in out["error"] and "mem write" in out["error"]
 
 
 def test_key_hold_no_release_keeps_the_key_down():
