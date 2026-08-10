@@ -192,7 +192,10 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
 ## Dogfood post-mortems
 
 A dogfood run ends by writing its friction into `docs/todo.md` in that file's
-format — anchor, what's wrong now, fix direction, how to verify. Those items
+format — anchor, what's wrong now, fix direction, how to verify. The file is
+deleted whenever its last item lands (maintainer ruling, 2026-08-09), so
+recreate it, preamble and all, if it is absent — git history has the previous
+incarnation. Those items
 are claims about this repo, so they get the evidence discipline this repo
 applies to everything else: **quote the file before asserting a gap in it.**
 Grep the reference, paste the sentence that is or is not there, and let the

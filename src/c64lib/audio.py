@@ -179,6 +179,34 @@ class AudioError(RuntimeError):
     """A capture could not be armed, or warp could not be cleared."""
 
 
+class PinnedStopError(AudioError):
+    """What `pinned_record_stop` raises when a half of it fails, carrying
+    WHICH: `restore_error` and `disarm_error` hold the underlying exceptions
+    (None for a half that succeeded), and `wav_complete` says whether the
+    capture WAV was confirmed closed and finalized despite them. `capture`
+    branches on that field — complete evidence survives a failed restore;
+    incomplete evidence is fatal — where it used to infer the same from
+    whether the pin sidecar was still on disk, an inference the
+    both-halves-failed case fooled."""
+
+    def __init__(self, restore_error: BaseException | None = None,
+                 disarm_error: BaseException | None = None, *,
+                 wav_complete: bool):
+        self.restore_error = restore_error
+        self.disarm_error = disarm_error
+        self.wav_complete = wav_complete
+        parts = []
+        if restore_error is not None:
+            parts.append(f"the restore failed "
+                         f"({type(restore_error).__name__}: {restore_error})")
+        if disarm_error is not None:
+            parts.append(f"the recorder would not disarm "
+                         f"({type(disarm_error).__name__}: {disarm_error})")
+        parts.append("the recording is complete on disk" if wav_complete else
+                     "the recording could not be confirmed complete")
+        super().__init__("; ".join(parts))
+
+
 def _abs(path) -> str:
     """Absolute, but not resolved: VICE only needs a rooted path, and
     following symlinks would hand back `/private/tmp/...` for a `/tmp/...`
@@ -358,7 +386,10 @@ class _TextMonitor:
         re-send rescued 39 of 39, ~50 ms each, with no session lost. All 39
         were the `warp on` confirmation `set_warp` makes from
         `restore_speed`; the `warp off` readback `pin_realtime` makes never
-        stalled once in the same measurement.
+        stalled once in the same measurement. (`pinned_record_stop` now
+        re-warps while the recorder is still armed, keeping its restore out
+        of the window those 39 lived in; this retry stays as the defense for
+        every other path through `restore_speed`.)
 
         Re-sending is safe because a bare `warp` is a pure query — it reports
         state and changes none — so the worst a duplicate costs is one extra
@@ -807,7 +838,22 @@ def _clear_pin(session) -> None:
 def pinned_record_start(session, wav_path) -> dict:
     """Pin the machine to real time, then arm the recorder — the order both
     front ends need. A failure to arm unpins before it propagates, so a
-    broken capture never leaves the session stuck at 1x."""
+    broken capture never leaves the session stuck at 1x.
+
+    Pin FIRST is the measured-good order; do not flip it without new
+    evidence. Arming before the pin was tried (2026-08-09) on the theory
+    that it would close the sub-second real-time-no-consumer gap between
+    the pin and the arm; its one live trial wedged the binary monitor, but
+    a control run of THIS order minutes later wedged identically — the
+    bursty, host-correlated timeout mode the wedge investigation left
+    unattributed — so that trial is inconclusive, not a refutation. What
+    IS measured: this order crossed the gap in ~500 pin/unpin cycles with
+    zero binary-monitor wedges, every stall being the `warp on` readback
+    that `_TextMonitor.warp_state`'s retry rescues, so there is no
+    demonstrated upside to flipping and an undischarged risk in doing so
+    (a recorder armed under warp may not survive the unwarp as a sound
+    consumer). The arm-failure rollback below runs `restore_speed` inside
+    the gap's window; the retry shields its readback too."""
     path = _abs(wav_path)
     saved = pin_realtime(session)
     earlier = _read_pin(session)
@@ -828,20 +874,134 @@ def pinned_record_start(session, wav_path) -> dict:
     return {"wav": path, "pinned": saved}
 
 
-def pinned_record_stop(session) -> dict:
-    """Disarm the recorder and undo the pin. Reports the WAV's size, which
-    is the only honest evidence that the recording stopped and landed."""
-    saved = _read_pin(session)
+def _sink_path(session) -> Path:
+    """Where a stop's throwaway sink recording lands: beside the pin sidecar,
+    never in the caller's output directory, so a crash cannot leave a stray
+    WAV among the capture artifacts."""
+    return _pin_path(session).with_name(f"{session.name}.sink.wav")
+
+
+def _wav_finalized(path) -> bool:
+    """True when the header's RIFF and data sizes agree with the bytes on
+    disk — what VICE's asynchronous close eventually patches in. Until then
+    both fields hold the placeholder `llll` (0x6c6c6c6c), which `wave` reads
+    as five hours of audio. Canonical 44-byte PCM header assumed, which is
+    the one VICE writes (see WAV_HEADER_BYTES)."""
     try:
-        record_stop(session)
-    finally:
-        if saved is not None:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            hdr = f.read(44)
+    except OSError:
+        return False
+    if len(hdr) < 44:
+        return False
+    riff = int.from_bytes(hdr[4:8], "little")
+    data = int.from_bytes(hdr[40:44], "little")
+    return riff == size - 8 and data == size - 44
+
+
+#: How long a stop waits for VICE to patch the WAV header after the recorder
+#: closes. Measured at 33-55 ms over 40 closes while sound was live; the cap
+#: is ~40x that, so hitting it means the close was never serviced at all.
+_FINALIZE_TIMEOUT = 2.0
+
+
+def _await_finalized(wav_path) -> None:
+    """`record_stop`'s own contract — "confirm a stop by the file" — made
+    real: VICE finalizes the header asynchronously, ~50 ms after the close is
+    serviced, and the close is only serviced while the sound layer runs. A
+    missing file is not waited for (the recorder never wrote; `capture`
+    diagnoses that), but a header that never settles is refused: handing it
+    on would present five hours of phantom audio as evidence."""
+    if not os.path.exists(wav_path):
+        return
+    deadline = time.monotonic() + _FINALIZE_TIMEOUT
+    while not _wav_finalized(wav_path):
+        if time.monotonic() >= deadline:
+            raise AudioError(
+                f"VICE did not finalize {wav_path} within "
+                f"{_FINALIZE_TIMEOUT:g}s: its header still disagrees with "
+                f"its size, so the recording cannot be trusted yet. The "
+                f"session was restored; the header lands when VICE next "
+                f"services sound (or exits)")
+        time.sleep(0.01)
+
+
+def pinned_record_stop(session) -> dict:
+    """Undo the pin, then disarm the recorder. Reports the WAV's size, which
+    is the only honest evidence that the recording stopped and landed.
+
+    The order — sink, restore, disarm — is the fix for two measured races,
+    and both halves are load-bearing:
+
+    - The recorder is the consumer draining VICE's sound device, which is
+      the emulation loop's flow control at real time. A restore made with no
+      consumer armed put the `warp on` readback where it stalled 39 times in
+      240 measured pin/unpin cycles (0 in ~877 readbacks made with one; see
+      `_TextMonitor.warp_state`). So something stays armed across the
+      restore.
+    - VICE finalizes a closed WAV asynchronously (~50 ms), and only while
+      the sound layer is being serviced — a recorder disarmed under warp can
+      leave the placeholder header on disk until the session exits. So the
+      capture WAV is closed at real time, by re-arming the recorder onto a
+      throwaway sink; the disarm that follows the restore closes only the
+      sink, whose header nobody reads.
+
+    The sink is best-effort: if it cannot be armed, the restore still runs
+    (the readback retry stands guard) and the disarm closes the capture WAV
+    itself — later than ideal, which is what the finalize check at the end
+    is for.
+
+    A failure of either half raises `PinnedStopError`, which names the half
+    and whether the WAV is safe — both halves are always attempted, so a
+    failed restore still disarms, and a failed restore leaves the pin on
+    disk for a second `stop` to retry.
+    """
+    saved = _read_pin(session)
+    wav = (saved or {}).get("wav")
+    sink = None
+    if saved is not None:
+        try:
+            record_start(session, _sink_path(session))
+            sink = _sink_path(session)
+        except Exception as e:
+            print(f"c64: the throwaway sink recording could not be armed "
+                  f"({type(e).__name__}: {e}); restoring anyway — the WAV "
+                  f"will be finalized by the disarm instead", file=sys.stderr)
+    restore_error: BaseException | None = None
+    if saved is not None:
+        try:
             # restore first, forget second: a restore that fails leaves the
             # pin on disk, so a second `stop` can try again rather than
             # stranding the session at 1x with nothing to put back.
             restore_speed(session, saved)
             _clear_pin(session)
-    wav = (saved or {}).get("wav")
+        except Exception as e:
+            restore_error = e
+    disarm_error: BaseException | None = None
+    try:
+        record_stop(session)
+    except Exception as e:
+        disarm_error = e
+    finally:
+        if sink is not None:
+            sink.unlink(missing_ok=True)
+    if restore_error is not None or disarm_error is not None:
+        # Confirm what can still be confirmed before reporting: the WAV is
+        # closed if the sink took it over or the disarm went through, and
+        # only a closed, finalized file may be called complete.
+        complete = False
+        if wav and os.path.exists(wav) and (sink is not None
+                                            or disarm_error is None):
+            try:
+                _await_finalized(wav)
+                complete = True
+            except AudioError:
+                pass
+        raise PinnedStopError(restore_error, disarm_error,
+                              wav_complete=complete)
+    if wav:
+        _await_finalized(wav)
     size = os.path.getsize(wav) if wav and os.path.exists(wav) else None
     restored = ({"warp": saved.get("warp", False),
                  "speed": saved.get("speed", REALTIME_SPEED)}
@@ -993,24 +1153,26 @@ def _read_verdict(report_path) -> tuple[str, list[str]]:
                             if line.startswith("- ")]
 
 
-def _unpin_warning(error: BaseException) -> str:
-    """What a capture says when it could not put the session back.
+def _unpin_warning(error: PinnedStopError) -> str:
+    """What a capture says when the stop failed but the recording is safe —
+    it only fires on `wav_complete` reports, so it can claim the artifacts
+    without hedging.
 
-    Names the state the session is left in and the command that retries it —
-    the pin sidecar is still on disk (which is how `capture` knows it was the
-    restore that failed), so `c64 audio record --stop` is a real second chance
-    rather than advice to restart.
-
-    It claims where the artifacts are, not that they are perfect: the one case
-    this fires on where the WAV might not be finalized is a disarm that failed
-    *and* a restore that failed after it, and no signal here can separate that
-    from a restore-only failure.
+    Names the half that failed and the remedy that applies. A failed RESTORE
+    leaves the pin sidecar on disk, so `c64 audio record --stop` is a real
+    second chance rather than advice to restart. A failed disarm alone is a
+    leftover, not a loss: the sink recorder it could not stop writes nothing
+    under warp, and the next recording re-arms over it.
     """
-    return (f"the session could not be unpinned ({type(error).__name__}: "
-            f"{error}): the recording and the register log are on disk, but "
-            f"the machine may still be at real time with warp off. Run `c64 "
-            f"audio record --stop` on it to retry the unpin, or restart the "
-            f"session")
+    what = f"the session could not be unpinned ({error})"
+    if error.restore_error is not None:
+        return (f"{what}: the recording and the register log are on disk, "
+                f"but the machine may still be at real time with warp off. "
+                f"Run `c64 audio record --stop` on it to retry the unpin, "
+                f"or restart the session")
+    return (f"{what}: the artifacts are complete and the session was "
+            f"restored; the leftover sink recorder writes nothing under "
+            f"warp, and the next recording re-arms over it")
 
 
 def _check_reference(ref_path) -> None:
@@ -1066,20 +1228,21 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     module's docstring, which is where that measurement lives.
 
     Everything the pin touches is restored on the way out, including from a
-    failure mid-capture — `pinned_record_stop` disarms the recorder and unpins
+    failure mid-capture — `pinned_record_stop` unpins and disarms the recorder
     in one step, and it runs in a `finally`.
 
-    A failed RESTORE is reported, not fatal: the WAV and the register log are
-    already complete when it runs, so the report is still written and
-    `unpin_error` carries the reason (also printed to stderr, and the pin
-    sidecar is left on disk for `c64 audio record --stop` to retry). It is
-    None on every capture that put its session back. A caller that cares about
-    the session's state afterwards — anything reusing it — must read that
-    field; the verdict is about the audio, not about the machine.
+    A failed unpin is reported, not fatal, WHEN the evidence survived it —
+    `pinned_record_stop` says which half failed and whether the WAV is
+    complete, and a complete WAV means the report is still written and
+    `unpin_error` carries the reason (also printed to stderr; a failed
+    restore leaves the pin sidecar on disk for `c64 audio record --stop` to
+    retry). It is None on every capture that put its session back. A caller
+    that cares about the session's state afterwards — anything reusing it —
+    must read that field; the verdict is about the audio, not the machine.
 
-    A failed DISARM still raises. That half is not the same failure: disarming
-    is what finalizes the WAV, so a recorder VICE would not stop leaves a file
-    still being written, and there is nothing complete to report a verdict on.
+    An unpin that lost the evidence still raises: when the stop's throwaway
+    sink never armed and the disarm failed too, the file still being written
+    is the capture WAV — nothing complete to report a verdict on.
 
     Raises AudioError if VICE produced no WAV samples. That is not a flake to
     retry: under warp VICE writes a header and no frames at all, so an empty
@@ -1111,24 +1274,21 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     finally:
         try:
             recorded = pinned_record_stop(session)["bytes"]
-        except Exception as e:
-            # WHICH half failed decides whether this capture survives, and the
-            # pin sidecar is the exact discriminator: `pinned_record_stop`
-            # restores first and clears the pin second, so the sidecar is on
-            # disk if and only if the RESTORE is what failed.
+        except PinnedStopError as e:
+            # WHETHER the evidence survived decides whether this capture
+            # does, and the stop's own report says so — it used to be
+            # inferred from whether the pin sidecar was still on disk, an
+            # inference the both-halves-failed case fooled.
             #
-            # Sidecar gone -> the disarm failed and the restore did not. The
-            # recorder is still armed, which means VICE has not finalized the
-            # WAV (`record_stop` is what does that), so there is no complete
-            # artifact to salvage and no unpin left to retry. Re-raise, as
-            # this did before the unpin was made non-fatal.
+            # Incomplete -> the capture WAV is still being written (the sink
+            # never armed and the disarm failed) or its header never
+            # settled: nothing complete to judge. Re-raise.
             #
-            # Sidecar there -> the recording is complete and only the session's
-            # speed could not be put back. Report it and carry on: raising
-            # would throw away good evidence over a machine that is merely
-            # still at real time, and the sidecar `pinned_record_stop`
-            # deliberately left behind lets `c64 audio record --stop` retry.
-            if not _pin_path(session).exists():
+            # Complete -> the evidence is safe; only the machine's state is
+            # in question. Report and carry on: a failed restore leaves the
+            # sidecar for `c64 audio record --stop` to retry, and a failed
+            # sink disarm is a leftover the next recording re-arms over.
+            if not e.wav_complete:
                 raise
             unpin_error = _unpin_warning(e)
             print(f"c64: {unpin_error}", file=sys.stderr)

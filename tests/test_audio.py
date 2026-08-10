@@ -417,6 +417,10 @@ def test_a_readback_nobody_answers_fails_cleanly_instead_of_hanging(vice_text):
 # --- the composed start/stop the MCP tool and CLI use ------------------------
 
 def test_pinned_record_start_pins_before_it_arms(vice_text, tmp_path):
+    """Pin first is the measured-good order: ~500 clean live cycles. The
+    flip (arm-before-pin) was tried once and wedged, inconclusively — see
+    `pinned_record_start`'s docstring for why it must not be retried
+    without new evidence."""
     s, mon = _fake_session()
     wav = tmp_path / "cap.wav"
     with _port(vice_text):
@@ -427,21 +431,94 @@ def test_pinned_record_start_pins_before_it_arms(vice_text, tmp_path):
     assert vice_text.warp is False
 
 
-def test_pinned_record_stop_disarms_then_restores(vice_text, tmp_path):
+def test_pinned_record_stop_sinks_restores_then_disarms(vice_text, tmp_path):
+    """The order is the wedge-and-finalize fix, measured twice over: the
+    `warp on` readback stalls when it lands at real time with no sound
+    consumer (39 of 39 measured stalls were exactly there), and a disarm
+    issued under warp can leave the WAV's header unfinalized until the
+    session exits. So the stop re-arms the recorder onto a throwaway sink
+    first — closing the capture WAV while sound is live and keeping a
+    consumer armed — then restores, then disarms the sink under warp where
+    its staleness is nobody's problem."""
     s, mon = _fake_session()
     wav = tmp_path / "cap.wav"
     with _port(vice_text):
         pinned_record_start(s, str(wav))
-        wav.write_bytes(b"RIFF" + bytes(60))
+        _write_wav(wav, 10 / 22050)          # 44 + 20 bytes, header finalized
         mon.resource_set.reset_mock()
         out = pinned_record_stop(s)
     assert out == {"wav": str(wav), "bytes": 64,
                    "restored": {"warp": True, "speed": 100}}
-    # disarm, unpin the speed, then re-warp (the address is already set, so
-    # only the server switch is touched the second time round)
-    assert _names(mon) == ["SoundRecordDeviceName", "Speed", "MonitorServer"]
-    assert mon.resource_set.call_args_list[0] == call("SoundRecordDeviceName", "")
+    # arm the sink, unpin the speed, re-warp (the address is already set, so
+    # only the server switch is touched the second time round), THEN disarm
+    assert _names(mon) == ["SoundRecordDeviceArg", "SoundRecordDeviceName",
+                           "Speed", "MonitorServer", "SoundRecordDeviceName"]
+    assert mon.resource_set.call_args_list[0].args[1].endswith(".sink.wav")
+    assert mon.resource_set.call_args_list[-1] == call("SoundRecordDeviceName", "")
     assert vice_text.warp is True
+    assert not audio._sink_path(s).exists()  # the sink never outlives the stop
+
+
+def test_pinned_record_stop_reports_which_half_failed(vice_text, tmp_path):
+    """The stop's exception carries the halves, so callers no longer infer
+    them from the pin sidecar: `restore_error` and `disarm_error` hold what
+    actually happened, and `wav_complete` says whether the capture WAV was
+    confirmed closed and finalized despite it."""
+    s, _ = _fake_session()
+    wav = tmp_path / "cap.wav"
+    with _port(vice_text):
+        pinned_record_start(s, str(wav))
+        _write_wav(wav, 10 / 22050)
+        with patch("c64lib.audio.restore_speed",
+                   side_effect=TimeoutError("timed out")), \
+             pytest.raises(audio.PinnedStopError) as exc:
+            pinned_record_stop(s)
+    e = exc.value
+    assert isinstance(e.restore_error, TimeoutError)
+    assert e.disarm_error is None
+    assert e.wav_complete is True            # the sink closed it before the pin
+    assert "timed out" in str(e)
+    assert audio._pin_path(s).exists()       # left for `record --stop` to retry
+
+
+def test_pinned_record_stop_reports_a_failed_disarm_with_the_wav_safe(
+        vice_text, tmp_path):
+    """The other half: the sink recorder would not disarm, but it had already
+    taken the recording over, so the capture WAV is complete and the restore
+    ran — the exception says exactly that."""
+    s, _ = _fake_session()
+    wav = tmp_path / "cap.wav"
+    with _port(vice_text):
+        pinned_record_start(s, str(wav))
+        _write_wav(wav, 10 / 22050)
+        with patch("c64lib.audio.record_stop",
+                   side_effect=TimeoutError("timed out")), \
+             pytest.raises(audio.PinnedStopError) as exc:
+            pinned_record_stop(s)
+    e = exc.value
+    assert e.restore_error is None
+    assert isinstance(e.disarm_error, TimeoutError)
+    assert e.wav_complete is True
+    assert vice_text.warp is True            # the restore ran before the disarm
+    assert not audio._pin_path(s).exists()   # nothing left to retry
+
+
+def test_pinned_record_stop_refuses_a_wav_that_never_finalizes(vice_text,
+                                                               tmp_path):
+    """VICE patches the RIFF/data sizes asynchronously after the recorder
+    closes; a header still holding the placeholder is a WAV no analysis can
+    trust (wave reads it as five hours of audio). The stop confirms the file
+    the way `record_stop`'s contract says to, and refuses one that never
+    settles rather than handing it back as evidence."""
+    s, _ = _fake_session()
+    wav = tmp_path / "cap.wav"
+    with _port(vice_text), \
+         patch.object(audio, "_FINALIZE_TIMEOUT", 0.05):
+        pinned_record_start(s, str(wav))
+        wav.write_bytes(b"RIFF" + b"llll" + bytes(56))   # placeholder sizes
+        with pytest.raises(AudioError, match="finaliz"):
+            pinned_record_stop(s)
+    assert vice_text.warp is True            # the session was still put back
 
 
 def test_pinned_record_stop_forgets_the_pin_so_it_cannot_be_restored_twice(
@@ -575,7 +652,9 @@ def test_the_pin_sidecar_is_not_read_back_as_a_session_record(vice_text, tmp_pat
 
 
 def test_pinned_record_start_unpins_when_arming_fails(vice_text, tmp_path):
-    """A failed capture must not leave the session pinned at 1x."""
+    """A failed capture must not leave the session pinned at 1x. The
+    rollback's `warp on` readback runs in the real-time-no-consumer window;
+    `warp_state`'s retry is what shields it there."""
     s, mon = _fake_session(speed=200)
 
     def refuse(name, value):
@@ -662,12 +741,13 @@ def test_cli_audio_record_stop_really_unpins_the_session(vice_text, tmp_path):
         S.attach.return_value = s
         assert CliRunner().invoke(
             main, ["audio", "record", "--start", str(wav)]).exit_code == 0
-        wav.write_bytes(b"RIFF" + bytes(60))
+        _write_wav(wav, 10 / 22050)
         mon.resource_set.reset_mock()
         r = CliRunner().invoke(main, ["audio", "record", "--stop"])
     assert r.exit_code == 0, r.output
     assert vice_text.warp is True, "the CLI left the session unwarped"
-    assert _names(mon) == ["SoundRecordDeviceName", "Speed", "MonitorServer"]
+    assert _names(mon) == ["SoundRecordDeviceArg", "SoundRecordDeviceName",
+                           "Speed", "MonitorServer", "SoundRecordDeviceName"]
 
 
 def test_mcp_audio_record_start_needs_a_path():
@@ -1194,18 +1274,28 @@ class FakeVice(FakeMachine):
         self.calls.append(("set", name, value))
         self.resources[name] = value
         if name == audio.REC_ARG:
+            # Re-pointing the recorder while it is armed closes the current
+            # recording, the way real VICE does (measured: the old WAV is
+            # finalized with the frames that elapsed, and recording carries
+            # on into the new target).
+            if self.armed_at is not None:
+                self._finalize()
+                self.armed_at = self.frame
             self.wav_path = value
         elif name == audio.REC_NAME:
             if value == "wav":
                 self.armed_at = self.frame
             elif self.armed_at is not None:
-                if self.records and self.wav_path:
-                    # records="header" is the warped VICE: a finalized WAV
-                    # holding a header and no frames at all.
-                    seconds = (0.0 if self.records == "header"
-                               else (self.frame - self.armed_at) / self.fps)
-                    _write_wav(self.wav_path, seconds)
+                self._finalize()
                 self.armed_at = None
+
+    def _finalize(self) -> None:
+        if self.records and self.wav_path and self.armed_at is not None:
+            # records="header" is the warped VICE: a finalized WAV holding
+            # a header and no frames at all.
+            seconds = (0.0 if self.records == "header"
+                       else (self.frame - self.armed_at) / self.fps)
+            _write_wav(self.wav_path, seconds)
 
     @property
     def sets(self) -> list[str]:
@@ -1378,17 +1468,22 @@ def test_sid_report_does_not_say_nothing_played_when_a_note_sounded(tmp_path):
 
 # --- capture ------------------------------------------------------------------
 
-def test_capture_pins_arms_samples_disarms_then_restores(vice_text, tmp_path):
+def test_capture_pins_arms_samples_sinks_restores_then_disarms(vice_text,
+                                                               tmp_path):
     """The order is the contract. Warp off and Speed 100 BEFORE the recorder
-    is armed (while warped VICE writes a 0-frame WAV), every sample strictly
-    inside the armed window, and the recorder disarmed before the speed goes
-    back."""
+    is armed (the measured-good order — see `pinned_record_start` for why
+    the flip must not be retried casually), every sample strictly inside
+    the armed window, then the sink re-arm (closing the capture WAV while
+    sound is live), the speed put back while the sink consumes — the
+    recorder is the sound consumer whose absence at real time wedges the
+    `warp on` readback — and the sink disarmed last, under warp."""
     vice = FakeVice([_voice1()] * 8)
     with _port(vice_text):
         audio.capture(_capture_session(vice), 0.1, tmp_path)
     assert vice.sets == ["MonitorServerAddress", "MonitorServer", "Speed",
                          "SoundRecordDeviceArg", "SoundRecordDeviceName",
-                         "SoundRecordDeviceName", "Speed", "MonitorServer"]
+                         "SoundRecordDeviceArg", "SoundRecordDeviceName",
+                         "Speed", "MonitorServer", "SoundRecordDeviceName"]
     armed = vice.index_of("SoundRecordDeviceName", "wav")
     disarmed = vice.index_of("SoundRecordDeviceName", "")
     samples = [i for i, c in enumerate(vice.calls) if c == (audio.SID_BASE, 25)]
@@ -1454,7 +1549,7 @@ def test_capture_restores_the_session_when_the_log_fails(vice_text, tmp_path):
                side_effect=AudioError("the machine is stopped")), \
          pytest.raises(AudioError, match="the machine is stopped"):
         audio.capture(_capture_session(vice), 0.2, tmp_path)
-    assert vice.sets[-3:] == ["SoundRecordDeviceName", "Speed", "MonitorServer"]
+    assert vice.sets[-3:] == ["Speed", "MonitorServer", "SoundRecordDeviceName"]
     assert vice.resources["SoundRecordDeviceName"] == ""      # disarmed
     assert vice.resources["Speed"] == 200                     # as it was found
     assert vice_text.warp is True                             # and re-warped
@@ -1467,15 +1562,17 @@ def test_capture_reports_an_unpin_failure_and_keeps_the_sampling_failure(
     propagates; the unpin failure is not swallowed with it, because a session
     left at 1x is what the next command trips over.
 
-    The whole of `pinned_record_stop` is stubbed out here, so the pin sidecar
-    it would have cleared is still on disk — which is how `capture` reads this
-    as a restore that failed rather than a disarm that did."""
+    The whole of `pinned_record_stop` is stubbed out here, raising the
+    exception the real one raises for a failed restore with the recording
+    safe — which is what tells `capture` this is survivable."""
     vice = FakeVice([_voice1()] * 4)
     with _port(vice_text), \
          patch("c64lib.audio.sid_log_detail",
                side_effect=AudioError("the machine is stopped")), \
          patch("c64lib.audio.pinned_record_stop",
-               side_effect=TimeoutError("timed out")), \
+               side_effect=audio.PinnedStopError(
+                   restore_error=TimeoutError("timed out"),
+                   wav_complete=True)), \
          pytest.raises(AudioError, match="the machine is stopped"):
         audio.capture(_capture_session(vice), 0.2, tmp_path)
     err = capsys.readouterr().err
@@ -1508,25 +1605,50 @@ def test_capture_survives_an_unpin_that_fails_and_says_so(vice_text, tmp_path,
     assert audio._pin_path(s).exists()                # left for that retry
 
 
-def test_capture_still_fails_when_the_recorder_will_not_disarm(vice_text,
-                                                               tmp_path):
-    """The other half of `pinned_record_stop`, and NOT the same failure.
-    Disarming is what finalizes the WAV, so a recorder VICE would not stop
-    leaves a file it may still be writing — there is nothing complete to judge
-    and no unpin left to retry (the restore succeeded, so the sidecar is gone,
-    which is exactly how `capture` tells the two apart). It raises, as it did
-    before a failed restore was made survivable."""
+def test_capture_survives_a_sink_disarm_failure_and_says_so(vice_text,
+                                                            tmp_path, capsys):
+    """A recorder VICE would not stop used to be fatal because the file it
+    kept writing was the capture WAV. Since the sink re-arm, the recording
+    was taken over — and closed — before the disarm ever ran, so failing the
+    capture would throw away complete, verified evidence over a leftover sink
+    recorder that writes nothing under warp."""
     vice = FakeVice([_voice1()] * 12)
     s = _capture_session(vice)
     with _port(vice_text), \
          patch("c64lib.audio.record_stop",
+               side_effect=TimeoutError("timed out")):
+        out = audio.capture(s, 0.2, tmp_path / "cap")
+    assert out["verdict"] == "PASS"
+    assert (tmp_path / "cap" / "report.md").exists()
+    assert "disarm" in out["unpin_error"] and "timed out" in out["unpin_error"]
+    assert out["unpin_error"] in capsys.readouterr().err
+    assert not audio._pin_path(s).exists()                 # the restore ran
+    assert vice_text.warp is True                          # and put warp back
+
+
+def test_capture_still_fails_when_the_wav_is_left_armed(vice_text, tmp_path):
+    """The fatal case that remains: the sink could not be armed AND the
+    recorder would not disarm, so the capture WAV is still being written —
+    nothing complete to judge, and `pinned_record_stop`'s report says so."""
+    vice = FakeVice([_voice1()] * 12)
+    s = _capture_session(vice)
+    real_start = audio.record_start
+    calls = {"n": 0}
+
+    def refuse_the_sink(session, path):
+        calls["n"] += 1
+        if calls["n"] > 1:               # the sink arm, not the capture arm
+            raise TimeoutError("timed out")
+        return real_start(session, path)
+
+    with _port(vice_text), \
+         patch("c64lib.audio.record_start", side_effect=refuse_the_sink), \
+         patch("c64lib.audio.record_stop",
                side_effect=TimeoutError("timed out")), \
-         pytest.raises(TimeoutError, match="timed out"):
+         pytest.raises(audio.PinnedStopError, match="disarm"):
         audio.capture(s, 0.2, tmp_path / "cap")
     assert not (tmp_path / "cap" / "report.md").exists()   # no verdict claimed
     assert (tmp_path / "cap" / "sid-log.jsonl").exists()   # the log is kept
-    assert not audio._pin_path(s).exists()                 # the restore ran
-    assert vice_text.warp is True                          # and put warp back
 
 
 def test_read_verdict_refuses_a_report_with_no_verdict_line(tmp_path):

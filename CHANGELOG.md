@@ -8,6 +8,70 @@ commit).
 
 ## [Unreleased]
 
+The `warp on` wedge is fixed at its cause, not just retried around — and
+fixing it surfaced a second latent race, so `pinned_record_stop` now does
+three things in an order where neither can fire. It re-arms the recorder
+onto a throwaway sink first, which closes the capture WAV while the sound
+layer is live; it restores speed and warp while the sink is consuming; and
+it disarms only the sink, under warp, where its unfinalized header is
+nobody's problem. The first race is the wedge investigation's: VICE's
+sound device is the emulation loop's flow control, and a `warp on`
+readback made at real time with no consumer stalled 39 times in 240
+measured pin/unpin cycles (0 in ~877 readbacks made outside that window).
+The old order — disarm, then restore — made that window on every stop.
+The second race is why the obvious fix (just swap the two) was not
+shipped after its first trial run: VICE finalizes a closed WAV's header
+asynchronously, ~50 ms after the close is *serviced*, and it is serviced
+only while sound runs — a disarm issued milliseconds after re-warping
+races the sound teardown, and the loser leaves the placeholder sizes
+(`0x6c6c6c6c`, which `wave` reads as five hours of audio) on disk until
+the session exits. The arpeggio round-trip test caught it: 6 of 11 runs
+of the swap-only fix read that placeholder, all with the identical
+18948.385125 s phantom duration. With the sink order, the forced-arm
+re-runs of the investigation's measurement confirmed both mechanisms: 1
+first-reply miss in 258 post-fix pin/unpin cycles on tone-program
+sessions against 39 in 240 before (16.25% to 0.4%; the one miss was
+rescued by the retry and its cycle stayed clean), 158 of 158 sink-order
+stops handing back an already-finalized header, and the arpeggio test 8
+for 8 against 6 failures in 11 runs of the swap alone.
+`pinned_record_stop` also now *confirms* the header before it
+returns — `record_stop`'s "confirm a stop by the file", finally made real
+— and refuses a WAV that never settles rather than handing back phantom
+evidence. The readback retry in `warp_state` stays: it is cheap,
+measured, and defends every other path through `restore_speed`,
+including the best-effort fallback when the sink itself cannot be armed.
+The second failure mode the investigation left unattributed — bursty
+binary-monitor timeouts that appear in a window and vanish — reproduced
+live during this work and is now attributed, with the diagnostics the
+investigation said it lacked: it is the host, not the protocol. Three
+consecutive pin/unpin smokes wedged identically while the machine sat
+user-idle (`x64sc` alive at 1.8% CPU, its binary port still accepting
+TCP, its text monitor still answering — the emulation loop throttled,
+not blocked on a socket), and the identical code ran clean at full
+speed the moment it was wrapped in `caffeinate -dimsu`: macOS idle
+throttling of the `-minimized` headless emulator slows it until every
+binary-monitor call times out. Unattended VICE work on an idle Mac
+needs a user-activity assertion; the re-verification runs here were
+made under one. One ordering experiment is recorded as
+tried-and-inconclusive rather than silently abandoned: arming the
+recorder before the pin (to close the start's sub-second no-consumer
+gap) wedged its one live trial, but that trial ran inside the
+idle-throttling window — the pin-first control wedged too — so
+`pinned_record_start` keeps its measured-good pin-first order, and its
+docstring records what would justify revisiting. A failed restore still leaves the pin sidecar for `c64
+audio record --stop` to retry, and still disarms on the way out. And the
+stop now *says* which half failed instead of leaving `capture` to infer
+it from whether the sidecar survived — an inference the
+both-halves-failed case fooled into overstating what was on disk:
+`PinnedStopError` carries `restore_error`, `disarm_error`, and
+`wav_complete`, and `capture` branches on the report. A disarm failure
+whose recording the sink had already taken over is a warning now, not a
+discarded capture; the fatal case that remains is the honest one — no
+sink armed and no disarm means the capture WAV is still being written.
+That was `docs/todo.md`'s last open item, so the file itself is gone:
+it is deleted when its last item lands (maintainer ruling, noted in
+`AGENTS.md`, whose dogfood post-mortems recreate it).
+
 An MCP-wired agent no longer needs a shell. The six commands both
 `docs/agent-setup.md` and the `c64-development` skill told it to shell
 out for have tools now — `c64_break_enable`/`c64_break_disable`, the MCP
