@@ -93,6 +93,39 @@ def test_key_hold_zero_frames_is_a_no_op_not_a_timeout():
     assert "timeout" not in r.output
 
 
+def test_key_hold_releases_by_default_and_says_so():
+    """No flag = the key is let go. The re-poke only works while the KERNAL
+    scan is alive to clear $CB; a game that owns the IRQ has no scan, so a
+    hold that did not release would leave the key down for the rest of the
+    session. The JSON reports `released` so a script never has to guess."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.ops_key_hold",
+               return_value={"frames": 2, "requested": 2, "released": True,
+                             "registers": {"PC": 0x0819}}) as kh, \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "key", "hold", "d",
+                                      "--at", "$0819", "--frames", "2"])
+    assert r.exit_code == 0, r.output
+    assert kh.call_args.kwargs["release"] is True
+    assert json.loads(r.output)["released"] is True
+
+
+def test_key_hold_no_release_keeps_the_key_down():
+    """`--no-release` is the opt-out, forwarded to the op and reported."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.ops_key_hold",
+               return_value={"frames": 1, "requested": 1, "released": False,
+                             "registers": {"PC": 0x0819}}) as kh, \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "key", "hold", "d",
+                                      "--at", "$0819", "--no-release"])
+    assert r.exit_code == 0, r.output
+    assert kh.call_args.kwargs["release"] is False
+    assert json.loads(r.output)["released"] is False
+
+
 def test_key_hold_negative_frames_fails_before_touching_the_machine():
     """A negative hold length is a caller bug, not a no-op: the op refuses
     it before poking anything, and the CLI reports it as a clean failure

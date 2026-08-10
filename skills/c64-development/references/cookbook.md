@@ -611,7 +611,11 @@ No key down, no motion; hold a key and it glides. Test it exactly like a
 player holding the key: `c64 run keyhold.s`, then
 `c64 key hold d --frames 5 --at mainloop` — the CLI re-pokes the matrix
 code into `$CB` before each frame (the IRQ rewrites it every tick) and
-frame-steps to your loop label; read `c64 mem read pos 1` between holds.
+frame-steps to your loop label; read `c64 mem read pos 1` between holds. The
+hold pokes 64 back after the last frame — the re-poke above assumes the
+KERNAL scan is alive to clear `$CB`, and a game that owns the interrupt has
+none, so without that the key would stay down for ever. Pass `--no-release`
+to keep it held.
 In a `c64 test run` YAML the same protocol is the `poke:` + `until:` step
 pair.
 

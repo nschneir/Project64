@@ -80,7 +80,7 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
 | Tool | CLI | Divergence |
 |------|-----|------------|
 | `c64_key_type` | `c64 key type` | — |
-| `c64_key_hold` | `c64 key hold` | `KEYNAME` is `key`, `--at` is `at` |
+| `c64_key_hold` | `c64 key hold` | `KEYNAME` is `key`, `--at` is `at`, `--no-release` is `release=false` |
 
 ### Memory
 

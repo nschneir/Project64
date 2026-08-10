@@ -2023,8 +2023,10 @@ def key_type(ctx, text):
               help="How many ticks to hold the key across.")
 @click.option("--timeout", default=30.0, show_default=True,
               help="Per-frame wait limit, seconds.")
+@click.option("--release/--no-release", default=True, show_default=True,
+              help="Let the key go (poke 64 into $CB) after the last frame.")
 @click.pass_context
-def key_hold(ctx, keyname, at_ref, frames, timeout):
+def key_hold(ctx, keyname, at_ref, frames, timeout, release):
     """Hold KEY down for N game ticks by re-poking $CB before each one.
 
     Drives games that read the live current-key state: writes the key's
@@ -2032,12 +2034,18 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
     at REF (continue with `c64 continue`). KEY is one character, or
     `space`. For a deterministic first frame, stop at REF first
     (`c64 until REF`).
+
+    The key is released after the last frame unless `--no-release`: the
+    per-frame re-poke assumes the KERNAL keyboard scan is running to clear
+    $CB, and a game that owns the interrupt has no scan, so an unreleased
+    key stays down for ever.
     """
     s = attach(ctx)
     labels = session_labels(s)
     addr = resolve_ref(ctx, labels, at_ref, session=s)
     try:
-        out = ops_key_hold(s, keyname, addr, frames=frames, timeout=timeout)
+        out = ops_key_hold(s, keyname, addr, frames=frames, timeout=timeout,
+                           release=release)
     except ValueError as e:
         fail(ctx, str(e))
         return
@@ -2052,7 +2060,8 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
              extra={"frames": out["frames"], "requested": frames})
         return
     _emit_stopped_regs(ctx, labels, out["registers"],
-                       extra={"frames": out["frames"]})
+                       extra={"frames": out["frames"],
+                              "released": out["released"]})
 
 
 @main.group()

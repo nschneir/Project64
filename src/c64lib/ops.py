@@ -59,6 +59,10 @@ def split_mem_condition(cond: str) -> tuple[str, str, str]:
 #: the keyboard-matrix code of the key held right now, 64 = no key.
 KEYDOWN_ADDR = 0xCB
 
+#: the value SCNKEY leaves in $CB when no key is down — what a hold pokes
+#: to let the key go again.
+KEY_NONE = 64
+
 #: C64 keyboard-matrix codes (the values SCNKEY leaves in $CB), from the
 #: published matrix table. Lowercase only — the matrix has no case.
 MATRIX_CODES = {
@@ -728,7 +732,7 @@ def key_type(session, text: str) -> dict:
 
 
 def key_hold(session, key: str, at_addr: int, frames: int = 1,
-             timeout: float = 30.0) -> dict:
+             timeout: float = 30.0, release: bool = True) -> dict:
     """Hold KEY down for `frames` game ticks: write its keyboard-matrix
     code to $CB, run to at_addr, repeat — the machine ends STOPPED at
     at_addr.
@@ -740,11 +744,25 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
     For a fully deterministic first frame, be stopped at at_addr already
     (run_until once); mid-flight the first poke can race the next IRQ.
 
-    Returns {"frames": done, "requested": frames, "registers": regs};
-    registers is None if a frame timed out (machine left RUNNING, same
-    contract as run_until). frames=0 is a validated no-op: the machine is
-    untouched and the result is {"frames": 0, "requested": 0, "registers":
-    None}. frames < 0 raises ValueError."""
+    `release` (default True) pokes KEY_NONE after the final tick, letting
+    the key go; the machine is left stopped at at_addr either way (the
+    release is a monitor write, not a resume). It defaults on because the
+    other end state is never what a caller wants: the per-frame re-poke
+    above assumes the KERNAL scan is running to clear $CB, and a game that
+    takes the interrupt over — as every raster-multiplexed game must — has
+    no scan left, so the key stays down for the rest of the session and
+    every hold has to be chased with a hand-written poke of 64. Where the
+    scan *is* alive it overwrites the byte next tick anyway, so releasing
+    costs nothing there. Pass release=False for a hold that must still be
+    down when the next command runs.
+
+    Returns {"frames": done, "requested": frames, "registers": regs,
+    "released": bool}; registers is None if a frame timed out (machine
+    left RUNNING, same contract as run_until) and "released" is then False
+    — a timed-out hold never reached a final tick to release after.
+    frames=0 is a validated no-op: the machine is untouched and the result
+    is {"frames": 0, "requested": 0, "registers": None, "released":
+    False}. frames < 0 raises ValueError."""
     k = " " if key.lower() == "space" else key
     if len(k) != 1:
         raise ValueError(f"key must be one character or 'space', got {key!r}")
@@ -759,15 +777,24 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
         # Nothing is poked, nothing armed, nothing to time out — the caller
         # gets requested == frames == 0, distinct from a timeout, where
         # frames < requested and registers is None.
-        return {"frames": 0, "requested": 0, "registers": None}
+        return {"frames": 0, "requested": 0, "registers": None,
+                "released": False}
     out = {"registers": None}
     for i in range(frames):
         with session.monitor() as mon:
             mon.memory_write(KEYDOWN_ADDR, code)
         out = run_until(session, at_addr, timeout=timeout, count=1)
         if out["registers"] is None:
-            return {"frames": i, "requested": frames, "registers": None}
-    return {"frames": frames, "requested": frames, "registers": out["registers"]}
+            # Timed out: the machine is RUNNING and never reached a final
+            # tick, so there is nothing to release after. Leave it alone
+            # rather than poking a running machine on the error path.
+            return {"frames": i, "requested": frames, "registers": None,
+                    "released": False}
+    if release:
+        with session.monitor() as mon:
+            mon.memory_write(KEYDOWN_ADDR, bytes([KEY_NONE]))
+    return {"frames": frames, "requested": frames,
+            "registers": out["registers"], "released": release}
 
 
 def find_bytes(mon, start: int, length: int, pattern: bytes,

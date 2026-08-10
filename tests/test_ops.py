@@ -1,5 +1,5 @@
 from itertools import chain, repeat
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -433,10 +433,49 @@ def test_key_hold_pokes_cb_before_each_frame():
         return {"registers": {"PC": 0x0819}, "reached": 1, "count": 1}
 
     with patch("c64lib.ops.run_until", side_effect=fake_until) as ru:
-        out = key_hold(s, "d", 0x0819, frames=3, timeout=9.0)
+        out = key_hold(s, "d", 0x0819, frames=3, timeout=9.0, release=False)
     assert out["frames"] == 3 and out["registers"] == {"PC": 0x0819}
     assert calls == [("poke", 0xCB, bytes([18])), ("until",)] * 3
     ru.assert_called_with(s, 0x0819, timeout=9.0, count=1)
+
+
+def test_key_hold_releases_the_key_after_the_last_frame():
+    """The default lets go of the key: one poke of 64 (no key) after the
+    final tick. Without it the hold outlives the command — a game that
+    took the IRQ over has no KERNAL scan left to clear $CB, so the key
+    stays down for ever and every caller must hand-write
+    `c64 mem write '$CB' 64`. The machine still ends stopped at the
+    anchor: the release is a monitor write, not a resume."""
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    calls = []
+    mon.memory_write.side_effect = lambda a, d: calls.append(("poke", a, d))
+
+    def fake_until(*a, **k):
+        calls.append(("until",))
+        return {"registers": {"PC": 0x0819}, "reached": 1, "count": 1}
+
+    with patch("c64lib.ops.run_until", side_effect=fake_until):
+        out = key_hold(s, "d", 0x0819, frames=2)
+    assert calls == [("poke", 0xCB, bytes([18])), ("until",)] * 2 \
+        + [("poke", 0xCB, bytes([64]))]
+    assert out["released"] is True
+    assert out["frames"] == 2 and out["registers"] == {"PC": 0x0819}
+    mon.resume.assert_not_called()
+
+
+def test_key_hold_no_release_keeps_the_key_down():
+    """`release=False` is the opt-out for a caller that wants the key still
+    held when the next command runs; it reports `released: False` so the
+    end state is never a guess."""
+    from c64lib.ops import key_hold
+    s, mon = _fake_session()
+    with patch("c64lib.ops.run_until",
+               return_value={"registers": {"PC": 1}, "reached": 1, "count": 1}):
+        out = key_hold(s, "d", 0x0819, frames=2, release=False)
+    assert out["released"] is False
+    assert mon.memory_write.call_args_list == [
+        call(0xCB, bytes([18])), call(0xCB, bytes([18]))]
 
 
 def test_key_hold_space_alias_and_validation():
@@ -444,7 +483,7 @@ def test_key_hold_space_alias_and_validation():
     s, mon = _fake_session()
     with patch("c64lib.ops.run_until",
                return_value={"registers": {"PC": 1}, "reached": 1, "count": 1}):
-        key_hold(s, "space", 0x1000, frames=1)
+        key_hold(s, "space", 0x1000, frames=1, release=False)
     mon.memory_write.assert_called_once_with(0xCB, bytes([60]))
     with pytest.raises(ValueError):
         key_hold(s, "dd", 0x1000)
@@ -461,6 +500,13 @@ def test_key_hold_timeout_reports_progress():
         out = key_hold(s, "a", 0x1000, frames=5)
     assert out["frames"] == 1 and out["requested"] == 5
     assert out["registers"] is None
+    # A timed-out hold never reached the anchor, so there was no "final
+    # tick" to release after: the machine is left RUNNING and untouched,
+    # and the result says so rather than claiming a release that the
+    # error path did not perform.
+    assert out["released"] is False
+    assert mon.memory_write.call_args_list == [
+        call(0xCB, bytes([10]))] * 2
 
 
 def test_key_hold_zero_frames_is_a_no_op():
@@ -472,7 +518,8 @@ def test_key_hold_zero_frames_is_a_no_op():
     s, mon = _fake_session()
     with patch("c64lib.ops.run_until") as ru:
         out = key_hold(s, "d", 0x0819, frames=0)
-    assert out == {"frames": 0, "requested": 0, "registers": None}
+    assert out == {"frames": 0, "requested": 0, "registers": None,
+                   "released": False}
     ru.assert_not_called()
     mon.memory_write.assert_not_called()
 

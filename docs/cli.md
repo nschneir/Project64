@@ -222,10 +222,18 @@ deterministic first frame, stop at the anchor first (`c64 until REF`).
   `--frames 0` is a validated no-op (exit 0, machine untouched) — a
   computed hold length of zero needs no shell guard.
 - `--timeout SECS` (default `30`) — per-frame wait limit.
+- `--release` / `--no-release` (default `--release`) — after the last frame,
+  poke 64 (no key) into `$CB` so the key is let go. **The per-frame re-poke
+  assumes the KERNAL keyboard scan is running to clear `$CB`** — a game that
+  takes the interrupt over has no scan, so a key left down without this stays
+  down for the rest of the session. The machine still ends stopped at the
+  anchor either way. Use `--no-release` only when the next command needs the
+  key still held.
 
-JSON: `{"registers", "pc_symbol", "stopped": true, "frames"}`. With
-`--frames 0`: `{"frames": 0, "requested": 0, "machine": "untouched"}`. On a
-frame timeout: exit 1, machine left running, checkpoint removed.
+JSON: `{"registers", "pc_symbol", "stopped": true, "frames", "released"}`.
+With `--frames 0`: `{"frames": 0, "requested": 0, "machine": "untouched"}`. On
+a frame timeout: exit 1, machine left running, checkpoint removed, key not
+released.
 
 ---
 
