@@ -816,8 +816,25 @@ Build/tokenize `SOURCE` as needed, then load and RUN it. `.bas` is tokenized,
 `.prg` is loaded directly.
 
 - `SOURCE` — a `.bas`, `.s`, `.prg`, or `.crt` file.
+- `--area NAME=START:SIZE` — link segment `NAME` at a fixed address, exactly
+  as `c64 build --area` does (repeatable; `$hex`, `0x` or decimal). The load
+  address is the session's, since there is no `--model` here.
 
 JSON: `{"source", "prg", "symbols"}`. Machine left running.
+
+**`--area`.** A program whose engine or art has to land at a fixed address
+needs the flag to link at all, and without it here that program could not be
+run from `c64 run` — it needed a `c64 build` + `c64 load --symbols` script
+instead. It is **assembly sources only**: `--area applies to assembly sources
+only` is the error for a `.bas`, a `.prg` or a `.crt`, because a tokenized
+BASIC program and an already-built `.prg` never go through the linker config
+an area rewrites, and a cartridge brings its own memory map. A malformed area
+is rejected before ca65 runs, naming the flag you typed. See `c64 build` for
+what an area costs in file size.
+
+```sh
+c64 run game.s --area 'ENGINE=$4000:$6000'
+```
 
 **Cartridges.** A `.crt` cannot be loaded into a running machine — it is
 mapped at power-on — so `c64 run game.crt` stops the current session and boots
@@ -1810,7 +1827,10 @@ The format:
 name: hello-world          # optional; defaults to the file name
 machine: c64           # optional; any c64 model
 program: hello.bas         # .bas/.s/.prg, path relative to this file;
-                           #   built/tokenized as needed
+                           #   built/tokenized as needed. A .prg picks up a
+                           #   sibling .lbl of the same stem for its symbols
+areas:                     # only with a .s program: — `c64 build --area`,
+  - ENGINE=$4000:$6000     #   one NAME=START:SIZE string per entry
 cart: game.crt             # instead of program: — a .crt, a .s, or an
                            #   .ef.yaml manifest, path relative to this file;
                            #   built as needed and mapped at power-on
@@ -1929,6 +1949,36 @@ A `poke` right before an `until` is the held-key protocol (`c64 key
 hold` as steps). Step addresses accept everything the CLI does —
 `$hex`/`0xhex`/decimal, symbols from the built program's label file,
 `symbol+offset`, `@row,col`, and `@@row,col` (color RAM).
+
+**Program tests.** `program:` is resolved relative to the spec file and is a
+`.bas` (tokenized), a `.s` (assembled) or a `.prg` (loaded as it is). Symbols
+follow the same rule `cart:` and `disk:` do: a built program uses its own
+label file, and for a ready-made `.prg` a sibling `.lbl` of the same stem is
+picked up if it is there, and silently skipped if it is not — so `until:
+{ref: mainloop}` works against a `.prg` that was built elsewhere.
+
+`areas:` is `c64 build --area` as a spec key: a list of `NAME=START:SIZE`
+strings that link segments at fixed addresses, for a program that needs one to
+link at all. It applies to a `.s` `program:` only — beside a `.bas`, a `.prg`,
+a `cart:` or a `disk:` it is an error naming the conflict rather than a
+directive quietly dropped, and a malformed entry is rejected before the
+session boots.
+
+```yaml
+program: game.s
+areas:
+  - ENGINE=$4000:$6000
+```
+
+**A disk older than its labels.** When a `disk:` spec's symbols come from a
+sibling `<image>.lbl` written *after* the image, the run stops before the
+first step: the image predates the symbols, so every address the spec names
+would be resolved against a program the image does not contain, and the
+failure would otherwise arrive as a plausible wrong byte (`mem $414b = 4a !=
+00`). Rebuild the image — `c64 package` or `c64 disk build` — and run again.
+The label copies `c64 disk build` keeps for the image's own entries are never
+judged this way: they are written by the command that wrote the image, so they
+cannot go stale on their own.
 
 **Cartridge tests.** A spec sets `cart:` **or** `program:`, never both —
 setting both is an error, because a cartridge boots itself and there is

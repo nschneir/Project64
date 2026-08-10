@@ -110,6 +110,25 @@ def test_charset_encode_documents_its_label_option():
     assert "--label" in section, "the block-label option is undocumented"
 
 
+def test_run_documents_its_area_option():
+    """`c64 run --area` is what a program linked above the load address needs
+    to be runnable at all — undocumented, it may as well not exist."""
+    section = _section(DOC.read_text(), "### `c64 run`")
+    assert "--area" in section, "the linker-area option is undocumented"
+    assert "assembly sources only" in section, \
+        "the docs never say --area is rejected for a .bas/.prg/.crt"
+
+
+def test_test_run_documents_areas_and_the_prg_label_rule():
+    """The spec's `areas:` key and the sibling-`.lbl` rule for `program:` are
+    the two things La Galaxia's spec went the long way round for."""
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert "areas:" in section, "the spec's `areas:` key is undocumented"
+    assert ".lbl" in section, \
+        "the sibling label file a `.prg` program: picks up is undocumented"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

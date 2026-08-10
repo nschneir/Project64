@@ -8,6 +8,27 @@ commit).
 
 ## [Unreleased]
 
+`--area` reaches the two places that could not use it. `c64 run --area
+NAME=START:SIZE` (MCP `c64_run(areas=[…])`) links a fixed-address segment on
+the way to the machine, and a test spec takes the same strings as an `areas:`
+list beside a `.s` `program:`. A program that needs an area to link at all —
+La Galaxia links its engine at `$4000` — was until now unrunnable from
+`c64 run` and untestable from source: the demo shipped a two-command
+`build.sh` and pointed its spec at the packaged `.d64`, paying ~13 s of
+serial load before step 1, because a disk was the only route to symbols
+there was. A `.prg` `program:` now picks up a sibling `.lbl` of the same
+stem, the rule `cart:` and `disk:` already followed — without it a `.prg`
+spec resolved nothing at all, and `until: {ref: tick}` failed with an empty
+known-list. `areas:` is rejected, naming the conflict, beside anything it
+would not reach (a `.bas`, a `.prg`, a `cart:`, a `disk:`), and a malformed
+one is refused before a session boots. Finally, a `disk:` spec whose image is
+*older* than the sibling `.lbl` it takes symbols from now stops with "the
+image predates its symbols" and both timestamps, instead of resolving fresh
+addresses against stale bytes and failing on a plausible wrong byte
+(`mem $414b = 4a != 00`). Only the sibling file is judged that way: the label
+copies `c64 disk build` keeps are written by the command that wrote the
+image, so they cannot go stale on their own.
+
 A capture window can be **aimed** now, and it says what it cost to open.
 `c64 audio capture --at-frame N 'ADDR=VAL[,ADDR=VAL…]'` (repeatable;
 `at_frame={"N": "…"}` over MCP) performs those writes at frame N of the

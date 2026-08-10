@@ -132,6 +132,60 @@ def test_check_warnings_alone_exit_zero(tmp_path):
     assert "WARNING W40: line 10:" in r.output
 
 
+def test_run_area_reaches_the_linker(tmp_path):
+    """`c64 run --area` is `c64 build --area`: La Galaxia needed the flag to
+    link at all, so it could not use `c64 run` and shipped a two-command
+    build.sh instead."""
+    from c64lib.build import Area, BuildResult
+
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
+    fake, mon = _fake_attached()
+    fake.profile.basic_start = 0x0801
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.build_asm", return_value=res) as ba:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "run", str(src),
+                                      "--area", "ENGINE=$4000:$6000"])
+    assert r.exit_code == 0, r.output
+    assert ba.call_args.kwargs["areas"] == [Area("ENGINE", 0x4000, 0x6000)]
+    mon.autostart.assert_called_once_with(res.prg, run=True)
+
+
+def test_run_rejects_area_where_it_cannot_apply(tmp_path):
+    """A `.prg` is loaded as it is and a `.bas` is tokenized; neither goes
+    through the linker `--area` rewrites. Loud rather than ignored, in the
+    words `c64 package` already uses."""
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    fake, mon = _fake_attached()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "run", str(prg),
+                                      "--area", "ENGINE=$4000:$6000"])
+    assert r.exit_code == 1
+    assert json.loads(r.output)["error"] == (
+        "--area applies to assembly sources only")
+    mon.autostart.assert_not_called()
+
+
+def test_run_bad_area_exits_one_before_assembling(tmp_path):
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    fake, _ = _fake_attached()
+    fake.profile.basic_start = 0x0801
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.build_asm") as ba:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "run", str(src),
+                                      "--area", "ENGINE"])
+    assert r.exit_code == 1
+    assert json.loads(r.output)["error"] == (
+        "--area needs NAME=START:SIZE, got 'ENGINE'")
+    ba.assert_not_called()
+
+
 def test_check_json_payload(tmp_path):
     src = tmp_path / "bad.bas"
     src.write_text("10 goto 999\n")

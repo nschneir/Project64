@@ -883,14 +883,21 @@ def load_cmd(ctx, prg, do_run, symbols):
 
 @main.command("run")
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--area", "areas", multiple=True, metavar="NAME=START:SIZE",
+              help="Link segment NAME at a fixed address (repeatable, "
+                   "e.g. 'HIGH=$4000:$2000'). Assembly sources only.")
 @click.pass_context
-def run_cmd(ctx, source):
+def run_cmd(ctx, source, areas):
     """Build/tokenize SOURCE as needed, then load and RUN it.
 
     `.bas` is tokenized, `.s` is assembled and its labels registered on the
     session (so symbols work in later commands), `.prg` is loaded directly,
     and a `.crt` reboots the session with the cartridge attached.
     Leaves the machine running.
+
+    `--area` is `c64 build`'s, and applies to a `.s` source only — a program
+    that needs a fixed-address segment to link at all is otherwise unrunnable
+    from here, which is what sent La Galaxia to a two-command build script.
 
     For a `.crt`, "no session to reboot" and "no session by that name" are the
     same case: a `--session` name that does not exist boots an unnamed default
@@ -900,6 +907,12 @@ def run_cmd(ctx, source):
     """
     src = source.resolve()
     ext = src.suffix.lower()
+    # Before the session is touched: --area rewrites the linker config that
+    # only an assembled .s goes through, and a cartridge brings its own memory
+    # map. Rejected rather than ignored, in `c64 package`'s words.
+    if areas and ext != ".s":
+        fail(ctx, "--area applies to assembly sources only")
+        return
     if ext == ".crt":
         # A cartridge is mapped at power-on, so "running" one means booting a
         # fresh session with it attached rather than loading into this one.
@@ -946,6 +959,16 @@ def run_cmd(ctx, source):
              f"booted {new.name} with {src} attached")
         return
     s = attach(ctx)
+    # Parsed against the session's load address (there is no --model here) and
+    # before ca65 runs, so an area that cannot link is reported as the flag the
+    # user typed rather than as the config the toolset generated behind it. Its
+    # own try: a rejected flag is not a failed build, and must not pick up the
+    # "still running the PREVIOUS program" note a failed build carries.
+    try:
+        area_list = parse_areas(areas, s.profile.basic_start)
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
     labels = None
     deps: tuple = ()
     try:
@@ -954,7 +977,8 @@ def run_cmd(ctx, source):
         elif ext == ".bas":
             prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
         elif ext == ".s":
-            res = build_asm(src, basic_start=s.profile.basic_start)
+            res = build_asm(src, basic_start=s.profile.basic_start,
+                            areas=area_list)
             prg, labels, deps = res.prg, res.labels, res.deps
         else:
             fail(ctx,

@@ -68,7 +68,9 @@ def test_run_asm_builds_and_registers_labels(tmp_path):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["run", str(src)])
     assert r.exit_code == 0, r.output
-    ba.assert_called_once_with(src.resolve(), basic_start=0x0801)
+    # areas=[] pinned like test_cli_build's: the no---area path must keep
+    # linking exactly as it did before the flag existed.
+    ba.assert_called_once_with(src.resolve(), basic_start=0x0801, areas=[])
     mon.autostart.assert_called_once_with(res.prg, run=True)
     fake.set_labels_path.assert_called_once_with(str(res.labels))
 

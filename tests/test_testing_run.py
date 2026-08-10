@@ -689,8 +689,15 @@ def test_run_test_loads_cart_labels_when_present(tmp_path):
 
 def test_run_test_loads_disk_labels_when_present(tmp_path):
     """A disk spec's symbols follow the same sibling/.lbl rule as the CLI."""
+    import os
+
     img = _d64(tmp_path / "game.d64")
     (tmp_path / "game.lbl").write_text("al 00C000 .entry\n")
+    # The real order: `c64 package -o game.d64` writes the .lbl (beside the
+    # .prg it built) and then the image. Writing them the other way round here
+    # would trip the staleness guard on an image that is perfectly current.
+    os.utime(img, (1_700_000_060, 1_700_000_060))
+    os.utime(tmp_path / "game.lbl", (1_700_000_000, 1_700_000_000))
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])
     spec = _spec(disk=str(img), dir=str(tmp_path),
@@ -1060,3 +1067,171 @@ def test_wait_step_with_no_recognized_key_names_idle_too():
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
          pytest.raises(TestError, match="idle"):
         run_test(spec, launch=launch)
+
+
+def test_prg_program_resolves_a_sibling_label_file(tmp_path):
+    """A `.prg` `program:` takes its symbols from a sibling `.lbl` of the same
+    stem — the rule `cart:` and `disk:` already follow. Before, a `.prg`
+    resolved *nothing*: the tell was `unknown symbol 'entry'; known: ` with an
+    empty known-list, which sent La Galaxia's spec to the packaged image (and
+    13 s of serial load) for the only route to symbols there was."""
+    prog = tmp_path / "p.prg"
+    prog.write_bytes(b"\x01\x08")
+    (tmp_path / "p.lbl").write_text("al C:c000 .entry\n")
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(program=str(prog),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    assert mon.memory_read.call_args.args[0] == 0xC000
+
+
+def test_prg_program_without_a_sibling_label_file_still_runs(tmp_path):
+    """No `.lbl` beside the `.prg` is not an error — silently symbolless, the
+    same as a ready-made `.crt` without one."""
+    prog = tmp_path / "p.prg"
+    prog.write_bytes(b"\x01\x08")
+    s, mon = _fake_session()
+    spec = _spec(program=str(prog))
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    mon.autostart.assert_called_once_with(prog.resolve(), run=True)
+
+
+def test_areas_reach_the_assembler_for_an_s_program(tmp_path):
+    """`areas:` is the spec's `--area`: La Galaxia links its engine at $4000
+    and had nowhere in a spec to say so, which is why it tested the packaged
+    image instead of the program."""
+    from c64lib.build import Area, BuildResult
+
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    prg = tmp_path / "g.prg"
+    prg.write_bytes(b"\x01\x08")
+    res = BuildResult(prg=prg, labels=tmp_path / "g.lbl")
+    s, mon = _fake_session()
+    spec = _spec(program=str(src), areas=["ENGINE=$4000:$6000"])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.build_asm", return_value=res) as ba:
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    ba.assert_called_once_with(src, basic_start=0x0801,
+                               areas=[Area("ENGINE", 0x4000, 0x6000)])
+    mon.autostart.assert_called_once_with(prg.resolve(), run=True)
+
+
+def test_areas_with_a_non_assembly_program_names_the_conflict(tmp_path):
+    """`areas:` rewrites the linker config a `.prg` never goes through. Loud,
+    for the same reason `c64 package --area` is."""
+    prog = tmp_path / "p.prg"
+    prog.write_bytes(b"\x01\x08")
+    spec = _spec(program=str(prog), areas=["ENGINE=$4000:$6000"])
+    launch = Mock()
+    with pytest.raises(TestError, match=r"areas:.*assembly"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()          # refused before anything booted
+
+
+def test_a_bad_area_token_is_a_spec_error_not_a_traceback(tmp_path):
+    """`parse_areas` raises ValueError, which no front end catches — a typo in
+    a spec has to arrive as the same TestError every other spec mistake does."""
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    spec = _spec(program=str(src), areas=["ENGINE"])
+    with pytest.raises(TestError, match=r"--area needs NAME=START:SIZE"):
+        run_test(spec, launch=Mock())
+
+
+def test_areas_without_a_program_names_the_conflict(tmp_path):
+    """A `cart:`/`disk:` spec brings its own memory map (or a built image), so
+    `areas:` beside one would be silently ignored — the failure mode this plan
+    exists to stamp out."""
+    img = _d64(tmp_path / "game.d64")
+    spec = _spec(disk=str(img), dir=str(tmp_path), areas=["ENGINE=$4000:$6000"])
+    launch = Mock()
+    with pytest.raises(TestError, match=r"areas:.*program:"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+
+
+def test_a_disk_older_than_its_labels_says_the_image_predates_them(tmp_path):
+    """S3: rebuilding the program without repackaging the image leaves the
+    runner resolving fresh symbols against stale bytes, which used to surface
+    as `mem $414b = 4a != 00` — a plausible wrong value with no hint that the
+    artifact, not the program, was at fault."""
+    import os
+
+    img = _d64(tmp_path / "game.d64")
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al 00C000 .entry\n")
+    os.utime(img, (1_700_000_000, 1_700_000_000))
+    os.utime(lbl, (1_700_000_060, 1_700_000_060))
+    s, _ = _fake_session()
+    spec = _spec(disk=str(img), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")), \
+         pytest.raises(TestError, match="predates"):
+        run_test(spec, launch=Mock(return_value=s))
+
+
+def test_a_disk_build_label_copy_is_never_called_stale(tmp_path):
+    """`c64 disk build` writes its `<stem>.<cbm-name>.lbl` copies *after* the
+    image it copied them for, so that route is newer by milliseconds on every
+    successful build and can never be independently stale. Only the sibling
+    `<stem>.lbl` — which a separate command writes — is checked."""
+    import os
+
+    img = _d64(tmp_path / "game.d64")
+    kept = tmp_path / "game.hello.lbl"
+    kept.write_text("al 00C000 .entry\n")
+    os.utime(img, (1_700_000_000, 1_700_000_000))
+    os.utime(kept, (1_700_000_060, 1_700_000_060))
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(disk=str(img), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")), \
+         patch("c64lib.testing.disk_labels_path", return_value=kept):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    assert mon.memory_read.call_args.args[0] == 0xC000
+
+
+def test_load_test_keeps_an_areas_list(tmp_path):
+    from c64lib.testing import load_test
+
+    (tmp_path / "p.s").write_text("; x\n")
+    spec_file = tmp_path / "t.yaml"
+    spec_file.write_text("program: p.s\nareas:\n  - ENGINE=$4000:$6000\n")
+    spec = load_test(spec_file)
+    assert spec["areas"] == ["ENGINE=$4000:$6000"]
+    # every other spec defaults to an empty list, never a missing key
+    (tmp_path / "u.yaml").write_text("program: p.s\n")
+    assert load_test(tmp_path / "u.yaml")["areas"] == []
+
+
+def test_load_test_rejects_a_bare_string_areas(tmp_path):
+    """Forgetting the `- ` makes `areas:` a string, and parse_areas would read
+    it one character at a time ("got 'E'")."""
+    from c64lib.testing import load_test
+
+    (tmp_path / "p.s").write_text("; x\n")
+    spec_file = tmp_path / "t.yaml"
+    spec_file.write_text("program: p.s\nareas: ENGINE=$4000:$6000\n")
+    with pytest.raises(TestError, match=r"list of NAME=START:SIZE"):
+        load_test(spec_file)
+
+
+def test_load_test_rejects_areas_beside_a_cart(tmp_path):
+    from c64lib.testing import load_test
+
+    (tmp_path / "g.crt").write_bytes(b"C64 CARTRIDGE   ")
+    spec_file = tmp_path / "t.yaml"
+    spec_file.write_text("cart: g.crt\nareas:\n  - ENGINE=$4000:$6000\n")
+    with pytest.raises(TestError, match=r"areas:.*program:"):
+        load_test(spec_file)

@@ -632,12 +632,17 @@ def c64_package(source: str, output: str | None = None, title: str | None = None
 
 
 @srv.tool()
-def c64_run(source: str, session: str | None = None) -> dict:
+def c64_run(source: str, session: str | None = None,
+            areas: list[str] | None = None) -> dict:
     """Build/tokenize a .bas/.s/.prg as needed, then load and RUN it on the
     running C64. Registers assembly symbols on the session automatically. A
     .crt cannot be loaded into a running machine, so running one stops the
     session and boots a fresh one of the same name and model with the
     cartridge attached (returns {"cart", "session", "model", "symbols"}).
+
+    `areas` is c64_build's, and applies to a .s source only: each entry is
+    "NAME=START:SIZE" linking segment NAME at a fixed address. Passing it for
+    a .bas, a .prg or a .crt is an error rather than a no-op.
 
     For a .crt, "no session to reboot" and "no session by that name" are the
     same case: a session name that does not exist boots an unnamed default c64
@@ -646,6 +651,11 @@ def c64_run(source: str, session: str | None = None) -> dict:
     unexpected."""
     src = Path(source).resolve()
     ext = src.suffix.lower()
+    # Before the session is touched, in the CLI's words: --area rewrites the
+    # linker config only an assembled .s goes through, and a cartridge brings
+    # its own memory map.
+    if areas and ext != ".s":
+        raise ValueError("--area applies to assembly sources only")
     if ext == ".crt":
         # A cartridge is mapped at power-on, so "running" one means booting a
         # fresh session with it attached rather than loading into this one.
@@ -691,7 +701,8 @@ def c64_run(source: str, session: str | None = None) -> dict:
     elif ext == ".bas":
         prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
     elif ext == ".s":
-        res = build_asm(src, basic_start=s.profile.basic_start)
+        res = build_asm(src, basic_start=s.profile.basic_start,
+                        areas=parse_areas(areas or (), s.profile.basic_start))
         prg, labels_path, deps = res.prg, res.labels, res.deps
     else:
         raise ValueError(                       # same wording as the CLI's
@@ -1092,7 +1103,12 @@ def c64_rom_disasm(start: str, length: int = 32,
 @srv.tool()
 def c64_test_run(yaml_file: str) -> dict:
     """Run a declarative YAML test (boots its own fresh C64; the file
-    format is documented in docs/cli.md under `c64 test run`)."""
+    format is documented in docs/cli.md under `c64 test run`).
+
+    A spec's `program:` may be a .bas, .s or .prg; a .prg picks up a sibling
+    .lbl of the same stem for its symbols, and an `areas:` list of
+    "NAME=START:SIZE" strings links a .s program's fixed-address segments
+    (c64_run's `areas`, and an error beside anything else)."""
     return run_test(load_test(Path(yaml_file))).to_dict()
 
 

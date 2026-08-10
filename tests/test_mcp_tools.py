@@ -254,6 +254,37 @@ def test_run_bas_tokenizes(tmp_path):
     tok.assert_called_once_with(bas.resolve(), bas.resolve().with_suffix(".prg"), "2.0")
 
 
+def test_run_areas_reach_the_linker(tmp_path):
+    """CLI parity with test_cli_basic.test_run_area_reaches_the_linker."""
+    from c64lib.build import Area, BuildResult
+
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
+        S.attach.return_value = s
+        err, out = call_tool("c64_run", {"source": str(src),
+                                         "areas": ["ENGINE=$4000:$6000"]})
+    assert err is False, out
+    assert ba.call_args.kwargs["areas"] == [Area("ENGINE", 0x4000, 0x6000)]
+    mon.autostart.assert_called_once_with(res.prg.resolve(), run=True)
+
+
+def test_run_areas_outside_assembly_is_an_error(tmp_path):
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_run", {"source": str(prg),
+                                         "areas": ["ENGINE=$4000:$6000"]})
+    # same wording as the CLI's: both front ends say it one way
+    assert err is True and "--area applies to assembly sources only" in out["raw"]
+    mon.autostart.assert_not_called()
+
+
 def test_run_unknown_extension_is_error(tmp_path):
     s, _ = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
