@@ -47,16 +47,25 @@ def _shape(multicolor: bool) -> tuple[int, dict[str, int]]:
     return (4, _MC_LEGEND) if multicolor else (8, _HIRES_LEGEND)
 
 
-def _parse_header(stripped: str, lineno: int, file_multicolor: bool) -> tuple[str, bool]:
-    """Split a header into (name, multicolor), resolving its mode suffix."""
+def parse_block_header(stripped: str, lineno: int, file_multicolor: bool,
+                       kind: str = "charset",
+                       error: type[ValueError] = CharsetError) -> tuple[str, bool]:
+    """Split a header into (name, multicolor), resolving its mode suffix.
+
+    Shared by both sheet encoders: sprite sheets spell their block headers
+    exactly the way charset sheets do (`name:`, `wall:multicolor`,
+    `fighter:hires`), so there is one parser and one rejection message.
+    `kind` and `error` only name the caller in that message and pick the
+    exception its own callers already catch.
+    """
     body = stripped.removeprefix("name:").strip()
     name, sep, mode = body.rpartition(":")
     if not sep:
         name, mode = body, ""
     mode = mode.strip().lower()
     if mode and mode not in BLOCK_MODES:
-        raise CharsetError(
-            f"charset sheet line {lineno}: unknown mode {mode!r} — "
+        raise error(
+            f"{kind} sheet line {lineno}: unknown mode {mode!r} — "
             f"use 'hires' or 'multicolor'")
     return name.strip(), BLOCK_MODES.get(mode, file_multicolor)
 
@@ -100,7 +109,7 @@ def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
             continue                            # blank line or comment
         if not is_row_shaped and ":" in stripped:
             close(lineno)                       # reads the OLD block's mode
-            name, block_mc = _parse_header(stripped, lineno, multicolor)
+            name, block_mc = parse_block_header(stripped, lineno, multicolor)
             if name in seen:
                 raise CharsetError(
                     f"duplicate glyph name {name!r} at line {lineno}")
@@ -137,12 +146,15 @@ def encode_row(row: str, multicolor: bool = True) -> int:
 
 
 def format_glyphs(glyphs: list[Glyph], first_code: int = 0,
-                  multicolor: bool = True) -> str:
+                  multicolor: bool = True, label: str = "glyphs") -> str:
     """Render glyph blocks as one contiguous labeled ca65 block.
 
-    One leading `glyphs:` label and one `glyphs_end:` — the consumer
-    indexes off the base and sizes the copy with `glyphs_end - glyphs`
-    (see demos/invaders/chars.s), so no per-glyph labels and no count byte.
+    One leading `<label>:` and one `<label>_end:` — the consumer indexes off
+    the base and sizes the copy with `glyphs_end - glyphs` (see
+    demos/invaders/chars.s), so no per-glyph labels and no count byte.
+    `label` names the pair (`glyphs` by default) so a program that installs
+    several sheets gets several blocks in one file without renaming them on
+    the way out.
 
     Each glyph is encoded in its own mode; `multicolor` only names the file
     default in the header comment, and a sheet that mixed modes says so
@@ -157,7 +169,7 @@ def format_glyphs(glyphs: list[Glyph], first_code: int = 0,
         f"{first_code}-{first_code + len(glyphs) - 1} — c64 charset encode",
         "; patch over a RAM charset at CHARSET + code*8",
         "",
-        "glyphs:",
+        f"{label}:",
     ]
     for offset, glyph in enumerate(glyphs):
         suffix = "" if len(modes) == 1 else (
@@ -166,6 +178,6 @@ def format_glyphs(glyphs: list[Glyph], first_code: int = 0,
         for row in glyph.rows:
             out.append(f"        .byte   %{encode_row(row, glyph.multicolor):08b}"
                        f"    ; {row}")
-    out.append("glyphs_end:")
+    out.append(f"{label}_end:")
     out.append("")
     return "\n".join(out)

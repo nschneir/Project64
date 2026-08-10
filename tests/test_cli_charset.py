@@ -60,3 +60,22 @@ def test_charset_encode_missing_file():
     r = CliRunner().invoke(main, ["--json", "charset", "encode", "/nope.txt"])
     assert r.exit_code == 2, r.output
     assert "/nope.txt" in r.output
+
+
+def test_charset_encode_label_renames_the_block(tmp_path):
+    src = tmp_path / "chars.txt"
+    src.write_text(ART)
+    r = CliRunner().invoke(main, ["charset", "encode", str(src),
+                                  "--label", "fontgly"])
+    assert r.exit_code == 0, r.output
+    assert "fontgly:" in r.output and "fontgly_end:" in r.output
+    assert "glyphs:" not in r.output and "glyphs_end:" not in r.output
+
+
+def test_charset_encode_label_must_be_an_identifier(tmp_path):
+    src = tmp_path / "chars.txt"
+    src.write_text(ART)
+    r = CliRunner().invoke(main, ["--json", "charset", "encode", str(src),
+                                  "--label", "font gly"])
+    assert r.exit_code == 1, r.output
+    assert "identifier" in json.loads(r.output)["error"]

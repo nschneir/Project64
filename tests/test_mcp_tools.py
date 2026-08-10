@@ -496,6 +496,23 @@ def test_sprite_encode_start_line_needs_basic_format(tmp_path):
     assert "start_line only applies to fmt='basic'" in str(out)
 
 
+def test_sprite_encode_background_and_named_blocks_reach_mcp(tmp_path):
+    """CLI/MCP lockstep: `--background` and the sheet's `name:`/mode headers
+    are the CLI's whole new surface, so the twin has to carry both — and
+    report the names it parsed, which is what makes the payload a block map."""
+    src = tmp_path / "mixed.txt"
+    src.write_text("# a sheet\n\nfighter:hires\n" + ("." * 24 + "\n") * 21
+                   + "\ndrone:multicolor\n" + (".123" * 3 + "\n") * 21)
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "background": "."})
+    assert err is False, out
+    assert out["blocks"] == [{"name": "fighter", "multicolor": False},
+                             {"name": "drone", "multicolor": True}]
+    assert out["sprites"][0] == [0] * 63              # '.' is background now
+    assert out["sprites"][1] == [0b00011011] * 63     # digit == pair value
+    assert "; sprite 1 (drone), 24x21 multicolor" in out["rendered"]
+
+
 def test_sprite_encode_empty_file_is_an_error(tmp_path):
     src = tmp_path / "empty.txt"
     src.write_text("\n   \n")
@@ -525,6 +542,22 @@ def test_charset_encode_returns_glyphs_and_rendering(tmp_path):
         {"name": "letter", "multicolor": False, "bytes": [0b11000000] * 8},
     ]
     assert out["rendered"] == format_glyphs(parse_charset(_MIXED_SHEET))
+
+
+def test_charset_encode_label_reaches_mcp(tmp_path):
+    """CLI/MCP lockstep for `--label`, including the identifier check — an
+    unusable label has to fail here the way it fails there, not assemble
+    into a broken include."""
+    src = tmp_path / "chars.txt"
+    src.write_text(_MIXED_SHEET)
+    err, out = call_tool("c64_charset_encode",
+                         {"file": str(src), "label": "fontgly"})
+    assert err is False, out
+    assert "fontgly:" in out["rendered"] and "fontgly_end:" in out["rendered"]
+    err, out = call_tool("c64_charset_encode",
+                         {"file": str(src), "label": "font gly"})
+    assert err is True
+    assert "not an assembler identifier" in str(out)
 
 
 def test_charset_encode_bad_sheet_is_an_error(tmp_path):

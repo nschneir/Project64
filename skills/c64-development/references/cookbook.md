@@ -379,7 +379,9 @@ Don't work out the bit pairs by hand. Draw the shape as 21 rows of 12
 characters using the `c64 sprite encode` legend — `' '` transparent, `'.'`
 → `$D025`, `'#'` → the sprite's own color, `'+'` → `$D026` — and let the
 tool encode it. A beach ball, `ball.txt` (every row is exactly 12 columns
-wide, trailing spaces included):
+wide, trailing spaces included — or pass `--background .` and draw the
+transparent pixels as dots, so the width is countable and no editor can
+strip it):
 
 ```
     ++++    

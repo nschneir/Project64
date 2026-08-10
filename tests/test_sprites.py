@@ -446,3 +446,157 @@ def test_render_sheet_rejects_a_bad_format():
     sprites = encode_sheet(_sprite_rows(21))
     with pytest.raises(ValueError, match=r"^unknown format 'c'; use 'asm' or 'basic'$"):
         render_sheet(sprites, fmt="c")
+
+
+# ---- sheet ergonomics: named blocks, comments, a visible background --------
+
+def _mc(rows: str) -> str:
+    return rows
+
+
+def test_sprite_sheet_named_blocks_carry_their_own_mode():
+    """One sheet, both modes: a `name:hires` block is 24 wide and a
+    `name:multicolor` one is 12, the way charset sheets already work."""
+    from c64lib.sprites import encode_sheet, encode_sprite
+    sheet = ("fighter:hires\n" + ("#" * 24 + "\n") * 21
+             + "\ndrone:multicolor\n" + ("#" * 12 + "\n") * 21)
+    assert encode_sheet(sheet) == [encode_sprite(["#" * 24] * 21, multicolor=False),
+                                   encode_sprite(["#" * 12] * 21, multicolor=True)]
+
+
+def test_sprite_sheet_bare_header_takes_the_file_mode():
+    from c64lib.sprites import encode_sheet, encode_sprite
+    sheet = "drone:\n" + ("#" * 24 + "\n") * 21
+    assert encode_sheet(sheet, multicolor=False) == \
+        [encode_sprite(["#" * 24] * 21, multicolor=False)]
+
+
+def test_sprite_sheet_rejects_an_unknown_mode():
+    from c64lib.sprites import encode_sheet
+    with pytest.raises(ValueError, match=(
+            r"^sprite sheet line 2: unknown mode 'mono' — "
+            r"use 'hires' or 'multicolor'$")):
+        encode_sheet("# a sheet\ndrone:mono\n" + ("#" * 12 + "\n") * 21)
+
+
+def test_sprite_sheet_rejects_a_duplicate_name():
+    from c64lib.sprites import encode_sheet
+    sheet = ("drone:\n" + ("#" * 12 + "\n") * 21
+             + "\ndrone:\n" + ("#" * 12 + "\n") * 21)
+    with pytest.raises(ValueError,
+                       match=r"^duplicate sprite name 'drone' at line 24$"):
+        encode_sheet(sheet)
+
+
+def test_sprite_sheet_comment_lines_are_skipped():
+    from c64lib.sprites import encode_sheet, encode_sprite
+    sheet = ("# La Galaxia -- every shape, as readable art\n"
+             "#   . background   # sprite colour\n"
+             "\n"
+             "drone:\n" + ("#" * 12 + "\n") * 21)
+    assert encode_sheet(sheet) == [encode_sprite(["#" * 12] * 21)]
+
+
+def test_sprite_sheet_an_all_hash_row_is_art_not_a_comment():
+    """`#` is both the comment marker and a legend character, so a line is a
+    comment only when it holds something the legend does not — an all-`#` row
+    is a solid line of sprite-color pixels and must survive."""
+    from c64lib.sprites import encode_sheet
+    sheet = "drone:\n" + ("#" * 12 + "\n") * 21
+    assert encode_sheet(sheet)[0] == b"\xaa" * 63
+
+
+def test_sprite_sheet_visible_background_encodes_the_same_bytes():
+    """`--background .` only renames pair 00; the bytes are the space sheet's."""
+    from c64lib.sprites import encode_sheet
+    spaces = ("   ###   ###\n" + " " * 12 + "\n") * 10 + " " * 12 + "\n"
+    dots = spaces.replace(" ", ".")
+    assert encode_sheet(dots, background=".") == encode_sheet(spaces)
+
+
+def test_sprite_sheet_background_frees_the_dot_and_digits_spell_the_pairs():
+    """With `.` claimed for pair 00 the sheet spells 01/10/11 as `1 2 3` —
+    the same digit-is-the-pair-value legend charset sheets use."""
+    from c64lib.sprites import encode_sheet
+    row = ".123" * 3
+    sheet = (row + "\n") * 21
+    assert encode_sheet(sheet, background=".")[0][:3] == \
+        (0b00011011_00011011_00011011).to_bytes(3, "big")
+
+
+def test_sprite_sheet_hires_visible_background():
+    from c64lib.sprites import encode_sheet
+    sheet = ("." * 20 + "####" + "\n") * 21
+    assert encode_sheet(sheet, multicolor=False, background=".")[0][:3] == \
+        b"\x00\x00\x0f"
+
+
+def test_sprite_sheet_names_reach_the_rendering():
+    from c64lib.sprites import (
+        encode_sheet,
+        encode_sheet_blocks,
+        parse_sprite_sheet,
+        render_sheet,
+    )
+    sheet = ("fighter:hires\n" + ("#" * 24 + "\n") * 21
+             + "\ndrone:multicolor\n" + ("#" * 12 + "\n") * 21)
+    blocks = parse_sprite_sheet(sheet)
+    assert [b.name for b in blocks] == ["fighter", "drone"]
+    assert [b.multicolor for b in blocks] == [False, True]
+    text = render_sheet(encode_sheet_blocks(sheet))
+    assert "; sprite 0 (fighter), 24x21 hires" in text
+    assert "; sprite 1 (drone), 24x21 multicolor" in text
+    assert encode_sheet(sheet) == [b.data for b in encode_sheet_blocks(sheet)]
+
+
+def test_sprite_sheet_positional_blocks_are_unchanged():
+    """No header, no comment, spaces for background: the old sheet still
+    parses, still numbers by position, and still renders without a name."""
+    from c64lib.sprites import encode_sheet, render_sheet
+    sheet = (" " * 12 + "\n") * 21 + "\n" + ("#" * 12 + "\n") * 21
+    sprites = encode_sheet(sheet)
+    assert len(sprites) == 2
+    text = render_sheet(sprites)
+    assert "; sprite 0, 24x21 multicolor (63 bytes" in text
+
+
+def test_sprite_sheet_row_before_any_header_after_one_is_still_positional():
+    """A sheet that names some blocks and not others keeps counting: the
+    unnamed block is `sprite1` and says so."""
+    from c64lib.sprites import encode_sheet, parse_sprite_sheet
+    sheet = ("drone:\n" + ("#" * 12 + "\n") * 21
+             + "\n" + ("#" * 12 + "\n") * 21)
+    assert [b.name for b in parse_sprite_sheet(sheet)] == ["drone", None]
+    assert len(encode_sheet(sheet)) == 2
+
+
+def test_sprite_sheet_rejects_a_header_with_no_art():
+    """Two headers in a row is a typo, not an empty sprite — charset sheets
+    reject the same shape rather than silently dropping the block."""
+    from c64lib.sprites import encode_sheet
+    with pytest.raises(ValueError,
+                       match=r"^sprite 'drone' \(line 1\) has no art rows$"):
+        encode_sheet("drone:\n\nwasp:\n" + ("#" * 12 + "\n") * 21)
+
+
+def test_sprite_sheet_errors_name_the_block():
+    from c64lib.sprites import encode_sheet
+    sheet = "drone:\n" + ("#" * 12 + "\n") * 14
+    with pytest.raises(ValueError, match=(
+            r"^sprite 1 'drone' \(line 1\): art must be 21 rows, got 14$")):
+        encode_sheet(sheet)
+
+
+def test_charset_format_glyphs_label_renames_both_ends():
+    from c64lib.charset import format_glyphs, parse_charset
+    glyphs = parse_charset("name: g\n" + ".123\n" * 8)
+    text = format_glyphs(glyphs, label="fontgly")
+    assert "fontgly:" in text and "fontgly_end:" in text
+    assert "glyphs:" not in text
+
+
+def test_charset_format_glyphs_default_label_is_glyphs():
+    from c64lib.charset import format_glyphs, parse_charset
+    glyphs = parse_charset("name: g\n" + ".123\n" * 8)
+    text = format_glyphs(glyphs)
+    assert "glyphs:" in text and "glyphs_end:" in text

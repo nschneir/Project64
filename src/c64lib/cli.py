@@ -2179,20 +2179,31 @@ def sprite_from_png(ctx, image, out_path, multicolor):
                    "otherwise, and a bare DATA line will not store).")
 @click.option("--line-step", type=int, default=10, show_default=True,
               help="With --start-line: gap between generated line numbers.")
+@click.option("--background", "background", default=" ", show_default=False,
+              metavar="CHAR",
+              help="Character that means background (pair 00). Default is a "
+                   "space; pass '.' to author with a visible background, so "
+                   "a row's width is countable and no editor can strip it.")
 @click.option("--out", "-o", "out_path", default=None,
               help="Write the rendered rows to this file instead of stdout.")
 @click.pass_context
-def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
+def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
+                  out_path):
     """Encode ASCII-art sprite(s) from FILE into 63 sprite bytes each.
 
-    FILE holds one or more 21-row sprites, separated by a blank line. Rows
-    use the friendly authoring legend (multicolor ' .#+', hires ' #') or
-    the glyphs `c64 sprite show` emits ('·▒█▓', '█·') — `show` output
-    round-trips straight back through `encode`. Needs no session; pairs
-    with `c64 sprite from-png` (image input instead of ASCII art) and
-    `c64 sprite show` (the inverse: bytes back to ASCII).
+    FILE holds one or more 21-row sprites, separated by a blank line or by a
+    `name:` header. A header may set its own mode — `fighter:hires`,
+    `drone:multicolor` — so one sheet holds both, exactly as charset sheets
+    do; a bare `name:` takes the file's mode (`--hires` or not). `#`
+    comments are ignored, except that a `#` line which is a legal row at
+    exactly row width is art. Rows use the friendly authoring legend
+    (multicolor ' .#+', hires ' #'), the digit legend charset sheets use
+    ('.123', digit = pair value), or the glyphs `c64 sprite show` emits
+    ('·▒█▓', '█·') — `show` output round-trips straight back through
+    `encode`. Needs no session; pairs with `c64 sprite from-png` (image
+    input instead of ASCII art) and `c64 sprite show` (the inverse).
     """
-    from .sprites import encode_sheet, render_sheet
+    from .sprites import encode_sheet_blocks, render_sheet
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
@@ -2201,22 +2212,25 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
         fail(ctx, f"no sprite art found in {file}")
         return
     try:
-        sprites = encode_sheet(text_in, multicolor=not hires)
+        blocks = encode_sheet_blocks(text_in, multicolor=not hires,
+                                     background=background)
     except ValueError as e:
         fail(ctx, str(e))
         return
-    if not sprites:
+    if not blocks:
         fail(ctx, f"no sprite art found in {file}")
         return
     try:
-        text = render_sheet(sprites, fmt, multicolor=not hires,
+        text = render_sheet(blocks, fmt, multicolor=not hires,
                             start_line=start_line, line_step=line_step)
     except ValueError as e:
         fail(ctx, str(e))
         return
     if out_path:
         Path(out_path).write_text(text)
-    emit(ctx, {"sprites": [list(data) for data in sprites]},
+    emit(ctx, {"sprites": [list(b.data) for b in blocks],
+               "blocks": [{"name": b.name, "multicolor": b.multicolor}
+                          for b in blocks]},
          text if not out_path else f"wrote {out_path}")
 
 
@@ -2234,10 +2248,15 @@ def charset() -> None:
 @click.option("--first-code", default=0, show_default=True,
               help="Screen code of the first glyph (sets the per-glyph "
                    "comments; the data itself is position-independent).")
+@click.option("--label", "label", default="glyphs", show_default=True,
+              metavar="NAME",
+              help="Name the emitted block: `NAME:` and `NAME_end:`. Several "
+                   "sheets then land in one file without being renamed on "
+                   "the way out.")
 @click.option("--out", "-o", "out_path", default=None,
               help="Write the rendered rows to this file instead of stdout.")
 @click.pass_context
-def charset_encode(ctx, file, hires, first_code, out_path):
+def charset_encode(ctx, file, hires, first_code, label, out_path):
     """Encode ASCII-art glyphs from FILE into 8 charset bytes each.
 
     FILE holds `name:` blocks of exactly 8 rows. Multicolor rows (the
@@ -2249,17 +2268,24 @@ def charset_encode(ctx, file, hires, first_code, out_path):
     sheet; a bare `name:` takes the file's mode (`--hires` or not).
     `#` comment lines and blank lines are ignored;
     block order is screen-code order. Emits one contiguous block under a
-    `glyphs:` label with a `glyphs_end:` end label, 8 `.byte` rows per
-    glyph, each glyph introduced by a `; code N: name` comment. Needs no
-    session; the charset twin of `c64 sprite encode`.
+    `glyphs:` label with a `glyphs_end:` end label (`--label` renames both),
+    8 `.byte` rows per glyph, each glyph introduced by a `; code N: name`
+    comment. Needs no session; the charset twin of `c64 sprite encode`.
     """
+    import re
+
     from .charset import CharsetError, encode_row, format_glyphs, parse_charset
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        fail(ctx, f"--label {label!r} is not an assembler identifier "
+                  f"(letters, digits and underscore, not starting with a digit)")
+        return
     try:
         glyphs = parse_charset(file.read_text(), multicolor=not hires)
     except CharsetError as e:
         fail(ctx, str(e))
         return
-    text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires)
+    text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires,
+                         label=label)
     if out_path:
         Path(out_path).write_text(text)
     emit(ctx, {"glyphs": [{"name": g.name,

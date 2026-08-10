@@ -323,3 +323,55 @@ def test_sprite_encode_missing_file():
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", "/nope.txt"])
     assert r.exit_code == 2, r.output
     assert "/nope.txt" in r.output
+
+
+# ---- sheet ergonomics: named blocks, comments, a visible background --------
+
+_SHEET_HEAD = ("# La Galaxia -- the shapes, as readable art.\n"
+               "#   Legend: . background   # sprite colour\n"
+               "\n")
+
+
+def _named_sheet() -> str:
+    return (_SHEET_HEAD
+            + "fighter:hires\n" + ("." * 24 + "\n") * 21
+            + "\ndrone:multicolor\n" + ("." * 12 + "\n") * 21)
+
+
+def test_sprite_encode_background_makes_a_named_mixed_sheet_one_invocation(tmp_path):
+    src = tmp_path / "sprites.txt"
+    src.write_text(_named_sheet())
+    r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--background", "."])
+    assert r.exit_code == 0, r.output
+    assert "; sprite 0 (fighter), 24x21 hires" in r.output
+    assert "; sprite 1 (drone), 24x21 multicolor" in r.output
+    assert "sprite0: .byte %" in r.output and "sprite1: .byte %" in r.output
+
+
+def test_sprite_encode_background_json_has_every_block(tmp_path):
+    src = tmp_path / "sprites.txt"
+    src.write_text(_named_sheet())
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src),
+                                  "--background", "."])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out["sprites"] == [[0] * 63, [0] * 63]
+    assert [s["name"] for s in out["blocks"]] == ["fighter", "drone"]
+    assert [s["multicolor"] for s in out["blocks"]] == [False, True]
+
+
+def test_sprite_encode_background_must_be_one_character(tmp_path):
+    src = tmp_path / "sprites.txt"
+    src.write_text("\n".join([_DOT_ROW] * 21) + "\n")
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src),
+                                  "--background", ".."])
+    assert r.exit_code == 1, r.output
+    assert "one character" in json.loads(r.output)["error"]
+
+
+def test_sprite_encode_unknown_mode_is_a_clean_error(tmp_path):
+    src = tmp_path / "sprites.txt"
+    src.write_text("drone:mono\n" + "\n".join([_DOT_ROW] * 21) + "\n")
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
+    assert r.exit_code == 1, r.output
+    assert "unknown mode 'mono'" in json.loads(r.output)["error"]

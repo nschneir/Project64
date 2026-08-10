@@ -8,9 +8,12 @@ as fixed by the hardware: 00 = background ($D021), 01 = $D025,
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from .basic_tokens import MAX_LINE_NUMBER
+from .charset import parse_block_header
 
 # Pepto palette (colodore lineage) — index = C64 color number.
 C64_PALETTE = [
@@ -88,21 +91,44 @@ def sprite_ascii(data: bytes, multicolor: bool) -> list[str]:
     return rows
 
 
-# Encode legends. Accept the plain-ASCII authoring set AND the glyphs
-# `sprite_ascii` emits, so `c64 sprite show` output round-trips through encode.
+# Encode legends. Accept the plain-ASCII authoring set, the digit-is-the-
+# pair-value set charset sheets use ('.123'), AND the glyphs `sprite_ascii`
+# emits, so `c64 sprite show` output round-trips through encode.
 _MC_ENCODE = {" ": 0, ".": 1, "#": 2, "+": 3,   # friendly
+              "1": 1, "2": 2, "3": 3,           # digit == the pair's value
               "·": 0, "▒": 1, "█": 2, "▓": 3}    # == _MC_GLYPHS (show output)
 _HIRES_ENCODE = {" ": 0, "#": 1, "·": 0, "█": 1}
 
+#: what `--background`/`background=` defaults to. A space is invisible, which
+#: is the whole reason the option exists.
+DEFAULT_BACKGROUND = " "
 
-def _mc_pixels(row: str) -> list[int]:
+
+def _encode_legend(multicolor: bool, background: str) -> dict[str, int]:
+    """The legend for one mode, with `background` claimed for pair 00.
+
+    The claim overrides: '.' means pair 01 by default, and `background='.'`
+    makes it 00 — which is why the digits above exist, so '1' still spells
+    pair 01 in a sheet whose background is a visible dot. A space always
+    reads as background; nothing else in either legend maps to 0, so there
+    is nothing for it to shadow.
+    """
+    if len(background) != 1:
+        raise ValueError(
+            f"background must be one character, got {background!r}")
+    legend = dict(_MC_ENCODE if multicolor else _HIRES_ENCODE)
+    legend[background] = 0
+    return legend
+
+
+def _mc_pixels(row: str, legend: dict[str, int]) -> list[int]:
     # Accept 12 glyphs (one/pixel) or 24 (the doubled form `show` emits).
     if len(row) == 24:
         row = row[::2]           # collapse each doubled pair
     if len(row) != 12:
         raise ValueError("multicolor sprite art must be 12 or 24 chars/row")
     try:
-        return [_MC_ENCODE[ch] for ch in row]
+        return [legend[ch] for ch in row]
     except KeyError as e:
         raise ValueError(f"unknown multicolor sprite glyph {e.args[0]!r}") from None
 
@@ -110,77 +136,173 @@ def _mc_pixels(row: str) -> list[int]:
 ROWS_PER_SPRITE = 21
 
 
-def parse_sprite_sheet(text: str) -> list[tuple[int, list[str]]]:
-    """Split a sheet into blank-line-separated blocks of (first line, rows).
+class Shape(NamedTuple):
+    """One block of a sheet: where it starts, what it is called, its art.
 
-    A separator is a truly EMPTY line (no characters at all) — a row of
-    all-background pixels is a legitimate 12/24-char row of spaces, and must
-    not be confused with the blank line between sprites. Rows are kept
-    exactly as written (no stripping); trailing spaces are significant
-    (background pixels).
+    `name` is None for a positional block — a sheet that never writes a
+    header still parses, and those blocks are still numbered by position.
+    """
+
+    lineno: int
+    name: str | None
+    rows: list[str]
+    multicolor: bool
+
+
+class EncodedSprite(NamedTuple):
+    """One encoded block: 63 bytes plus what the renderer needs to label it."""
+
+    name: str | None
+    multicolor: bool
+    data: bytes
+
+
+def _row_width(multicolor: bool) -> int:
+    return 12 if multicolor else 24
+
+
+def parse_sprite_sheet(text: str, multicolor: bool = True,
+                       background: str = DEFAULT_BACKGROUND) -> list[Shape]:
+    """Split a sheet into its blocks, honoring `name:` headers and comments.
+
+    A block ends at a truly EMPTY line or at the next header — a row of
+    all-background pixels is a legitimate 12/24-character row of spaces (or
+    of `background`), and must not be confused with the blank line between
+    sprites. Rows are kept exactly as written (no stripping); with the
+    default space background, trailing spaces are significant.
+
+    A header is `fighter:hires`, `drone:multicolor` or a bare `drone:`,
+    spelled and parsed exactly as a charset sheet's (`charset.
+    parse_block_header` is the one parser). A bare header takes the file's
+    mode, so `--hires` still means what it meant; a named one sets its own,
+    so a game's hires ship and its multicolor aliens are one sheet.
+
+    `#` starts a comment — but `#` is also a legend character, so a line
+    counts as a comment only when it holds something the legend does not.
+    An all-`#` row is a solid line of sprite-color pixels, and this sheet
+    format hit that trap twice before the rule was written down.
 
     The line number travels with the block so a rejection can point at the
     art rather than at the sheet: a file of 27 shapes reporting only "must
     be 21 rows" costs a hand bisection to place.
     """
-    sheet: list[tuple[int, list[str]]] = []
+    legends = {mc: set(_encode_legend(mc, background)) for mc in (False, True)}
+    sheet: list[Shape] = []
     current: list[str] = []
+    seen: set[str] = set()
     start = 0
+    name: str | None = None
+    block_mc = multicolor
+
+    def close() -> None:
+        """Flush the open block. A header with no rows yet stays pending, so
+        a blank line between a header and its art is just a blank line."""
+        nonlocal current, name, block_mc
+        if current:
+            sheet.append(Shape(start, name, current, block_mc))
+            current, name, block_mc = [], None, multicolor
+
+    def no_art_yet() -> None:
+        """A name the sheet never drew is a typo'd header, not an empty
+        sprite — charset sheets reject the same shape rather than dropping it."""
+        if name is not None and not current:
+            raise ValueError(f"sprite {name!r} (line {start}) has no art rows")
+
     for lineno, line in enumerate(text.splitlines(), start=1):
-        if line == "":
-            if current:
-                sheet.append((start, current))
-                current = []
-        else:
-            if not current:
-                start = lineno
+        # Row-shaped: the block's own width (or the 24-character doubled form
+        # `show` emits for multicolor) and nothing outside the legend.
+        is_row = (len(line) in (_row_width(block_mc), 24)
+                  and set(line) <= legends[block_mc])
+        stripped = line.strip()
+        if is_row:
+            if not current and name is None:
+                start = lineno                   # a positional block starts here
             current.append(line)
-    if current:
-        sheet.append((start, current))
+            continue
+        if not stripped:
+            close()                              # blank line: block boundary
+            continue
+        if stripped.startswith("#"):
+            continue                             # comment — checked before the
+        if ":" in stripped:                      # header, since `#` is legal in
+            close()                              # both and a comment can hold a
+            no_art_yet()                         # colon ("# ---- hires: ...")
+            name, block_mc = parse_block_header(
+                stripped, lineno, multicolor, kind="sprite", error=ValueError)
+            if name in seen:
+                raise ValueError(
+                    f"duplicate sprite name {name!r} at line {lineno}")
+            seen.add(name)
+            start = lineno
+            continue
+        if not current and name is None:
+            start = lineno
+        current.append(line)                     # malformed: encode_* names it
+    close()
+    no_art_yet()
     return sheet
 
 
-def encode_sheet(text: str, multicolor: bool = True) -> list[bytes]:
+def encode_sheet_blocks(text: str, multicolor: bool = True,
+                        background: str = DEFAULT_BACKGROUND
+                        ) -> list[EncodedSprite]:
     """Encode every block in a sheet, naming the block that is wrong.
 
     Blocks are numbered from 1 the way a reader counts them; the emitted
     `spriteN:` labels are 0-based, which is exactly why the message carries
-    the line number too.
+    the line number too — and the block's own name, once it has one.
     """
-    out: list[bytes] = []
-    for index, (lineno, rows) in enumerate(parse_sprite_sheet(text), start=1):
-        where = f"sprite {index} (line {lineno})"
-        if len(rows) != ROWS_PER_SPRITE:
+    out: list[EncodedSprite] = []
+    for index, shape in enumerate(parse_sprite_sheet(
+            text, multicolor=multicolor, background=background), start=1):
+        named = f" {shape.name!r}" if shape.name else ""
+        where = f"sprite {index}{named} (line {shape.lineno})"
+        if len(shape.rows) != ROWS_PER_SPRITE:
             raise ValueError(f"{where}: art must be {ROWS_PER_SPRITE} rows, "
-                             f"got {len(rows)}")
+                             f"got {len(shape.rows)}")
         try:
-            out.append(encode_sprite(rows, multicolor=multicolor))
+            data = encode_sprite(shape.rows, multicolor=shape.multicolor,
+                                 background=background)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
+        out.append(EncodedSprite(shape.name, shape.multicolor, data))
     return out
 
 
-def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
+def encode_sheet(text: str, multicolor: bool = True,
+                 background: str = DEFAULT_BACKGROUND) -> list[bytes]:
+    """The bytes of every block in a sheet, in file order."""
+    return [block.data for block in
+            encode_sheet_blocks(text, multicolor=multicolor,
+                                background=background)]
+
+
+def encode_sprite(art: list[str], multicolor: bool = True,
+                  background: str = DEFAULT_BACKGROUND) -> bytes:
     """Encode ASCII-art rows to 63 sprite bytes (the inverse of `sprite_ascii`).
 
-    Accepts either the friendly authoring legend (' .#+' / ' #') or the
-    glyphs `sprite_ascii` emits ('·▒█▓' / '█·'), so `c64 sprite show` output
-    round-trips through `encode_sprite`. `art` must have exactly 21 rows.
+    Accepts the friendly authoring legend (' .#+' / ' #'), the digit legend
+    charset sheets use ('.123', digit == pair value), or the glyphs
+    `sprite_ascii` emits ('·▒█▓' / '█·'), so `c64 sprite show` output
+    round-trips through `encode_sprite`. `background` picks the character
+    that means pair 00 — pass '.' to author with a visible background, which
+    is what makes a row's width countable. `art` must have exactly 21 rows.
     """
     if len(art) != 21:
         raise ValueError(f"sprite art must be 21 rows, got {len(art)}")
+    legend = _encode_legend(multicolor, background)
     out = bytearray()
     for row in art:
         bits = 0
         if multicolor:
-            for px in _mc_pixels(row):
+            for px in _mc_pixels(row, legend):
                 bits = (bits << 2) | px
         else:
             if len(row) != 24:
                 raise ValueError(f"hires sprite art must be 24 chars/row, got {len(row)}")
             try:
                 for ch in row:
-                    bits = (bits << 1) | _HIRES_ENCODE[ch]
+                    bits = (bits << 1) | legend[ch]
             except KeyError as e:
                 raise ValueError(f"unknown hires sprite glyph {e.args[0]!r}") from None
         out += bits.to_bytes(3, "big")
@@ -189,7 +311,7 @@ def encode_sprite(art: list[str], multicolor: bool = True) -> bytes:
 
 def format_bytes(data: bytes, fmt: str, index: int = 0,
                  multicolor: bool = True, start_line: int | None = None,
-                 line_step: int = 10) -> str:
+                 line_step: int = 10, name: str | None = None) -> str:
     """Render sprite bytes as ready-to-place source, one sprite row per line.
 
     `fmt` is 'asm' (ca65 `.byte %...`, 3 bytes/row per line, under a
@@ -198,6 +320,12 @@ def format_bytes(data: bytes, fmt: str, index: int = 0,
     source) or 'basic' (`data` lines, 3 bytes/row per line, decimal). `index`
     names the label / header sprite number when a file holds several sprites;
     `multicolor` only affects the header wording.
+
+    `name`, when the sheet gave the block one, is echoed in the asm header
+    comment — `; sprite 5 (captured), ...` — so a generated include reads as
+    the block map the sheet already is. The label stays positional
+    (`sprite5:`), because that is what a consumer's `.incbin`-free source
+    indexes off.
 
     `basic` rows are keyword-lowercase, per the petcat convention the rest
     of the toolchain uses: an uppercase `DATA` is shifted PETSCII and
@@ -213,8 +341,9 @@ def format_bytes(data: bytes, fmt: str, index: int = 0,
     rows = [data[i:i + 3] for i in range(0, len(data), 3)]
     if fmt == "asm":
         mode = "multicolor" if multicolor else "hires"
+        called = f" ({name})" if name else ""
         header = [
-            f"; sprite {index}, 24x21 {mode} (63 bytes: 3 bytes x 21 rows)"
+            f"; sprite {index}{called}, 24x21 {mode} (63 bytes: 3 bytes x 21 rows)"
             " — c64 sprite encode",
             "; place in a 64-byte block; pointer = block_address / 64",
         ]
@@ -233,21 +362,29 @@ def format_bytes(data: bytes, fmt: str, index: int = 0,
                      for n, line in zip(numbers, lines, strict=True))
 
 
-def render_sheet(sprites: list[bytes], fmt: str = "asm", multicolor: bool = True,
-                 start_line: int | None = None, line_step: int = 10) -> str:
+def render_sheet(sprites: Sequence[bytes | EncodedSprite], fmt: str = "asm",
+                 multicolor: bool = True, start_line: int | None = None,
+                 line_step: int = 10) -> str:
     """Render a whole encoded sheet as one paste-ready block, trailing newline.
 
     Blocks are separated by a blank line and the numbering runs on across
     sprites (21 rows each) so a multi-sprite file comes out as one ascending
     listing, not three restarts. Rejects a bad `fmt` / line number the way
     `format_bytes` does.
+
+    Takes either bare 63-byte blocks — then `multicolor` is the whole
+    sheet's mode — or the `EncodedSprite`s `encode_sheet_blocks` returns,
+    each carrying its own name and mode, so a sheet that mixed hires and
+    multicolor renders each block the way it was encoded.
     """
+    blocks = [s if isinstance(s, EncodedSprite) else EncodedSprite(None, multicolor, s)
+              for s in sprites]
     return "\n\n".join(
-        format_bytes(data, fmt, index=i, multicolor=multicolor,
+        format_bytes(block.data, fmt, index=i, multicolor=block.multicolor,
                      start_line=(None if start_line is None
                                  else start_line + i * ROWS_PER_SPRITE * line_step),
-                     line_step=line_step)
-        for i, data in enumerate(sprites)) + "\n"
+                     line_step=line_step, name=block.name)
+        for i, block in enumerate(blocks)) + "\n"
 
 
 def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
