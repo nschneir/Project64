@@ -10,6 +10,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -87,6 +88,40 @@ def _supports_minimized(exe: str) -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return "-minimized" in (r.stdout or "")
+
+
+#: The `-sounddev` line of VICE's own --help, whose parenthesised list is the
+#: set of playback devices THIS build has. `dump` also appears in the
+#: `-soundrecdev` list (a different resource entirely), so the device list is
+#: read from its own line rather than by looking for the word anywhere.
+_SOUNDDEV_HELP = re.compile(r"^-sounddev\b.*\n(?:[ \t].*\n?)*", re.M)
+
+
+@functools.cache
+def _supports_sound_dump(exe: str) -> bool:
+    """Whether this VICE binary offers `dump` as a *playback* sound device.
+
+    Probed rather than assumed, and the failure it avoids is worse than the
+    one `_supports_minimized` avoids. VICE rejects an unknown command-line
+    OPTION by exiting, which is loud; it rejects an unknown `-sounddev`
+    VALUE by logging `device '<name>' not found or not supported` and
+    popping a modal error dialog. A modal dialog blocks the emulation loop
+    even on a `-minimized` headless launch, so the process stays up with its
+    monitor unanswered — which is indistinguishable from the wedge this
+    device is here to remove (observed 2026-08-10 on this GTK3 build, from a
+    deliberately bogus value; it took a human looking at the screen to see
+    what the runner could not). Degrading to the host device is always safe:
+    it is what every session did before.
+    """
+    try:
+        r = subprocess.run(
+            [exe, "--help"], capture_output=True, text=True, errors="replace",
+            timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    match = _SOUNDDEV_HELP.search(r.stdout or "")
+    return bool(match) and "dump" in match.group(0)
 
 
 RESPAWN_LIMIT = 5
@@ -287,6 +322,33 @@ class Session:
             # for why this can't be passed unconditionally) closes that gap.
             if _supports_minimized(exe):
                 base_args.append("-minimized")
+            # Nobody is listening to a headless session, and depending on a
+            # host that is has been measured to hang it: VICE's sound device
+            # is the emulation loop's flow control at real time (see
+            # `c64lib.audio`), so where the host reports no output device
+            # coreaudio never drains VICE's buffer and every real-time
+            # operation wedges — `pinned_record_start`'s pin-and-arm first.
+            # `dump` is a file-backed sink that always consumes, so the
+            # dependency is gone rather than raced around, and WAV recording
+            # is unaffected (measured: the live arpeggio capture passes, WAV
+            # growing at real time's 96 kB/s).
+            #
+            # NOT `dummy`, the obvious name: it never consumes, so VICE
+            # overflows its own sound buffer ("Sound buffer overflow (cycle
+            # based)") and discards it — `SoundRecordDeviceName` then sees no
+            # samples and a capture comes back as a bare 44-byte header
+            # (measured 2026-08-10, same fixture that verifies `dump`).
+            #
+            # -soundarg is mandatory, not decoration: unset, the dump device
+            # writes its register dump to `vicesnd.sid` in the *caller's*
+            # working directory. os.devnull cannot grow and cannot litter.
+            #
+            # The device name is probed, never assumed — an unrecognized
+            # -sounddev value pops a modal dialog that blocks the emulation
+            # loop, which is this bug wearing a different hat. See
+            # _supports_sound_dump.
+            if _supports_sound_dump(exe):
+                base_args += ["-sounddev", "dump", "-soundarg", os.devnull]
 
         # A cold x64sc under heavy system load can be slow to open its binary
         # monitor; retry with a fresh port so a transient slow start self-heals

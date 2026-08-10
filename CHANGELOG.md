@@ -72,6 +72,52 @@ That was `docs/todo.md`'s last open item, so the file itself is gone:
 it is deleted when its last item lands (maintainer ruling, noted in
 `AGENTS.md`, whose dogfood post-mortems recreate it).
 
+The other half of that wedge is gone as well: a headless session no
+longer needs anything on the host to listen to it. The la-galaxia
+dogfood run turned the flow-control mechanism from a hypothesis into a
+reproducer — on a host reporting no audio output device (`ioreg -rc
+IOAudioDevice` counts 0 nodes, `system_profiler SPAudioDataType` comes
+back empty) every real-time operation wedged, every time, while
+everything warped stayed green: builds, tests, 14 evidence captures,
+thousands of frame-stepped ticks. The narrowing was exact — `audio
+record --start`, the pin-and-arm step, is what hung. So `Session.launch`
+now starts every headless emulator with `-sounddev dump -soundarg
+<os.devnull>`. VICE's `dump` device is file-backed, always consumes, and
+never opens coreaudio at all (its own log: `Opened device 'dump'`, with
+none of the `coreaudio_init` lines the default device prints), so the
+dependency disappears instead of being raced around. The obvious
+spelling, `-sounddev dummy`, is measured wrong and now has a test
+against it: dummy consumes nothing, so VICE overflows its own sound
+buffer (`Sound buffer overflow (cycle based)`, 25 times before it stops
+warning) and discards it — the WAV recorder then receives no samples,
+and the live arpeggio capture came back as a bare 44-byte header where
+the same run on `dump` passed with the arpeggio in it, its WAV growing
+at real time's 96 kB/s. The `-soundarg` half is load-bearing too:
+unset, the dump device writes its register dump to `vicesnd.sid` in the
+*caller's* working directory (this repo's root collected one during the
+measurements). Windowed sessions keep host audio, because `headless` is
+already the flag that means nobody is watching or listening — the inert
+`SDL_AUDIODRIVER=dummy` line beside it always intended as much. The
+device *name* is probed against the binary's own `--help`, the way
+`-minimized` already is, and the failure that probe avoids is the nastier
+of the two: VICE rejects an unknown command-line option by exiting, but
+it rejects an unknown `-sounddev` value by logging `device '<name>' not
+found or not supported` **and popping a modal error dialog** — which
+blocks the emulation loop even on a `-minimized` headless launch, so the
+process stays up with its monitor unanswered and looks exactly like the
+wedge being fixed. That was found the hard way during this work, by a
+human watching the screen while a bogus-value probe ran; nothing the
+runner could see said so. A build whose `-sounddev` list has no `dump`
+therefore keeps host audio, and the device list is read from that line
+alone (`dump` is also a *recording* driver, on a different resource).
+What is not claimed: the zero-device host is not reproducible here — this Mac has
+output devices, and on it a real-time launch plus five monitor round
+trips came back clean — so the fix is verified by mechanism (a device
+that needs no consumer cannot wait for one) plus a live capture on a
+dump-sink session, not by literal reproduction. The stop's sink dance
+and the `warp_state` retry are untouched: they defend paths this does
+not remove.
+
 An MCP-wired agent no longer needs a shell. The six commands both
 `docs/agent-setup.md` and the `c64-development` skill told it to shell
 out for have tools now — `c64_break_enable`/`c64_break_disable`, the MCP

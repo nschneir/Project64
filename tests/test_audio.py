@@ -2158,12 +2158,15 @@ def _pin_and_arm(session, wav_path) -> None:
     cascading a wrong-note diff down the voice — but window is exactly what
     this fixture has none of to spare.
 
-    The pin has to arm a recorder to survive, which is why this takes a path:
-    a headless VICE at real time with nothing consuming its sound output stops
-    answering its binary monitor within a second (`Session.launch(warp=False)`
-    times out on this host for the same reason). `capture()` re-arms the
-    recorder onto its own WAV, and its `pinned_record_stop` reads the pin this
-    one wrote, so the session still gets its warp back at the end.
+    The recorder this arms was survival gear and is now belt and braces: a
+    headless VICE at real time with nothing consuming its sound output
+    stopped answering its binary monitor within a second, so the recorder
+    had to be the consumer. `Session.launch` now hands every headless
+    session a sound device that needs no host consumer at all (see the
+    `-sounddev dump` comment in `session.py`), which is what that dependency
+    was. It stays anyway: `capture()` re-arms the recorder onto its own WAV,
+    and its `pinned_record_stop` reads the pin this one wrote, so the session
+    still gets its warp back at the end.
     """
     pinned_record_start(session, wav_path)
 

@@ -853,7 +853,27 @@ def pinned_record_start(session, wav_path) -> dict:
     demonstrated upside to flipping and an undischarged risk in doing so
     (a recorder armed under warp may not survive the unwarp as a sound
     consumer). The arm-failure rollback below runs `restore_speed` inside
-    the gap's window; the retry shields its readback too."""
+    the gap's window; the retry shields its readback too.
+
+    The gap's *cause* is gone as of 2026-08-10, which is why the ordering
+    question is now academic rather than urgent. This is the step the
+    la-galaxia dogfood run found hanging every time, and its reproducer is
+    a host reporting no audio output device (`ioreg -rc IOAudioDevice`
+    counts 0 nodes, `system_profiler SPAudioDataType` comes back empty):
+    warped work was untouched — builds, tests, 14 evidence captures,
+    thousands of frame-stepped ticks — while every real-time operation
+    wedged, and `audio record --start` is the first one a capture reaches.
+    That upgraded the flow-control mechanism from hypothesis to confirmed:
+    VICE's sound device paces the emulation loop at real time, so with
+    coreaudio open on nothing, the buffer never drains and the loop stops
+    answering its binary monitor. `Session.launch` now gives every headless
+    session a sound device that needs no host consumer at all
+    (`-sounddev dump -soundarg os.devnull` — see the comment there, which
+    is also where the measurement against `dummy` lives), so the window
+    this docstring is about no longer depends on anything outside VICE.
+    The retry and the pin-first order stay: both are cheap, both are
+    measured, and neither's evidence is superseded by removing the
+    dependency."""
     path = _abs(wav_path)
     saved = pin_realtime(session)
     earlier = _read_pin(session)
@@ -939,7 +959,11 @@ def pinned_record_stop(session) -> dict:
       consumer armed put the `warp on` readback where it stalled 39 times in
       240 measured pin/unpin cycles (0 in ~877 readbacks made with one; see
       `_TextMonitor.warp_state`). So something stays armed across the
-      restore.
+      restore. (As of 2026-08-10 a headless session's playback device is a
+      sink that always drains — see `Session.launch` — so that dependency
+      is gone at the source for the sessions the front ends make. The sink
+      dance stays: the second race below is not about the host device at
+      all, and a windowed session still uses the host's.)
     - VICE finalizes a closed WAV asynchronously (~50 ms), and only while
       the sound layer is being serviced — a recorder disarmed under warp can
       leave the placeholder header on disk until the session exits. So the
