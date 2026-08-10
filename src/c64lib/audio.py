@@ -1270,13 +1270,23 @@ def report_timing_from(log_path, model: str | None = None) -> dict:
     A stamp naming a machine this build does not have is ignored rather than
     trusted: `get_profile` is the authority on what a machine's clock is, and
     a hand-edited header must not be able to invent one.
+
+    A log this cannot READ is not this function's error to raise, and the
+    breadth of the catch below is the whole point. It runs at a front end's
+    very first step, OUTSIDE the `try` that turns a failure into `fail()`'s
+    exit-1 JSON — so anything escaping here is a bare traceback with an empty
+    `--json` payload, on an input as ordinary as passing `capture.wav` where
+    the log goes. `Path.read_text` on a binary file raises `UnicodeDecodeError`,
+    which is a ValueError and NOT an OSError, and that is exactly how it got
+    out once. An unreadable log has no knowable clock either way; hand back the
+    default and let `sid_report`, inside the try, report the real problem.
     """
     if model:
         return report_timing_for(model)
     from .sid_analysis import log_timing
     try:
         stamped = log_timing(log_path)
-    except OSError:
+    except (OSError, ValueError):
         stamped = None
     if stamped:
         try:

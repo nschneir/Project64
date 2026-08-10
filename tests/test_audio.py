@@ -2209,6 +2209,31 @@ def test_cli_audio_capture_reports_the_lead_in_it_measured():
     assert "15 frames" in r.output and "lead-in" in r.output
 
 
+def test_report_timing_falls_back_for_a_log_it_cannot_decode(tmp_path):
+    """Resolving the clock must not be able to raise: it runs before the
+    front end's try/except, so anything escaping is a bare traceback. A
+    binary file raises UnicodeDecodeError out of `read_text` — a ValueError,
+    not an OSError — and an unreadable log has no knowable clock anyway."""
+    binary = tmp_path / "capture.wav"
+    binary.write_bytes(b"RIFF\x24\x08\x00\x00WAVEfmt \xff\xfe\x00\x80")
+    timing = audio.report_timing_from(binary, None)
+    assert timing["machine"] == "c64pal" and timing["clock_source"] == "default"
+
+
+def test_cli_audio_report_reports_a_log_it_cannot_decode(tmp_path):
+    """Handing `audio report` a capture.wav where the log goes is an ordinary
+    slip, and it has to come back as this command's own exit-1 `--json`
+    payload — not a traceback over an empty stdout, which is what a
+    UnicodeDecodeError escaping the clock lookup produced."""
+    binary = tmp_path / "capture.wav"
+    binary.write_bytes(b"RIFF\x24\x08\x00\x00WAVEfmt \xff\xfe\x00\x80")
+    r = CliRunner().invoke(main, ["--json", "audio", "report", str(binary),
+                                  str(tmp_path / "out")])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.output)["error"]
+    assert error.startswith("audio report:") and "decode" in error
+
+
 def test_cli_audio_report_reads_the_clock_the_log_was_stamped_with(tmp_path):
     """The re-score path: no session left to name, and the log's own stamp
     is what keeps it from being read as PAL."""
