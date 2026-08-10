@@ -58,7 +58,7 @@ from .ops import (
     parse_ref,
     pc_region,
     pc_symbol,
-    profile_routine,
+    profile_routine_samples,
     run_until,
     session_labels,
     staleness,
@@ -554,20 +554,38 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
 
 @srv.tool()
 def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
-                session: str | None = None) -> dict:
+                samples: int = 1, session: str | None = None) -> dict:
     """Measure a routine's cycle cost: fake-JSR it (like c64_call) with
     CIA#2 timers cascaded as a cycle counter. IRQs are masked during the
     window unless with_irq; counts include badline DMA. Machine ends
-    STOPPED at the trap; on timeout it is left running."""
+    STOPPED at the trap; on timeout it is left running.
+
+    `samples` N prices N consecutive arrivals and reports
+    `samples`/`min`/`max`/`mean` instead of one number — reach for it on
+    anything whose cost depends on the program's own state. A game tick that
+    costs ~10,700 cycles most frames and ~31,700 on the repaint frames reads
+    as comfortably inside budget when it is sampled once. At `samples` 1 the
+    payload still carries `cycles`; above 1 it deliberately does not, because
+    no single number is the answer. `timeout` covers the whole run."""
     s = _attach(session)
     addr = _ref(s, routine, session_labels(s))
-    out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+    out = profile_routine_samples(s, addr, samples, timeout=timeout,
+                                  with_irq=with_irq)
     if not out["fired"]:
-        raise RuntimeError(f"profile {routine}: never returned in {timeout}s — "
-                           "machine left running")
-    return {"called": routine, "cycles": out["cycles"],
-            "irq_masked": not with_irq, "registers": out["registers"],
-            "trap": out["trap"]}
+        left = ("CIA#2 timers A/B are left RUNNING" if with_irq else
+                "CIA#2 timers A/B are left RUNNING and the I flag is left "
+                "masked — the jiffy clock and keyboard stay dead until the I "
+                "bit is cleared (c64_reg_set FL) or the session is restarted")
+        raise RuntimeError(f"profile {routine}: never returned in {timeout}s "
+                           f"after {out['reached']}/{samples} arrival(s) — "
+                           f"machine left running. {left}.")
+    payload = {"called": routine, "samples": out["samples"], "min": out["min"],
+               "max": out["max"], "mean": out["mean"],
+               "irq_masked": not with_irq, "registers": out["registers"],
+               "trap": out["trap"], "count": samples}
+    if samples == 1:
+        payload["cycles"] = out["cycles"]
+    return payload
 
 
 @srv.tool()

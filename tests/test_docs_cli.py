@@ -129,6 +129,20 @@ def test_test_run_documents_areas_and_the_prg_label_rule():
         "the sibling label file a `.prg` program: picks up is undocumented"
 
 
+def test_profile_documents_samples_and_why_one_arrival_lies():
+    """`--samples` is only worth reaching for if the docs say what a single
+    arrival gets wrong: a per-frame cost that spikes on a repaint every few
+    frames reads as fine 27 times in 32."""
+    section = _section(DOC.read_text(), "### `c64 profile`")
+    assert "--samples" in section, "the sampling option is undocumented"
+    assert "bimodal" in section, \
+        "the docs never say WHY one arrival can lie about a per-frame cost"
+    for key in ('"samples"', '"min"', '"max"', '"mean"'):
+        assert key in section, f"the {key} payload key is undocumented"
+    assert '"cycles"' in section, \
+        "the docs never pin that `cycles` survives at --samples 1"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

@@ -10,6 +10,7 @@ import operator
 import re
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 from .build import RESERVED_AREA_NAMES, Area
@@ -542,7 +543,7 @@ def call_routine(session, addr: int, a: int | None = None, x: int | None = None,
         return {"fired": True, "registers": out, "trap": trap}
 
 
-#: CIA#2 timer registers for profile_routine's 32-bit cycle cascade.
+#: CIA#2 timer registers for the profile loop's 32-bit cycle cascade.
 _CIA2_TA = 0xDD04
 _CIA2_TB = 0xDD06
 _CIA2_CRA = 0xDD0E
@@ -555,39 +556,60 @@ FLAG_I = 0x04
 _CIA_START_SLACK = 3
 
 
-def profile_routine(session, addr: int, timeout: float = 30.0,
-                    with_irq: bool = False, trap: int = CALL_TRAP) -> dict:
-    """Measure one routine's cycle cost: call_routine's fake-JSR bracket
-    with CIA#2 timers A+B cascaded into a 32-bit cycle counter.
+#: raised when the CIA cascade reads back untouched. One message, used by
+#: both the client-side loop and the daemon's (the daemon returns raw counts
+#: and lets this side decide, so the text cannot drift between them).
+_ZERO_RAW_CYCLES = (
+    "measured 0 raw cycles, which no routine can cost (a bare "
+    "RTS is 6): the CIA#2 timer pokes never reached the chip "
+    "model — I/O may be banked out (writes to $DD04-$DD0F "
+    "landing in RAM underneath; check $01), or the emulator "
+    "dropped the side-effect writes")
 
-    The emulation is frozen while the monitor programs the timers, so the
-    count spans exactly the resumed window: the routine's first instruction
-    through its own RTS. Counts are wall cycles — badline DMA (and, with
-    with_irq=True, any interrupt handlers) land in the number, which is the
-    frame-budget truth. By default the I flag is set on entry so the KERNAL
-    IRQ cannot land inside the window (the flag's entry value is restored
-    afterwards, on success). Perturbs CIA#2 timers A/B: they are left stopped
-    on success, but a timed-out profile leaves them running — and leaves the I
-    flag as this function set it (masked, unless with_irq) — because the
-    machine is running by then, so neither can be undone safely. A timed-out
-    profile therefore leaves the jiffy clock frozen and the keyboard dead
-    until a `c64 reg set FL ...` clears I, or the session is restarted.
-    _CIA_START_SLACK is added back because the timer only starts a few cycles
-    into the window; with it the count is exact against hand-computed routines
-    (verified live in tests/test_integration_profile.py).
 
-    Returns {"fired": bool, "cycles": int|None, "registers": regs-or-None,
-    "trap": trap}; cycles/registers are None on timeout (checkpoint removed,
-    machine left running), exactly like call_routine. Raises RuntimeError if
-    the timers read back untouched — a raw count of 0, which no routine can
-    cost — instead of reporting the start slack as a measurement; the machine
-    is left stopped at the trap, as on success.
+def profile_samples_loop(mon, addr: int, n: int, timeout: float,
+                         with_irq: bool, trap: int,
+                         on_state: Callable[[bool], None] | None = None,
+                         abort: Callable[[], bool] | None = None) -> dict:
+    """Price `n` consecutive arrivals at `addr` on ONE monitor connection.
+
+    The measurement bracket is call_routine's fake JSR with CIA#2 timers A+B
+    cascaded into a 32-bit cycle counter; see `profile_routine_samples` for
+    what the numbers mean and what the loop perturbs.
+
+    Re-reaching the routine between samples is `until --count`'s shape: one
+    persistent checkpoint at `trap` for the whole run, one resume per
+    arrival, the durable hit/hit_count fallback for a lost STOPPED event —
+    and the bracket re-armed in place (stack, SP, I flag, PC, timers) rather
+    than a fresh profile round trip per sample. Each arrival is re-armed from
+    the ENTRY SP, so a routine that leaves the stack unbalanced cannot walk
+    the pointer down across samples. `timeout` covers the whole run, not each
+    sample.
+
+    Runs unchanged inside the session daemon (`daemon.PetDaemon`), which
+    passes the two hooks: `on_state(running: bool)` mirrors the machine's
+    run/stop state into the daemon's tracked state, and `abort()` reports
+    that the command client vanished (Ctrl-C). Both default to None here.
+
+    Returns {"fired": bool, "raw": [int], "reached": int, "registers":
+    regs-or-None} — RAW counter deltas, before `_CIA_START_SLACK`: the caller
+    corrects them and decides what a zero means, so the arithmetic and the
+    error message exist once no matter which side ran the loop. A zero
+    truncates the run (every later sample would be the same wrong number) but
+    is still returned as a sample, after the ordinary cleanup.
     """
+    def _state(running: bool) -> None:
+        if on_state is not None:
+            on_state(running)
+
     deadline = time.monotonic() + timeout
-    with session.monitor() as mon:
-        regs = mon.registers()          # also stops the machine
-        sp, fl = regs["SP"], regs["FL"]
-        ret = (trap - 1) & 0xFFFF
+    regs = mon.registers()              # also stops the machine
+    _state(False)
+    sp, fl = regs["SP"], regs["FL"]
+    ret = (trap - 1) & 0xFFFF
+    ck = mon.checkpoint_set(trap, op=CP_EXEC, temporary=False)
+    raw: list[int] = []
+    for i in range(n):
         mon.memory_write(0x0100 + sp, bytes([ret >> 8]))
         mon.memory_write(0x0100 + ((sp - 1) & 0xFF), bytes([ret & 0xFF]))
         mon.set_register("SP", (sp - 2) & 0xFF)
@@ -600,53 +622,138 @@ def profile_routine(session, addr: int, timeout: float = 30.0,
         mon.memory_write(_CIA2_TB, b"\xff\xff", side_effects=True)
         mon.memory_write(_CIA2_CRB, b"\x51", side_effects=True)
         mon.memory_write(_CIA2_CRA, b"\x11", side_effects=True)
-        ck = mon.checkpoint_set(trap, op=CP_EXEC, temporary=False)
         mon.resume()
+        _state(True)
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                # Deliberately NOT undone here: the timers are still running
+                # and the I flag is still masked, and the machine is running
+                # again by the time we know, so neither can be touched
+                # safely. The callers say so in their failure messages.
                 mon.checkpoint_delete(ck.number)
                 mon.resume()
-                return {"fired": False, "cycles": None, "registers": None,
-                        "trap": trap}
+                _state(True)
+                return {"fired": False, "raw": raw, "reached": len(raw),
+                        "registers": None}
             info = mon.wait_for_stop(min(1.0, remaining))
             if info is not None and info.checkpoint == ck.number:
                 break
             cur = next((c for c in mon.checkpoint_list()
                         if c.number == ck.number), None)
-            if cur is not None and (cur.hit or cur.hit_count > 0):
+            if cur is not None and (cur.hit or cur.hit_count > i):
                 break                    # durable flag caught a lost event
             mon.resume()                 # the list stopped the machine
-        out = mon.registers()
+            if abort is not None and abort():
+                # Client gone (Ctrl-C mid-profile): same half-undone state as
+                # the timeout above, and the same reason.
+                mon.checkpoint_delete(ck.number)
+                return {"fired": False, "raw": raw, "reached": len(raw),
+                        "registers": None}
         ta = mon.memory_read(_CIA2_TA, 2)
         tb = mon.memory_read(_CIA2_TB, 2)
         mon.memory_write(_CIA2_CRA, b"\x00", side_effects=True)
         mon.memory_write(_CIA2_CRB, b"\x00", side_effects=True)
-        if not with_irq:
-            # The reported registers must match the machine a caller will go
-            # on to read: restore the entry I bit in BOTH, or `profile --json`
-            # would report I=1 while a following `reg get` shows I=0.
-            restored = (out["FL"] & ~FLAG_I) | (fl & FLAG_I)
-            mon.set_register("FL", restored)
-            out["FL"] = restored
-        mon.checkpoint_delete(ck.number)
         ta_v = ta[0] | (ta[1] << 8)
         tb_v = tb[0] | (tb[1] << 8)
-        raw = (0xFFFF - tb_v) * 0x10000 + (0xFFFF - ta_v)
-        if raw == 0:
-            # No routine costs 0 raw cycles (a bare RTS is 6), so both timers
-            # reading back $FFFF means the pokes above never reached the chip
-            # model. Adding the slack would report "cycles": 3 — a silent
-            # wrong number. Raised after cleanup: the machine is stopped at
-            # the trap with the timers stopped, exactly as on success.
-            raise RuntimeError(
-                "measured 0 raw cycles, which no routine can cost (a bare "
-                "RTS is 6): the CIA#2 timer pokes never reached the chip "
-                "model — I/O may be banked out (writes to $DD04-$DD0F "
-                "landing in RAM underneath; check $01), or the emulator "
-                "dropped the side-effect writes")
-        return {"fired": True, "cycles": raw + _CIA_START_SLACK,
-                "registers": out, "trap": trap}
+        raw.append((0xFFFF - tb_v) * 0x10000 + (0xFFFF - ta_v))
+        if raw[-1] == 0:
+            break                        # the caller raises, after cleanup
+    out = mon.registers()
+    _state(False)
+    if not with_irq:
+        # The reported registers must match the machine a caller will go on
+        # to read: restore the entry I bit in BOTH, or `profile --json` would
+        # report I=1 while a following `reg get` shows I=0.
+        restored = (out["FL"] & ~FLAG_I) | (fl & FLAG_I)
+        mon.set_register("FL", restored)
+        out["FL"] = restored
+    mon.checkpoint_delete(ck.number)
+    return {"fired": True, "raw": raw, "reached": len(raw), "registers": out}
+
+
+def profile_routine_samples(session, addr: int, n: int = 1,
+                            timeout: float = 30.0, with_irq: bool = False,
+                            trap: int = CALL_TRAP) -> dict:
+    """Measure a routine's cycle cost over `n` consecutive arrivals.
+
+    Each arrival is call_routine's fake-JSR bracket with CIA#2 timers A+B
+    cascaded into a 32-bit cycle counter. The emulation is frozen while the
+    monitor programs the timers, so a count spans exactly the resumed window:
+    the routine's first instruction through its own RTS. Counts are wall
+    cycles — badline DMA (and, with with_irq=True, any interrupt handlers)
+    land in the number, which is the frame-budget truth. By default the I
+    flag is set on entry so the KERNAL IRQ cannot land inside the window (the
+    flag's entry value is restored afterwards, on success).
+    _CIA_START_SLACK is added back because the timer only starts a few cycles
+    into the window; with it the count is exact against hand-computed
+    routines (verified live in tests/test_integration_profile.py).
+
+    **Why n > 1 exists:** the arrivals are consecutive *runs of the routine*,
+    so a cost that depends on the program's own state comes back as a spread
+    rather than as one number. La Galaxia's tick cost 10,729 cycles on an
+    ordinary frame and 31,695 on a repaint frame, with repaints on roughly 5
+    frames in 32 — a single arrival reported "fine" 27 times out of 32.
+
+    With a session daemon the whole sample loop runs daemon-side in a single
+    RPC, the way `run_until` does (re-reaching the routine costs ~15 monitor
+    commands, so per-sample round trips would dominate); a pre-profile_samples
+    daemon or a direct connection takes the client-side loop.
+
+    Perturbs CIA#2 timers A/B: they are left stopped on success, but a
+    timed-out profile leaves them running — and leaves the I flag as this
+    function set it (masked, unless with_irq) — because the machine is
+    running by then, so neither can be undone safely. A timed-out profile
+    therefore leaves the jiffy clock frozen and the keyboard dead until a
+    `c64 reg set FL ...` clears I, or the session is restarted.
+
+    Returns {"fired", "samples", "min", "max", "mean", "registers", "trap",
+    "irq_masked", "reached", "count"}, plus "cycles" when n == 1 — the single
+    number every existing caller reads. Above one sample there is
+    deliberately no "cycles" key: naming one arrival of a bimodal cost THE
+    cost is the mistake this exists to stop. On timeout `fired` is False,
+    `registers` is None and `samples` holds the arrivals that were priced
+    before the deadline (checkpoint removed, machine left running), exactly
+    like call_routine. Raises RuntimeError if the timers read back untouched
+    — a raw count of 0, which no routine can cost — instead of reporting the
+    start slack as a measurement; the machine is left stopped at the trap, as
+    on success.
+    """
+    if n < 1:
+        raise ValueError(f"profile needs at least 1 sample, got {n}")
+    with session.monitor() as mon:
+        loop = None
+        if isinstance(mon, DaemonMonitorClient):
+            try:
+                loop = mon.profile_samples(addr, timeout, n, with_irq, trap)
+            except ValueError as e:
+                # Narrower than run_until's blanket `except ValueError`, on
+                # purpose: falling back RUNS THE ROUTINE AGAIN, so a ValueError
+                # that is not the old-daemon handshake must not silently buy a
+                # second helping of side effects on top of a partial run.
+                if "unknown daemon method" not in str(e):
+                    raise
+                loop = None       # old daemon: do the loop on this side
+        if loop is None:
+            loop = profile_samples_loop(mon, addr, n, timeout, with_irq, trap)
+    if 0 in loop["raw"]:
+        # No routine costs 0 raw cycles (a bare RTS is 6), so both timers
+        # reading back $FFFF means the pokes never reached the chip model.
+        # Adding the slack would report "cycles": 3 — a silent wrong number.
+        # Raised after the loop's cleanup: the machine is stopped at the trap
+        # with the timers stopped, exactly as on success.
+        raise RuntimeError(_ZERO_RAW_CYCLES)
+    samples = [r + _CIA_START_SLACK for r in loop["raw"]]
+    out = {"fired": loop["fired"], "samples": samples,
+           "min": min(samples) if samples else None,
+           "max": max(samples) if samples else None,
+           "mean": round(sum(samples) / len(samples), 1) if samples else None,
+           "registers": loop["registers"], "trap": trap,
+           "irq_masked": not with_irq,
+           "reached": loop["reached"], "count": n}
+    if n == 1:
+        out["cycles"] = samples[0] if samples else None
+    return out
 
 
 def run_until(session, addr: int, timeout: float = 30.0, count: int = 1) -> dict:

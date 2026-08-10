@@ -810,7 +810,7 @@ def test_profile_routine_counts_cycles_via_the_cia_cascade():
     """507 emulated cycles: the counter ticks 504 of them ($FFFF-504=$FE07 in
     TA, TB untouched at $FFFF) and _CIA_START_SLACK adds the window's first
     three back — the live-verified correction."""
-    from c64lib.ops import profile_routine
+    from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.side_effect = [
         {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},    # entry snapshot
@@ -820,7 +820,7 @@ def test_profile_routine_counts_cycles_via_the_cia_cascade():
     mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
     mon.memory_read.side_effect = [bytes([0x07, 0xFE]),   # TA lo/hi
                                    bytes([0xFF, 0xFF])]   # TB lo/hi
-    out = profile_routine(s, 0xC000)
+    out = profile_routine_samples(s, 0xC000)
     assert out["fired"] is True
     assert out["cycles"] == 507
     # timers were programmed through the chip model, then stopped
@@ -839,7 +839,7 @@ def test_profile_routine_counts_cycles_via_the_cia_cascade():
 
 
 def test_profile_routine_with_irq_leaves_the_flags_alone():
-    from c64lib.ops import profile_routine
+    from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.side_effect = [
         {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
@@ -848,7 +848,7 @@ def test_profile_routine_with_irq_leaves_the_flags_alone():
     mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
     mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
     mon.memory_read.side_effect = [bytes([0x07, 0xFE]), bytes([0xFF, 0xFF])]
-    out = profile_routine(s, 0xC000, with_irq=True)
+    out = profile_routine_samples(s, 0xC000, with_irq=True)
     assert out["cycles"] == 507
     assert all(c.args[0] != "FL" for c in mon.set_register.call_args_list)
     # nothing restored, so the reported FL is the trap snapshot verbatim —
@@ -859,7 +859,7 @@ def test_profile_routine_with_irq_leaves_the_flags_alone():
 def test_profile_routine_cascades_timer_b_for_long_routines():
     """TB counts TA underflows: one underflow plus 0x0100 TA ticks is a
     65792-cycle routine (+ the start slack) — a frame and a half."""
-    from c64lib.ops import profile_routine
+    from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.side_effect = [
         {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
@@ -869,18 +869,18 @@ def test_profile_routine_cascades_timer_b_for_long_routines():
     mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
     mon.memory_read.side_effect = [bytes([0xFF, 0xFE]),   # TA = $FEFF
                                    bytes([0xFE, 0xFF])]   # TB = $FFFE
-    out = profile_routine(s, 0xC000)
+    out = profile_routine_samples(s, 0xC000)
     assert out["cycles"] == 0x10000 + 0x0100 + 3
 
 
 def test_profile_routine_timeout_leaves_the_machine_running():
-    from c64lib.ops import profile_routine
+    from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.return_value = {"SP": 0xF9, "FL": 0x20, "PC": 0x1234}
     mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
     mon.wait_for_stop.return_value = None
     mon.checkpoint_list.return_value = [_call_ck(number=7, hit=False)]
-    out = profile_routine(s, 0xC000, timeout=0.3)
+    out = profile_routine_samples(s, 0xC000, timeout=0.3)
     assert out["fired"] is False
     assert out["cycles"] is None and out["registers"] is None
     mon.checkpoint_delete.assert_called_once_with(7)
@@ -892,7 +892,7 @@ def test_profile_routine_rejects_an_impossible_zero_count():
     can cost (a bare RTS is 6 cycles): the CIA pokes never reached the chip
     model. _CIA_START_SLACK would dress that up as "cycles": 3 — a silent
     wrong number — so it must be an error naming the likely cause."""
-    from c64lib.ops import profile_routine
+    from c64lib.ops import profile_routine_samples
     s, mon = _fake_session()
     mon.registers.side_effect = [
         {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},    # entry snapshot
@@ -903,7 +903,7 @@ def test_profile_routine_rejects_an_impossible_zero_count():
     mon.memory_read.side_effect = [bytes([0xFF, 0xFF]),   # TA untouched
                                    bytes([0xFF, 0xFF])]   # TB untouched
     with pytest.raises(RuntimeError, match="chip model"):
-        profile_routine(s, 0xC000)
+        profile_routine_samples(s, 0xC000)
     # The guard fires after cleanup: timers stopped, checkpoint deleted, and
     # the entry I bit restored, exactly as on success.
     writes = {c.args[0]: c.args[1] for c in mon.memory_write.call_args_list}
@@ -912,6 +912,187 @@ def test_profile_routine_rejects_an_impossible_zero_count():
     fl_sets = [c.args for c in mon.set_register.call_args_list
                if c.args[0] == "FL"]
     assert fl_sets[-1] == ("FL", 0x20)
+
+
+#: la-galaxia's tick, the routine this whole verb exists for: 10,729 cycles
+#: on an ordinary frame, 31,695 on a repaint frame, repaints on ~5 frames in
+#: 32. One arrival answered "fine" 27 times out of 32.
+_TICK, _REPAINT = 10729, 31695
+
+
+def _timer_bytes(cycles: int) -> tuple[bytes, bytes]:
+    """The TA/TB readbacks a fake VICE hands back for a routine of `cycles`:
+    both counters run DOWN from $FFFF with TB cascaded off TA underflows, and
+    _CIA_START_SLACK is the three cycles the timer misses at the window's
+    start, so the chip only ever saw `cycles - 3`."""
+    raw = cycles - ops._CIA_START_SLACK
+    ta = 0xFFFF - (raw & 0xFFFF)
+    tb = 0xFFFF - (raw >> 16)
+    return bytes([ta & 0xFF, ta >> 8]), bytes([tb & 0xFF, tb >> 8])
+
+
+def _bimodal_reads(costs):
+    """memory_read side_effect for one TA+TB pair per arrival."""
+    return [half for c in costs for half in _timer_bytes(c)]
+
+
+def test_profile_routine_samples_prices_every_arrival_of_a_bimodal_tick():
+    """THE bug: a per-frame cost that spikes on a repaint reads as fine when
+    it is sampled once. Four arrivals whose third is a repaint must come back
+    as four numbers plus min/max/mean, never as one."""
+    from c64lib.ops import profile_routine_samples
+    s, mon = _fake_session()
+    costs = [_TICK, _TICK, _REPAINT, _TICK]
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},    # entry snapshot
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},    # stopped at the trap
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = _bimodal_reads(costs)
+    out = profile_routine_samples(s, 0xC000, 4)
+    assert out["fired"] is True
+    assert out["samples"] == costs
+    assert out["min"] == _TICK and out["max"] == _REPAINT
+    assert out["mean"] == round(sum(costs) / 4, 1)
+    assert out["irq_masked"] is True
+    assert out["reached"] == 4 and out["count"] == 4
+    # No single "cycles" number above one sample: naming one of a bimodal
+    # pair THE cost is exactly the lie this verb exists to stop telling.
+    assert "cycles" not in out
+
+
+def test_profile_routine_samples_rearms_the_bracket_without_extra_round_trips():
+    """`until --count`'s shape: ONE persistent checkpoint for the whole run,
+    one resume per arrival, and the fake-JSR bracket re-armed in place
+    between them — not a fresh profile round trip per sample."""
+    from c64lib.ops import profile_routine_samples
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = _bimodal_reads([_TICK] * 3)
+    profile_routine_samples(s, 0xC000, 3)
+    mon.checkpoint_set.assert_called_once()
+    mon.checkpoint_delete.assert_called_once_with(7)
+    assert mon.resume.call_count == 3               # one per arrival
+    sets = [c.args for c in mon.set_register.call_args_list]
+    assert sets.count(("PC", 0xC000)) == 3          # bracket re-armed each time
+    assert sets.count(("SP", 0xF7)) == 3            # ...from the ENTRY SP
+    assert mon.registers.call_count == 2            # entry + the final snapshot
+
+
+def test_profile_routine_samples_keeps_the_cycles_key_at_one_sample():
+    """The existing CLI/MCP contract: at n == 1 the payload still carries the
+    single `cycles` number every caller already reads."""
+    from c64lib.ops import profile_routine_samples
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = _bimodal_reads([507])
+    out = profile_routine_samples(s, 0xC000, 1)
+    assert out["cycles"] == 507 and out["samples"] == [507]
+    assert out["min"] == 507 and out["max"] == 507 and out["mean"] == 507.0
+
+
+def test_profile_routine_samples_timeout_reports_the_arrivals_it_got():
+    """A partial run is data: two of three arrivals priced, then nothing.
+    The machine is left RUNNING with the checkpoint removed, as on the
+    single-sample timeout."""
+    from c64lib.ops import profile_routine_samples
+    s, mon = _fake_session()
+    mon.registers.return_value = {"SP": 0xF9, "FL": 0x20, "PC": 0x1234}
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.side_effect = chain(
+        [StopInfo(pc=0x0400, checkpoint=7)] * 2, repeat(None))
+    mon.checkpoint_list.return_value = [_call_ck(number=7, hit=False)]
+    mon.memory_read.side_effect = _bimodal_reads([_TICK, _REPAINT])
+    out = profile_routine_samples(s, 0xC000, 3, timeout=0.3)
+    assert out["fired"] is False
+    assert out["samples"] == [_TICK, _REPAINT]
+    assert out["reached"] == 2 and out["count"] == 3
+    assert out["registers"] is None
+    mon.checkpoint_delete.assert_called_once_with(7)
+    mon.resume.assert_called()                  # machine left running
+
+
+def test_profile_routine_samples_rejects_an_impossible_zero_count():
+    """The zero-raw guard survives sampling, and it aborts the whole run:
+    the pokes are not reaching the chip model, so every later sample would be
+    the same silent 3."""
+    from c64lib.ops import profile_routine_samples
+    s, mon = _fake_session()
+    mon.registers.side_effect = [
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},
+    ]
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)
+    mon.memory_read.side_effect = [bytes([0xFF, 0xFF]), bytes([0xFF, 0xFF])]
+    with pytest.raises(RuntimeError, match="chip model"):
+        profile_routine_samples(s, 0xC000, 4)
+    mon.checkpoint_delete.assert_called_once_with(7)    # cleanup happened first
+
+
+def test_profile_routine_samples_needs_at_least_one_sample():
+    from c64lib.ops import profile_routine_samples
+    s, _ = _fake_session()
+    with pytest.raises(ValueError, match="at least 1"):
+        profile_routine_samples(s, 0xC000, 0)
+
+
+def test_profile_samples_delegates_to_the_daemon():
+    """Like `until --count`: with a session daemon the whole sample loop is
+    ONE RPC, not one profile round trip per arrival."""
+    from c64lib.daemon_client import DaemonMonitorClient
+    from c64lib.ops import CALL_TRAP, profile_routine_samples
+    s = Mock()
+    mon = DaemonMonitorClient.__new__(DaemonMonitorClient)  # no socket needed
+    mon.profile_samples = Mock(return_value={
+        "fired": True, "raw": [c - 3 for c in (_TICK, _REPAINT)],
+        "reached": 2, "registers": {"PC": 0x0400}})
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    out = profile_routine_samples(s, 0xC000, 2, timeout=9.0)
+    assert out["samples"] == [_TICK, _REPAINT]
+    mon.profile_samples.assert_called_once_with(0xC000, 9.0, 2, False,
+                                                CALL_TRAP)
+
+
+def test_profile_samples_falls_back_on_an_old_daemon():
+    """A pre-profile_samples daemon answers 'unknown daemon method'
+    (ValueError); the client-side loop must take over transparently."""
+    from c64lib.daemon_client import DaemonMonitorClient
+    from c64lib.ops import profile_routine_samples
+    s = Mock()
+    mon = DaemonMonitorClient.__new__(DaemonMonitorClient)
+    mon.profile_samples = Mock(side_effect=ValueError(
+        "unknown daemon method 'profile_samples'"))
+    for name in ("checkpoint_set", "wait_for_stop", "registers", "memory_read",
+                 "memory_write", "set_register", "checkpoint_delete", "resume",
+                 "checkpoint_list"):
+        setattr(mon, name, Mock())
+    # Deliberately a real DaemonMonitorClient — that is what the fallback has
+    # to work on — so pyright resolves these to the declared bound methods and
+    # cannot see the Mocks setattr just put there (see run_until's twin test).
+    mon.checkpoint_set.return_value = _call_ck(number=7, hit=False)  # pyright: ignore[reportAttributeAccessIssue]
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0400, checkpoint=7)  # pyright: ignore[reportAttributeAccessIssue]
+    mon.registers.side_effect = [  # pyright: ignore[reportAttributeAccessIssue]
+        {"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+        {"SP": 0xFB, "FL": 0x24, "PC": 0x0400},
+    ]
+    mon.memory_read.side_effect = _bimodal_reads([_TICK, _REPAINT])  # pyright: ignore[reportAttributeAccessIssue]
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    out = profile_routine_samples(s, 0xC000, 2)
+    assert out["samples"] == [_TICK, _REPAINT]
 
 
 def _idle_session(pcs):

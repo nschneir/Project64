@@ -181,26 +181,59 @@ def test_until_success_and_timeout():
     assert err is True and "timeout" in out["raw"].lower()
 
 
+def _profiled(samples, fired=True):
+    """A profile_routine_samples payload for `samples` cycle counts."""
+    out = {"fired": fired, "samples": samples,
+           "min": min(samples) if samples else None,
+           "max": max(samples) if samples else None,
+           "mean": round(sum(samples) / len(samples), 1) if samples else None,
+           "registers": {"PC": 0x0400} if fired else None, "trap": 0x0400,
+           "irq_masked": True, "reached": len(samples), "count": len(samples)}
+    if len(samples) == 1:
+        out["cycles"] = samples[0]
+    return out
+
+
 def test_profile_reports_cycles_and_timeout_is_an_error():
     s, _ = _fake_session()
-    fired = {"fired": True, "cycles": 507, "registers": {"PC": 0x0400},
-             "trap": 0x0400}
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.profile_routine", return_value=fired) as pr:
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=_profiled([507])) as pr:
         S.attach.return_value = s
         err, out = call_tool("c64_profile", {"routine": "$c000"})
     assert err is False
     assert out["cycles"] == 507 and out["irq_masked"] is True
     assert out["trap"] == 0x0400 and out["called"] == "$c000"
     assert pr.call_args.args[1] == 0xC000
+    assert pr.call_args.args[2] == 1
 
-    timed_out = {"fired": False, "cycles": None, "registers": None,
-                 "trap": 0x0400}
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.profile_routine", return_value=timed_out):
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=_profiled([], fired=False)):
         S.attach.return_value = s
         err, out = call_tool("c64_profile", {"routine": "$c000"})
     assert err is True and "never returned" in out["raw"]
+    # the hazards the timeout leaves behind, in the only channel MCP has
+    assert "timers" in out["raw"] and "I flag" in out["raw"]
+
+
+def test_profile_samples_reports_min_max_mean_in_lockstep_with_the_cli():
+    """CLI/MCP lockstep for `c64 profile --samples`: a bimodal per-frame cost
+    (la-galaxia's tick was 10,729 cycles, 31,695 on a repaint) reads as fine
+    when sampled once, so the tool has to be able to ask for N."""
+    s, _ = _fake_session()
+    costs = [10729, 10729, 31695, 10729]
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=_profiled(costs)) as pr:
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000", "samples": 4})
+    assert err is False
+    assert out["samples"] == costs
+    assert out["min"] == 10729 and out["max"] == 31695
+    assert out["mean"] == round(sum(costs) / 4, 1)
+    assert "cycles" not in out          # no single number to mistake for THE cost
+    assert pr.call_args.args[2] == 4
 
 
 def test_wait_mem_parses_and_passes_through():

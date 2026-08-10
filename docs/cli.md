@@ -508,16 +508,39 @@ counter across the run. Reports the cycles from the routine's first
 instruction through its own RTS.
 
 - `REF` — address or symbol of a subroutine ending in RTS.
+- `--samples N` (default `1`) — price N consecutive arrivals and report the
+  spread instead of one number.
 - `--with-irq` — leave interrupts live during the window (real-world cost;
   expect variance and rerun a few times). By default the I flag is set on
   entry so the KERNAL IRQ cannot land inside the measurement, and the
   flag's entry value is restored afterwards.
-- `--timeout N` (default `30.0`) — give up after N seconds (machine left
-  running, like `c64 call`).
+- `--timeout N` (default `30.0`) — give up after N seconds. The budget covers
+  the whole run, not each sample (machine left running, like `c64 call`).
 
 Counts are wall cycles: badline DMA steals are included, which is the
 frame-budget truth (blank the screen — `$D011` bit 4 — if you want the
 bare instruction cost).
+
+**Sample a per-frame routine more than once.** One arrival is one honest
+number about one frame, and a game's tick costs what the game's *state* makes
+it cost, so the honest number can be about an unrepresentative frame. La
+Galaxia's tick was **bimodal**: 10,729 cycles on an ordinary frame and 31,695
+on a repaint frame, with repaints on roughly 5 frames in 32. A single profile
+reported "comfortably inside the 19,656-cycle PAL frame" 27 times out of 32,
+and the 5 frames in 32 that blew the budget never appeared. `--samples 32`
+shows both modes at once:
+
+```console
+$ c64 profile tick --samples 32
+tick: 14004.9 cycles mean over 32 arrivals (min 10729, max 31695; entry to rts, IRQs masked)
+```
+
+A `max` above the frame budget with a `mean` below it is the shape to look
+for — it means some frames drop and most do not. The arrivals are consecutive
+*runs of the routine* (the fake JSR is re-armed in place between them, one
+persistent trap for the whole run, and the whole loop runs inside the session
+daemon), so the state that drives the spread advances exactly as it would in
+the program.
 
 A run whose timers read back untouched — a raw count of 0, which no real
 routine can cost — is reported as an error naming the likely cause (the CIA
@@ -531,12 +554,19 @@ they cannot be stopped safely. The same goes for the I flag: a timed-out
 profile leaves it as profile set it (masked, unless `--with-irq`), so the
 jiffy clock stays frozen and the keyboard stays dead until you clear it —
 `c64 reg set FL ...` with the I bit off, or a session restart, recovers.
-The machine ends STOPPED at the trap, like `c64 call` — and as with `call`,
-the interrupted program is gone, not paused (see `c64 call`). Sessions
-started before this verb existed need a `c64 session stop`/`start` once
-(the old daemon predates a monitor argument profile uses).
+Both hazards are named in the timeout's own error message, which also
+reports how many arrivals were priced before the deadline (`"reached"`,
+`"count"`, and the partial `"samples"` in the JSON). The machine ends
+STOPPED at the trap, like `c64 call` — and as with `call`, the interrupted
+program is gone, not paused (see `c64 call`). Sessions started before this
+verb existed need a `c64 session stop`/`start` once (the old daemon predates
+a monitor argument profile uses).
 
-JSON: `{"called", "cycles", "irq_masked", "registers", "trap"}`.
+JSON: `{"called", "samples", "min", "max", "mean", "irq_masked", "registers",
+"trap", "count"}` — plus `"cycles"`, the single number, **only** at
+`--samples 1`, which is what every pre-sampling caller reads. Above one
+sample there is no `"cycles"` key on purpose: calling one arrival of a
+bimodal cost *the* cost is the mistake the option exists to prevent.
 
 ---
 

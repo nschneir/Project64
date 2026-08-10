@@ -27,6 +27,11 @@ from . import rpc
 # `audio` reaches the daemon through `daemon_client`, never through this module.
 from .audio import SID_BASE, SID_REGISTERS
 from .monitor import MonitorClient
+
+# `profile_samples_loop` is the profile bracket itself, shared rather than
+# copied: see `_profile_samples`. Not a cycle either — `ops` reaches the
+# daemon through `daemon_client`, never through this module.
+from .ops import profile_samples_loop
 from .protocol import CP_EXEC, Command, ResponseType
 
 RUNNING = "running"
@@ -39,6 +44,7 @@ ALLOWED = frozenset({
     "vice_info", "quit", "resource_get", "resource_set", "autostart",
     "checkpoint_set", "checkpoint_delete", "checkpoint_toggle", "checkpoint_list",
     "condition_set", "step", "finish", "wait_for_stop", "status", "run_until",
+    "profile_samples",
     # `sid_log_at` is `sid_log` with writes scheduled inside the window. It is
     # a SEPARATE method name rather than a third argument on purpose: an older
     # daemon ignores extra positional args, so a schedule sent that way would
@@ -211,6 +217,10 @@ class PetDaemon:
         if method == "run_until":
             return self._run_until(client, int(args[0]), float(args[1]),
                                    int(args[2]))
+        if method == "profile_samples":
+            return self._profile_samples(client, int(args[0]), float(args[1]),
+                                         int(args[2]), bool(args[3]),
+                                         int(args[4]))
         if method == "sid_log":
             return self._sid_log(client, int(args[0]), float(args[1]))
         if method == "sid_log_at":
@@ -277,6 +287,35 @@ class PetDaemon:
         self.mon.checkpoint_delete(ck.number)
         self.state = STOPPED
         return {"registers": regs, "reached": count, "count": count}
+
+    def _profile_samples(self, client: socket.socket, addr: int,
+                         timeout: float, n: int, with_irq: bool,
+                         trap: int) -> dict:
+        """The `c64 profile --samples` loop, run against the direct VICE
+        connection — N arrivals cost one IPC round-trip instead of one
+        re-arm-and-measure bracket (~15 monitor commands) each.
+
+        The loop itself is `ops.profile_samples_loop`, called here with the
+        two hooks it leaves open: the CIA cascade, the fake-JSR re-arm and
+        the I-flag bookkeeping are intricate enough that a second copy would
+        drift, and it is the same code a direct connection runs. `run_until`
+        and `_sid_log` predate that split and still carry their own copies.
+
+        Contract as documented there: machine STOPPED at the final arrival;
+        on timeout (or the client vanishing) the checkpoint is deleted, the
+        machine is left RUNNING with registers None — and the CIA#2 timers
+        are left running with the I flag still masked, which the front ends
+        report, because the machine is running again by then.
+        """
+        def _gone() -> bool:
+            r, _, _ = select.select([client], [], [], 0)
+            return bool(r) and client.recv(1, socket.MSG_PEEK) == b""
+
+        def _state(running: bool) -> None:
+            self.state = RUNNING if running else STOPPED
+
+        return profile_samples_loop(self.mon, addr, n, timeout, with_irq,
+                                    trap, on_state=_state, abort=_gone)
 
     def _sid_log(self, client: socket.socket, frames: int, timeout: float,
                  writes: dict[int, list[tuple[int, int]]] | None = None

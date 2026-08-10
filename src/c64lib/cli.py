@@ -58,7 +58,7 @@ from .ops import (
     parse_number,
     parse_ref,
     pc_region,
-    profile_routine,
+    profile_routine_samples,
     run_until,
     session_labels,
     split_mem_condition,
@@ -1293,13 +1293,19 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
 
 @main.command("profile")
 @click.argument("ref")
+@click.option("--samples", default=1, show_default=True,
+              help="Price N consecutive arrivals and report min/max/mean. A "
+                   "per-frame cost that is bimodal — ordinary most frames, a "
+                   "spike on the repaint ones — reads as fine when it is "
+                   "sampled once.")
 @click.option("--with-irq", "with_irq", is_flag=True,
               help="Leave interrupts live during the measurement (real-world "
                    "cost; expect variance — rerun a few times).")
 @click.option("--timeout", default=30.0, show_default=True,
-              help="Give up after this many seconds.")
+              help="Give up after this many seconds (the whole run, not each "
+                   "sample).")
 @click.pass_context
-def profile_cmd(ctx, ref, with_irq, timeout):
+def profile_cmd(ctx, ref, samples, with_irq, timeout):
     """Measure the cycle cost of the routine at REF (entry to its RTS).
 
     A fake JSR exactly like `c64 call`, with CIA#2 timers A+B cascaded as
@@ -1308,28 +1314,52 @@ def profile_cmd(ctx, ref, with_irq, timeout):
     default the I flag is set on entry so the KERNAL IRQ cannot land
     inside the window; --with-irq measures with interrupts live. The
     machine ends STOPPED at the trap, like `c64 call`.
+
+    --samples N runs the routine N times in a row and reports the spread:
+    the cost of a game's tick depends on the game's own state, so one
+    arrival can be an honest number about an unrepresentative frame.
     """
+    if samples < 1:
+        fail(ctx, f"profile: --samples must be at least 1 (got {samples})")
+        return
     s = attach(ctx)
     labels = session_labels(s)
     addr = resolve_ref(ctx, labels, ref, session=s)
+    where = format_addr(labels, addr)
     try:
-        out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+        out = profile_routine_samples(s, addr, samples, timeout=timeout,
+                                      with_irq=with_irq)
     except RuntimeError as e:
-        fail(ctx, f"profile {format_addr(labels, addr)}: {e}",
-             extra={"machine": "stopped"})
+        fail(ctx, f"profile {where}: {e}", extra={"machine": "stopped"})
         return
     if not out["fired"]:
-        fail(ctx, f"profile {format_addr(labels, addr)}: never returned in "
-                  f"{timeout}s — machine left running (runaway routine? "
-                  "check the address is a subroutine ending in RTS)",
-             extra={"machine": "running"})
+        # Name what the abandoned window left behind: the docs say it, but a
+        # caller reading only this line still has to know the jiffy clock and
+        # keyboard are dead until the I bit is cleared by hand.
+        left = ("CIA#2 timers A/B are left RUNNING" if with_irq else
+                "CIA#2 timers A/B are left RUNNING and the I flag is left "
+                "masked — the jiffy clock and keyboard stay dead until "
+                "`c64 reg set FL ...` clears it (or the session restarts)")
+        fail(ctx, f"profile {where}: never returned in {timeout}s after "
+                  f"{out['reached']}/{samples} arrival(s) — machine left "
+                  "running (runaway routine? check the address is a "
+                  f"subroutine ending in RTS). {left}.",
+             extra={"machine": "running", "reached": out["reached"],
+                    "count": samples, "samples": out["samples"],
+                    "timers_running": True, "irq_masked": not with_irq})
         return
-    where = format_addr(labels, addr)
     mask = "IRQs masked" if not with_irq else "IRQs live"
-    emit(ctx, {"called": where, "cycles": out["cycles"],
+    payload = {"called": where, "samples": out["samples"], "min": out["min"],
+               "max": out["max"], "mean": out["mean"],
                "irq_masked": not with_irq, "registers": out["registers"],
-               "trap": out["trap"]},
-         f"{where}: {out['cycles']} cycles (entry to rts, {mask})")
+               "trap": out["trap"], "count": samples}
+    if samples == 1:
+        payload["cycles"] = out["cycles"]
+        human = f"{where}: {out['cycles']} cycles (entry to rts, {mask})"
+    else:
+        human = (f"{where}: {out['mean']} cycles mean over {samples} arrivals "
+                 f"(min {out['min']}, max {out['max']}; entry to rts, {mask})")
+    emit(ctx, payload, human)
 
 
 @main.command("wait")

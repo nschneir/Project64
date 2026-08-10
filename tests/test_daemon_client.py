@@ -352,6 +352,49 @@ def test_sid_log_at_writes_before_the_resume_for_that_frame(served):
                      "resume", "read", "resume"]
 
 
+# --- profile_samples: the N-arrival loop is daemon-side too -------------------
+
+def _timers(cycles: int):
+    """TA/TB readbacks for a routine of `cycles` (both counters run down from
+    $FFFF; the timer misses the window's first 3 cycles)."""
+    raw = cycles - 3
+    ta, tb = 0xFFFF - (raw & 0xFFFF), 0xFFFF - (raw >> 16)
+    return [bytes([ta & 0xFF, ta >> 8]), bytes([tb & 0xFF, tb >> 8])]
+
+
+def test_profile_samples_prices_every_arrival_daemon_side(served):
+    """Re-reaching the routine costs ~15 monitor commands, so N samples over
+    per-arrival RPCs would be N round trips of them. The whole loop is one
+    RPC, exactly like `run_until` — and it returns the RAW counts, leaving
+    the slack correction and the zero-raw guard to `ops`."""
+    c, mon, d = served
+    mon.checkpoint_set.return_value = _ck()
+    mon.wait_for_stop.return_value = StopInfo(pc=0x0419, checkpoint=4)
+    mon.registers.side_effect = [{"SP": 0xF9, "FL": 0x20, "PC": 0x1234},
+                                 {"SP": 0xFB, "FL": 0x24, "PC": 0x0400}]
+    mon.memory_read.side_effect = _timers(10729) + _timers(31695)
+    out = c.profile_samples(0xC000, 5.0, 2, False, 0x0400)
+    assert out["fired"] is True
+    assert out["raw"] == [10726, 31692]
+    assert out["reached"] == 2 and out["registers"]["PC"] == 0x0400
+    assert mon.resume.call_count == 2               # one per arrival
+    mon.checkpoint_delete.assert_called_once_with(4)
+    assert d.state == STOPPED
+
+
+def test_profile_samples_timeout_leaves_running_with_what_it_measured(served):
+    c, mon, d = served
+    mon.checkpoint_set.return_value = _ck()
+    mon.wait_for_stop.return_value = None           # never arrives
+    mon.checkpoint_list.return_value = [_ck()]      # durable flag never set
+    mon.registers.return_value = {"SP": 0xF9, "FL": 0x20, "PC": 0x1234}
+    out = c.profile_samples(0xC000, 0.3, 2, False, 0x0400)
+    assert out["fired"] is False and out["raw"] == []
+    assert out["reached"] == 0 and out["registers"] is None
+    mon.checkpoint_delete.assert_called_once_with(4)
+    assert d.state == "running"
+
+
 def test_sid_log_at_rejects_a_byte_the_wire_should_never_have_carried(served):
     """The daemon holds the session's only VICE connection, so a bad value
     is re-checked here rather than raising out of `memory_write` in the

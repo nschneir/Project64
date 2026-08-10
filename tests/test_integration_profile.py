@@ -74,6 +74,22 @@ def test_profile_measures_a_known_cost_routine(session, tmp_path):
     assert out["cycles"] == 507, out
 
 
+def test_profile_samples_prices_every_arrival_live(session, tmp_path):
+    """The sample loop runs inside the daemon and re-arms the fake-JSR
+    bracket in place between arrivals — stack, SP, I flag, PC and the CIA
+    cascade. Only a real chip model can prove the re-arm: a fixed-cost
+    routine sampled five times must be the same hand-computed 507 every
+    time, with min == mean == max and no drift down the run."""
+    _boot(tmp_path, "profsamp.s", 100)
+    out = _profile("--samples", "5")
+    assert out["samples"] == [507] * 5, out
+    assert out["min"] == 507 and out["max"] == 507 and out["mean"] == 507.0
+    assert out["count"] == 5
+    # No single number above one sample; `cycles` survives at --samples 1.
+    assert "cycles" not in out
+    assert _profile("--samples", "1")["cycles"] == 507
+
+
 def test_profile_is_repeatable_and_scales_with_the_loop_count(session, tmp_path):
     """Same routine three times = the same number (a cycle counter that
     drifts is worthless), and a 10x smaller loop costs the hand-computed
