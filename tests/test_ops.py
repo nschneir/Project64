@@ -429,6 +429,26 @@ def test_key_type_real_newline_unchanged():
     mon.keyboard_feed.assert_called_once_with(b"50\r")
 
 
+def test_type_basic_appends_run_and_feeds_petscii():
+    """One op behind both front ends' `basic type`: a trailing newline is
+    added when the source lacks one, RUN follows when asked, and the whole
+    thing goes through the same keyboard feed key_type uses."""
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    out = type_basic(s, '10 print "hi"', run=True)
+    mon.keyboard_feed.assert_called_once_with(b'10 PRINT "HI"\rRUN\r')
+    mon.release.assert_called_once()
+    assert out == {"typed_chars": 18, "run": True}
+
+
+def test_type_basic_keeps_an_existing_trailing_newline():
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    out = type_basic(s, "10 end\n")
+    mon.keyboard_feed.assert_called_once_with(b"10 END\r")
+    assert out == {"typed_chars": 7, "run": False}
+
+
 def test_matrix_codes_cover_game_keys():
     from c64lib.ops import MATRIX_CODES
     # spot checks against the published keyboard-matrix table ($CB values)

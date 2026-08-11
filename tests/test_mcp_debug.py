@@ -291,6 +291,25 @@ def test_call_tool_runs_routine():
     assert out["registers"]["A"] == 42 and out["fired"] is True
 
 
+def test_call_tool_timeout_is_an_error():
+    """A routine that never returned is a failure, not a payload with
+    fired=false: a client that does not inspect `fired` would otherwise read
+    a runaway routine as a completed call. Same contract as c64_until and
+    c64_profile, and the same wording as `c64 call`'s exit-1 message."""
+    s, _ = _fake()
+    never = {"fired": False, "registers": None, "trap": 0x2000}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.call_routine", return_value=never):
+        S.attach.return_value = s
+        err, out = call_tool("c64_call", {"routine": "$2000", "timeout": 0.1})
+    assert err is True
+    # byte-identical to `c64 call`'s fail() message (FastMCP prefixes the raw
+    # text with "Error executing tool c64_call: ").
+    assert out["raw"].endswith(
+        "call $2000: never returned in 0.1s — machine left running (runaway "
+        "routine? check the address is a subroutine ending in RTS)")
+
+
 def test_wait_idle_fires_and_reports_elapsed():
     s, mon = _fake()
     mon.registers.return_value = {"PC": 0xE5D1}

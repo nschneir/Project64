@@ -883,7 +883,9 @@ real tokenizer; works mid-session).
 - `SOURCE` — the `.bas` file.
 - `--run` — type `RUN` afterwards.
 
-JSON: `{"typed", "run"}`. Machine state preserved.
+JSON: `{"typed", "typed_chars", "run"}` (`typed` is the source path, which
+`c64_basic_type` has no equivalent of — it takes the text inline). Machine
+state preserved.
 
 ---
 

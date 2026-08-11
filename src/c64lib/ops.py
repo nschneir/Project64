@@ -893,6 +893,22 @@ def key_type(session, text: str) -> dict:
     return {"typed_chars": len(petscii)}
 
 
+def type_basic(session, text: str, run: bool = False) -> dict:
+    """Type BASIC program TEXT into the running machine through the keyboard.
+    A trailing newline is added when TEXT lacks one (the last line has to be
+    entered, not just displayed) and `run\\n` follows it when run=True.
+
+    Typing goes through key_type, so its `\\n`/`\\\\` escape decoding applies
+    to program text as well — a lone backslash in BASIC source types the £
+    PETSCII character either way, so nothing readable changes meaning.
+    ValueError from unmappable characters propagates to the caller."""
+    if not text.endswith("\n"):
+        text += "\n"
+    if run:
+        text += "run\n"
+    return {**key_type(session, text), "run": run}
+
+
 def key_hold(session, key: str, at_addr: int, frames: int = 1,
              timeout: float = 30.0, release: bool = True) -> dict:
     """Hold KEY down for `frames` game ticks: write its keyboard-matrix

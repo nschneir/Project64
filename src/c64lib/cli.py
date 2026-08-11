@@ -68,6 +68,7 @@ from .ops import (
     sprite_shape,
     sprite_states,
     staleness,
+    type_basic,
     wait_for_break,
     wait_for_idle,
     wait_for_mem,
@@ -96,7 +97,7 @@ from .screen import (
 from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import TestError, load_test, program_test, run_test
-from .text import GUTTER_LABELS, ascii_to_petscii, gutter_text
+from .text import GUTTER_LABELS, gutter_text
 
 
 def emit(ctx: click.Context, data: dict, human: str) -> None:
@@ -877,21 +878,16 @@ def basic_type(ctx, source, do_run):
     """Type a BASIC program into the running C64 via the keyboard."""
     s = attach(ctx)
     text = source.read_text()
-    if not text.endswith("\n"):
-        text += "\n"
-    if do_run:
-        text += "run\n"
     try:
-        petscii = ascii_to_petscii(text)
+        out = type_basic(s, text, run=do_run)
     except ValueError as e:
         fail(ctx, str(e))
         return
-    with s.monitor() as mon:
-        try:
-            mon.keyboard_feed(petscii)
-        finally:
-            mon.release()
-    emit(ctx, {"typed": str(source), "run": do_run},
+    # `typed` is the CLI's own key and has no MCP twin: this command takes a
+    # *file* where c64_basic_type takes the text inline, so naming the source
+    # is the useful thing to report here. `typed_chars` and `run` are the
+    # shared payload both front ends emit.
+    emit(ctx, {"typed": str(source), **out},
          f"typed {source}{' and RUN' if do_run else ''}")
 
 

@@ -68,6 +68,7 @@ from .ops import (
     sprite_shape,
     sprite_states,
     staleness,
+    type_basic,
     wait_for_break,
     wait_for_idle,
     wait_for_mem,
@@ -86,7 +87,6 @@ from .screen import (
 from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import load_test, program_test, run_test
-from .text import ascii_to_petscii
 
 srv = FastMCP("c64-tools")
 
@@ -583,12 +583,22 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
     """JSR one routine in isolation (fake return address on the stack,
     optional A/X/Y on entry) and stop at its RTS — the unit-test
     primitive: poke inputs, call, then assert registers/memory. Machine
-    ends STOPPED on success, RUNNING on timeout."""
+    ends STOPPED on success. On timeout: raises with the machine LEFT
+    RUNNING."""
     s = _attach(session)
-    addr = session_ref(s, routine, session_labels(s))
+    labels = session_labels(s)
+    addr = session_ref(s, routine, labels)
     out = call_routine(s, addr, a=a, x=x, y=y, timeout=timeout)
-    if out.get("fired"):
-        out["pc_symbol"] = pc_symbol(session_labels(s), dict(out["registers"]))
+    if not out.get("fired"):
+        # Raise rather than hand back {"fired": false, "registers": null}: a
+        # client that does not inspect `fired` would read a runaway routine as
+        # a completed call. Same contract as c64_until/c64_profile, and the
+        # wording `c64 call` exits 1 with.
+        raise RuntimeError(f"call {format_addr(labels, addr)}: never returned "
+                           f"in {timeout}s — machine left running (runaway "
+                           "routine? check the address is a subroutine ending "
+                           "in RTS)")
+    out["pc_symbol"] = pc_symbol(labels, dict(out["registers"]))
     return out
 
 
@@ -618,7 +628,8 @@ def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
                 "bit is cleared (c64_reg_set FL) or the session is restarted")
         raise RuntimeError(f"profile {routine}: never returned in {timeout}s "
                            f"after {out['reached']}/{samples} arrival(s) — "
-                           f"machine left running. {left}.")
+                           "machine left running (runaway routine? check the "
+                           f"address is a subroutine ending in RTS). {left}.")
     payload = {"called": routine, "samples": out["samples"], "min": out["min"],
                "max": out["max"], "mean": out["mean"],
                "irq_masked": not with_irq, "registers": out["registers"],
@@ -824,18 +835,7 @@ def c64_basic_type(text: str, run: bool = False,
     """Type BASIC program text into the running C64 via the keyboard
     (keywords may be upper or lower case; each line ends with \\n).
     Set run=true to type RUN afterwards."""
-    s = _attach(session)
-    if not text.endswith("\n"):
-        text += "\n"
-    if run:
-        text += "run\n"
-    petscii = ascii_to_petscii(text)
-    with s.monitor() as mon:
-        try:
-            mon.keyboard_feed(petscii)
-        finally:
-            mon.release()
-    return {"typed_chars": len(petscii), "run": run}
+    return type_basic(_attach(session), text, run=run)
 
 
 @srv.tool()
