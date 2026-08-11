@@ -25,13 +25,12 @@ $C session start --name mmaud --warp --headless >/dev/null
 trap '$C session stop mmaud >/dev/null 2>&1 || true' EXIT
 
 cap() {                                 # cap <name> <seconds>
-    # --strict on both, because every window here is staged to have music in
-    # it: a capture that recorded nothing scores PASS by default (no note
-    # sounded, so no check had anything to disagree with) and would exit 0
-    # under `set -e` with committed reports proving nothing.  Staging that
-    # missed -- a hidden key that no longer reaches its act, a tick count moved
-    # by a change in the game -- is exactly what produces it.  It matters most
-    # on the no-score branch, which has no diff to fail on either.
+    # --strict on both branches, and it matters most on the no-score one: with
+    # no --ref there is no diff to fail on, so an empty capture reads as PASS
+    # and exits 0.  Staging that missed -- a hidden key that no longer reaches
+    # its act -- is exactly what produces one, and would land a committed
+    # report proving nothing.  docs/cli.md's `c64 audio capture` entry has the
+    # general rule and why the flag is opt-in.
     mkdir -p "$OUT/$1"
     if [ -f "$OUT/$1.score.yaml" ]; then
         $C audio capture "$2" "$OUT/$1" --ref "$OUT/$1.score.yaml" --strict $S

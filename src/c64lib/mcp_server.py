@@ -1374,16 +1374,29 @@ def _strict_verdict(out: dict, strict: bool) -> dict:
     window for. That is what keeps this from undoing the CLI's rule that the
     payload is emitted in full first.
     """
-    if strict and out.get("nothing_played"):
-        raise RuntimeError(
-            f"nothing played: no voice sounded, so the {out['verdict']} "
-            f"verdict checked nothing, and strict=True counts that as a "
-            f"failure. Every artifact was still written — read "
-            f"{out['report']}, and the rest of them in {out['outdir']}. No "
-            f"re-score finds notes in a silent log, so fix what the window "
-            f"opened on (a program that never started, a staging step that "
-            f"missed, a voice never gated) and capture it again.")
-    return out
+    if not (strict and out.get("nothing_played")):
+        return out
+    # FAIL and `nothing_played` together is the ordinary case, not an edge: with
+    # a `ref`, a silent capture diffs every scored entry as "heard nothing (log
+    # ended)" (`sid_analysis.diff_score`), so the verdict fails on the score it
+    # DID check. Telling that caller its verdict checked nothing would be false,
+    # and this raise is discarding the diffs behind it — so say where they went.
+    if out["verdict"] == "FAIL":
+        verdict_clause = (f"The {out['verdict']} verdict is a separate finding, "
+                          f"and this raise is standing in for it: the diffs and "
+                          f"failures behind it are in the report, under the "
+                          f"verdict, not in a return value.")
+    else:
+        verdict_clause = (f"The {out['verdict']} verdict therefore checked "
+                          f"nothing — no note sounded, so nothing could "
+                          f"disagree with it.")
+    raise RuntimeError(
+        f"nothing played: no voice sounded in this capture, and strict=True "
+        f"counts that as a failure. {verdict_clause} Every artifact was still "
+        f"written — read {out['report']}, and the rest of them in "
+        f"{out['outdir']}. No re-score finds notes in a silent log, so fix what "
+        f"the window opened on (a program that never started, a staging step "
+        f"that missed, a voice never gated) and capture it again.")
 
 
 @srv.tool()

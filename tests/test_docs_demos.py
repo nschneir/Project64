@@ -225,7 +225,11 @@ def test_every_audio_evidence_script_captures_strictly():
     invocation, not every script — one un-adopted branch is a green run."""
     for demo in ("la-galaxia", "ms-muncher"):
         script = DEMOS_DIR / demo / "tools" / "audio-evidence.sh"
-        calls = [line for line in script.read_text().splitlines()
+        # Logical lines, not physical ones: a capture whose flags moved onto a
+        # backslash continuation would otherwise fail this pin while being
+        # perfectly strict.
+        body = script.read_text().replace("\\\n", " ")
+        calls = [line for line in body.splitlines()
                  if "audio capture" in line and not line.lstrip().startswith("#")]
         assert calls, f"{script} no longer captures"
         for line in calls:

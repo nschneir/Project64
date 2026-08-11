@@ -235,9 +235,15 @@ nothing, and a caller that cannot mean "this program is quiet" wants that as a
 failure. It is off by default on both sides, and the raise **names the
 artifacts** — the report, the roll, the spectrogram are all written before the
 verdict is judged, and a raise carries no payload to point at them with.
-A FAIL verdict still returns as data on both tools, exactly as it does under
+
+A FAIL verdict otherwise returns as data on both tools, exactly as it does under
 `--json`: it is a finding about the program, and the CLI's exit 1 has no MCP
-counterpart there.
+counterpart there. `strict=True` over a `nothing_played` payload is the one
+exception, and it is the *common* case for a strict caller that passed a `ref`:
+a silent capture diffs every scored entry as "heard nothing", so the verdict is
+FAIL and `nothing_played` is true at once. The raise wins there, so those diffs,
+anomalies and `failures` are in `report.md` rather than in a return value — the
+message says as much, and says which of the two things it is reporting.
 
 ### Test runner
 

@@ -2013,6 +2013,12 @@ NOTHING_PLAYED_WARNING = (
     "meant it. (Details under the verdict in the report.)")
 
 
+#: A silent capture scored against a reference: `diff_score` emits one of these
+#: per scored entry (`sid_analysis.py`), which is what makes the verdict FAIL
+#: and `nothing_played` true at the same time.
+HEARD_NOTHING = "voice 1 event 1: expected A4, heard nothing (log ended)"
+
+
 def _quiet_report(**extra) -> dict:
     """A PASS payload over a capture in which nothing sounded — enough keys for
     either front end's verdict path, shared so the strict cases below all judge
@@ -2021,6 +2027,14 @@ def _quiet_report(**extra) -> dict:
             "verdict": "PASS", "diffs": [], "anomalies": [], "notes": 0,
             "nothing_played": True, "machine": "c64", "clock_hz": NTSC,
             "fps": 60, **extra}
+
+
+def _failing_quiet_report(**extra) -> dict:
+    """The payload a `--ref`'d silent capture really produces — FAIL *and*
+    `nothing_played` — which is the state both adopted evidence scripts hit
+    first, since every capture in them passes a score."""
+    return _quiet_report(verdict="FAIL", diffs=[HEARD_NOTHING],
+                         failures=["score diff: 1 difference"], **extra)
 
 
 # --- MCP tools ----------------------------------------------------------------
@@ -2148,8 +2162,33 @@ def test_mcp_sid_report_strict_raises_when_nothing_played():
                                                 "strict": True})
     assert err is True
     assert "nothing played" in str(out), out
+    assert "checked nothing" in str(out), \
+        "over a PASS the raise has to say the verdict itself proved nothing"
     assert "/tmp/o/report.md" in str(out), \
         "a strict raise that names no artifact leaves the caller nothing to read"
+
+
+def test_mcp_sid_report_strict_over_a_failing_silent_capture():
+    """FAIL and `nothing_played` at once — what a silent capture scored against
+    a reference really produces, and the state an evidence run reaches first.
+
+    The raise must not claim that verdict checked nothing: it checked the score
+    and found differences. And since a raise carries no payload, those diffs
+    are gone from the return value, so the message has to send the caller to
+    the report for them."""
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report",
+               return_value=_failing_quiet_report()):
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                               "outdir": "/tmp/o",
+                                               "ref": "/tmp/score.yaml",
+                                               "strict": True})
+    assert err is True
+    text = str(out)
+    assert "checked nothing" not in text, \
+        "the FAIL verdict did check something — the reference score"
+    assert "in the report" in text and "/tmp/o/report.md" in text, \
+        "the diffs this raise discards are not pointed at anywhere"
 
 
 def test_mcp_sid_report_strict_is_quiet_about_a_capture_that_played():
@@ -2465,6 +2504,24 @@ def test_cli_audio_report_strict_leaves_a_capture_that_played_alone(tmp_path):
                                       "--strict"])
     assert r.exit_code == 0, r.output
     assert "nothing played" not in r.output
+
+
+def test_cli_strict_over_a_failing_silent_capture_keeps_the_diffs(tmp_path):
+    """FAIL and `nothing_played` at once, which is what a silent capture scored
+    against a reference produces — every scored entry diffs as "heard nothing".
+    That is the state the adopted evidence scripts reach first, so it is worth
+    pinning that the CLI loses nothing there: exit 1 (the FAIL would have exited
+    anyway), the emptiness named, the flag named, and the diffs still on screen
+    for someone reading the failure."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.sid_report", return_value=_failing_quiet_report()):
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o",
+                                      "--ref", "score.yaml", "--strict"])
+    assert r.exit_code == 1, r.output
+    assert NOTHING_PLAYED_WARNING in r.output and "--strict" in r.output
+    assert HEARD_NOTHING in r.output, \
+        "the strict line displaced the findings the verdict is about"
 
 
 def test_cli_audio_capture_nothing_played_exits_1_with_strict():

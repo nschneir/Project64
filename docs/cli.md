@@ -1668,7 +1668,8 @@ into OUTDIR.
   `$hex`, or `0xhex`; a value is one byte. A frame the window never reaches
   is refused before anything is pinned, like a malformed `--ref`.
 - `--strict` — also exit 1 when nothing played, not only when the verdict is
-  FAIL. Off by default; see **A capture in which nothing played** below.
+  FAIL. Off by default; see **A capture in which nothing played still passes**
+  below.
 
 Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
