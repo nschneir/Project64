@@ -50,7 +50,7 @@ def test_run_bas_tokenizes_then_autostarts(tmp_path):
     fake, mon = _fake_attached()
     prg = tmp_path / "d.prg"
     with patch("c64lib.cli.Session") as S, \
-         patch("c64lib.cli.tokenize", return_value=prg) as tok:
+         patch("c64lib.ops.tokenize", return_value=prg) as tok:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "run", str(src)])
     assert r.exit_code == 0, r.output
@@ -64,7 +64,7 @@ def test_run_asm_builds_and_registers_labels(tmp_path):
     res = BuildResult(prg=tmp_path / "d.prg", labels=tmp_path / "d.lbl")
     fake, mon = _fake_attached()
     with patch("c64lib.cli.Session") as S, \
-         patch("c64lib.cli.build_asm", return_value=res) as ba:
+         patch("c64lib.ops.build_asm", return_value=res) as ba:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["run", str(src)])
     assert r.exit_code == 0, r.output

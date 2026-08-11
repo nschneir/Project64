@@ -1,10 +1,11 @@
 import json
 from unittest.mock import Mock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from c64lib.cli import main
-from c64lib.sprites import encode_sprite, format_bytes
+from c64lib.sprites import encode_sheet_file, encode_sprite, format_bytes
 
 
 def _vic():
@@ -112,6 +113,19 @@ def test_sprite_bad_index_fails():
         r = CliRunner().invoke(main, ["--json", "sprite", "show", "9"])
     assert r.exit_code == 1
     assert "0-7" in json.loads(r.output)["error"]
+
+
+def test_bad_index_is_rejected_before_the_machine_is_read():
+    """The range check runs before any monitor traffic, so a bad index can
+    never cost a round trip or surface as a MonitorError from the read."""
+    fake, mon = _fake()
+    mon.memory_read.side_effect = AssertionError("read the machine")
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "sprite", "show", "9"])
+    assert mon.memory_read.call_count == 0, "the machine was read first"
+    assert r.exit_code == 1, r.output
+    assert json.loads(r.output)["error"] == "sprite index 9 outside 0-7"
 
 
 def test_sprite_from_png_no_session(tmp_path):
@@ -388,3 +402,55 @@ def test_sprite_encode_reports_a_file_it_cannot_decode(tmp_path):
     error = json.loads(r.stdout)["error"]
     assert str(binary) in error and "decode" in error, \
         "the error never names the file it could not read"
+
+
+# ---- the sheet reader both front ends now share ---------------------------
+
+
+def test_encode_sheet_file_rejects_an_empty_sheet_both_ways(tmp_path):
+    """Two ways to hold no art, one message — pinned on the library function,
+    because this is the rule the CLI and the MCP tool used to spell twice
+    each. Whitespace never reaches the parser; a file of nothing but comments
+    reaches it and parses to no blocks at all, which is the check that only
+    the *second* test here can fail.
+    """
+    blank = tmp_path / "blank.txt"
+    blank.write_text("\n   \n")
+    with pytest.raises(ValueError) as e:
+        encode_sheet_file(blank, multicolor=True)
+    assert str(e.value) == f"no sprite art found in {blank}"
+
+    legend_only = tmp_path / "legend.txt"
+    legend_only.write_text("# La Galaxia -- the shapes\n#   . background\n")
+    with pytest.raises(ValueError) as e:
+        encode_sheet_file(legend_only, multicolor=True)
+    assert str(e.value) == f"no sprite art found in {legend_only}"
+
+
+def test_encode_sheet_file_names_the_file_it_cannot_read(tmp_path):
+    """A .prg or a .png where the sheet goes raises UnicodeDecodeError, whose
+    own message is a byte offset and a codec — true, and no help in saying
+    which of the paths in the call was wrong. It is a ValueError and NOT an
+    OSError, which is exactly how both front ends once leaked a traceback.
+    """
+    binary = tmp_path / "sprites.bin"
+    binary.write_bytes(bytes(range(256)))
+    with pytest.raises(ValueError) as e:
+        encode_sheet_file(binary, multicolor=True)
+    assert str(e.value).startswith(f"cannot read sprite sheet {binary}: ")
+    assert "decode" in str(e.value)
+
+    missing = tmp_path / "nope.txt"
+    with pytest.raises(ValueError) as e:
+        encode_sheet_file(missing, multicolor=True)
+    assert str(e.value).startswith(f"cannot read sprite sheet {missing}: ")
+
+
+def test_encode_sheet_file_returns_the_parsed_blocks(tmp_path):
+    """The happy path: the guards are not the whole function."""
+    src = tmp_path / "sprites.txt"
+    src.write_text(_named_sheet())
+    blocks = encode_sheet_file(src, multicolor=True, background=".")
+    assert [b.name for b in blocks] == ["fighter", "drone"]
+    assert [b.multicolor for b in blocks] == [False, True]
+    assert [bytes(b.data) for b in blocks] == [bytes(63)] * 2

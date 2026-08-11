@@ -1,6 +1,7 @@
 """Direct tests for MCP tools that previously had no unit coverage.
 Harness identical to test_mcp_session.py: in-memory MCP client, mocked Session."""
 
+import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -346,7 +347,7 @@ def test_run_bas_tokenizes(tmp_path):
     bas.write_text('10 print "hi"\n')
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.tokenize",
+         patch("c64lib.ops.tokenize",
                return_value=tmp_path / "hello.prg") as tok:
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(bas)})
@@ -363,7 +364,7 @@ def test_run_areas_reach_the_linker(tmp_path):
     res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
+         patch("c64lib.ops.build_asm", return_value=res) as ba:
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(src),
                                          "areas": ["ENGINE=$4000:$6000"]})
@@ -407,6 +408,34 @@ def test_load_no_run_with_symbols(tmp_path):
     assert err is False and out["run"] is False
     mon.autostart.assert_called_once_with(prg.resolve(), run=False)
     s.set_labels_path.assert_called_once_with(str(lbl.resolve()))
+
+
+def test_load_tool_echoes_the_resolved_symbols_path(tmp_path, monkeypatch):
+    """The tool registered the RESOLVED label path but echoed the caller's raw
+    string, so its payload disagreed both with `c64 load --json` and with what
+    the tool had just done."""
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+    monkeypatch.chdir(tmp_path)
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    lbl = tmp_path / "p.lbl"
+    lbl.write_text("al C:040d .start\n")
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_load", {"prg": "p.prg", "symbols": "p.lbl"})
+    assert err is False
+    assert out["symbols"] == str(lbl.resolve())
+    s.set_labels_path.assert_called_once_with(str(lbl.resolve()))
+    cli_s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = cli_s
+        r = CliRunner().invoke(main, ["--json", "load", "p.prg",
+                                      "--symbols", "p.lbl"])
+    assert r.exit_code == 0, r.output
+    assert out == json.loads(r.output)
 
 
 def test_load_records_loaded_program(tmp_path):
@@ -503,7 +532,7 @@ def test_rom_disasm_annotates():
     s, mon = _fake_session()
     mon.memory_read.return_value = b"\xea"          # NOP
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.rom_labels", return_value={"CHROUT": 0xFFD2}):
+         patch("c64lib.ops.rom_labels", return_value={"CHROUT": 0xFFD2}):
         S.attach.return_value = s
         err, out = call_tool("c64_rom_disasm", {"start": "CHROUT", "length": 1})
     assert err is False and out["start"] == 0xFFD2

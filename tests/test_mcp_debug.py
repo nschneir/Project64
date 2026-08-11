@@ -1,3 +1,4 @@
+import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -51,6 +52,52 @@ def test_watch_add_store(tmp_path):
                              {"ref": "$0400", "on_store": True, "length": 40})
     assert err is False
     mon.checkpoint_set.assert_called_once_with(0x0400, 0x0400 + 39, op=CP_STORE)
+
+
+def _cli(session, argv: list[str]) -> dict:
+    """Run one `--json` CLI command against `session`, returning its payload."""
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = session
+        r = CliRunner().invoke(main, ["--json", *argv])
+    assert r.exit_code == 0, r.output
+    return json.loads(r.output)
+
+
+def test_break_list_tool_payload_matches_the_cli():
+    """`c64_break_list` emitted the raw `op` bitmask where `c64 break list
+    --json` emits the `exec|load|store` string — same key, same command, two
+    types. Both front ends drive the *same* fake session here, so the payloads
+    are compared whole; no key is excused.
+    """
+    s, mon = _fake()
+    mon.checkpoint_list.return_value = [
+        _ck(number=1, op=CP_EXEC),
+        _ck(number=2, start=0x0400, op=CP_LOAD | CP_STORE),
+    ]
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, mcp_payload = call_tool("c64_break_list", {})
+    assert err is False
+    assert mcp_payload == _cli(s, ["break", "list"])
+    assert [b["op"] for b in mcp_payload["breakpoints"]] == ["exec", "load|store"]
+
+
+def test_watch_add_tool_payload_matches_the_cli():
+    """`c64_watch_add` omitted `op` altogether where `c64 watch add --json`
+    reports it. Same fake session on both sides, so compared whole.
+    """
+    s, mon = _fake()
+    mon.checkpoint_set.return_value = _ck(number=3, start=0x0400,
+                                          op=CP_LOAD | CP_STORE)
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, mcp_payload = call_tool("c64_watch_add", {"ref": "$0400", "length": 40})
+    assert err is False
+    assert mcp_payload == _cli(s, ["watch", "add", "$0400", "--length", "40"])
+    assert mcp_payload["op"] == "load|store"
 
 
 def test_step_stays_stopped():
@@ -242,6 +289,25 @@ def test_call_tool_runs_routine():
     assert not err, out
     assert cr.call_args.args[1] == 0x2000 and cr.call_args.kwargs["a"] == 5
     assert out["registers"]["A"] == 42 and out["fired"] is True
+
+
+def test_call_tool_timeout_is_an_error():
+    """A routine that never returned is a failure, not a payload with
+    fired=false: a client that does not inspect `fired` would otherwise read
+    a runaway routine as a completed call. Same contract as c64_until and
+    c64_profile, and the same wording as `c64 call`'s exit-1 message."""
+    s, _ = _fake()
+    never = {"fired": False, "registers": None, "trap": 0x2000}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.call_routine", return_value=never):
+        S.attach.return_value = s
+        err, out = call_tool("c64_call", {"routine": "$2000", "timeout": 0.1})
+    assert err is True
+    # byte-identical to `c64 call`'s fail() message (FastMCP prefixes the raw
+    # text with "Error executing tool c64_call: ").
+    assert out["raw"].endswith(
+        "call $2000: never returned in 0.1s — machine left running (runaway "
+        "routine? check the address is a subroutine ending in RTS)")
 
 
 def test_wait_idle_fires_and_reports_elapsed():

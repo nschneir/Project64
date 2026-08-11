@@ -98,6 +98,22 @@ def test_get_tool_payload_matches_the_cli(image, tmp_path):
     assert mcp_payload == cli_payload
 
 
+@needs_c1541
+def test_disk_get_tool_defaults_dest_like_the_cli(image, tmp_path, monkeypatch):
+    """`dest` was required on the tool while `c64 disk get` defaulted it to
+    NAME.prg. A default is business logic, so it lives in the library now and
+    both front ends get the same file name from it."""
+    assert inspect.signature(
+        mcp_server.c64_disk_get).parameters["dest"].default is None
+    monkeypatch.chdir(tmp_path)
+    mcp_payload = mcp_server.c64_disk_get(str(image), "alpha")
+    assert mcp_payload["dest"] == "alpha.prg"
+    assert (tmp_path / "alpha.prg").exists()
+    (tmp_path / "alpha.prg").unlink()
+    cli_payload = _cli(["disk", "get", str(image), "alpha"])
+    assert mcp_payload == cli_payload
+
+
 # --- rename / rm ------------------------------------------------------------
 
 @needs_c1541

@@ -406,7 +406,9 @@ JSON: `{"id", "address", "condition", "temporary"}`. Machine state preserved.
 
 List all checkpoints with hit counts.
 JSON: `{"breakpoints": [{"id", "address", "end", "op", "enabled", "hits",
-"has_condition"}, ...]}`.
+"has_condition"}, ...]}`. `op` is the **string** `exec`, `load` or `store` —
+several joined by `|` in that order (`load|store`), never the raw bitmask.
+`c64_break_list` reports the same string.
 
 ### `c64 break remove` (alias: `c64 break rm`)
 
@@ -436,7 +438,9 @@ Set a watchpoint on a memory range (default: both load and store).
 - `--store` — break on writes.
 - `--length N` (default `1`) — number of bytes to watch.
 
-JSON: `{"id", "address", "length", "op"}`. Machine state preserved.
+JSON: `{"id", "address", "length", "op"}`. `op` is the **string** `load`,
+`store` or `load|store` (the same spelling `c64 break list` reports), never the
+raw bitmask. `c64_watch_add` reports it too.
 
 ### `c64 watch remove` (alias: `c64 watch rm`)
 
@@ -879,7 +883,9 @@ real tokenizer; works mid-session).
 - `SOURCE` — the `.bas` file.
 - `--run` — type `RUN` afterwards.
 
-JSON: `{"typed", "run"}`. Machine state preserved.
+JSON: `{"typed", "typed_chars", "run"}` (`typed` is the source path, which
+`c64_basic_type` has no equivalent of — it takes the text inline). Machine
+state preserved.
 
 ---
 
@@ -907,6 +913,12 @@ Build/tokenize `SOURCE` as needed, then load and RUN it. `.bas` is tokenized,
   address is the session's, since there is no `--model` here.
 
 JSON: `{"source", "prg", "symbols"}`. Machine left running.
+
+**A failed build leaves the old program up.** A tokenize or build that fails
+reloads nothing, so the emulator is still running whatever it was running
+before — which looks exactly like a run that worked. The error says so, naming
+that program and when it was loaded (the Ms. Muncher trap `c64 status`'s
+`STALE` line exists for). `c64_run` raises the same message, note and all.
 
 **`--area`.** A program whose engine or art has to land at a fixed address
 needs the flag to link at all, and without it here that program could not be

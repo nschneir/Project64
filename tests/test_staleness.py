@@ -9,9 +9,16 @@ program the emulator is still running.
 import json
 import time
 
+import pytest
 from click.testing import CliRunner
 
 import c64lib.cli as cli
+
+# Imported here, not inside the test: conftest's autouse fixture swaps
+# subprocess.Popen for a plain function, and `mcp`'s own import chain
+# annotates with `subprocess.Popen[bytes]` at class-body time.
+from c64lib import mcp_server
+from c64lib.build import BuildError
 from c64lib.ops import staleness
 from c64lib.session import Session
 
@@ -69,19 +76,38 @@ def test_status_reports_program_and_stale_sources(tmp_path, monkeypatch):
     assert "STALE" in r2.output and "inc.s" in r2.output
 
 
-def test_run_build_failure_names_the_running_program(tmp_path, monkeypatch):
+def _a_build_that_fails(tmp_path, monkeypatch):
+    """A session running `old.prg`, and a `prog.s` whose ca65 always fails."""
     import stat
     s = _mk_session(tmp_path, monkeypatch)
     prg = tmp_path / "old.prg"
     prg.write_bytes(b"\x01\x08")
     s.record_loaded(prg, [])
-    monkeypatch.setattr(cli, "attach", lambda ctx: s)
     bad = tmp_path / "ca65"
     bad.write_text("#!/usr/bin/env python3\nimport sys\nsys.stderr.write('boom')\nsys.exit(1)\n")
     bad.chmod(bad.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("C64_TOOLS_CA65", str(bad))
     src = tmp_path / "prog.s"
     src.write_text(";")
+    return s, src
+
+
+def test_run_build_failure_names_the_running_program(tmp_path, monkeypatch):
+    s, src = _a_build_that_fails(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "attach", lambda ctx: s)
     r = CliRunner().invoke(cli.main, ["run", str(src)])
     assert r.exit_code != 0
     assert "PREVIOUS program" in r.output and "old.prg" in r.output
+
+
+def test_mcp_run_build_failure_names_the_running_program_too(tmp_path,
+                                                             monkeypatch):
+    """The Ms. Muncher trap is an MCP client's too, and more so — nothing on
+    that side is watching the window to notice the old program still on it.
+    The note is part of what `ops.build_for_run` raises, so it cannot be a
+    CLI-only courtesy again."""
+    s, src = _a_build_that_fails(tmp_path, monkeypatch)
+    monkeypatch.setattr(mcp_server, "_attach", lambda name=None: s)
+    with pytest.raises(BuildError) as e:
+        mcp_server.c64_run(str(src))
+    assert "PREVIOUS program" in str(e.value) and "old.prg" in str(e.value)

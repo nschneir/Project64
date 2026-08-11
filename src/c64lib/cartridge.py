@@ -43,6 +43,15 @@ ULTIMAX_ROMH_ADDR = 0xE000
 EF_MAX_BANKS = 64
 EF_IMAGE_BYTES = EF_MAX_BANKS * 2 * BANK_WINDOW      # cartconv accepts only this
 
+# The EasyFlash control register ($DE02) values a cartridge writes, and the
+# memory mode each leaves behind — what `cart bank` reports off a live
+# machine. Bit 7 is the LED, not part of the mode, and it is lit in all three:
+# a cartridge that reached its own code has turned it on (cart_build's
+# EF_MODE_16K is the 0x87 that leaves Ultimax). Anything else stays "unknown"
+# rather than being decoded bit by bit — a register read as a bank was paged
+# should look wrong, not plausible.
+EF_MODES = {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}
+
 
 @dataclass(frozen=True)
 class CartType:

@@ -28,12 +28,14 @@ from .cart_build import build_easyflash
 from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
 from .disk import (
+    BLOCK_SIZE,
     block_bytes,
     block_poke,
     block_read,
     block_write_file,
     build_disk,
     cbm_lookup_name,
+    check_block_write,
     create_image,
     delete_file,
     get_file,
@@ -44,32 +46,39 @@ from .disk import (
 )
 from .machines import get_profile
 from .ops import (
+    all_labels,
+    attach_boot_labels,
+    build_for_run,
     call_routine,
     clear_checkpoints,
     disk_labels_path,
+    easyflash_state,
     find_bytes,
     key_hold,
     key_type,
-    live_screen_base,
     machine_state,
     parse_areas,
     parse_byte_values,
     parse_number,
-    parse_ref,
     pc_region,
     pc_symbol,
     profile_routine_samples,
+    reboot_with_cart,
     run_until,
     session_labels,
+    session_ref,
+    sprite_shape,
+    sprite_states,
     staleness,
+    type_basic,
     wait_for_break,
     wait_for_idle,
     wait_for_mem,
     wait_for_text,
 )
 from .packaging import package_program
-from .protocol import CP_EXEC, CP_LOAD, CP_STORE
-from .romdoc import identify, rom_labels
+from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
+from .romdoc import identify
 from .screen import (
     number_screen_text,
     read_screen_codes,
@@ -80,7 +89,6 @@ from .screen import (
 from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import load_test, program_test, run_test
-from .text import ascii_to_petscii
 
 srv = FastMCP("c64-tools")
 
@@ -105,17 +113,6 @@ def _read_sheet(file: str, what: str) -> str:
         raise ValueError(f"cannot read {what} {file}: {e}") from None
 
 
-def _ref(s, ref, labels=None):
-    """parse_ref with the session's screen geometry so @row,col works —
-    against the LIVE screen base (relocation-aware)."""
-    if labels is None:
-        labels = session_labels(s)
-    base = (live_screen_base(s) if "@" in str(ref)
-            else s.profile.screen_addr)
-    return parse_ref(labels, ref, screen_base=base,
-                     screen_width=s.profile.screen_cols)
-
-
 @srv.tool()
 def c64_session_list() -> dict:
     """List running emulated C64 sessions (name, model, pid, monitor port)."""
@@ -137,14 +134,7 @@ def c64_session_start(model: str = "c64", name: str | None = None,
     # client is an automation, not someone watching a window.
     s = Session.launch(model=model, name=name, headless=True, warp=True,
                        disk8=disk, cart=cart)
-    lbl = None
-    if cart:
-        c = Path(cart).with_suffix(".lbl")
-        lbl = c if c.exists() else None       # a cartridge owns the boot
-    elif disk:
-        lbl = disk_labels_path(disk)
-    if lbl is not None:
-        s.set_labels_path(str(lbl))
+    lbl = attach_boot_labels(s, cart=cart, disk=disk)
     return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
             "symbols": str(lbl) if lbl else None}
 
@@ -263,7 +253,7 @@ def c64_mem_read(addr: str, length: int = 256, session: str | None = None,
     (screen RAM holds screen codes, not ASCII) and "ascii" otherwise; pass
     "screen", "petscii", or "ascii" to say so yourself."""
     s = _attach(session)
-    a = _ref(s, addr)
+    a = session_ref(s, addr)
     with s.monitor() as mon:
         try:
             data = mon.memory_read(a, length)
@@ -285,7 +275,7 @@ def c64_mem_find(values: list[str], start: str = "$0000",
     clipped the list. Does not disturb run/stop state."""
     s = _attach(session)
     labels = session_labels(s)
-    begin = _ref(s, start, labels)
+    begin = session_ref(s, start, labels)
     # parse_byte_values, not a bare bytes(parse_number(...)) comprehension:
     # lockstep with the CLI's `c64 mem find` — it splits whitespace inside a
     # token, names the offending token, and range-checks 0-255.
@@ -304,7 +294,7 @@ def c64_mem_find(values: list[str], start: str = "$0000",
 def c64_mem_write(addr: str, values: list[int], session: str | None = None) -> dict:
     """Write bytes to emulated memory. addr accepts $hex/0xhex/decimal/symbol."""
     s = _attach(session)
-    a = _ref(s, addr)
+    a = session_ref(s, addr)
     with s.monitor() as mon:
         try:
             mon.memory_write(a, bytes(values))
@@ -325,7 +315,7 @@ def c64_reg_get(session: str | None = None) -> dict:
             regs = mon.registers()
         finally:
             mon.release()
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     return {"registers": regs, "pc_symbol": pc_symbol(labels, regs),
             "pc_region": pc_region(regs.get("PC")), "state": machine_state(s)}
 
@@ -350,7 +340,7 @@ def c64_break_add(ref: str, condition: str | None = None,
     use c64_wait_break to block until it fires."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, ref, labels)
+    addr = session_ref(s, ref, labels)
     with s.monitor() as mon:
         try:
             ck = mon.checkpoint_set(addr, op=CP_EXEC, temporary=temporary)
@@ -374,7 +364,7 @@ def c64_break_list(session: str | None = None) -> dict:
             mon.release()
     return {"breakpoints": [
         {"id": ck.number, "address": format_addr(labels, ck.start), "end": ck.end,
-         "op": ck.op, "enabled": ck.enabled, "hits": ck.hit_count,
+         "op": op_name(ck.op), "enabled": ck.enabled, "hits": ck.hit_count,
          "has_condition": ck.has_condition}
         for ck in cks
     ]}
@@ -450,7 +440,7 @@ def c64_watch_add(ref: str, on_load: bool = False, on_store: bool = False,
     """Set a watchpoint on a memory range (default: both load and store)."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, ref, labels)
+    addr = session_ref(s, ref, labels)
     op = (CP_LOAD if on_load else 0) | (CP_STORE if on_store else 0)
     if not op:
         op = CP_LOAD | CP_STORE
@@ -459,7 +449,8 @@ def c64_watch_add(ref: str, on_load: bool = False, on_store: bool = False,
             ck = mon.checkpoint_set(addr, addr + length - 1, op=op)
         finally:
             mon.release()
-    return {"id": ck.number, "address": format_addr(labels, addr), "length": length}
+    return {"id": ck.number, "address": format_addr(labels, addr), "length": length,
+            "op": op_name(op)}
 
 
 def _stopped_regs(s, regs: dict) -> dict:
@@ -504,7 +495,7 @@ def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
     removed."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, ref, labels)
+    addr = session_ref(s, ref, labels)
     out = run_until(s, addr, timeout, count=count)
     if out["registers"] is None:
         where = format_addr(labels, addr)
@@ -552,7 +543,7 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     # whole time", and a machine stopped only at the end was running for part
     # of the window. Same reasoning, and same wording, as `c64 wait --mem`.
     before = machine_state(s)
-    out = wait_for_mem(s, _ref(s, addr), parse_number(equals), timeout, op=op)
+    out = wait_for_mem(s, session_ref(s, addr), parse_number(equals), timeout, op=op)
     if not out.get("fired"):
         stopped = before == "stopped" == machine_state(s)
         out["machine"] = "stopped" if stopped else "running"
@@ -594,12 +585,22 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
     """JSR one routine in isolation (fake return address on the stack,
     optional A/X/Y on entry) and stop at its RTS — the unit-test
     primitive: poke inputs, call, then assert registers/memory. Machine
-    ends STOPPED on success, RUNNING on timeout."""
+    ends STOPPED on success. On timeout: raises with the machine LEFT
+    RUNNING."""
     s = _attach(session)
-    addr = _ref(s, routine, session_labels(s))
+    labels = session_labels(s)
+    addr = session_ref(s, routine, labels)
     out = call_routine(s, addr, a=a, x=x, y=y, timeout=timeout)
-    if out.get("fired"):
-        out["pc_symbol"] = pc_symbol(session_labels(s), dict(out["registers"]))
+    if not out.get("fired"):
+        # Raise rather than hand back {"fired": false, "registers": null}: a
+        # client that does not inspect `fired` would read a runaway routine as
+        # a completed call. Same contract as c64_until/c64_profile, and the
+        # wording `c64 call` exits 1 with.
+        raise RuntimeError(f"call {format_addr(labels, addr)}: never returned "
+                           f"in {timeout}s — machine left running (runaway "
+                           "routine? check the address is a subroutine ending "
+                           "in RTS)")
+    out["pc_symbol"] = pc_symbol(labels, dict(out["registers"]))
     return out
 
 
@@ -619,7 +620,7 @@ def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
     payload still carries `cycles`; above 1 it deliberately does not, because
     no single number is the answer. `timeout` covers the whole run."""
     s = _attach(session)
-    addr = _ref(s, routine, session_labels(s))
+    addr = session_ref(s, routine, session_labels(s))
     out = profile_routine_samples(s, addr, samples, timeout=timeout,
                                   with_irq=with_irq)
     if not out["fired"]:
@@ -629,7 +630,8 @@ def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
                 "bit is cleared (c64_reg_set FL) or the session is restarted")
         raise RuntimeError(f"profile {routine}: never returned in {timeout}s "
                            f"after {out['reached']}/{samples} arrival(s) — "
-                           f"machine left running. {left}.")
+                           "machine left running (runaway routine? check the "
+                           f"address is a subroutine ending in RTS). {left}.")
     payload = {"called": routine, "samples": out["samples"], "min": out["min"],
                "max": out["max"], "mean": out["mean"],
                "irq_masked": not with_irq, "registers": out["registers"],
@@ -713,6 +715,10 @@ def c64_run(source: str, session: str | None = None,
     "NAME=START:SIZE" linking segment NAME at a fixed address. Passing it for
     a .bas, a .prg or a .crt is an error rather than a no-op.
 
+    A failed tokenize or build names the program the emulator is STILL
+    running: nothing was reloaded, so the screen is showing the previous
+    program and looks exactly like a run that worked.
+
     For a .crt, "no session to reboot" and "no session by that name" are the
     same case: a session name that does not exist boots an unnamed default c64
     with the cartridge rather than failing. Every other tool errors on an
@@ -722,69 +728,26 @@ def c64_run(source: str, session: str | None = None,
     ext = src.suffix.lower()
     # Before the session is touched, in the CLI's words: --area rewrites the
     # linker config only an assembled .s goes through, and a cartridge brings
-    # its own memory map.
+    # its own memory map. Here rather than in `build_for_run` for that
+    # ordering — the op takes an attached session, so a guard inside it would
+    # report "no session is running" first and never reach the bad flag.
     if areas and ext != ".s":
         raise ValueError("--area applies to assembly sources only")
     if ext == ".crt":
-        # A cartridge is mapped at power-on, so "running" one means booting a
-        # fresh session with it attached rather than loading into this one.
-        try:
-            old = Session.attach(session)
-        except SessionError:
-            old, name, model = None, None, "c64"
-        if old is not None:
-            # Keep the identity out of the stop's error scope: a stop that
-            # fails is NOT "there was no session", and relaunching under the
-            # no-session defaults would quietly swap a c64pal named 'snake'
-            # for an NTSC 'c64' while 'snake' may still be alive.
-            name, model = old.name, old.model
-            try:
-                old.stop()
-            except (SessionError, OSError) as e:
-                # OSError: stopping is kill() + unlink() of the registry
-                # record and socket — a permission or filesystem failure there
-                # is the same "the old session is still there" situation.
-                raise SessionError(
-                    f"cannot boot {src} on session {name!r}: the old session "
-                    f"has to stop first (a cartridge is mapped at power-on) "
-                    f"and stopping it failed: {e}") from e
         # headless/warp as everywhere in this server (see c64_session_start):
-        # an MCP client is an automation, not someone watching a window.
-        # `name`/`model`: same shape as cli.py's `run` — bound on every path
-        # that reaches here (unbound only if `old is not None` was False, and
-        # `old` is None only on the except branch that binds them). Pyright
-        # cannot correlate `old`'s value with their boundness.
-        new = Session.launch(
-            model=model, name=name,  # pyright: ignore[reportPossiblyUnboundVariable]
-            headless=True, warp=True, cart=str(src))
-        lbl = src.with_suffix(".lbl")
-        if lbl.exists():
-            new.set_labels_path(str(lbl))
-        return {"cart": str(src), "session": new.name, "model": new.model,
-                "symbols": str(lbl) if lbl.exists() else None}
+        # an MCP client is an automation, not someone watching a window. The
+        # CLI passes False/False for the same reason, the other way round.
+        return reboot_with_cart(session, src, headless=True, warp=True)
     s = _attach(session)
-    labels_path = None
-    deps: tuple = ()
-    if ext == ".prg":
-        prg = src
-    elif ext == ".bas":
-        prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
-    elif ext == ".s":
-        res = build_asm(src, basic_start=s.profile.basic_start,
-                        areas=parse_areas(areas or (), s.profile.basic_start))
-        prg, labels_path, deps = res.prg, res.labels, res.deps
-    else:
-        raise ValueError(                       # same wording as the CLI's
-            f"don't know how to run {ext!r} files "
-            "(use .bas, .s, .prg, or .crt)")
+    prg, labels_path, deps = build_for_run(s, src, areas)
     with s.monitor() as mon:
         try:
-            mon.autostart(Path(prg).resolve(), run=True)
+            mon.autostart(prg, run=True)
         finally:
             mon.resume()
     if labels_path:
         s.set_labels_path(str(labels_path))
-    s.record_loaded(prg, deps if ext == ".s" else [src])
+    s.record_loaded(prg, deps)
     return {"source": str(src), "prg": str(prg),
             "symbols": str(labels_path) if labels_path else None}
 
@@ -793,7 +756,8 @@ def c64_run(source: str, session: str | None = None,
 def c64_load(prg: str, run: bool = True, symbols: str | None = None,
              session: str | None = None) -> dict:
     """Load a .prg via autostart (optionally without RUN); optionally
-    register a VICE label file for symbolic debugging."""
+    register a VICE label file for symbolic debugging. Both paths are echoed
+    back resolved — the absolute path the session is actually holding."""
     s = _attach(session)
     p = Path(prg).resolve()
     with s.monitor() as mon:
@@ -801,10 +765,12 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
             mon.autostart(p, run=run)
         finally:
             mon.resume()
-    if symbols:
-        s.set_labels_path(str(Path(symbols).resolve()))
+    lbl = Path(symbols).resolve() if symbols else None
+    if lbl:
+        s.set_labels_path(str(lbl))
     s.record_loaded(p, [p])
-    return {"loaded": str(p), "run": run, "symbols": symbols}
+    return {"loaded": str(p), "run": run,
+            "symbols": str(lbl) if lbl else None}
 
 
 @srv.tool()
@@ -832,18 +798,7 @@ def c64_basic_type(text: str, run: bool = False,
     """Type BASIC program text into the running C64 via the keyboard
     (keywords may be upper or lower case; each line ends with \\n).
     Set run=true to type RUN afterwards."""
-    s = _attach(session)
-    if not text.endswith("\n"):
-        text += "\n"
-    if run:
-        text += "run\n"
-    petscii = ascii_to_petscii(text)
-    with s.monitor() as mon:
-        try:
-            mon.keyboard_feed(petscii)
-        finally:
-            mon.release()
-    return {"typed_chars": len(petscii), "run": run}
+    return type_basic(_attach(session), text, run=run)
 
 
 @srv.tool()
@@ -893,7 +848,7 @@ def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
     is {"frames": 0, "requested": 0, "machine": "untouched"}."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, at, labels)
+    addr = session_ref(s, at, labels)
     out = key_hold(s, key, addr, frames=frames, timeout=timeout,
                    release=release)
     if out["requested"] == 0:
@@ -938,10 +893,11 @@ def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
 
 
 @srv.tool()
-def c64_disk_get(image: str, name: str, dest: str) -> dict:
-    """Copy a file off a disk image to the host."""
+def c64_disk_get(image: str, name: str, dest: str | None = None) -> dict:
+    """Copy a file off a disk image to the host. dest defaults to NAME.prg in
+    the working directory, the same file `c64 disk get` writes."""
     return {"image": str(Path(image)), "name": name,
-            "dest": str(get_file(Path(image), name, Path(dest)))}
+            "dest": str(get_file(Path(image), name, dest))}
 
 
 @srv.tool()
@@ -1023,25 +979,19 @@ def c64_disk_block_write(image: str, track: int, sector: int,
     Wrong-sized whole-sector writes and pokes running off the end of a sector
     are rejected — c1541 accepts both silently. `offset` defaults to 0.
     Needs no session."""
-    # `not values` (not `values is None`) mirrors the CLI's bool(values) on a
-    # click nargs=-1 tuple: an empty VALUES list is no source at all, so
-    # values=[] alone is refused and src + values=[] is a plain --from write.
-    if (src is None) == (not values):
-        raise ValueError("give exactly one of --from FILE or VALUES (bytes to poke)")
-    if src is not None and offset is not None:
-        # None (not 0) is what tells an explicit --offset 0 from an unset one,
-        # the way the CLI's parameter source does.
-        raise ValueError("--offset applies to a VALUES poke; --from replaces the "
-                         "whole sector, so there is nothing for it to offset")
+    # Shared with the CLI, which is where the two messages get their flag
+    # names: `offset=None` means "not given", the way the CLI's click
+    # parameter source does, and an empty `values` list is no source at all.
+    check_block_write(src, values, offset)
     if src is not None:
         block_write_file(Path(image), track, sector, Path(src))
-        written, at = 256, 0
+        written, at = BLOCK_SIZE, 0
     else:
         at = offset or 0
-        # Size the write from the coerced bytes, not from `values`: the guard
-        # above already proves `values` is a non-empty list here (it rejects a
-        # None `src` with a falsy `values`), but it says so through
-        # `(src is None) == (not values)`, which narrows nothing. block_bytes
+        # Size the write from the coerced bytes, not from `values`:
+        # disk.check_block_write above already proves `values` is a non-empty
+        # list here (it rejects a None `src` with a falsy `values`), but it
+        # proves it inside another function, which narrows nothing. block_bytes
         # is 1:1 — one appended byte per element, or it raises — so the count
         # is the same one, taken from a value that cannot be None.
         poke = block_bytes(values)
@@ -1124,18 +1074,7 @@ def c64_cart_bank(session: str | None = None) -> dict:
     bank register ($DE00), the mode register ($DE02), and the decoded memory
     mode. Combine with a store watchpoint on $DE00 to trace paging. VICE lets
     these write-only registers be read back; treat it as a debugging aid."""
-    s = _attach(session)
-    with s.monitor() as mon:
-        try:
-            regs = mon.memory_read(0xDE00, 3)
-        finally:
-            mon.release()          # an inspection command: never resume a halt
-    bank_reg, mode_reg = regs[0], regs[2]
-    return {"bank": bank_reg, "de00": f"${bank_reg:02X}",
-            "de02": f"${mode_reg:02X}",
-            "mode": {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}.get(
-                mode_reg, "unknown"),
-            "led": bool(mode_reg & 0x80)}
+    return easyflash_state(_attach(session))
 
 
 @srv.tool()
@@ -1169,8 +1108,8 @@ def c64_rom_disasm(start: str, length: int = 32,
     """Disassemble live memory with ROM + session symbol annotations.
     start accepts $hex/0xhex/decimal or a symbol (e.g. CHROUT)."""
     s = _attach(session)
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
-    addr = _ref(s, start, labels)
+    labels = all_labels(s)
+    addr = session_ref(s, start, labels)
     with s.monitor() as mon:
         try:
             data = mon.memory_read(addr, length)
@@ -1210,31 +1149,6 @@ if __name__ == "__main__":
     main()
 
 
-def _sprite_states(s):
-    from .screen import screen_base
-    from .sprites import read_sprite_states
-    with s.monitor() as mon:
-        try:
-            return read_sprite_states(mon, screen_base(mon))
-        finally:
-            mon.release()
-
-
-def _sprite_shape(s, index: int, block: str | None):
-    from .sprites import read_sprite_block
-    if not 0 <= index <= 7:
-        raise ValueError(f"sprite index {index} outside 0-7")
-    states, shared = _sprite_states(s)
-    st = states[index]
-    addr = _ref(s, block) if block else st.block_addr
-    with s.monitor() as mon:
-        try:
-            data = read_sprite_block(mon, addr)
-        finally:
-            mon.release()
-    return data, st, shared, addr
-
-
 @srv.tool()
 def c64_sprite_status(session: str | None = None) -> dict:
     """Decode the VIC-II sprite registers and pointers into a per-sprite
@@ -1243,7 +1157,7 @@ def c64_sprite_status(session: str | None = None) -> dict:
     Relocation-aware and state-preserving."""
     from dataclasses import asdict
     s = _attach(session)
-    states, shared = _sprite_states(s)
+    states, shared = sprite_states(s)
     return {"sprites": [asdict(st) for st in states], "shared": shared}
 
 
@@ -1255,7 +1169,7 @@ def c64_sprite_show(index: int, block: str | None = None,
     block address/symbol instead of the sprite's pointer target."""
     from .sprites import sprite_ascii
     s = _attach(session)
-    data, st, _, addr = _sprite_shape(s, index, block)
+    data, st, _, addr = sprite_shape(s, index, block)
     return {"rows": sprite_ascii(data, st.multicolor),
             "block_addr": addr, "multicolor": st.multicolor}
 
@@ -1269,7 +1183,7 @@ def c64_sprite_png(index: int, path: str, scale: int = 8,
     one sprite's shape exactly."""
     from .sprites import sprite_image
     s = _attach(session)
-    data, st, shared, _ = _sprite_shape(s, index, block)
+    data, st, shared, _ = sprite_shape(s, index, block)
     img = sprite_image(data, st, shared, scale=scale)
     img.save(path, format="PNG")
     return {"png": path, "width": img.width, "height": img.height}
@@ -1307,16 +1221,17 @@ def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
     Returns each block's bytes and name plus a paste-ready rendering (fmt
     "asm" ca65 .byte rows, or "basic" data lines that start_line
     numbers)."""
-    from .sprites import encode_sheet_blocks, render_sheet
+    from .sprites import encode_sheet_file, render_sheet
+    # Deliberately NOT shared with the CLI twin, unlike the sheet checks that
+    # live in sprites.encode_sheet_file:
+    # each front end spells its own flags (start_line/fmt here,
+    # --start-line/--format there), so the message IS the rule and moving it
+    # into the library would have to pick one spelling and mislead the other's
+    # caller.
     if start_line is not None and fmt != "basic":
         raise ValueError("start_line only applies to fmt='basic'")
-    text_in = _read_sheet(file, "sprite sheet")
-    if not text_in.strip():
-        raise ValueError(f"no sprite art found in {file}")
-    blocks = encode_sheet_blocks(text_in, multicolor=not hires,
-                                 background=background)
-    if not blocks:
-        raise ValueError(f"no sprite art found in {file}")
+    blocks = encode_sheet_file(file, multicolor=not hires,
+                               background=background)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it fmt/start_line would be no-ops here. The CLI omits
     # it from --json only because it prints the same text itself.
@@ -1446,19 +1361,17 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     whole file with DC excluded, so it is a bin centre and `resolution_cents`
     names how precise that answer is.
     """
+    # Deliberately NOT shared with the CLI twin, unlike the measurement itself:
+    # each front end names its own flags (peak_hz/wav here, --peak-hz/--wav
+    # there), so the message IS the rule and one shared spelling would mislead
+    # the other's caller. Refused before the analysis runs, so a bad call costs
+    # nothing.
     if peak_hz and not wav:
         raise ValueError("peak_hz needs wav: a dominant partial is a property "
                          "of the recording, not of the register log")
     timing = report_timing_from(log, _attach(session).model if session else None)
-    out = sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
-    # `and wav` re-states what the guard above already refused, and narrows
-    # `wav` to str for the call that needs a path.
-    if peak_hz and wav:
-        # Imported here for the reason c64_audio_score imports it here: the
-        # module brings numpy and Pillow.
-        from .sid_analysis import dominant_partial_hz
-        out["peak"] = dominant_partial_hz(wav)
-    return out
+    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing,
+                      peak_hz=peak_hz)
 
 
 @srv.tool()

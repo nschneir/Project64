@@ -36,6 +36,7 @@ from .disk import (
     block_write_file,
     build_disk,
     cbm_lookup_name,
+    check_block_write,
     create_image,
     delete_file,
     get_file,
@@ -47,22 +48,29 @@ from .disk import (
 from .machines import get_profile
 from .monitor import MonitorError
 from .ops import (
+    all_labels,
+    attach_boot_labels,
+    build_for_run,
     call_routine,
     clear_checkpoints,
     disk_labels_path,
+    easyflash_state,
     find_bytes,
-    live_screen_base,
     machine_state,
     parse_areas,
     parse_byte_values,
     parse_number,
-    parse_ref,
     pc_region,
     profile_routine_samples,
+    reboot_with_cart,
     run_until,
     session_labels,
+    session_ref,
     split_mem_condition,
+    sprite_shape,
+    sprite_states,
     staleness,
+    type_basic,
     wait_for_break,
     wait_for_idle,
     wait_for_mem,
@@ -78,8 +86,8 @@ from .ops import (
     pc_symbol as _pc_symbol,
 )
 from .packaging import PackageError, package_program
-from .protocol import CP_EXEC, CP_LOAD, CP_STORE
-from .romdoc import identify, rom_labels
+from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
+from .romdoc import identify
 from .screen import (
     TEXT_ENCODINGS,
     number_screen_text,
@@ -87,12 +95,11 @@ from .screen import (
     read_screen_text,
     resolve_text_encoding,
     save_screenshot_png,
-    screen_base,
 )
 from .session import Session, SessionError
 from .symbols import format_addr
 from .testing import TestError, load_test, program_test, run_test
-from .text import GUTTER_LABELS, ascii_to_petscii, gutter_text
+from .text import GUTTER_LABELS, gutter_text
 
 
 def emit(ctx: click.Context, data: dict, human: str) -> None:
@@ -122,17 +129,10 @@ def attach(ctx: click.Context) -> Session:
 
 
 def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
-                session=None) -> int:
-    """parse_ref with CLI error reporting; pass the session so @row,col
-    resolves against the machine's LIVE screen base (relocation-aware)."""
-    kw = {}
-    if session is not None:
-        p = session.profile
-        base = (live_screen_base(session) if "@" in str(ref)
-                else p.screen_addr)
-        kw = {"screen_base": base, "screen_width": p.screen_cols}
+                session) -> int:
+    """ops.session_ref with CLI error reporting."""
     try:
-        return parse_ref(labels, ref, **kw)
+        return session_ref(session, ref, labels)
     except (KeyError, ValueError) as e:
         fail(ctx, str(e))
         raise AssertionError("unreachable") from None
@@ -301,14 +301,7 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     except (SessionError, DiskError, KeyError) as e:
         fail(ctx, str(e))
         return
-    lbl = None
-    if cart:
-        c = Path(cart).with_suffix(".lbl")
-        lbl = c if c.exists() else None       # a cartridge owns the boot
-    elif disk8:
-        lbl = disk_labels_path(disk8)
-    if lbl is not None:
-        s.set_labels_path(str(lbl))
+    lbl = attach_boot_labels(s, cart=cart, disk=disk8)
     emit(ctx, {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
                "symbols": str(lbl) if lbl else None},
          f"started {s.model} session {s.name!r} (pid {s.pid}, monitor port {s.port})")
@@ -700,10 +693,7 @@ def reg(ctx) -> None:
             regs = mon.registers()
         finally:
             mon.release()
-    # ROM labels first, session labels on top: a PC parked in the KERNAL is
-    # named even with no label file, which is the case you are in when a run
-    # has fallen off the rails. Same lookup `rom disasm` builds.
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     sym = _pc_symbol(labels, regs)
     region = pc_region(regs.get("PC"))
     human = "  ".join(f"{k}={v:04x}" for k, v in sorted(regs.items()))
@@ -890,21 +880,16 @@ def basic_type(ctx, source, do_run):
     """Type a BASIC program into the running C64 via the keyboard."""
     s = attach(ctx)
     text = source.read_text()
-    if not text.endswith("\n"):
-        text += "\n"
-    if do_run:
-        text += "run\n"
     try:
-        petscii = ascii_to_petscii(text)
+        out = type_basic(s, text, run=do_run)
     except ValueError as e:
         fail(ctx, str(e))
         return
-    with s.monitor() as mon:
-        try:
-            mon.keyboard_feed(petscii)
-        finally:
-            mon.release()
-    emit(ctx, {"typed": str(source), "run": do_run},
+    # `typed` is the CLI's own key and has no MCP twin: this command takes a
+    # *file* where c64_basic_type takes the text inline, so naming the source
+    # is the useful thing to report here. `typed_chars` and `run` are the
+    # shared payload both front ends emit.
+    emit(ctx, {"typed": str(source), **out},
          f"typed {source}{' and RUN' if do_run else ''}")
 
 
@@ -959,90 +944,30 @@ def run_cmd(ctx, source, areas):
     ext = src.suffix.lower()
     # Before the session is touched: --area rewrites the linker config that
     # only an assembled .s goes through, and a cartridge brings its own memory
-    # map. Rejected rather than ignored, in `c64 package`'s words.
+    # map. Rejected rather than ignored, in `c64 package`'s words. It stays in
+    # the front end rather than in `build_for_run` for that ordering: the op
+    # takes an attached session, so a guard inside it would report "no session
+    # is running" first and never reach the flag the user actually got wrong.
     if areas and ext != ".s":
         fail(ctx, "--area applies to assembly sources only")
         return
     if ext == ".crt":
-        # A cartridge is mapped at power-on, so "running" one means booting a
-        # fresh session with it attached rather than loading into this one.
         try:
-            old = Session.attach(ctx.obj["session"])
-        except SessionError:
-            old, name, model = None, None, "c64"
-        if old is not None:
-            # Keep the identity out of the stop's error scope: a stop that
-            # fails is NOT "there was no session", and relaunching under the
-            # no-session defaults would quietly swap a c64pal named 'snake'
-            # for an NTSC 'c64' while 'snake' may still be alive.
-            name, model = old.name, old.model
-            try:
-                old.stop()
-            except (SessionError, OSError) as e:
-                # OSError: stopping is kill() + unlink() of the registry
-                # record and socket — a permission or filesystem failure there
-                # is the same "the old session is still there" situation.
-                fail(ctx, f"cannot boot {src} on session {name!r}: the old "
-                          f"session has to stop first (a cartridge is mapped "
-                          f"at power-on) and stopping it failed: {e}")
-                return
-        try:
-            # `name`/`model` are bound on every path that reaches here, and
-            # the ignore is a checker limitation, not a papered-over hole:
-            # they are unbound only if `if old is not None` was False, and
-            # `old` is None only on the `except SessionError` branch — which
-            # is the branch that binds them. Pyright does not correlate a
-            # variable's *value* with another variable's boundness, so the
-            # tuple unpack `old, name, model = None, None, "c64"` widens `old`
-            # to `Session | None` and it stops being able to see that.
-            new = Session.launch(
-                model=model, name=name,  # pyright: ignore[reportPossiblyUnboundVariable]
-                headless=False, warp=False, cart=str(src))
+            # headless/warp: the CLI reboots windowed and at normal speed,
+            # because `c64 run game.crt` is something a person watches. The
+            # MCP server passes True/True — a client there is an automation.
+            payload = reboot_with_cart(ctx.obj["session"], src,
+                                       headless=False, warp=False)
         except (SessionError, KeyError) as e:
             fail(ctx, str(e))
             return
-        lbl = src.with_suffix(".lbl")
-        if lbl.exists():
-            new.set_labels_path(str(lbl))
-        emit(ctx, {"cart": str(src), "session": new.name, "model": new.model,
-                   "symbols": str(lbl) if lbl.exists() else None},
-             f"booted {new.name} with {src} attached")
+        emit(ctx, payload, f"booted {payload['session']} with {src} attached")
         return
     s = attach(ctx)
-    # Parsed against the session's load address (there is no --model here) and
-    # before ca65 runs, so an area that cannot link is reported as the flag the
-    # user typed rather than as the config the toolset generated behind it. Its
-    # own try: a rejected flag is not a failed build, and must not pick up the
-    # "still running the PREVIOUS program" note a failed build carries.
     try:
-        area_list = parse_areas(areas, s.profile.basic_start)
-    except ValueError as e:
+        prg, labels, deps = build_for_run(s, src, areas)
+    except (BasicError, BuildError, ValueError) as e:
         fail(ctx, str(e))
-        return
-    labels = None
-    deps: tuple = ()
-    try:
-        if ext == ".prg":
-            prg = src
-        elif ext == ".bas":
-            prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
-        elif ext == ".s":
-            res = build_asm(src, basic_start=s.profile.basic_start,
-                            areas=area_list)
-            prg, labels, deps = res.prg, res.labels, res.deps
-        else:
-            fail(ctx,
-                 f"don't know how to run {ext!r} files "
-                 "(use .bas, .s, .prg, or .crt)")
-            return
-    except (BasicError, BuildError) as e:
-        msg = str(e)
-        if s.loaded_prg:
-            msg += (f"\nemulator still running the PREVIOUS program "
-                    f"({s.loaded_prg}, loaded "
-                    f"{time.strftime('%H:%M:%S', time.localtime(s.loaded_at))})"
-                    " — nothing was reloaded")
-        fail(ctx, msg)
         return
     with s.monitor() as mon:
         try:
@@ -1051,7 +976,7 @@ def run_cmd(ctx, source, areas):
             mon.resume()
     if labels:
         s.set_labels_path(str(labels))
-    s.record_loaded(prg, deps if deps else [src])
+    s.record_loaded(prg, deps)
     emit(ctx, {"source": str(src), "prg": str(prg),
                "symbols": str(labels) if labels else None},
          f"running {prg}")
@@ -1087,17 +1012,6 @@ def break_add(ctx, ref, condition, temporary, once):
          + (f" when {condition}" if condition else ""))
 
 
-def _op_name(op: int) -> str:
-    parts = []
-    if op & CP_EXEC:
-        parts.append("exec")
-    if op & CP_LOAD:
-        parts.append("load")
-    if op & CP_STORE:
-        parts.append("store")
-    return "|".join(parts)
-
-
 @break_.command("list")
 @click.pass_context
 def break_list(ctx):
@@ -1110,7 +1024,7 @@ def break_list(ctx):
         finally:
             mon.release()
     rows = [{"id": ck.number, "address": format_addr(labels, ck.start),
-             "end": ck.end, "op": _op_name(ck.op), "enabled": ck.enabled,
+             "end": ck.end, "op": op_name(ck.op), "enabled": ck.enabled,
              "hits": ck.hit_count, "has_condition": ck.has_condition}
             for ck in cks]
     human = "\n".join(
@@ -1207,8 +1121,8 @@ def watch_add(ctx, ref, on_load, on_store, length):
         finally:
             mon.release()
     emit(ctx, {"id": ck.number, "address": format_addr(labels, addr),
-               "length": length, "op": _op_name(op)},
-         f"watchpoint #{ck.number} at {format_addr(labels, addr)} len={length} ({_op_name(op)})")
+               "length": length, "op": op_name(op)},
+         f"watchpoint #{ck.number} at {format_addr(labels, addr)} len={length} ({op_name(op)})")
 
 
 @watch.command("clear")
@@ -1608,9 +1522,8 @@ def disk_get(ctx, image, name, dest):
 
     Offline; no session.
     """
-    dest = dest or Path(f"{name}.prg")
     try:
-        out = get_file(image, name, dest)
+        out = get_file(image, name, dest)   # get_file defaults DEST to NAME.prg
     except DiskError as e:
         fail(ctx, str(e))
         return
@@ -1749,15 +1662,14 @@ def disk_block_write(ctx, image, track, sector, values, src, offset):
     silently accepts a poke running off the end of the sector, so both are
     checked here first.
     """
-    if bool(src) == bool(values):
-        fail(ctx, "give exactly one of --from FILE or VALUES (bytes to poke)")
-        return
-    if src is not None and ctx.get_parameter_source(
-            "offset") is not click.core.ParameterSource.DEFAULT:
-        fail(ctx, "--offset applies to a VALUES poke; --from replaces the "
-                  "whole sector, so there is nothing for it to offset")
-        return
+    # The offset the user actually typed, or None — click's parameter source is
+    # the only thing that tells an explicit `--offset 0` from an unset one, and
+    # refusing `--from --offset 0` needs exactly that. The rule reads only
+    # whether it was given; the poke below still uses the value.
+    given_offset = (offset if ctx.get_parameter_source("offset")
+                    is not click.core.ParameterSource.DEFAULT else None)
     try:
+        check_block_write(src, values, given_offset)
         if src is not None:
             block_write_file(image, track, sector, src)
             written, where = BLOCK_SIZE, "whole sector"
@@ -1930,19 +1842,10 @@ def cart_bank(ctx):
     VICE lets these registers be read back; on real EasyFlash hardware they
     are write-only, so treat this as a debugging aid, not a program interface.
     """
-    s = attach(ctx)
-    with s.monitor() as mon:
-        try:
-            regs = mon.memory_read(0xDE00, 3)
-        finally:
-            mon.release()          # an inspection command: never resume a halt
-    bank_reg, mode_reg = regs[0], regs[2]
-    mode = {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}.get(mode_reg, "unknown")
-    emit(ctx, {"bank": bank_reg, "de00": f"${bank_reg:02X}",
-               "de02": f"${mode_reg:02X}", "mode": mode,
-               "led": bool(mode_reg & 0x80)},
-         f"bank {bank_reg}  $DE00=${bank_reg:02X}  $DE02=${mode_reg:02X}  "
-         f"mode {mode}")
+    state = easyflash_state(attach(ctx))
+    emit(ctx, state,
+         f"bank {state['bank']}  $DE00={state['de00']}  "
+         f"$DE02={state['de02']}  mode {state['mode']}")
 
 
 @cart.command("convert")
@@ -2007,7 +1910,7 @@ def rom_disasm(ctx, start, length):
     file. Does not disturb run/stop state.
     """
     s = attach(ctx)
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     addr = resolve_ref(ctx, labels, start, session=s)
     n = parse_count(ctx, length, "LENGTH")
     with s.monitor() as mon:
@@ -2177,37 +2080,14 @@ def sprite() -> None:
     """Inspect, render, and convert VIC-II sprites."""
 
 
-
-
-def _sprite_states(s):
-    from .sprites import read_sprite_states
-    with s.monitor() as mon:
-        try:
-            base = screen_base(mon)
-            return read_sprite_states(mon, base)
-        finally:
-            mon.release()
-
-
-def _sprite_index(ctx, n) -> int:
-    if not 0 <= n <= 7:
-        fail(ctx, f"sprite index {n} outside 0-7")
-    return n
-
-
 def _sprite_shape(ctx, s, n, block):
-    """(data, state, shared, block_addr) for sprite N (or an explicit block)."""
-    from .sprites import read_sprite_block
-    states, shared = _sprite_states(s)
-    st = states[_sprite_index(ctx, n)]
-    addr = resolve_ref(ctx, session_labels(s), block, session=s) \
-        if block else st.block_addr
-    with s.monitor() as mon:
-        try:
-            data = read_sprite_block(mon, addr)
-        finally:
-            mon.release()
-    return data, st, shared, addr
+    """ops.sprite_shape with CLI error reporting: a bad index (ValueError) and
+    an unresolvable --block ref (KeyError/ValueError) both exit 1."""
+    try:
+        return sprite_shape(s, n, block)
+    except (KeyError, ValueError) as e:
+        fail(ctx, str(e))
+        raise AssertionError("unreachable") from None
 
 
 @sprite.command("status")
@@ -2220,7 +2100,7 @@ def sprite_status(ctx):
     """
     from dataclasses import asdict
     s = attach(ctx)
-    states, shared = _sprite_states(s)
+    states, shared = sprite_states(s)
     lines = []
     for st in states:
         flags = "".join((
@@ -2344,32 +2224,18 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
     `encode`. Needs no session; pairs with `c64 sprite from-png` (image
     input instead of ASCII art) and `c64 sprite show` (the inverse).
     """
-    from .sprites import encode_sheet_blocks, render_sheet
+    from .sprites import encode_sheet_file, render_sheet
+    # Deliberately NOT shared with the MCP twin, unlike the sheet checks that
+    # live in sprites.encode_sheet_file:
+    # each front end spells its own flags (--start-line/--format here,
+    # start_line/fmt there), so the message IS the rule and moving it into the
+    # library would have to pick one spelling and mislead the other's caller.
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
     try:
-        text_in = file.read_text()
-    except (OSError, ValueError) as e:
-        # UnicodeDecodeError is a ValueError and NOT an OSError, and handing
-        # the encoder a .prg or a .png where the sheet goes is an ordinary
-        # slip — the same shape `audio report` was fixed for. Outside a try
-        # it was a traceback over an empty `--json` stdout.
-        fail(ctx, f"cannot read sprite sheet {file}: {e}")
-        return
-    if not text_in.strip():
-        fail(ctx, f"no sprite art found in {file}")
-        return
-    try:
-        blocks = encode_sheet_blocks(text_in, multicolor=not hires,
-                                     background=background)
-    except ValueError as e:
-        fail(ctx, str(e))
-        return
-    if not blocks:
-        fail(ctx, f"no sprite art found in {file}")
-        return
-    try:
+        blocks = encode_sheet_file(file, multicolor=not hires,
+                                   background=background)
         text = render_sheet(blocks, fmt, multicolor=not hires,
                             start_line=start_line, line_step=line_step)
     except ValueError as e:
@@ -2627,6 +2493,11 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     rests its emulated-time alignment on.
     """
     name = ctx.obj["session"]
+    # Deliberately NOT shared with the MCP twin, unlike the measurement itself:
+    # each front end names its own flags (--peak-hz/--wav here, peak_hz/wav
+    # there), so the message IS the rule and one shared spelling would mislead
+    # the other's caller. Refused before the analysis runs, so a bad call costs
+    # nothing.
     if peak_hz and not wav_path:
         fail(ctx, "audio report --peak-hz needs --wav: a dominant partial is "
                   "a property of the recording, not of the register log")
@@ -2640,12 +2511,7 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
         # an empty `--json` stdout while this line sat outside the handler.
         timing = report_timing_from(log, attach(ctx).model if name else None)
         out = sid_report(log, outdir, wav_path=wav_path, ref_path=ref_path,
-                         timing=timing)
-        if peak_hz:
-            # Imported here for the reason sid_report imports it here: numpy
-            # and Pillow double the startup of every `c64` command.
-            from .sid_analysis import dominant_partial_hz
-            out["peak"] = dominant_partial_hz(wav_path)
+                         timing=timing, peak_hz=peak_hz)
     except (RuntimeError, OSError, ValueError, KeyError) as e:
         fail(ctx, f"audio report: {e}")
         return

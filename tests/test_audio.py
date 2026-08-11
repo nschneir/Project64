@@ -1639,6 +1639,31 @@ def test_sid_report_does_not_say_nothing_played_when_a_note_sounded(tmp_path):
     assert "Nothing played" not in Path(out["report"]).read_text()
 
 
+def test_sid_report_attaches_the_peak_only_when_asked(tmp_path):
+    """`peak_hz` is the library's job now: both front ends pass a flag and
+    neither measures anything itself, so the measurement is pinned here.
+
+    A 440 Hz tone over 1 s at 44100 gives 1 Hz bins, so the answer is bin 440
+    exactly. Off by default because it is one rFFT over the whole file — not
+    something every report should pay for.
+    """
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 60)
+    wav = tmp_path / "capture.wav"
+    _write_wav(wav, 1.0, rate=44100)
+    timing = audio.report_timing_for("c64")
+
+    out = audio.sid_report(log, tmp_path / "peak", wav_path=wav,
+                           timing=timing, peak_hz=True)
+    assert out["peak"]["bin"] == 440
+    assert out["peak"]["peak_hz"] == pytest.approx(440.0)
+    assert out["peak"]["bin_hz"] == pytest.approx(1.0)
+
+    plain = audio.sid_report(log, tmp_path / "plain", wav_path=wav,
+                             timing=timing)
+    assert "peak" not in plain
+
+
 # --- capture ------------------------------------------------------------------
 
 def test_capture_pins_arms_samples_sinks_restores_then_disarms(vice_text,
@@ -2024,20 +2049,22 @@ def test_mcp_sid_report_peak_hz_needs_wav():
 
 def test_mcp_sid_report_peak_hz_threads_through():
     """With a wav, peak_hz adds the CLI's --peak-hz measurement to the same
-    payload — one `peak` object beside the verdict."""
+    payload — one `peak` object beside the verdict. The tool passes the flag
+    on rather than measuring anything itself: the measurement is `sid_report`'s
+    (see test_sid_report_attaches_the_peak_only_when_asked), so what this pins
+    is the wiring, and the two front ends carry no copy of it to drift."""
     peak = {"peak_hz": 440.0, "bin_hz": 1.0, "bin": 440,
             "resolution_cents": 1.97, "seconds": 1.0}
     with patch("c64lib.mcp_server.Session"), \
          patch("c64lib.mcp_server.sid_report",
-               return_value={"verdict": "PASS"}), \
-         patch("c64lib.sid_analysis.dominant_partial_hz",
-               return_value=peak) as dominant:
+               return_value={"verdict": "PASS", "peak": peak}) as report:
         err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
                                                 "outdir": "/tmp/out",
                                                 "wav": "/tmp/cap.wav",
                                                 "peak_hz": True})
     assert err is False and out["peak"] == peak
-    dominant.assert_called_once_with("/tmp/cap.wav")
+    assert report.call_args.kwargs["peak_hz"] is True
+    assert report.call_args.kwargs["wav_path"] == "/tmp/cap.wav"
 
 
 def test_mcp_audio_capture():

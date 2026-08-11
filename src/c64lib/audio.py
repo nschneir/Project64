@@ -1306,7 +1306,7 @@ def report_timing_from(log_path, model: str | None = None) -> dict:
 
 
 def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
-               timing: dict) -> dict:
+               timing: dict, peak_hz: bool = False) -> dict:
     """Analyse a captured SID log (and its WAV, if there is one) into a report.
 
     Pure analysis — no session, no monitor: parse the log, transcribe it with
@@ -1323,6 +1323,13 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
     `wav_path` is optional for the same kind of reason: a register log alone
     is a real mode (`c64 audio sidlog` produces one), and `write_report`
     treats `metrics=None` as render-only rather than as a failure.
+
+    `peak_hz` adds a `"peak"` key measuring the recording's loudest
+    frequency, and needs a `wav_path` — a dominant partial is a property of
+    the recording, not of the register log. Off by default because it is one
+    rFFT over the whole file. Refusing the combination is the caller's, and
+    both front ends do refuse it, each naming its own flags; with no WAV
+    here there is nothing to measure, so no `"peak"` is attached.
     """
     import yaml
 
@@ -1369,7 +1376,7 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
     report = sid_analysis.write_report(outdir, events, diffs, anomalies, metrics)
 
     verdict, failures = _read_verdict(report)
-    return {
+    out = {
         "outdir": str(outdir), "report": str(report),
         "verdict": verdict, "failures": failures,
         "log": _abs(log_path), "wav": _abs(wav_path) if wav_path else None,
@@ -1390,6 +1397,15 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
                     if metrics is not None else None),
         **timing,
     }
+    # `and wav_path is not None` re-states what both front ends already
+    # refused, so a library caller that skipped the refusal gets a report
+    # without a peak rather than a crash inside the FFT.
+    if peak_hz and wav_path is not None:
+        # Through the module already imported at the top of this function, for
+        # the startup reason stated there — which is the same reason both front
+        # ends used to import `dominant_partial_hz` by hand at the call site.
+        out["peak"] = sid_analysis.dominant_partial_hz(wav_path)
+    return out
 
 
 def _read_verdict(report_path) -> tuple[str, list[str]]:

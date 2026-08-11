@@ -1,7 +1,8 @@
 """Shared high-level operations used by both the CLI and the MCP server.
 
-One implementation of the wait/until primitives and symbol plumbing so the
-two front ends cannot drift.
+One implementation of the wait/until primitives, symbol and ref plumbing,
+keyboard typing, sprite and EasyFlash state reads, cart reboot and build
+dispatch, so the two front ends cannot drift.
 """
 
 from __future__ import annotations
@@ -13,10 +14,15 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-from .build import RESERVED_AREA_NAMES, Area
+from .basic import BasicError, tokenize
+from .build import RESERVED_AREA_NAMES, Area, BuildError, build_asm
+from .cartridge import EF_MODES
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
+from .romdoc import rom_labels
 from .screen import read_screen_text, screen_base
+from .session import Session, SessionError
+from .sprites import SpriteState, read_sprite_block, read_sprite_states
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
 
@@ -269,6 +275,34 @@ def session_labels(s) -> dict[str, int]:
     return {}
 
 
+def all_labels(session) -> dict[str, int]:
+    """The full symbol table for a session: ROM labels first, session labels
+    on top.
+
+    The order is the contract. A PC parked in the KERNAL is named even with no
+    label file, which is the case you are in when a run has fallen off the
+    rails; and a program's own label for an address it shares with the ROM
+    wins, because that is the name its author is reading. This is the lookup
+    `reg`/`c64_reg_get` and `rom disasm`/`c64_rom_disasm` build.
+    """
+    return {**rom_labels(session.profile.basic_version), **session_labels(session)}
+
+
+def session_ref(session, ref, labels: dict[str, int] | None = None) -> int:
+    """parse_ref with the session's screen geometry so @row,col works —
+    against the LIVE screen base (relocation-aware). `labels=None` reads
+    the session's own label file.
+
+    The live base costs a monitor round trip, so it is read only when the
+    ref actually names a cell. Raises KeyError/ValueError exactly as
+    parse_ref does: presentation belongs to the front ends."""
+    if labels is None:
+        labels = session_labels(session)
+    p = session.profile
+    base = live_screen_base(session) if "@" in str(ref) else p.screen_addr
+    return parse_ref(labels, ref, screen_base=base, screen_width=p.screen_cols)
+
+
 def disk_labels_path(image) -> Path | None:
     """The label file a disk image implies, or None (silently).
 
@@ -293,6 +327,136 @@ def disk_labels_path(image) -> Path | None:
         if cand.exists():
             return cand
     return None
+
+
+def attach_boot_labels(session, cart=None, disk=None) -> Path | None:
+    """Register the labels a freshly booted session implies, and return them.
+
+    A cartridge's sibling `.lbl` wins outright, and a cartridge with no label
+    file registers nothing: a cartridge owns the boot, so the disk in the
+    drive is not what the machine is running. Otherwise the disk image's
+    implied labels (see disk_labels_path). None means "no symbols" — nothing
+    was registered, and the session keeps whatever it had.
+    """
+    lbl = None
+    if cart:
+        c = Path(cart).with_suffix(".lbl")
+        lbl = c if c.exists() else None       # a cartridge owns the boot
+    elif disk:
+        lbl = disk_labels_path(disk)
+    if lbl is not None:
+        session.set_labels_path(str(lbl))
+    return lbl
+
+
+def reboot_with_cart(session_name: str | None, crt, *, headless: bool,
+                     warp: bool) -> dict:
+    """Boot a fresh session with `crt` attached, replacing the running one.
+
+    A cartridge is mapped at power-on, so "running" one means rebooting
+    rather than loading into the machine that is already up. The new session
+    inherits the old one's name and model and nothing else — the launch flags
+    are the caller's, because a `c64 run` is someone watching a window and an
+    MCP client is an automation.
+
+    "No session to reboot" and "no session by that name" are the same case:
+    both boot an unnamed default `c64` with the cartridge rather than failing.
+    Raises `SessionError` when a session IS there and will not stop.
+
+    Returns `{"cart", "session", "model", "symbols"}`; `symbols` is the
+    sibling `.lbl` registered on the new session, or None.
+    """
+    crt = Path(crt)
+    # Bound before the attach, so the identity stays out of the stop's error
+    # scope: a stop that fails is NOT "there was no session", and relaunching
+    # under the no-session defaults would quietly swap a c64pal named 'snake'
+    # for an NTSC 'c64' while 'snake' may still be alive. Pre-binding is also
+    # what makes the launch below checkable: the front ends each carried a
+    # `reportPossiblyUnbound` ignore for the older shape, where these were
+    # assigned in two branches pyright could not correlate with `old`'s value.
+    name: str | None = None
+    model = "c64"
+    try:
+        old = Session.attach(session_name)
+    except SessionError:
+        old = None
+    if old is not None:
+        name, model = old.name, old.model
+        try:
+            old.stop()
+        except (SessionError, OSError) as e:
+            # OSError: stopping is kill() + unlink() of the registry record
+            # and socket — a permission or filesystem failure there is the
+            # same "the old session is still there" situation.
+            raise SessionError(
+                f"cannot boot {crt} on session {name!r}: the old session "
+                f"has to stop first (a cartridge is mapped at power-on) "
+                f"and stopping it failed: {e}") from e
+    new = Session.launch(model=model, name=name, headless=headless,
+                         warp=warp, cart=str(crt))
+    lbl = attach_boot_labels(new, cart=crt)
+    return {"cart": str(crt), "session": new.name, "model": new.model,
+            "symbols": str(lbl) if lbl else None}
+
+
+def _previous_program_note(session) -> str:
+    """The Ms. Muncher trap in one line: a build that failed leaves the
+    emulator running the program from BEFORE it, which looks exactly like a
+    build that worked. Empty when the session has never loaded anything.
+    """
+    if not session.loaded_prg:
+        return ""
+    when = time.strftime("%H:%M:%S", time.localtime(session.loaded_at))
+    return (f"\nemulator still running the PREVIOUS program "
+            f"({session.loaded_prg}, loaded {when}) — nothing was reloaded")
+
+
+def build_for_run(session, src, areas=()
+                  ) -> tuple[Path, Path | None, tuple[Path, ...]]:
+    """Turn a `c64 run` source into a loadable `.prg`: `(prg, labels, deps)`.
+
+    `.prg` is taken as it is, `.bas` is tokenized, `.s` is assembled. `areas`
+    is the caller's raw `NAME=START:SIZE` tokens, parsed against this
+    session's load address (neither front end takes a `--model`) and before
+    ca65 runs, so an area that cannot link is reported as the flag the user
+    typed rather than as the config the toolset generated behind it.
+
+    `labels` is the `.lbl` an assembly build produced, or None. `deps` is what
+    `record_loaded` wants — every source the build read, or just `src` when
+    there was no build to read anything.
+
+    Raises `ValueError` for a malformed area and for an extension that cannot
+    be run, and `BasicError`/`BuildError` for a failed tokenize or build. Only
+    the latter carry the "still running the PREVIOUS program" note: a rejected
+    flag is not a failed build, and nothing was going to be reloaded anyway.
+    """
+    src = Path(src)
+    ext = src.suffix.lower()
+    area_list = parse_areas(areas or (), session.profile.basic_start)
+    labels: Path | None = None
+    deps: tuple[Path, ...] = ()
+    try:
+        if ext == ".prg":
+            prg = src
+        elif ext == ".bas":
+            prg = tokenize(src, src.with_suffix(".prg"),
+                           session.profile.basic_version)
+        elif ext == ".s":
+            res = build_asm(src, basic_start=session.profile.basic_start,
+                            areas=area_list)
+            prg, labels, deps = res.prg, res.labels, res.deps
+        else:
+            raise ValueError(
+                f"don't know how to run {ext!r} files "
+                "(use .bas, .s, .prg, or .crt)")
+    except (BasicError, BuildError) as e:
+        # Re-raised as its own class: a caller that tells a failed tokenize
+        # from a failed build still can.
+        raise type(e)(f"{e}{_previous_program_note(session)}") from e
+    # `deps` is empty for everything but a `.s`, and `build._parse_deps` can
+    # never hand back an empty tuple for one (it falls back to the top
+    # source), so "no deps" and "nothing was built" are the same case.
+    return Path(prg).resolve(), labels, deps or (src,)
 
 
 def pc_symbol(labels: dict[str, int], regs: dict[str, int]) -> str | None:
@@ -828,18 +992,41 @@ def _decode_type_escapes(text: str) -> str:
     return "".join(out)
 
 
-def key_type(session, text: str) -> dict:
+def key_type(session, text: str, decode_escapes: bool = True) -> dict:
     """Type TEXT into the keyboard buffer. A literal `\\n` in TEXT is
     decoded to RETURN (as a real newline already is) and `\\\\` to one
     backslash; no other escape is interpreted. ValueError from unmappable
-    characters propagates to the caller."""
-    petscii = ascii_to_petscii(_decode_type_escapes(text))
+    characters propagates to the caller.
+
+    decode_escapes=False types TEXT exactly as given — for callers whose
+    text is a file's contents rather than a hand-typed argument."""
+    if decode_escapes:
+        text = _decode_type_escapes(text)
+    petscii = ascii_to_petscii(text)
     with session.monitor() as mon:
         try:
             mon.keyboard_feed(petscii)
         finally:
             mon.release()
     return {"typed_chars": len(petscii)}
+
+
+def type_basic(session, text: str, run: bool = False) -> dict:
+    """Type BASIC program TEXT into the running machine through the keyboard.
+    A trailing newline is added when TEXT lacks one (the last line has to be
+    entered, not just displayed) and `run\\n` follows it when run=True.
+
+    Typing shares key_type's keyboard feed but NOT its escape decoding
+    (decode_escapes=False): program text is typed literally. A .bas file
+    already carries real newlines, so a `\\n` in it is program text — two
+    characters the C64 types as £N — not an escape, and decoding it would
+    take a RETURN mid-line and split the program in two.
+    ValueError from unmappable characters propagates to the caller."""
+    if not text.endswith("\n"):
+        text += "\n"
+    if run:
+        text += "run\n"
+    return {**key_type(session, text, decode_escapes=False), "run": run}
 
 
 def key_hold(session, key: str, at_addr: int, frames: int = 1,
@@ -947,6 +1134,58 @@ def clear_checkpoints(mon, include_mask: int, exclude_mask: int = 0) -> list[int
             mon.checkpoint_delete(ck.number)
             removed.append(ck.number)
     return removed
+
+
+def sprite_states(session) -> tuple[list[SpriteState], dict]:
+    """Every sprite's decoded state plus the shared colors, read from the
+    live registers and the pointers at the LIVE screen base + $3F8
+    (relocation-aware, state-preserving)."""
+    with session.monitor() as mon:
+        try:
+            return read_sprite_states(mon, screen_base(mon))
+        finally:
+            mon.release()
+
+
+def sprite_shape(session, index: int, block: str | None = None
+                 ) -> tuple[bytes, SpriteState, dict, int]:
+    """(data, state, shared colors, block address) for sprite `index`, or for
+    an explicit `block` ref in place of its pointer target.
+
+    The range check runs BEFORE any monitor traffic, so a bad index costs no
+    round trip and cannot surface as a MonitorError. Raises ValueError on an
+    out-of-range index, and KeyError/ValueError from an unresolvable `block`:
+    presentation belongs to the front ends."""
+    if not 0 <= index <= 7:
+        raise ValueError(f"sprite index {index} outside 0-7")
+    states, shared = sprite_states(session)
+    st = states[index]
+    addr = session_ref(session, block) if block else st.block_addr
+    with session.monitor() as mon:
+        try:
+            data = read_sprite_block(mon, addr)
+        finally:
+            mon.release()
+    return data, st, shared, addr
+
+
+def easyflash_state(session) -> dict:
+    """The live EasyFlash paging state: bank register ($DE00), mode register
+    ($DE02) and the decoded memory mode, plus the LED bit.
+
+    VICE lets these registers be read back; on real EasyFlash hardware they
+    are write-only, so this is a debugging aid, not a program interface.
+    """
+    with session.monitor() as mon:
+        try:
+            regs = mon.memory_read(0xDE00, 3)
+        finally:
+            mon.release()          # an inspection read: never resume a halt
+    bank_reg, mode_reg = regs[0], regs[2]
+    return {"bank": bank_reg, "de00": f"${bank_reg:02X}",
+            "de02": f"${mode_reg:02X}",
+            "mode": EF_MODES.get(mode_reg, "unknown"),
+            "led": bool(mode_reg & 0x80)}
 
 
 def machine_state(session) -> str:

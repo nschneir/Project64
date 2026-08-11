@@ -54,7 +54,7 @@ def test_run_dispatch_bas(tmp_path):
     s, mon = _fake()
     prg = tmp_path / "d.prg"
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.tokenize", return_value=prg) as tok:
+         patch("c64lib.ops.tokenize", return_value=prg) as tok:
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(src)})
     assert err is False

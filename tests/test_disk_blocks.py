@@ -19,6 +19,7 @@ from c64lib.disk import (
     blocks_for,
     cbm_lookup_name,
     check_block,
+    check_block_write,
     create_image,
     delete_file,
     dos_status,
@@ -135,6 +136,34 @@ def test_block_bytes_names_the_offending_value(values, match):
 def test_block_bytes_passes_good_values_through():
     assert block_bytes([0, 65, 255]) == b"\x00A\xff"
     assert block_bytes(b"\x01\x02") == b"\x01\x02"
+
+
+def test_check_block_write_needs_exactly_one_source():
+    """The rule both front ends enforce, pinned where it now lives. `--from`
+    and VALUES are alternatives: neither is not a write at all, and both at
+    once is two contradictory writes. An empty VALUES is no source — the CLI
+    passes a click nargs=-1 tuple, so emptiness is what it tests.
+    """
+    neither_or_both = [(None, ()), (None, []), ("sector.bin", (1, 2)),
+                       ("sector.bin", [1])]
+    for src, values in neither_or_both:
+        with pytest.raises(ValueError, match="exactly one of --from FILE"):
+            check_block_write(src, values, None)
+    # Either one alone passes, and an offset belongs to the poke.
+    check_block_write("sector.bin", (), None)
+    check_block_write(None, [1], 4)
+    check_block_write(None, (1, 2), None)
+
+
+def test_check_block_write_refuses_an_offset_for_a_whole_sector_write():
+    """--from replaces the whole sector, so there is nothing for an offset to
+    offset — and an explicit 0 is exactly as contradictory as a 4. Both front
+    ends pass None for "not given" (the CLI reads click's parameter source),
+    which is what lets an explicit 0 be told from an unset one.
+    """
+    for offset in (4, 0):
+        with pytest.raises(ValueError, match="--offset applies to a VALUES poke"):
+            check_block_write("sector.bin", (), offset)
 
 
 @pytest.mark.parametrize("size,blocks", [

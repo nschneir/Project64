@@ -110,6 +110,24 @@ def test_parse_ref_color_rowcol_shares_the_guards():
         parse_ref({}, "@@nonsense", screen_base=0x0400, screen_width=40)
 
 
+def test_session_ref_reads_the_live_screen_base_only_for_at_refs():
+    """The live base costs a monitor round trip, so session_ref reads it
+    only for a screen cell — the policy the CLI and the MCP server each
+    used to carry a copy of."""
+    s, _ = _fake_session()
+    s.profile.screen_addr = 0x0400
+    with patch("c64lib.ops.live_screen_base",
+               side_effect=AssertionError("read the live base for a $hex ref")):
+        assert ops.session_ref(s, "$1000", {}) == 0x1000
+        assert ops.session_ref(s, "sprite", {"sprite": 0x2000}) == 0x2000
+    with patch("c64lib.ops.live_screen_base", return_value=0xC400) as live:
+        # a relocated screen: @row,col follows it, @@row,col stays at $D800
+        assert ops.session_ref(s, "@0,0", {}) == 0xC400
+        assert ops.session_ref(s, "@1,2", {}) == 0xC400 + 42
+        assert ops.session_ref(s, "@@1,2", {}) == 0xD800 + 42
+    assert live.call_count == 3
+
+
 def test_wait_for_text_fires_and_times_out():
     s, mon = _fake_session()
     with patch("c64lib.ops.read_screen_text", side_effect=["A", "B READY."]):
@@ -409,6 +427,46 @@ def test_key_type_real_newline_unchanged():
     s, mon = _fake_session()
     key_type(s, "50\n")
     mon.keyboard_feed.assert_called_once_with(b"50\r")
+
+
+def test_type_basic_appends_run_and_feeds_petscii():
+    """One op behind both front ends' `basic type`: a trailing newline is
+    added when the source lacks one, RUN follows when asked, and the whole
+    thing goes through the same keyboard feed key_type uses."""
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    out = type_basic(s, '10 print "hi"', run=True)
+    mon.keyboard_feed.assert_called_once_with(b'10 PRINT "HI"\rRUN\r')
+    mon.release.assert_called_once()
+    assert out == {"typed_chars": 18, "run": True}
+
+
+def test_type_basic_keeps_an_existing_trailing_newline():
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    out = type_basic(s, "10 end\n")
+    mon.keyboard_feed.assert_called_once_with(b"10 END\r")
+    assert out == {"typed_chars": 7, "run": False}
+
+
+def test_type_basic_types_backslashes_literally():
+    """BASIC source is program text, not a shell argument: a `.bas` file
+    already carries real newlines, so `\\n` in it is two characters PRINT
+    should type (£N, E, W) and `\\\\` is two £. type_basic shares key_type's
+    keyboard feed but must NOT inherit its escape decoding, or a line like
+    `10 print "\\new"` would take a RETURN mid-line and split the program."""
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    out = type_basic(s, '10 print "\\new"')
+    mon.keyboard_feed.assert_called_once_with(b'10 PRINT "\\NEW"\r')
+    assert out == {"typed_chars": 16, "run": False}
+
+
+def test_type_basic_keeps_a_doubled_backslash_doubled():
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    type_basic(s, "10 a$=\\\\\n")
+    mon.keyboard_feed.assert_called_once_with(b"10 A$=\\\\\r")
 
 
 def test_matrix_codes_cover_game_keys():
