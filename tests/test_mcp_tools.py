@@ -347,7 +347,7 @@ def test_run_bas_tokenizes(tmp_path):
     bas.write_text('10 print "hi"\n')
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.tokenize",
+         patch("c64lib.ops.tokenize",
                return_value=tmp_path / "hello.prg") as tok:
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(bas)})
@@ -364,7 +364,7 @@ def test_run_areas_reach_the_linker(tmp_path):
     res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
+         patch("c64lib.ops.build_asm", return_value=res) as ba:
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(src),
                                          "areas": ["ENGINE=$4000:$6000"]})

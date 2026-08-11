@@ -208,7 +208,9 @@ def test_session_start_attaches_a_cart(tmp_path, crt):
 
 def test_run_a_crt_reboots_the_session_with_it_attached(tmp_path, crt):
     old, new = _fake_session(), _fake_session()
-    with patch("c64lib.cli.Session") as S:
+    # `run` of a .crt is `ops.reboot_with_cart` on both front ends, so the
+    # Session seam to patch is the library's, not this front end's.
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = old
         S.launch.return_value = new
         r = CliRunner().invoke(main, ["--json", "run", str(crt)])
@@ -226,7 +228,7 @@ def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(tmp_path, crt):
     NTSC 'c64' while the real 'snake' is possibly still alive."""
     old = _fake_session(name="snake", model="c64pal")
     old.stop.side_effect = SessionError("monitor is gone")
-    with patch("c64lib.cli.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = old
         r = CliRunner().invoke(main, ["--json", "run", str(crt)])
     assert r.exit_code == 1
@@ -236,7 +238,7 @@ def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(tmp_path, crt):
 
 
 def test_run_a_crt_with_no_session_boots_a_default_one(tmp_path, crt):
-    with patch("c64lib.cli.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.side_effect = SessionError("no session is running")
         S.launch.return_value = _fake_session()
         r = CliRunner().invoke(main, ["--json", "run", str(crt)])
@@ -249,7 +251,7 @@ def test_run_a_crt_registers_its_label_file(tmp_path, crt):
     lbl = crt.with_suffix(".lbl")
     lbl.write_text("al C:8009 .cart_main\n")
     new = _fake_session()
-    with patch("c64lib.cli.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = _fake_session()
         S.launch.return_value = new
         r = CliRunner().invoke(main, ["--json", "run", str(crt)])

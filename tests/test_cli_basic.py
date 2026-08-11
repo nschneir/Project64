@@ -214,7 +214,7 @@ def test_run_area_reaches_the_linker(tmp_path):
     fake, mon = _fake_attached()
     fake.profile.basic_start = 0x0801
     with patch("c64lib.cli.Session") as S, \
-         patch("c64lib.cli.build_asm", return_value=res) as ba:
+         patch("c64lib.ops.build_asm", return_value=res) as ba:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "run", str(src),
                                       "--area", "ENGINE=$4000:$6000"])
@@ -246,7 +246,7 @@ def test_run_bad_area_exits_one_before_assembling(tmp_path):
     fake, _ = _fake_attached()
     fake.profile.basic_start = 0x0801
     with patch("c64lib.cli.Session") as S, \
-         patch("c64lib.cli.build_asm") as ba:
+         patch("c64lib.ops.build_asm") as ba:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "run", str(src),
                                       "--area", "ENGINE"])

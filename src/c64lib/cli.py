@@ -50,6 +50,7 @@ from .monitor import MonitorError
 from .ops import (
     all_labels,
     attach_boot_labels,
+    build_for_run,
     call_routine,
     clear_checkpoints,
     disk_labels_path,
@@ -61,6 +62,7 @@ from .ops import (
     parse_number,
     pc_region,
     profile_routine_samples,
+    reboot_with_cart,
     run_until,
     session_labels,
     session_ref,
@@ -942,90 +944,30 @@ def run_cmd(ctx, source, areas):
     ext = src.suffix.lower()
     # Before the session is touched: --area rewrites the linker config that
     # only an assembled .s goes through, and a cartridge brings its own memory
-    # map. Rejected rather than ignored, in `c64 package`'s words.
+    # map. Rejected rather than ignored, in `c64 package`'s words. It stays in
+    # the front end rather than in `build_for_run` for that ordering: the op
+    # takes an attached session, so a guard inside it would report "no session
+    # is running" first and never reach the flag the user actually got wrong.
     if areas and ext != ".s":
         fail(ctx, "--area applies to assembly sources only")
         return
     if ext == ".crt":
-        # A cartridge is mapped at power-on, so "running" one means booting a
-        # fresh session with it attached rather than loading into this one.
         try:
-            old = Session.attach(ctx.obj["session"])
-        except SessionError:
-            old, name, model = None, None, "c64"
-        if old is not None:
-            # Keep the identity out of the stop's error scope: a stop that
-            # fails is NOT "there was no session", and relaunching under the
-            # no-session defaults would quietly swap a c64pal named 'snake'
-            # for an NTSC 'c64' while 'snake' may still be alive.
-            name, model = old.name, old.model
-            try:
-                old.stop()
-            except (SessionError, OSError) as e:
-                # OSError: stopping is kill() + unlink() of the registry
-                # record and socket — a permission or filesystem failure there
-                # is the same "the old session is still there" situation.
-                fail(ctx, f"cannot boot {src} on session {name!r}: the old "
-                          f"session has to stop first (a cartridge is mapped "
-                          f"at power-on) and stopping it failed: {e}")
-                return
-        try:
-            # `name`/`model` are bound on every path that reaches here, and
-            # the ignore is a checker limitation, not a papered-over hole:
-            # they are unbound only if `if old is not None` was False, and
-            # `old` is None only on the `except SessionError` branch — which
-            # is the branch that binds them. Pyright does not correlate a
-            # variable's *value* with another variable's boundness, so the
-            # tuple unpack `old, name, model = None, None, "c64"` widens `old`
-            # to `Session | None` and it stops being able to see that.
-            new = Session.launch(
-                model=model, name=name,  # pyright: ignore[reportPossiblyUnboundVariable]
-                headless=False, warp=False, cart=str(src))
+            # headless/warp: the CLI reboots windowed and at normal speed,
+            # because `c64 run game.crt` is something a person watches. The
+            # MCP server passes True/True — a client there is an automation.
+            payload = reboot_with_cart(ctx.obj["session"], src,
+                                       headless=False, warp=False)
         except (SessionError, KeyError) as e:
             fail(ctx, str(e))
             return
-        lbl = src.with_suffix(".lbl")
-        if lbl.exists():
-            new.set_labels_path(str(lbl))
-        emit(ctx, {"cart": str(src), "session": new.name, "model": new.model,
-                   "symbols": str(lbl) if lbl.exists() else None},
-             f"booted {new.name} with {src} attached")
+        emit(ctx, payload, f"booted {payload['session']} with {src} attached")
         return
     s = attach(ctx)
-    # Parsed against the session's load address (there is no --model here) and
-    # before ca65 runs, so an area that cannot link is reported as the flag the
-    # user typed rather than as the config the toolset generated behind it. Its
-    # own try: a rejected flag is not a failed build, and must not pick up the
-    # "still running the PREVIOUS program" note a failed build carries.
     try:
-        area_list = parse_areas(areas, s.profile.basic_start)
-    except ValueError as e:
+        prg, labels, deps = build_for_run(s, src, areas)
+    except (BasicError, BuildError, ValueError) as e:
         fail(ctx, str(e))
-        return
-    labels = None
-    deps: tuple = ()
-    try:
-        if ext == ".prg":
-            prg = src
-        elif ext == ".bas":
-            prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
-        elif ext == ".s":
-            res = build_asm(src, basic_start=s.profile.basic_start,
-                            areas=area_list)
-            prg, labels, deps = res.prg, res.labels, res.deps
-        else:
-            fail(ctx,
-                 f"don't know how to run {ext!r} files "
-                 "(use .bas, .s, .prg, or .crt)")
-            return
-    except (BasicError, BuildError) as e:
-        msg = str(e)
-        if s.loaded_prg:
-            msg += (f"\nemulator still running the PREVIOUS program "
-                    f"({s.loaded_prg}, loaded "
-                    f"{time.strftime('%H:%M:%S', time.localtime(s.loaded_at))})"
-                    " — nothing was reloaded")
-        fail(ctx, msg)
         return
     with s.monitor() as mon:
         try:
@@ -1034,7 +976,7 @@ def run_cmd(ctx, source, areas):
             mon.resume()
     if labels:
         s.set_labels_path(str(labels))
-    s.record_loaded(prg, deps if deps else [src])
+    s.record_loaded(prg, deps)
     emit(ctx, {"source": str(src), "prg": str(prg),
                "symbols": str(labels) if labels else None},
          f"running {prg}")

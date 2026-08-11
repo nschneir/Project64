@@ -914,6 +914,12 @@ Build/tokenize `SOURCE` as needed, then load and RUN it. `.bas` is tokenized,
 
 JSON: `{"source", "prg", "symbols"}`. Machine left running.
 
+**A failed build leaves the old program up.** A tokenize or build that fails
+reloads nothing, so the emulator is still running whatever it was running
+before — which looks exactly like a run that worked. The error says so, naming
+that program and when it was loaded (the Ms. Muncher trap `c64 status`'s
+`STALE` line exists for). `c64_run` raises the same message, note and all.
+
 **`--area`.** A program whose engine or art has to land at a fixed address
 needs the flag to link at all, and without it here that program could not be
 run from `c64 run` — it needed a `c64 build` + `c64 load --symbols` script

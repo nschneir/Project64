@@ -48,6 +48,7 @@ from .machines import get_profile
 from .ops import (
     all_labels,
     attach_boot_labels,
+    build_for_run,
     call_routine,
     clear_checkpoints,
     disk_labels_path,
@@ -62,6 +63,7 @@ from .ops import (
     pc_region,
     pc_symbol,
     profile_routine_samples,
+    reboot_with_cart,
     run_until,
     session_labels,
     session_ref,
@@ -713,6 +715,10 @@ def c64_run(source: str, session: str | None = None,
     "NAME=START:SIZE" linking segment NAME at a fixed address. Passing it for
     a .bas, a .prg or a .crt is an error rather than a no-op.
 
+    A failed tokenize or build names the program the emulator is STILL
+    running: nothing was reloaded, so the screen is showing the previous
+    program and looks exactly like a run that worked.
+
     For a .crt, "no session to reboot" and "no session by that name" are the
     same case: a session name that does not exist boots an unnamed default c64
     with the cartridge rather than failing. Every other tool errors on an
@@ -722,69 +728,26 @@ def c64_run(source: str, session: str | None = None,
     ext = src.suffix.lower()
     # Before the session is touched, in the CLI's words: --area rewrites the
     # linker config only an assembled .s goes through, and a cartridge brings
-    # its own memory map.
+    # its own memory map. Here rather than in `build_for_run` for that
+    # ordering — the op takes an attached session, so a guard inside it would
+    # report "no session is running" first and never reach the bad flag.
     if areas and ext != ".s":
         raise ValueError("--area applies to assembly sources only")
     if ext == ".crt":
-        # A cartridge is mapped at power-on, so "running" one means booting a
-        # fresh session with it attached rather than loading into this one.
-        try:
-            old = Session.attach(session)
-        except SessionError:
-            old, name, model = None, None, "c64"
-        if old is not None:
-            # Keep the identity out of the stop's error scope: a stop that
-            # fails is NOT "there was no session", and relaunching under the
-            # no-session defaults would quietly swap a c64pal named 'snake'
-            # for an NTSC 'c64' while 'snake' may still be alive.
-            name, model = old.name, old.model
-            try:
-                old.stop()
-            except (SessionError, OSError) as e:
-                # OSError: stopping is kill() + unlink() of the registry
-                # record and socket — a permission or filesystem failure there
-                # is the same "the old session is still there" situation.
-                raise SessionError(
-                    f"cannot boot {src} on session {name!r}: the old session "
-                    f"has to stop first (a cartridge is mapped at power-on) "
-                    f"and stopping it failed: {e}") from e
         # headless/warp as everywhere in this server (see c64_session_start):
-        # an MCP client is an automation, not someone watching a window.
-        # `name`/`model`: same shape as cli.py's `run` — bound on every path
-        # that reaches here (unbound only if `old is not None` was False, and
-        # `old` is None only on the except branch that binds them). Pyright
-        # cannot correlate `old`'s value with their boundness.
-        new = Session.launch(
-            model=model, name=name,  # pyright: ignore[reportPossiblyUnboundVariable]
-            headless=True, warp=True, cart=str(src))
-        lbl = src.with_suffix(".lbl")
-        if lbl.exists():
-            new.set_labels_path(str(lbl))
-        return {"cart": str(src), "session": new.name, "model": new.model,
-                "symbols": str(lbl) if lbl.exists() else None}
+        # an MCP client is an automation, not someone watching a window. The
+        # CLI passes False/False for the same reason, the other way round.
+        return reboot_with_cart(session, src, headless=True, warp=True)
     s = _attach(session)
-    labels_path = None
-    deps: tuple = ()
-    if ext == ".prg":
-        prg = src
-    elif ext == ".bas":
-        prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
-    elif ext == ".s":
-        res = build_asm(src, basic_start=s.profile.basic_start,
-                        areas=parse_areas(areas or (), s.profile.basic_start))
-        prg, labels_path, deps = res.prg, res.labels, res.deps
-    else:
-        raise ValueError(                       # same wording as the CLI's
-            f"don't know how to run {ext!r} files "
-            "(use .bas, .s, .prg, or .crt)")
+    prg, labels_path, deps = build_for_run(s, src, areas)
     with s.monitor() as mon:
         try:
-            mon.autostart(Path(prg).resolve(), run=True)
+            mon.autostart(prg, run=True)
         finally:
             mon.resume()
     if labels_path:
         s.set_labels_path(str(labels_path))
-    s.record_loaded(prg, deps if ext == ".s" else [src])
+    s.record_loaded(prg, deps)
     return {"source": str(src), "prg": str(prg),
             "symbols": str(labels_path) if labels_path else None}
 

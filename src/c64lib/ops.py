@@ -13,12 +13,14 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-from .build import RESERVED_AREA_NAMES, Area
+from .basic import BasicError, tokenize
+from .build import RESERVED_AREA_NAMES, Area, BuildError, build_asm
 from .cartridge import EF_MODES
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
 from .romdoc import rom_labels
 from .screen import read_screen_text, screen_base
+from .session import Session, SessionError
 from .sprites import SpriteState, read_sprite_block, read_sprite_states
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
@@ -344,6 +346,116 @@ def attach_boot_labels(session, cart=None, disk=None) -> Path | None:
     if lbl is not None:
         session.set_labels_path(str(lbl))
     return lbl
+
+
+def reboot_with_cart(session_name: str | None, crt, *, headless: bool,
+                     warp: bool) -> dict:
+    """Boot a fresh session with `crt` attached, replacing the running one.
+
+    A cartridge is mapped at power-on, so "running" one means rebooting
+    rather than loading into the machine that is already up. The new session
+    inherits the old one's name and model and nothing else — the launch flags
+    are the caller's, because a `c64 run` is someone watching a window and an
+    MCP client is an automation.
+
+    "No session to reboot" and "no session by that name" are the same case:
+    both boot an unnamed default `c64` with the cartridge rather than failing.
+    Raises `SessionError` when a session IS there and will not stop.
+
+    Returns `{"cart", "session", "model", "symbols"}`; `symbols` is the
+    sibling `.lbl` registered on the new session, or None.
+    """
+    crt = Path(crt)
+    # Bound before the attach, so the identity stays out of the stop's error
+    # scope: a stop that fails is NOT "there was no session", and relaunching
+    # under the no-session defaults would quietly swap a c64pal named 'snake'
+    # for an NTSC 'c64' while 'snake' may still be alive. Pre-binding is also
+    # what makes the launch below checkable: the front ends each carried a
+    # `reportPossiblyUnbound` ignore for the older shape, where these were
+    # assigned in two branches pyright could not correlate with `old`'s value.
+    name: str | None = None
+    model = "c64"
+    try:
+        old = Session.attach(session_name)
+    except SessionError:
+        old = None
+    if old is not None:
+        name, model = old.name, old.model
+        try:
+            old.stop()
+        except (SessionError, OSError) as e:
+            # OSError: stopping is kill() + unlink() of the registry record
+            # and socket — a permission or filesystem failure there is the
+            # same "the old session is still there" situation.
+            raise SessionError(
+                f"cannot boot {crt} on session {name!r}: the old session "
+                f"has to stop first (a cartridge is mapped at power-on) "
+                f"and stopping it failed: {e}") from e
+    new = Session.launch(model=model, name=name, headless=headless,
+                         warp=warp, cart=str(crt))
+    lbl = attach_boot_labels(new, cart=crt)
+    return {"cart": str(crt), "session": new.name, "model": new.model,
+            "symbols": str(lbl) if lbl else None}
+
+
+def _previous_program_note(session) -> str:
+    """The Ms. Muncher trap in one line: a build that failed leaves the
+    emulator running the program from BEFORE it, which looks exactly like a
+    build that worked. Empty when the session has never loaded anything.
+    """
+    if not session.loaded_prg:
+        return ""
+    when = time.strftime("%H:%M:%S", time.localtime(session.loaded_at))
+    return (f"\nemulator still running the PREVIOUS program "
+            f"({session.loaded_prg}, loaded {when}) — nothing was reloaded")
+
+
+def build_for_run(session, src, areas=()
+                  ) -> tuple[Path, Path | None, tuple[Path, ...]]:
+    """Turn a `c64 run` source into a loadable `.prg`: `(prg, labels, deps)`.
+
+    `.prg` is taken as it is, `.bas` is tokenized, `.s` is assembled. `areas`
+    is the caller's raw `NAME=START:SIZE` tokens, parsed against this
+    session's load address (neither front end takes a `--model`) and before
+    ca65 runs, so an area that cannot link is reported as the flag the user
+    typed rather than as the config the toolset generated behind it.
+
+    `labels` is the `.lbl` an assembly build produced, or None. `deps` is what
+    `record_loaded` wants — every source the build read, or just `src` when
+    there was no build to read anything.
+
+    Raises `ValueError` for a malformed area and for an extension that cannot
+    be run, and `BasicError`/`BuildError` for a failed tokenize or build. Only
+    the latter carry the "still running the PREVIOUS program" note: a rejected
+    flag is not a failed build, and nothing was going to be reloaded anyway.
+    """
+    src = Path(src)
+    ext = src.suffix.lower()
+    area_list = parse_areas(areas or (), session.profile.basic_start)
+    labels: Path | None = None
+    deps: tuple[Path, ...] = ()
+    try:
+        if ext == ".prg":
+            prg = src
+        elif ext == ".bas":
+            prg = tokenize(src, src.with_suffix(".prg"),
+                           session.profile.basic_version)
+        elif ext == ".s":
+            res = build_asm(src, basic_start=session.profile.basic_start,
+                            areas=area_list)
+            prg, labels, deps = res.prg, res.labels, res.deps
+        else:
+            raise ValueError(
+                f"don't know how to run {ext!r} files "
+                "(use .bas, .s, .prg, or .crt)")
+    except (BasicError, BuildError) as e:
+        # Re-raised as its own class: a caller that tells a failed tokenize
+        # from a failed build still can.
+        raise type(e)(f"{e}{_previous_program_note(session)}") from e
+    # `deps` is empty for everything but a `.s`, and `build._parse_deps` can
+    # never hand back an empty tuple for one (it falls back to the top
+    # source), so "no deps" and "nothing was built" are the same case.
+    return Path(prg).resolve(), labels, deps or (src,)
 
 
 def pc_symbol(labels: dict[str, int], regs: dict[str, int]) -> str | None:

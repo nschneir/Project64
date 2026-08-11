@@ -156,7 +156,9 @@ def test_run_a_crt_reboots_the_session_with_it_attached(crt):
     with it attached instead of loading into the current one."""
     old, _ = _fake_session()
     new, _ = _fake_session()
-    with patch("c64lib.mcp_server.Session") as S:
+    # `run` of a .crt is `ops.reboot_with_cart` on both front ends, so the
+    # Session seam to patch is the library's, not this front end's.
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = old
         S.launch.return_value = new
         out = mcp_server.c64_run(str(crt))
@@ -168,7 +170,7 @@ def test_run_a_crt_reboots_the_session_with_it_attached(crt):
 
 
 def test_run_a_crt_with_no_session_boots_a_default_one(crt):
-    with patch("c64lib.mcp_server.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.side_effect = SessionError("no session is running")
         S.launch.return_value = _fake_session()[0]
         err, out = call_tool("c64_run", {"source": str(crt)})
@@ -191,7 +193,7 @@ def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(crt, boom):
     old, _ = _fake_session()
     old.name, old.model = "snake", "c64pal"
     old.stop.side_effect = boom
-    with patch("c64lib.mcp_server.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = old
         with pytest.raises(SessionError) as e:
             mcp_server.c64_run(str(crt))
@@ -203,7 +205,7 @@ def test_run_a_crt_registers_its_label_file(crt):
     lbl = crt.with_suffix(".lbl")
     lbl.write_text("al C:8009 .cart_main\n")
     new, _ = _fake_session()
-    with patch("c64lib.mcp_server.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = _fake_session()[0]
         S.launch.return_value = new
         out = mcp_server.c64_run(str(crt))
@@ -217,17 +219,48 @@ def test_run_a_crt_payload_matches_the_cli_emit(crt):
     from click.testing import CliRunner
 
     from c64lib.cli import main
-    with patch("c64lib.cli.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = _fake_session()[0]
         S.launch.return_value = _fake_session()[0]
         r = CliRunner().invoke(main, ["--json", "run", str(crt)])
     assert r.exit_code == 0, r.output
     cli_payload = json.loads(r.output)
-    with patch("c64lib.mcp_server.Session") as S:
+    with patch("c64lib.ops.Session") as S:
         S.attach.return_value = _fake_session()[0]
         S.launch.return_value = _fake_session()[0]
         mcp_payload = mcp_server.c64_run(str(crt))
     assert mcp_payload == cli_payload
+
+
+def test_run_a_crt_failed_stop_message_matches_the_cli(crt):
+    """One implementation, not two copies that happen to agree.
+
+    Both front ends reach the same `ops.reboot_with_cart`, so the failed-stop
+    wording cannot drift — which is why the two messages are compared against
+    each other rather than against a literal. A literal here would just be a
+    third copy of the string.
+    """
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+
+    def _wont_stop():
+        s, _ = _fake_session()
+        s.name, s.model = "snake", "c64pal"
+        s.stop.side_effect = SessionError("monitor is gone")
+        return s
+
+    with patch("c64lib.ops.Session") as S:
+        S.attach.return_value = _wont_stop()
+        r = CliRunner().invoke(main, ["--json", "run", str(crt)])
+    assert r.exit_code == 1, r.output
+    cli_err = json.loads(r.output)["error"]
+    with patch("c64lib.ops.Session") as S:
+        S.attach.return_value = _wont_stop()
+        with pytest.raises(SessionError) as e:
+            mcp_server.c64_run(str(crt))
+    assert str(e.value) == cli_err
+    assert "snake" in cli_err and "monitor is gone" in cli_err
 
 
 def test_run_names_crt_among_the_runnable_extensions(tmp_path):
