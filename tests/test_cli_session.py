@@ -5,6 +5,7 @@ from click.testing import CliRunner
 
 from c64lib.cli import main
 from c64lib.session import SessionError
+from tests.conftest import assert_json_error
 
 
 def _fake_session(name="c64", port=6502):
@@ -386,6 +387,27 @@ def test_session_stop_all_reports_a_corrupt_registry_record_as_a_json_error(
     again = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
     assert again.exit_code == 0, again.output
     assert json.loads(again.stdout) == {"stopped": []}
+
+
+def test_session_list_reports_a_corrupt_record_as_json(tmp_path, monkeypatch):
+    """`session list` calls `Session.list_all()` bare, outside any try, so the
+    `SessionError` a truncated record raises reaches the CLI with no command
+    handling it — the boundary guard on `JsonAwareGroup` is what makes it a
+    payload instead of a traceback over empty `--json` stdout.
+
+    Deliberately *not* fixed by wrapping this one call site: patching this
+    defect class per command had already been tried six times over, and twice
+    the next instance got past review anyway. Unmocked on purpose: the real
+    registry is what raises.
+    """
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    r = CliRunner().invoke(main, ["--json", "session", "list"])
+    error = assert_json_error(r)["error"]
+    assert "truncated.json" in error and "port" in error, \
+        "the error never says which record on disk is wrong, or how"
 
 
 def test_session_start_says_nothing_when_no_other_session_is_running():

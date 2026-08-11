@@ -6,6 +6,7 @@ from __future__ import annotations
 import json as _json
 import sys
 import time
+import traceback
 from dataclasses import asdict
 from pathlib import Path
 from typing import NoReturn
@@ -109,11 +110,18 @@ def emit(ctx: click.Context, data: dict, human: str) -> None:
         click.echo(human)
 
 
+def _json_mode(ctx: click.Context) -> bool:
+    """Whether --json was asked for, tolerating `ctx.obj is None` — which is how
+    a context looks before the group callback that fills it has run. Ordinary
+    commands cannot see that state; `JsonAwareGroup`'s boundary guard can."""
+    return bool(ctx.obj and ctx.obj.get("json"))
+
+
 def fail(ctx: click.Context, message: str, extra: dict | None = None) -> NoReturn:
     """Report `message` and exit 1. Never returns — `NoReturn` is what lets a
     caller treat the line after a `fail()` as unreachable (the `help` command
     relies on it to know a resolved subcommand is not None)."""
-    if ctx.obj["json"]:
+    if _json_mode(ctx):
         click.echo(_json.dumps({"error": message, **(extra or {})}))
     else:
         click.echo(f"error: {message}", err=True)
@@ -212,6 +220,31 @@ class JsonAwareGroup(click.Group):
         super().__init__(*args, **kwargs)
         _append_json_option(self)
         _append_session_option(self)
+
+    def invoke(self, ctx: click.Context) -> object:
+        """Last-chance funnel into the `fail()` contract: an input-shaped
+        exception no command thought to catch still exits 1 with a parseable
+        `{"error": ...}` on stdout, rather than a traceback over stdout left
+        empty — which no `--json` caller can read, and cannot be told apart
+        from a crashed process.
+
+        Structural because per-site patching demonstrably failed: six instances
+        of this one defect were fixed one at a time, and two of those were found
+        only by a later sweep, having survived review. The guard is the floor,
+        not the ceiling — a command that wants an actionable sentence still
+        calls `fail()` itself, and the traceback goes to stderr either way.
+
+        Only input-shaped types are caught, so a genuine bug still surfaces as
+        a traceback. `SessionError` is named because it subclasses none of them.
+        `click.ClickException`, `click.Abort` and `SystemExit` are deliberately
+        absent: `fail()` and `ctx.exit()` work *by* raising `SystemExit`, so
+        catching it would double-report every ordinary error.
+        """
+        try:
+            return super().invoke(ctx)
+        except (ValueError, KeyError, OSError, SessionError) as e:
+            traceback.print_exc()
+            fail(ctx, str(e))
 
 
 @click.group(cls=JsonAwareGroup)

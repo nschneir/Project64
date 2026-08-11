@@ -262,12 +262,11 @@ class Session:
         from them instead of escaping as a traceback.
 
         Not all of them: `cli.py`'s `session list` calls `Session.list_all()`
-        bare, outside any try, so there this still escapes — a `SessionError`
-        now rather than a `KeyError`, but an unhandled one either way, with
-        `--json` stdout empty. Widening the type does not reach it and
-        neither should a per-command patch; it is the case for the
-        last-chance handler on `JsonAwareGroup` (the `fail()`-boundary guard
-        in the follow-up plan), which catches what no command thought to.
+        bare, outside any try. Widening the type never reached that, and
+        neither should a per-command patch — `JsonAwareGroup.invoke` in
+        `cli.py` now catches `SessionError` at the CLI boundary, so a record no
+        command guards against is still a `{"error": ...}` payload and not a
+        traceback over empty `--json` stdout.
         """
         try:
             r = json.loads(path.read_text())
