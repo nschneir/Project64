@@ -225,9 +225,19 @@ place the prose can live.
 |------|-----|------------|
 | `c64_audio_record` | `c64 audio record` | `--start PATH` and `--stop` become `action="start"` with `path`, or `action="stop"` |
 | `c64_sid_log` | `c64 audio sidlog` | renamed: the tool is named for what it logs |
-| `c64_audio_capture` | `c64 audio capture` | `--at-frame N SPEC` (repeatable) is one `at_frame` mapping, `{"N": "SPEC"}` |
-| `c64_sid_report` | `c64 audio report` | renamed to match `c64_sid_log`; `--peak-hz` is `peak_hz` |
+| `c64_audio_capture` | `c64 audio capture` | `--at-frame N SPEC` (repeatable) is one `at_frame` mapping, `{"N": "SPEC"}`; `--strict` is `strict` and raises where the CLI exits 1 (see below) |
+| `c64_sid_report` | `c64 audio report` | renamed to match `c64_sid_log`; `--peak-hz` is `peak_hz`; `--strict` is `strict` and raises where the CLI exits 1 (see below) |
 | `c64_audio_score` | `c64 audio score` | — |
+
+`strict=True` on those two is the exit code's analogue, so it raises rather
+than returning: `nothing_played` means no voice sounded and the verdict checked
+nothing, and a caller that cannot mean "this program is quiet" wants that as a
+failure. It is off by default on both sides, and the raise **names the
+artifacts** — the report, the roll, the spectrogram are all written before the
+verdict is judged, and a raise carries no payload to point at them with.
+A FAIL verdict still returns as data on both tools, exactly as it does under
+`--json`: it is a finding about the program, and the CLI's exit 1 has no MCP
+counterpart there.
 
 ### Test runner
 

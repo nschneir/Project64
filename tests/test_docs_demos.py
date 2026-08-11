@@ -217,6 +217,17 @@ def test_graphics_policy_requires_program_side_high_water_marks():
         "the cited capture no longer carries the figure the policy quotes"
 
 
+def test_la_galaxia_audio_evidence_captures_strictly():
+    """`docs/cli.md` names this script as the caller `c64 audio capture
+    --strict` exists for, and an evidence run reads its success from an exit
+    code: a window that recorded nothing scores PASS by default, so without the
+    flag five reports proving nothing would come back green under `set -e`."""
+    script = (DEMOS_DIR / "la-galaxia" / "tools" / "audio-evidence.sh").read_text()
+    assert "audio capture" in script, "the cited script no longer captures"
+    assert "--strict" in script, \
+        "docs/cli.md claims this script passes --strict; it does not"
+
+
 def test_every_demo_directory_is_listed():
     dirs = {p.name for p in DEMOS_DIR.iterdir() if p.is_dir()}
     listed = set(_md_roster(DEMOS_README.read_text()))

@@ -1364,10 +1364,32 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     return sid_log_detail(s, frames, path)
 
 
+def _strict_verdict(out: dict, strict: bool) -> dict:
+    """Return a verdict payload, or raise when `strict` meets one that checked
+    nothing — the MCP analogue of the CLI's `--strict` exit 1.
+
+    A raise carries no payload, so the message names the artifacts: they were
+    written before the verdict was judged and are all still on disk, and a
+    strict caller must be able to read the report it just paid a capture
+    window for. That is what keeps this from undoing the CLI's rule that the
+    payload is emitted in full first.
+    """
+    if strict and out.get("nothing_played"):
+        raise RuntimeError(
+            f"nothing played: no voice sounded, so the {out['verdict']} "
+            f"verdict checked nothing, and strict=True counts that as a "
+            f"failure. Every artifact was still written — read "
+            f"{out['report']}, and the rest of them in {out['outdir']}, then "
+            f"fix what the window opened on (a program that never started, a "
+            f"staging step that missed, a voice never gated) and capture "
+            f"again.")
+    return out
+
+
 @srv.tool()
 def c64_sid_report(log: str, outdir: str, wav: str | None = None,
                    ref: str | None = None, session: str | None = None,
-                   peak_hz: bool = False) -> dict:
+                   peak_hz: bool = False, strict: bool = False) -> dict:
     """Turn a captured SID register log (and its WAV, if there is one) into a
     verdict you can read: `report.md` in `outdir`, beside `piano-roll.png` and
     — with a WAV — `spectrogram.png`. Pure analysis, so it needs no running
@@ -1391,6 +1413,15 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     `peak` object measuring the WAV's loudest frequency — one rFFT over the
     whole file with DC excluded, so it is a bin centre and `resolution_cents`
     names how precise that answer is.
+
+    `nothing_played` in the result is the one PASS that means nothing: no voice
+    sounded, so no check had anything to disagree with. That is a legitimate
+    result when the claim is that the program is quiet, which is why it is
+    reported rather than failed — and it is equally what a window opened on the
+    wrong moment produces. `strict=True` raises on it instead, the analogue of
+    the CLI's `--strict` exit 1, for a caller that cannot mean the quiet claim.
+    The raise names the artifacts, which were all written before the verdict
+    was judged.
     """
     # Deliberately NOT shared with the CLI twin, unlike the measurement itself:
     # each front end names its own flags (peak_hz/wav here, --peak-hz/--wav
@@ -1401,8 +1432,9 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
         raise ValueError("peak_hz needs wav: a dominant partial is a property "
                          "of the recording, not of the register log")
     timing = report_timing_from(log, _attach(session).model if session else None)
-    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing,
-                      peak_hz=peak_hz)
+    return _strict_verdict(
+        sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing,
+                   peak_hz=peak_hz), strict)
 
 
 @srv.tool()
@@ -1431,7 +1463,8 @@ def c64_audio_score(file: str) -> dict:
 @srv.tool()
 def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
                       session: str | None = None,
-                      at_frame: dict[str, str] | None = None) -> dict:
+                      at_frame: dict[str, str] | None = None,
+                      strict: bool = False) -> dict:
     """Record the running program's audio and report on what it played — the
     one call that verifies SID music end to end. Pins real time, records
     `capture.wav`, logs the SID's registers to `sid-log.jsonl`, restores the
@@ -1477,9 +1510,17 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     before trusting its timing again. (A recorder that could not be disarmed
     is a different failure and still raises: that one leaves no finalized WAV
     to report on.)
+
+    `strict=True` raises when the result would carry `nothing_played` — no
+    voice sounded, so whatever verdict it reached checked nothing. The default
+    reports it instead, because a program proved quiet is a real claim; turn
+    this on where it cannot be one, such as regenerating a demo's audio
+    evidence. The artifacts are complete before the verdict is judged, so the
+    raise names them and nothing is lost.
     """
     # Parsed before the session is touched, and by the CLI's own parser: the
     # two front ends must reject the same spellings with the same words.
     writes = parse_frame_writes((at_frame or {}).items())
     s = _attach(session)
-    return capture(s, seconds, outdir, ref_path=ref, writes=writes)
+    return _strict_verdict(
+        capture(s, seconds, outdir, ref_path=ref, writes=writes), strict)

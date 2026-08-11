@@ -1667,6 +1667,8 @@ into OUTDIR.
   the order given, as do the writes inside one flag. Numbers are decimal,
   `$hex`, or `0xhex`; a value is one byte. A frame the window never reaches
   is refused before anything is pinned, like a malformed `--ref`.
+- `--strict` — also exit 1 when nothing played, not only when the verdict is
+  FAIL. Off by default; see **A capture in which nothing played** below.
 
 Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
@@ -1713,6 +1715,16 @@ result when the claim is that the program is quiet, and it is equally what a
 capture window that opened on the wrong moment produces. `nothing_played`
 needs the recording to agree: no gated voice over a WAV with audio in it is
 `$D418` sample playback, which the transcription cannot see and does not deny.
+
+**`--strict` is the opt-in for callers that cannot mean the quiet claim.**
+With it, `nothing_played` exits 1 — the payload still printed in full, exactly
+as a FAIL is, plus one line naming the flag as the reason for the code. Without
+it nothing changes: same warning, same exit 0. An evidence script is the caller
+the flag exists for, because "the report was written" is not evidence that
+anything played (`demos/la-galaxia/tools/audio-evidence.sh` passes it); a
+session where quiet is the hypothesis is the caller that must not have it.
+`c64 audio report --strict` is the same flag on the same verdict, so a re-score
+of an old log reaches the same exit code as the capture would have.
 
 Start the music before you call this. A capture that opens before the first
 gate begins with a rest the reference score does not list; that rest is
@@ -1807,6 +1819,8 @@ new capture only when the *program* changes.
 - `--peak-hz` — also measure the recording's loudest frequency. Needs
   `--wav`. (MCP note: the same measurement is `peak_hz` on `c64_sid_report`,
   which refuses it without a `wav` for the same reason.)
+- `--strict` — also exit 1 when nothing played. The same flag `audio capture`
+  carries, documented under it.
 
 Exits 1 when the verdict is FAIL, same as `audio capture`.
 

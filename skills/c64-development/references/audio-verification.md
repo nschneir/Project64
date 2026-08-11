@@ -74,6 +74,12 @@ program is *quiet*; it is also exactly what a capture window that opened on
 a title screen, or on a program that never started, produces. Confirm which
 before you file it as audio evidence.
 
+Where quiet is not a claim you could be making — regenerating a demo's audio
+evidence, or any run whose success you read from an exit code — add `--strict`
+(`strict=True` over MCP). It exits 1 (raises) on `nothing_played` instead of
+warning, and changes nothing else: same report, same payload, same wording.
+Leave it off when the silence is the finding.
+
 ## The anomaly checks
 
 Three, all reference-free — they run whether or not you wrote a score:

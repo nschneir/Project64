@@ -94,8 +94,15 @@ play() {                                # play -- fly into a running stage 1
 }
 
 cap() {                                 # cap <dir> <seconds> <score>
+    # --strict, because every window here is staged to have music in it: a
+    # capture that recorded nothing scores PASS by default (no note sounded,
+    # so no check had anything to disagree with) and would exit 0 under
+    # `set -e` with five committed reports proving nothing.  Staging that
+    # missed -- a tick count moved by a change in the game, a poke into the
+    # wrong byte -- is exactly what produces it, so it has to be the failure
+    # here even though it is a legitimate result elsewhere.
     mkdir -p "$OUT/$1"
-    $C audio capture "$2" "$OUT/$1" --ref "$OUT/$3" $S
+    $C audio capture "$2" "$OUT/$1" --ref "$OUT/$3" --strict $S
 }
 
 # --- open: the theme from row 0, both edges of the window in silence ------
