@@ -1721,8 +1721,8 @@ With it, `nothing_played` exits 1 — the payload still printed in full, exactly
 as a FAIL is, plus one line naming the flag as the reason for the code. Without
 it nothing changes: same warning, same exit 0. An evidence script is the caller
 the flag exists for, because "the report was written" is not evidence that
-anything played (`demos/la-galaxia/tools/audio-evidence.sh` passes it); a
-session where quiet is the hypothesis is the caller that must not have it.
+anything played (both demos' `tools/audio-evidence.sh` pass it); a session
+where quiet is the hypothesis is the caller that must not have it.
 `c64 audio report --strict` is the same flag on the same verdict, so a re-score
 of an old log reaches the same exit code as the capture would have.
 

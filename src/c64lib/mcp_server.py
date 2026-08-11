@@ -1379,10 +1379,10 @@ def _strict_verdict(out: dict, strict: bool) -> dict:
             f"nothing played: no voice sounded, so the {out['verdict']} "
             f"verdict checked nothing, and strict=True counts that as a "
             f"failure. Every artifact was still written — read "
-            f"{out['report']}, and the rest of them in {out['outdir']}, then "
-            f"fix what the window opened on (a program that never started, a "
-            f"staging step that missed, a voice never gated) and capture "
-            f"again.")
+            f"{out['report']}, and the rest of them in {out['outdir']}. No "
+            f"re-score finds notes in a silent log, so fix what the window "
+            f"opened on (a program that never started, a staging step that "
+            f"missed, a voice never gated) and capture it again.")
     return out
 
 

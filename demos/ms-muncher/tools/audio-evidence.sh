@@ -25,11 +25,18 @@ $C session start --name mmaud --warp --headless >/dev/null
 trap '$C session stop mmaud >/dev/null 2>&1 || true' EXIT
 
 cap() {                                 # cap <name> <seconds>
+    # --strict on both, because every window here is staged to have music in
+    # it: a capture that recorded nothing scores PASS by default (no note
+    # sounded, so no check had anything to disagree with) and would exit 0
+    # under `set -e` with committed reports proving nothing.  Staging that
+    # missed -- a hidden key that no longer reaches its act, a tick count moved
+    # by a change in the game -- is exactly what produces it.  It matters most
+    # on the no-score branch, which has no diff to fail on either.
     mkdir -p "$OUT/$1"
     if [ -f "$OUT/$1.score.yaml" ]; then
-        $C audio capture "$2" "$OUT/$1" --ref "$OUT/$1.score.yaml" $S
+        $C audio capture "$2" "$OUT/$1" --ref "$OUT/$1.score.yaml" --strict $S
     else
-        $C audio capture "$2" "$OUT/$1" $S
+        $C audio capture "$2" "$OUT/$1" --strict $S
     fi
 }
 
