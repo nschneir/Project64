@@ -166,6 +166,53 @@ def test_graphics_policy_has_evidence_script_shape():
         assert "screen --png" in body
 
 
+def test_graphics_policy_scopes_raster_work_by_evidence_not_by_technique():
+    """§1 forbade raster-chasing outright while `demos/la-galaxia` shipped a
+    raster-IRQ multiplexer and a `$D016` split, both verified under
+    `--warp --headless`. The line the policy actually draws is whether a
+    failing implementation produces a failing number."""
+    section = GRAPHICS_POLICY.read_text().split("## 1. Scope")[1].split("## 2.")[0]
+    section = " ".join(section.split())
+    assert "out of scope for automated demos" not in section, \
+        "the blanket prohibition is still there"
+    assert "counters a test can assert on" in section, \
+        "the policy never states the condition that puts these effects in scope"
+    assert "demos/la-galaxia" in section, "the worked example is unnamed"
+    assert "only evidence is a photograph" in section, \
+        "the policy no longer says what stays out of scope"
+    # The named counters have to be real exports the spec really asserts, or
+    # the worked example is a story.
+    exported = (DEMOS_DIR / "la-galaxia" / "vars.s").read_text()
+    spec = (DEMOS_DIR / "la-galaxia" / "test.yaml").read_text()
+    for name in ("mux_overflow", "tick_overrun"):
+        assert name in section, f"the policy cites no {name}"
+        assert re.search(rf"^\s*\.export .*\b{name}\b", exported, re.M), \
+            f"la-galaxia does not export {name}"
+        assert f'mem: "{name}"' in spec, f"test.yaml never asserts {name}"
+
+
+def test_graphics_policy_requires_program_side_high_water_marks():
+    """A per-frame budget sampled by the harness reads whatever the sampled
+    frame happened to cost: la-galaxia's redraw counter read 4 against a
+    ceiling of 64 while the program's own mark read 88."""
+    section = GRAPHICS_POLICY.read_text().split("## 4. Testing policy")[1] \
+        .split("## 5.")[0]
+    section = " ".join(section.split())
+    assert "per-frame budget is measured by the program" in section
+    assert "tick_endline" in section, "the existing worked mark is unnamed"
+    assert "**88**" in section and "**4**" in section, \
+        "the two numbers are the whole argument"
+    assert "Scope it to a window" in section, \
+        "a lifetime mark carries the frames the ceiling exempts"
+    assert "outside a stage transition" in section, \
+        "the policy never says WHY the window matters (the ceiling's carve-out)"
+    evidence = DEMOS_DIR / "la-galaxia" / "evidence" / "mux.txt"
+    assert str(evidence.as_posix()) in GRAPHICS_POLICY.read_text(), \
+        "the worked capture is not cited"
+    assert "cells_drawn_peak=88" in evidence.read_text(), \
+        "the cited capture no longer carries the figure the policy quotes"
+
+
 def test_every_demo_directory_is_listed():
     dirs = {p.name for p in DEMOS_DIR.iterdir() if p.is_dir()}
     listed = set(_md_roster(DEMOS_README.read_text()))

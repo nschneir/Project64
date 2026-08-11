@@ -198,9 +198,14 @@ BASIC's variable area — lower the top of BASIC or move the bitmap first.
 - **VIC 16 KB bank** — the VIC-II only sees 16 KB at a time, chosen by the
   *inverted* low 2 bits of CIA#2 `$DD00` (make them outputs in `$DD02`
   first): `11`→bank 0 `$0000` (power-on), `10`→bank 1 `$4000`, `01`→bank 2
-  `$8000`, `00`→bank 3 `$C000`. The character ROM image is visible to the VIC
-  only in banks 0 and 2 (at `$1000`/`$9000`). The toolset assumes the screen
-  stays at `$0400`, so treat bank switching as reference knowledge.
+  `$8000`, `00`→bank 3 `$C000`. The character ROM image is **4 KB** and is
+  visible to the VIC only in banks 0 and 2 (at `$1000-$1FFF`/`$9000-$9FFF`) —
+  uppercase set first, lowercase second. Four kilobytes is **two** of the
+  eight 2 KB charset bases, so in bank 0 both `$1000` *and* `$1800` are
+  unusable for a RAM charset: RAM written there is invisible to the chip,
+  and a `$D018` pointing at `$1800` draws the ROM's lowercase glyphs — which
+  looks like ordinary text rather than like a bug. The toolset assumes the
+  screen stays at `$0400`, so treat bank switching as reference knowledge.
 - **`$D018` bit-fields** — bits 7-4 = screen base in 1 KB steps, bits 3-1 =
   character/bitmap base in 2 KB steps, bit 0 ignored. When moving the screen,
   also point the editor at it: `POKE 648,page` (page = address/256).

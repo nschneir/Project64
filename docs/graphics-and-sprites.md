@@ -32,11 +32,26 @@ Demos and example programs may use, in order of preference:
    setup and is the hardest to verify; prefer 1-2 unless the demo is
    *about* bitmap graphics.
 
-Raster-chasing effects (mid-frame register changes, raster IRQ splits) are
-**out of scope for automated demos** — they fight warp mode and
-nondeterministic stop points. A demo may install a raster IRQ for timing
-(one interrupt per frame), but nothing that must hit an exact scanline to
-look right.
+Mid-frame register changes are **in scope when the demo exposes counters a
+test can assert on**. Warp mode and nondeterministic stop points make the
+*moment* a test observes unpredictable; they do not make the machine's
+**state** unpredictable, and state is what these effects leave behind. A
+raster-IRQ sprite multiplexer and a single-register split (`$D016`, `$D021`,
+`$D018`) both qualify, provided the program publishes bytes that decide the
+claim: how many objects the multiplexer placed, an overflow count that must
+stay zero, a mismatch counter that catches a handler running late.
+`demos/la-galaxia` is the worked example: it runs a raster-IRQ sprite
+multiplexer and a `$D016` split confined to the formation band, and its
+`test.yaml` settles both under `--warp --headless` by asserting
+`mux_overflow` and `tick_overrun` are zero — bytes the program keeps, not a
+frame someone looked at.
+
+Still out of scope: an effect whose only evidence is a photograph. If the
+claim can only be settled by looking at a captured frame — a stable FLI or
+AGSP display, an open border, a plasma — there is nothing for a test to
+assert, and a green run means nothing. The dividing line is not the
+technique's difficulty; it is whether a failing implementation would produce
+a failing *number*.
 
 ## 2. Authoring sprite and graphic data
 
@@ -144,6 +159,27 @@ Two channels, used for different things:
     capture and for hand-driven sampling.
   Counters that climb are asserted with `at_least`, never `equals`: waits
   poll, and a counter can step over an exact value between two polls.
+- **A per-frame budget is measured by the program, not by the harness.** If
+  the quantity resets every frame — cells redrawn, sprites repositioned,
+  cycles spent in the tick — then the *program* keeps the high-water mark
+  and the test reads that mark, the way `demos/la-galaxia` already does with
+  `tick_endline`. A sampler is the wrong instrument at any rate short of
+  every frame: the value spikes only on the frames that do the expensive
+  thing, so a coarser sampler steps over them and reports a comfortable
+  number that means nothing. La Galaxia's own dogfood is the case: its
+  redraw counter, sampled every tenth tick, read **4** against a ceiling of
+  64, while the mark the program kept read **88**.
+  Two things a mark needs to be evidence:
+  - **Scope it to a window.** A lifetime mark carries every exempt frame
+    ever run. Ceilings are usually written with carve-outs — La Galaxia's is
+    "at most 64 cells per frame *outside a stage transition*", and its
+    screen rebuilds legitimately reach 72-88 — so zero the mark, run the
+    window the claim is about, then read it, and assert the state byte that
+    proves the run stayed inside that window.
+  - **Keep the mark saturating and monotone**, so the read cannot race the
+    program: `at_most` against a ceiling, `at_least` for a floor.
+  `demos/la-galaxia/evidence/mux.txt` is the worked capture and its
+  `test.yaml` the worked assertion.
 
 ## 5. Screenshot capture workflow (evidence)
 

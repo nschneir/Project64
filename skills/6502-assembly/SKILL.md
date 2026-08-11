@@ -100,7 +100,21 @@ The cookbook's "Time a routine and print the jiffies" recipe uses it.
   `beq :+ / jmp far_target / :` — and expect to convert several
   `bne`/`bcc` this way once a routine passes ~120 bytes (the Ms. Muncher
   dogfood hit this in four separate build failures across four files — ten
-  branches — while adding features).
+  branches — while adding features; La Galaxia hit 25 in a single build
+  across six files). The conversion is **mechanical**, so it is a script,
+  not an afternoon: pipe the failing build into
+  `references/fix-branch-range.py` and it inverts each reported branch over
+  a `jmp` in place.
+
+  ```sh
+  c64 build game.s 2>&1 | python skills/6502-assembly/references/fix-branch-range.py
+  ```
+
+  It exits 1 and *reports rather than touches* any branch it must not
+  rewrite — chiefly one whose target is an anonymous label (`:+`), since the
+  trampoline's own `:` would renumber that label's neighbours. Those are the
+  handful worth your attention; rebuild after it runs, because the build is
+  the check.
 - Zero page is scarce and shared with BASIC/kernal — see the
   `c64-development` skill's zero-page reference before claiming zero-page
   locations.
@@ -266,7 +280,11 @@ finished file instead of collapsing to right after `MAIN`'s last real byte.
 Areas are declared `define = yes`, so `__HIGH_LOAD__`/`__HIGH_SIZE__` are
 available for the same kind of `.assert` as `__BSS_*` above. Repeat the flag
 for more areas; they must be contiguous, since a hole between two of them
-would shift the upper one.
+would shift the upper one. With several, every area *below* the last is
+filled to its declared size and the last is not — so the padding is a
+constant (`SPRITES=$2000:$1800 CHARS=$3800:$0800 ENGINE=$4000:$5000` is a
+flat 14,337 bytes before `ENGINE`'s own contents), and only the topmost area
+can hold `.res` storage without paying for it in file bytes.
 
 The cost is file size: that padding is real bytes, so `--area 'HIGH=$4000:…'`
 makes every build at least 14 KB. **For data the VIC never reads** — sprite

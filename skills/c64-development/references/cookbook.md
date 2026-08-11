@@ -1981,7 +1981,10 @@ put it back. Copy all 2 KB, patch only the glyphs you want, and the other
 
 ```asm
 ; charset.s — ROM charset -> RAM at $3000, then redefine screen codes 96/97.
-CHARSET = $3000                 ; must be in the VIC's bank ($0000-$3FFF)
+CHARSET = $3000                 ; in the VIC's bank ($0000-$3FFF) — and NOT
+                                ;   $1000 or $1800: the char ROM's 4 KB image
+                                ;   covers both of those bases in bank 0, so
+                                ;   RAM there is invisible to the VIC
 SCREEN  = $0400
 COLOR   = $D800
 CHROUT  = $FFD2
@@ -2082,9 +2085,15 @@ Five more things this encodes:
 
 - **Where the charset can live.** The VIC-II sees only one 16 KB bank at a
   time, bank 0 (`$0000-$3FFF`) at power-on — a charset outside it is
-  invisible no matter what `$D018` says. `$3000` is the usual home: inside
-  the bank, above a `.prg` of a few KB. Check `load_addr + len - 2` still
-  lands below it every time the code grows (see the 6502-assembly skill).
+  invisible no matter what `$D018` says. Inside the bank is necessary but
+  **not sufficient**: the character ROM's image is 4 KB, `$1000-$1FFF`, so
+  the `$1000` and `$1800` bases are the ROM's uppercase and lowercase halves
+  and RAM written there never reaches the chip. Base `$1800` is the one that
+  bites, because the lowercase glyphs it draws look like text rather than
+  like a fault. Bank 0 leaves `$2000`, `$2800`, `$3000` and `$3800`. `$3000`
+  is the usual home: inside the bank, above a `.prg` of a few KB. Check
+  `load_addr + len - 2` still lands below it every time the code grows (see
+  the 6502-assembly skill).
 - **Leave the screen at `$0400`.** The `$D018` high nybble can move it, but
   the toolset's screen reader assumes `$0400`.
 - **Hand the ROM charset back before returning to BASIC** if the program

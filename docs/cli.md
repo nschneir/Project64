@@ -656,6 +656,16 @@ carries the last screen for `--text`).
 On timeout `c64 wait` exits 1 and the machine is **left running**;
 checkpoints you set remain set (JSON gains `"machine": "running"`).
 
+One timeout is not that. A `--mem` wait issued on a machine that is
+**stopped** — after a `c64 until`, a `step`, a `finish`, or a checkpoint hit
+— polls a byte no running CPU is writing, so it can only burn the full
+timeout and report the value it started with. `c64 wait --mem` therefore
+samples the machine's state either side of the wait, and when it was stopped
+for the whole window the error says so and points at `c64 continue`
+(JSON gains `"machine": "stopped"` instead). This is the repo's
+most-repeated footgun; the message is what stops it costing two minutes and
+a false "the program is stuck" diagnosis.
+
 A `--idle` timeout is the **wedge detector**: the machine ran the whole
 window without ever reaching direct mode, so it is still running or stuck in
 a loop. The error says so and carries the PCs it last saw — feed one to
@@ -700,8 +710,18 @@ A `.prg` is a flat file — the KERNAL reads the 2-byte header, then copies
 every following byte to consecutive addresses — so a segment only lands at
 `$4000` if all 14,335 bytes below it ship too. The flag arranges that: `MAIN`
 is capped at `area.start - load_address` and filled, so the gap between the
-end of your code and the area is written out as zero bytes. Two consequences
-worth knowing before you reach for it:
+end of your code and the area is written out as zero bytes.
+
+**Every area below the last one is filled to its declared size; the last one
+is not** — nothing above it needs placing, so its `.res` storage and its
+unused tail never become file bytes, and only the areas underneath pay for
+their whole declared span. That makes the padding a constant you can compute:
+La Galaxia's `--area 'SPRITES=$2000:$1800' --area 'CHARS=$3800:$0800'
+--area 'ENGINE=$4000:$5000'` costs a flat **14,337 bytes** — the 2-byte load
+header plus every address from `$0801` to `$3FFF` — whatever the three areas
+hold, and the finished `.prg` is that number plus the contents of `ENGINE`.
+
+Two consequences worth knowing before you reach for it:
 
 - **The file gets big.** `--area 'HIGH=$4000:$2000'` produces a `.prg` of at
   least 14 KB no matter how small the program is. For data the VIC never

@@ -1,4 +1,9 @@
+import os
+import re
+import shutil
 from pathlib import Path
+
+import pytest
 
 from tests.doc_helpers import all_command_paths, documented_paths
 
@@ -162,6 +167,68 @@ def test_session_stop_documents_all_and_start_documents_the_notice():
         "the already-running notice is undocumented"
     assert "stderr" in start, \
         "the docs never say the notice bypasses --json (it is on stderr)"
+
+
+#: The three areas the la-galaxia dogfood measured the fill against, and the
+#: only thing about them that matters here: the two below `ENGINE` are filled
+#: to their declared size, `ENGINE` is not.
+_AREA_TRIO = [("SPRITES", 0x2000, 0x1800), ("CHARS", 0x3800, 0x0800),
+              ("ENGINE", 0x4000, 0x5000)]
+
+
+def test_build_documents_which_areas_are_filled():
+    """`--area` said "fill" and "contiguous" and never said *which* areas get
+    filled — which is what decides whether `.res` storage ships as real bytes
+    and how big the file is."""
+    # Prose wraps; the claim is a sentence, not a line.
+    section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
+    assert "Every area below the last one is filled to its declared size" in section, \
+        "the docs never say every area but the last is filled to its size"
+    assert "the last one is not" in section, \
+        "the docs never say the topmost area is left at its real length"
+
+
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+def test_the_documented_area_padding_is_the_measured_one(tmp_path):
+    """The number in the docs, built. A figure nobody can reproduce is the
+    kind that drifts by five bytes and stays wrong for a release."""
+    from c64lib.build import Area, build_asm
+    section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
+    m = re.search(r"flat \*\*([\d,]+) bytes\*\*", section)
+    assert m, "docs/cli.md no longer states the flat padding cost"
+    claimed = int(m.group(1).replace(",", ""))
+
+    src = tmp_path / "trio.s"
+    src.write_text('        .segment "LOADADDR"\n        .word $0801\n'
+                   '        .segment "CODE"\nstart:  rts\n'
+                   '        .segment "SPRITES"\n        .byte $01\n'
+                   '        .segment "CHARS"\n        .byte $02\n'
+                   '        .segment "ENGINE"\n        .res 16, $03\n')
+    res = build_asm(src, areas=[Area(*a) for a in _AREA_TRIO])
+    data = res.prg.read_bytes()
+    assert len(data) == claimed + 16, (
+        f"docs claim {claimed} flat bytes; a build of the same three areas "
+        f"with 16 bytes in ENGINE is {len(data)}")
+    # ...and the shape behind the number: filled below, unfilled on top.
+    assert data[2 + (0x3800 - 0x0801)] == 0x02, "CHARS did not land at $3800"
+    assert data[2 + (0x4000 - 0x0801):] == bytes([0x03] * 16), \
+        "the last area was padded to its declared size after all"
+
+
+def test_wait_documents_the_stopped_machine_timeout():
+    """`wait --mem` after a `c64 until` burned 120 s and reported `last value
+    1` — the repo's most-repeated footgun. The docs have to say the timeout
+    names it, or the reader still reaches for the wrong diagnosis."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 wait`").split())
+    assert '"machine": "stopped"' in section, \
+        "the stopped-machine JSON field is undocumented"
+    assert "c64 continue" in section, "the docs never give the way out"
+    assert "either side of the wait" in section, \
+        ("the docs never say the state is sampled twice (one sample cannot "
+         "support 'stopped for the whole wait')")
 
 
 def test_cli_md_names_every_machine_profile():

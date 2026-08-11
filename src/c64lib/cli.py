@@ -1511,13 +1511,26 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         fail(ctx, f"bad --mem value {val_s!r} in {mem_cond!r}; "
                   "use a decimal or $hex byte")
         return
+    # Sampled either side of the wait, because "stopped the whole time" is
+    # the diagnosis and one sample cannot support it: a machine stopped only
+    # at the end was running for part of the window and the value genuinely
+    # never arrived. machine_state never raises and answers from the daemon's
+    # own bookkeeping, so this costs no emulator traffic.
+    before = machine_state(s)
     out = wait_for_mem(s, addr, want, timeout, op=op)
     if out["fired"]:
         emit(ctx, {"fired": "mem", "elapsed": out["elapsed"]}, "mem condition met")
         return
+    stopped = before == "stopped" == machine_state(s)
+    detail = ("" if not stopped else
+              " — the machine was STOPPED for the whole wait, so the byte "
+              "could not change: a wait polls memory, it never resumes the "
+              "CPU. Something before this stopped it (`c64 until`, `step`, "
+              "`finish`, or a checkpoint hit). Run `c64 continue` first, or "
+              "use `c64 wait --break` if you meant to run to a checkpoint.")
     fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}"
-              f" (last value {out['last_value']})",
-         extra={"machine": "running"})
+              f" (last value {out['last_value']}){detail}",
+         extra={"machine": "stopped" if stopped else "running"})
 
 
 @main.group()
