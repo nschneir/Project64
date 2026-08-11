@@ -220,14 +220,20 @@ def test_graphics_policy_requires_program_side_high_water_marks():
 def test_every_audio_evidence_script_captures_strictly():
     """`docs/cli.md` names these scripts as the callers `c64 audio capture
     --strict` exists for, and an evidence run reads its success from an exit
-    code. The flag is the second line of defence here, not the first: all ten
-    capture calls the two scripts make pass `--ref` today and every score lists
-    sounding notes, so a silent window already diffs each scored entry as
-    "heard nothing", FAILs and exits 1 without the flag. What it covers is the
-    day that stops holding — a score regenerated to nothing, or a window that
-    loses its `--ref`, where the reference-free reading of an empty capture is
-    PASS and exit 0. Every invocation, not every script: a single capture that
-    drops the flag is the one that can come back green proving nothing."""
+    code. All ten capture calls pass `--ref` today, and for nine of them the
+    flag is a second line of defence: those scores list sounding notes, so a
+    silent window already diffs each scored entry as "heard nothing", FAILs and
+    exits 1 without it. The tenth is why this pin is per capture call rather
+    than per script. ms-muncher's `play` score is `voices: {1: []}` with voices
+    2 and 3 deliberately unscored ("read off the piano roll instead"), and
+    `diff_score` compares only the voices a score lists while reading an empty
+    list as "this voice should be silent" — so a silent `play` window diffs
+    clean, silence is not an anomaly (`find_anomalies`: "a voice that never
+    sounds is not one of them"), and `_silence_failure` returns None when
+    nothing sounded. That is a PASS at exit 0, and `--strict` is the only thing
+    standing in front of it. For the other nine the flag also covers the day
+    their scores stop holding — one regenerated to nothing, or a window that
+    loses its `--ref`."""
     for demo in ("la-galaxia", "ms-muncher"):
         script = DEMOS_DIR / demo / "tools" / "audio-evidence.sh"
         # Logical lines, not physical ones: a capture whose flags moved onto a

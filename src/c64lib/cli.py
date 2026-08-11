@@ -249,11 +249,16 @@ class JsonAwareGroup(click.Group):
         `MonitorError`, `PackageError`, `ProtocolError` and `TestError`, all
         direct `Exception` subclasses, plus `AudioError` (and its
         `PinnedStopError`) under `RuntimeError`. `CharsetError` is the only one
-        that arrives here by inheritance, being a `ValueError`. All of them are
-        input-shaped by construction, so the omission is scope rather than
-        judgement: the change that added this guard specified this tuple, and
-        widening it to those nine is its own change with its own tests. Until
-        that happens they still escape wherever no local `try` covers them,
+        that arrives here by inheritance, being a `ValueError`. *Most* are
+        input-shaped by construction — raised for a bad user file, manifest or
+        spec — but not all, and a widening would have to sort them rather than
+        take the family wholesale: `ProtocolError` reports a corrupt monitor
+        frame (`protocol.py`'s bad start byte) and `MonitorError` is VICE
+        rejecting a command, each as often a defect here as a user's mistake.
+        Either way the omission is scope rather than judgement: the change that
+        added this guard specified this tuple, and widening it to those nine is
+        its own change with its own tests. Until that happens they still
+        escape wherever no local `try` covers them,
         which is why the per-site `except DiskError`/`except BuildError`
         handlers below — two dozen of them — stay load-bearing, not redundant.
 
@@ -262,10 +267,12 @@ class JsonAwareGroup(click.Group):
         catching that would double-report every ordinary error. `ctx.exit()`
         does not: it raises `click.exceptions.Exit`, which is a `RuntimeError`
         subclass (so is `click.Abort`) — **which is why `RuntimeError` must
-        never enter the tuple**. `ops.py` and the MCP server raise it liberally
-        for timeouts, so widening to it reads as reasonable, and it would
-        swallow `_verdict_report`'s `ctx.exit(1)` below and report
-        `{"error": "1"}` for a FAIL or `--strict` verdict.
+        never enter the tuple**. It is a deliberate error type in this tree
+        rather than a rare one — eight raise sites in `src/c64lib/`, including
+        `rpc.py` turning every daemon-side error into one and the MCP server's
+        routine-never-returned timeouts — so widening to it reads as
+        reasonable, and it would swallow `_verdict_report`'s `ctx.exit(1)`
+        below and report `{"error": "1"}` for a FAIL or `--strict` verdict.
         """
         try:
             return super().invoke(ctx)

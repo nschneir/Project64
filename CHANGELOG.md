@@ -91,10 +91,10 @@ tell apart from a crashed process, so the seventh instance would have cost the
 same debugging as the first. The guard is a floor and not a ceiling — a
 command that can say something actionable still calls `fail()` itself — and
 the domain exceptions (`BasicError`, `DiskError`, `BuildError` and their
-siblings) are deliberately still outside it, so their ~30 per-site handlers
-stay load-bearing; widening the tuple to them is its own change with its own
-tests, and the docstring on the guard says so rather than leaving the next
-reader to infer that every input error now lands in the contract.
+siblings) are deliberately still outside it, so their two dozen per-site
+handlers stay load-bearing; widening the tuple to them is its own change with
+its own tests, and the docstring on the guard says so rather than leaving the
+next reader to infer that every input error now lands in the contract.
 
 The sheet encoders went a step further than the per-block modes below. A
 **sprite** sheet takes `name:` headers carrying their own mode
@@ -553,8 +553,13 @@ report already printed is what most callers want, since proving a program is
 *quiet* is a real claim and cannot be an error — so the flag is opt-in, and
 its extra line says the rule rather than this run's cause, a payload being
 able to be FAIL and empty at once. Both demo evidence scripts adopted it on
-every capture; there it is a second line of defence, since each of those ten
-invocations passes `--ref` and a silent window already FAILs on the diff.
+every capture. Nine of those ten calls pass a score listing sounding notes,
+where the flag is a second line of defence behind a diff that already FAILs a
+silent window; the tenth is the case it exists for. ms-muncher's `play` scores
+its lead voice as an empty list and leaves the other two unscored on purpose,
+and a score is only diffed against the voices it lists — so a silent `play`
+window diffs clean, raises no anomaly and PASSes at exit 0, with `--strict` the
+only thing in front of it.
 
 ## [0.9.5] — 2026-08-03
 
