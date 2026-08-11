@@ -79,6 +79,23 @@ file they could not read, over MCP as well: FastMCP already returned those
 raises as structured tool errors, so what the MCP twins were missing was the
 message, not the exit code.
 
+Then a **floor** under that whole class, because patching it per site
+demonstrably was not closing it: six instances were fixed one at a time and
+two of those were found only by a later sweep, having survived review. The
+CLI's root group now catches `ValueError`, `KeyError`, `OSError` and
+`SessionError` escaping any command and funnels them into `fail()` — exit 1
+with a parseable `{"error": …}` on stdout, traceback still on stderr. What
+made the original defect worth this much is that its symptom is unreadable
+rather than merely ugly: a `--json` caller gets empty stdout, which it cannot
+tell apart from a crashed process, so the seventh instance would have cost the
+same debugging as the first. The guard is a floor and not a ceiling — a
+command that can say something actionable still calls `fail()` itself — and
+the domain exceptions (`BasicError`, `DiskError`, `BuildError` and their
+siblings) are deliberately still outside it, so their two dozen per-site
+handlers stay load-bearing; widening the tuple to them is its own change with
+its own tests, and the docstring on the guard says so rather than leaving the
+next reader to infer that every input error now lands in the contract.
+
 The sheet encoders went a step further than the per-block modes below. A
 **sprite** sheet takes `name:` headers carrying their own mode
 (`fighter:hires`, `captured:multicolor`), `#` comment lines, and
@@ -151,6 +168,23 @@ used to assert unconditionally. The MCP tool, which had carried no `machine`
 key at all where its three siblings all did, gains the same field plus a
 `diagnosis` string, so the surface agents actually drive stops being the one
 that fails silently.
+
+`--text` and `--idle` now do the same, which is where the footgun is most
+expensive rather than least. All three of those waits only poll, so a machine
+halted for the whole window is the identical bug in each; `--text` previously
+dumped 25 lines of screen and left the reader to work out that nothing had
+been printed because nothing was running, and `--idle` was worse than
+uninformative — it read every timeout as a wedge and pointed at the
+wedged-machine playbook in the `6502-debugging` skill, whose first step is to
+sample `c64 reg` a second apart on a PC that by construction cannot move. On a
+stopped machine that pointer is now *replaced* by the cause and `c64 continue`
+rather than joined by it. Both arms sample either side of the wait for the
+same reason `--mem` does, both carry `"machine"` in `--json`, and the running
+case is untouched: a machine that ran the whole window genuinely never printed
+the text or reached direct mode, and saying "stopped" there would send the
+reader off to `c64 continue` for nothing. `docs/cli.md` also stops reading
+`"running"` as a positive claim — it means *not provably stopped for the whole
+window*, since a session with no daemon socket cannot be asked at all.
 
 `skills/6502-assembly/references/fix-branch-range.py` makes the branch-range
 trap mechanical. Growing a routine pushes its branches past ±127 bytes, and
@@ -505,6 +539,27 @@ rest of that tier, where the run is the deliverable and nothing is
 committed — and `demos/fugue/`, BWV 847 on three voices in assembly with
 its score scrolling past as it plays, prompt-only so far and waiting to be
 built.
+
+`c64 audio report --strict` and `c64 audio capture --strict` (MCP
+`c64_sid_report(strict=true)`, `c64_audio_capture(strict=true)`) make a
+verdict that checked **nothing** exit 1 — raise, over MCP — instead of PASS.
+A capture in which no voice ever sounded has nothing for any check to
+disagree with, so its PASS is not a weak claim but an empty one, and that is a
+bug rather than a nicety because of what reads it: an evidence script takes
+its success from an exit code under `set -e`, so without the flag a window
+that recorded silence commits a report proving nothing and the run comes back
+green. The default is unchanged and byte-for-byte pinned — the warning the
+report already printed is what most callers want, since proving a program is
+*quiet* is a real claim and cannot be an error — so the flag is opt-in, and
+its extra line says the rule rather than this run's cause, a payload being
+able to be FAIL and empty at once. Both demo evidence scripts adopted it on
+every capture. Nine of those ten calls pass a score listing sounding notes,
+where the flag is a second line of defence behind a diff that already FAILs a
+silent window; the tenth is the case it exists for. ms-muncher's `play` scores
+its lead voice as an empty list and leaves the other two unscored on purpose,
+and a score is only diffed against the voices it lists — so a silent `play`
+window diffs clean, raises no anomaly and PASSes at exit 0, with `--strict` the
+only thing in front of it.
 
 ## [0.9.5] — 2026-08-03
 

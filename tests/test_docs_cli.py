@@ -270,6 +270,24 @@ def test_wait_documents_the_stopped_machine_timeout():
          "support 'stopped for the whole wait')")
 
 
+def test_audio_documents_strict_and_that_the_default_is_unchanged():
+    """`--strict` is only half the claim. The default — warn and exit 0 over a
+    capture in which nothing played — was reasoned and stays, so the docs have
+    to say the flag is opt-in and what it costs to turn on; otherwise the next
+    reader takes exit 0 for "the audio works" or the flag for the behaviour."""
+    text = DOC.read_text()
+    capture = " ".join(_section(text, "### `c64 audio capture`").split())
+    assert "`--strict`" in capture, "the flag is undocumented on the command"
+    assert "same warning, same exit 0" in capture, \
+        "the docs never say the default is unchanged"
+    assert "still printed in full" in capture, \
+        ("the docs never say a strict exit 1 still emits the payload, which is "
+         "what a --json caller needs to read the verdict it failed on")
+    report = " ".join(_section(text, "### `c64 audio report`").split())
+    assert "`--strict`" in report, \
+        "the sibling verdict command carries the flag and the docs omit it"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

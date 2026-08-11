@@ -508,17 +508,53 @@ def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
     return {**_stopped_regs(s, out["registers"]), "count": count}
 
 
+def _wait_verdict(s, before: str, out: dict, effect: str, polls: str) -> dict:
+    """Stamp a timed-out wait with where the machine was, and what that means.
+
+    Sampled either side of the wait — `before` from ahead of the call, the
+    second sample taken here: one sample cannot support "stopped the whole
+    time", and a machine stopped only at the end was running for part of the
+    window. machine_state never raises and answers from the daemon's own
+    bookkeeping, so the second sample costs no emulator traffic.
+
+    Shared by the three polling wait tools so they cannot drift: only the
+    effect ("the byte could not change") and what the wait polls differ.
+    """
+    if out.get("fired"):
+        return out
+    stopped = before == "stopped" == machine_state(s)
+    out["machine"] = "stopped" if stopped else "running"
+    if stopped:
+        out["diagnosis"] = (
+            f"the machine was STOPPED for the whole wait, so {effect}: a wait "
+            f"polls {polls}, it never resumes the CPU. Something before this "
+            "stopped it (c64_until, c64_step, c64_finish, or a checkpoint "
+            "hit). Call c64_continue first, or c64_wait_break if you meant to "
+            "run to a checkpoint.")
+    return out
+
+
 @srv.tool()
 def c64_wait_text(text: str, timeout: float = 30.0, since: bool = False,
                   session: str | None = None) -> dict:
     """Block until TEXT appears on the screen. A timeout returns
-    {"fired": null, "screen": ...} (not an error) so you can inspect what
-    the program actually displayed.
+    {"fired": null, "screen": ..., "machine": ...} (not an error) so you can
+    inspect what the program actually displayed.
+
+    The timeout says where the machine was: "machine": "stopped" plus a
+    `diagnosis` string means it was halted for the whole window, so nothing
+    could be printed — a wait polls the screen, it never resumes the CPU, so
+    call c64_continue first. "machine": "running" means the text genuinely
+    never appeared.
+
     since=True fires only on an occurrence appearing after the call starts —
     use it when a real gap separates the trigger from the appearance; an
     instant reply can print before the call samples its baseline, so for
     turn-by-turn prompts anchor a cell with c64_wait_mem instead."""
-    return wait_for_text(_attach(session), text, timeout, since=since)
+    s = _attach(session)
+    before = machine_state(s)
+    out = wait_for_text(s, text, timeout, since=since)
+    return _wait_verdict(s, before, out, "nothing could be printed", "the screen")
 
 
 @srv.tool()
@@ -539,22 +575,9 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     arrived.
     """
     s = _attach(session)
-    # Sampled either side of the wait: one sample cannot support "stopped the
-    # whole time", and a machine stopped only at the end was running for part
-    # of the window. Same reasoning, and same wording, as `c64 wait --mem`.
     before = machine_state(s)
     out = wait_for_mem(s, session_ref(s, addr), parse_number(equals), timeout, op=op)
-    if not out.get("fired"):
-        stopped = before == "stopped" == machine_state(s)
-        out["machine"] = "stopped" if stopped else "running"
-        if stopped:
-            out["diagnosis"] = (
-                "the machine was STOPPED for the whole wait, so the byte "
-                "could not change: a wait polls memory, it never resumes the "
-                "CPU. Something before this stopped it (c64_until, c64_step, "
-                "c64_finish, or a checkpoint hit). Call c64_continue first, "
-                "or c64_wait_break if you meant to run to a checkpoint.")
-    return out
+    return _wait_verdict(s, before, out, "the byte could not change", "memory")
 
 
 @srv.tool()
@@ -568,14 +591,18 @@ def c64_wait_idle(timeout: float = 30.0, session: str | None = None) -> dict:
     this: the reset banner already says READY and matches instantly.
 
     A timeout is data, not an error: {"fired": null, "machine": "running",
-    "last_pcs": [...]} means the machine never reached direct mode in the
-    whole window — still running, or wedged, with the PCs naming the loop
-    (feed one to c64_rom_disasm). Caveat: a program blocked on INPUT/GET
-    sits in the same KERNAL routine and reads as idle."""
-    out = wait_for_idle(_attach(session), timeout)
-    if not out.get("fired"):
-        out["machine"] = "running"
-    return out
+    "last_pcs": [...]} means the machine ran the whole window without ever
+    reaching direct mode — still running, or wedged, with the PCs naming the
+    loop (feed one to c64_rom_disasm). "machine": "stopped" plus a
+    `diagnosis` string means the opposite: it was halted the whole time, so it
+    could not reach direct mode and is not wedged — call c64_continue rather
+    than hunting the loop. Caveat: a program blocked on INPUT/GET sits in the
+    same KERNAL routine and reads as idle."""
+    s = _attach(session)
+    before = machine_state(s)
+    out = wait_for_idle(s, timeout)
+    return _wait_verdict(s, before, out,
+                         "the program could not reach direct mode", "the PC")
 
 
 @srv.tool()
@@ -653,6 +680,10 @@ def c64_wait_break(timeout: float = 30.0, session: str | None = None,
     if out.get("fired"):
         out["pc_symbol"] = pc_symbol(session_labels(s), out.pop("registers"))
     else:
+        # Deliberately not _wait_verdict: this is the one wait that RESUMES
+        # the machine (and resumes it again on the timeout path), so "running"
+        # is a true claim and no window exists that "stopped the whole time"
+        # could describe.
         out["machine"] = "running"
     return out
 
@@ -1333,10 +1364,45 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     return sid_log_detail(s, frames, path)
 
 
+def _strict_verdict(out: dict, strict: bool) -> dict:
+    """Return a verdict payload, or raise when `strict` meets one that checked
+    nothing — the MCP analogue of the CLI's `--strict` exit 1.
+
+    A raise carries no payload, so the message names the artifacts: they were
+    written before the verdict was judged and are all still on disk, and a
+    strict caller must be able to read the report it just paid a capture
+    window for. That is what keeps this from undoing the CLI's rule that the
+    payload is emitted in full first.
+    """
+    if not (strict and out.get("nothing_played")):
+        return out
+    # FAIL and `nothing_played` together is the ordinary case, not an edge: with
+    # a `ref`, a silent capture diffs every scored entry as "heard nothing (log
+    # ended)" (`sid_analysis.diff_score`), so the verdict fails on the score it
+    # DID check. Telling that caller its verdict checked nothing would be false,
+    # and this raise is discarding the diffs behind it — so say where they went.
+    if out["verdict"] == "FAIL":
+        verdict_clause = (f"The {out['verdict']} verdict is a separate finding, "
+                          f"and this raise is standing in for it: the diffs and "
+                          f"failures behind it are in the report, under the "
+                          f"verdict, not in a return value.")
+    else:
+        verdict_clause = (f"The {out['verdict']} verdict therefore checked "
+                          f"nothing — no note sounded, so nothing could "
+                          f"disagree with it.")
+    raise RuntimeError(
+        f"nothing played: no voice sounded in this capture, and strict=True "
+        f"counts that as a failure. {verdict_clause} Every artifact was still "
+        f"written — read {out['report']}, and the rest of them in "
+        f"{out['outdir']}. No re-score finds notes in a silent log, so fix what "
+        f"the window opened on (a program that never started, a staging step "
+        f"that missed, a voice never gated) and capture it again.")
+
+
 @srv.tool()
 def c64_sid_report(log: str, outdir: str, wav: str | None = None,
                    ref: str | None = None, session: str | None = None,
-                   peak_hz: bool = False) -> dict:
+                   peak_hz: bool = False, strict: bool = False) -> dict:
     """Turn a captured SID register log (and its WAV, if there is one) into a
     verdict you can read: `report.md` in `outdir`, beside `piano-roll.png` and
     — with a WAV — `spectrogram.png`. Pure analysis, so it needs no running
@@ -1360,6 +1426,15 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     `peak` object measuring the WAV's loudest frequency — one rFFT over the
     whole file with DC excluded, so it is a bin centre and `resolution_cents`
     names how precise that answer is.
+
+    `nothing_played` in the result is the one PASS that means nothing: no voice
+    sounded, so no check had anything to disagree with. That is a legitimate
+    result when the claim is that the program is quiet, which is why it is
+    reported rather than failed — and it is equally what a window opened on the
+    wrong moment produces. `strict=True` raises on it instead, the analogue of
+    the CLI's `--strict` exit 1, for a caller that cannot mean the quiet claim.
+    The raise names the artifacts, which were all written before the verdict
+    was judged.
     """
     # Deliberately NOT shared with the CLI twin, unlike the measurement itself:
     # each front end names its own flags (peak_hz/wav here, --peak-hz/--wav
@@ -1370,8 +1445,9 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
         raise ValueError("peak_hz needs wav: a dominant partial is a property "
                          "of the recording, not of the register log")
     timing = report_timing_from(log, _attach(session).model if session else None)
-    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing,
-                      peak_hz=peak_hz)
+    return _strict_verdict(
+        sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing,
+                   peak_hz=peak_hz), strict)
 
 
 @srv.tool()
@@ -1400,7 +1476,8 @@ def c64_audio_score(file: str) -> dict:
 @srv.tool()
 def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
                       session: str | None = None,
-                      at_frame: dict[str, str] | None = None) -> dict:
+                      at_frame: dict[str, str] | None = None,
+                      strict: bool = False) -> dict:
     """Record the running program's audio and report on what it played — the
     one call that verifies SID music end to end. Pins real time, records
     `capture.wav`, logs the SID's registers to `sid-log.jsonl`, restores the
@@ -1446,9 +1523,17 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     before trusting its timing again. (A recorder that could not be disarmed
     is a different failure and still raises: that one leaves no finalized WAV
     to report on.)
+
+    `strict=True` raises when the result would carry `nothing_played` — no
+    voice sounded, so whatever verdict it reached checked nothing. The default
+    reports it instead, because a program proved quiet is a real claim; turn
+    this on where it cannot be one, such as regenerating a demo's audio
+    evidence. The artifacts are complete before the verdict is judged, so the
+    raise names them and nothing is lost.
     """
     # Parsed before the session is touched, and by the CLI's own parser: the
     # two front ends must reject the same spellings with the same words.
     writes = parse_frame_writes((at_frame or {}).items())
     s = _attach(session)
-    return capture(s, seconds, outdir, ref_path=ref, writes=writes)
+    return _strict_verdict(
+        capture(s, seconds, outdir, ref_path=ref, writes=writes), strict)

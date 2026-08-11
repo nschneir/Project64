@@ -46,9 +46,9 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
   is the text the command would have printed on its way to exit 1. A wait that
   times out is the case where the two sides genuinely differ: the CLI exits 1,
   while all four `c64_wait_*` tools return `{"fired": null, ...}` as data —
-  carrying the last screen, the last PCs, or `"machine": "running"` where
-  those apply — so a client can inspect what the program actually did instead
-  of parsing an error string.
+  carrying the last screen or the last PCs where those apply, and always
+  `"machine"`, where the machine was — so a client can inspect what the
+  program actually did instead of parsing an error string.
 - **The stopped-state rule is identical.** `c64_step`, `c64_finish`,
   `c64_until`, and a fired `c64_wait_break` leave the machine halted until
   `c64_continue` or an explicitly-resuming tool, across as many calls as you
@@ -127,20 +127,29 @@ One command with four mutually exclusive condition flags becomes four tools,
 each taking its own condition. On all four, a timeout returns
 `{"fired": null, ...}` rather than exiting 1.
 
-`c64_wait_mem` says **where the machine was** when it timed out, the way the
-CLI's `--mem` timeout does: `"machine": "stopped"` plus a `diagnosis` string
-means it was halted for the whole window — after a `c64_until`, `c64_step`,
-`c64_finish` or a checkpoint hit — so the byte could not change and
-`c64_continue` is the way out. `"machine": "running"` means the value
-genuinely never arrived. It is sampled either side of the wait, because one
-sample cannot support "stopped the whole time".
+`c64_wait_text`, `c64_wait_mem` and `c64_wait_idle` say **where the machine
+was** when they timed out, the way the CLI's timeouts do: `"machine":
+"stopped"` plus a `diagnosis` string means it was halted for the whole window
+— after a `c64_until`, `c64_step`, `c64_finish` or a checkpoint hit — so
+nothing could print, no byte could change and no program could reach direct
+mode, and `c64_continue` is the way out. `"machine": "running"` means the
+condition genuinely never fired. It is sampled either side of the wait,
+because one sample cannot support "stopped the whole time". `c64_wait_break`
+always reports `"running"`: it is the one wait that resumes the machine
+itself, so there is no such window to describe.
 
 | Tool | CLI | Divergence |
 |------|-----|------------|
-| `c64_wait_text` | `c64 wait --text` | — |
-| `c64_wait_mem` | `c64 wait --mem` | the `ADDR<op>VALUE` string is split into `addr`, `op`, and `equals` |
+| `c64_wait_text` | `c64 wait --text` | `diagnosis` is MCP-only (see below) |
+| `c64_wait_mem` | `c64 wait --mem` | the `ADDR<op>VALUE` string is split into `addr`, `op`, and `equals`; `diagnosis` is MCP-only (see below) |
 | `c64_wait_break` | `c64 wait --break` | `--break ID` is `checkpoint_id` |
-| `c64_wait_idle` | `c64 wait --idle` | — |
+| `c64_wait_idle` | `c64 wait --idle` | `diagnosis` is MCP-only (see below) |
+
+`diagnosis` has no CLI `--json` counterpart by design, not by omission. The
+CLI reports a timeout through its error path, and that `error` string already
+carries the same prose, so a separate key would print the sentence twice in
+one payload. These tools return a timeout as data, where the key is the only
+place the prose can live.
 
 ### Building and packaging
 
@@ -216,9 +225,25 @@ sample cannot support "stopped the whole time".
 |------|-----|------------|
 | `c64_audio_record` | `c64 audio record` | `--start PATH` and `--stop` become `action="start"` with `path`, or `action="stop"` |
 | `c64_sid_log` | `c64 audio sidlog` | renamed: the tool is named for what it logs |
-| `c64_audio_capture` | `c64 audio capture` | `--at-frame N SPEC` (repeatable) is one `at_frame` mapping, `{"N": "SPEC"}` |
-| `c64_sid_report` | `c64 audio report` | renamed to match `c64_sid_log`; `--peak-hz` is `peak_hz` |
+| `c64_audio_capture` | `c64 audio capture` | `--at-frame N SPEC` (repeatable) is one `at_frame` mapping, `{"N": "SPEC"}`; `--strict` is `strict` and raises where the CLI exits 1 (see below) |
+| `c64_sid_report` | `c64 audio report` | renamed to match `c64_sid_log`; `--peak-hz` is `peak_hz`; `--strict` is `strict` and raises where the CLI exits 1 (see below) |
 | `c64_audio_score` | `c64 audio score` | — |
+
+`strict=True` on those two is the exit code's analogue, so it raises rather
+than returning: `nothing_played` means no voice sounded and the verdict checked
+nothing, and a caller that cannot mean "this program is quiet" wants that as a
+failure. It is off by default on both sides, and the raise **names the
+artifacts** — the report, the roll, the spectrogram are all written before the
+verdict is judged, and a raise carries no payload to point at them with.
+
+A FAIL verdict otherwise returns as data on both tools, exactly as it does under
+`--json`: it is a finding about the program, and the CLI's exit 1 has no MCP
+counterpart there. `strict=True` over a `nothing_played` payload is the one
+exception, and it is the *common* case for a strict caller that passed a `ref`:
+a silent capture diffs every scored entry as "heard nothing", so the verdict is
+FAIL and `nothing_played` is true at once. The raise wins there, so those diffs,
+anomalies and `failures` are in `report.md` rather than in a return value — the
+message says as much, and says which of the two things it is reporting.
 
 ### Test runner
 

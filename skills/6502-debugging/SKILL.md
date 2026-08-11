@@ -45,13 +45,18 @@ tell that it fell off the rails, not that ROM itself is at fault.
 
 Symptom: the screen stops changing, input does nothing, and `c64 status`
 still reports the machine running. The usual first signal is a `c64 wait`
-that times out — the machine ran for the whole timeout without ever
-reaching the state you asked for. `c64 wait --idle` is the sharpest form of
-that signal, because it asks for the one state every finished or errored
-program reaches: it fires the moment BASIC is back at direct mode, and its
-*timeout* means the machine never got there and reports the PCs it saw, so
-step 1 below is already done for you. Resist the urge to reset: a wedged
-machine is still holding every piece of evidence you need. Three steps
+that times out on a **running** machine — it ran for the whole timeout
+without ever reaching the state you asked for. Check that first: a wait only
+polls, so one issued on a machine already halted (by a `c64 until`, a `step`,
+a `finish`, or a checkpoint hit) burns its whole timeout for a different
+reason, and says so — `"machine": "stopped"` and a pointer at `c64 continue`,
+deliberately *not* at this playbook, because sampling a PC that cannot move
+proves nothing. `c64 wait --idle` is the sharpest form of the running signal,
+because it asks for the one state every finished or errored program reaches:
+it fires the moment BASIC is back at direct mode, and a timeout with
+`"machine": "running"` means the machine never got there and reports the PCs
+it saw, so step 1 below is already done for you. Resist the urge to reset: a
+wedged machine is still holding every piece of evidence you need. Three steps
 name the defective instruction:
 
 1. `c64 reg`, two or three times, a second apart. A PC pinned in a narrow

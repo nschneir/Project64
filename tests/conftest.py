@@ -14,6 +14,7 @@ behavior itself.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -24,6 +25,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from click.testing import Result
 
 from c64lib.screen import read_screen_text
 from c64lib.session import Session, _pid_alive
@@ -55,6 +57,23 @@ def pytest_collection_modifyitems(config, items):
 #: reset below proves the machine really rebooted instead of us reading the
 #: previous test's stale screen.
 SENTINEL = 0x0400
+
+
+# --- shared assertions ----------------------------------------------------
+
+def assert_json_error(result: Result) -> dict:
+    """Assert a ``--json`` invocation failed *inside* the JSON error contract,
+    and return the parsed payload so a caller can assert about the message.
+
+    The exit code alone proves nothing here: an escaped exception exits 1 too,
+    with stdout empty. Parsing stdout is the assertion that distinguishes them,
+    which is why it is not wrapped — a `JSONDecodeError` names the real defect.
+    """
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert isinstance(payload.get("error"), str) and payload["error"], \
+        f"no error message in the failure payload: {payload!r}"
+    return payload
 
 
 # --- emulators left behind by an earlier run ------------------------------

@@ -1,6 +1,7 @@
 import json
 from unittest.mock import Mock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from c64lib.cli import main
@@ -229,7 +230,81 @@ def test_wait_mem_timeout_needs_both_samples_stopped():
     assert "STOPPED" not in out["error"]
 
 
+def test_wait_text_timeout_says_the_machine_was_stopped():
+    """Same footgun as `--mem`, one flag over: a wait polls the screen and
+    never resumes the CPU, so a machine halted for the whole window could
+    print nothing. Claiming "running" there sends the reader hunting a bug in
+    the program instead of to `c64 continue`."""
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="stopped"), \
+         patch("c64lib.cli.wait_for_text",
+               return_value={"fired": None, "timeout": 0.1, "screen": "READY."}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--text", "NEVER",
+                                      "--timeout", "0.1"])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["error"]
+    assert "c64 continue" in out["error"]
+    # `docs/mcp.md` documents `diagnosis` as MCP-only by design: the CLI's
+    # timeout is an error, so the prose lives in `error` and a second key
+    # carrying it would be the divergence going quietly away.
+    assert "diagnosis" not in out
+
+
+def test_wait_idle_timeout_says_the_machine_was_stopped():
+    """A stopped machine cannot reach direct mode either — and it is not a
+    wedge, so the wedged-machine playbook (sample `reg` a second apart, then
+    `step`) would have the reader watch a PC that cannot move."""
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="stopped"), \
+         patch("c64lib.cli.wait_for_idle",
+               return_value={"fired": None, "timeout": 0.1,
+                             "last_pcs": [0x033C, 0x0340, 0x033C]}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--idle",
+                                      "--timeout", "0.1"])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["error"]
+    assert "c64 continue" in out["error"]
+    assert "6502-debugging" not in out["error"], \
+        "a stopped machine is not a wedge; the playbook is the wrong advice"
+    assert "diagnosis" not in out, \
+        "`docs/mcp.md` documents `diagnosis` as MCP-only: here it is the error"
+
+
+@pytest.mark.parametrize("states", [["running", "stopped"], ["stopped", "running"]])
+def test_wait_idle_timeout_needs_both_samples_stopped(states):
+    """One sample cannot support "stopped for the whole wait". Both orderings
+    are exercised because only one of them reads the second sample: a machine
+    already running at the start short-circuits the comparison, so it is the
+    one stopped only at the START, running again by the end, that proves the
+    second sample is what decides."""
+    fake, _ = _fake()
+    seen = iter(states)
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", side_effect=lambda _s: next(seen)), \
+         patch("c64lib.cli.wait_for_idle",
+               return_value={"fired": None, "timeout": 0.1,
+                             "last_pcs": [0x033C]}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--idle",
+                                      "--timeout", "0.1"])
+    out = json.loads(r.output)
+    assert r.exit_code == 1 and out["machine"] == "running"
+    assert "STOPPED" not in out["error"]
+
+
 def test_wait_break_timeout_says_machine_running():
+    """`--break` is the one arm that keeps the unconditional claim, and it is
+    a true one: it resumes the machine itself and its timeout path resumes it
+    again, so there is no window a "stopped the whole time" diagnosis could
+    describe. Deliberately excluded from the two-sample treatment."""
     fake, mon = _fake()
     with patch("c64lib.cli.Session") as S, \
          patch("c64lib.cli.wait_for_break", return_value={"fired": None}):
@@ -243,15 +318,21 @@ def test_wait_break_timeout_says_machine_running():
 
 
 def test_wait_text_timeout_carries_machine_field():
+    """The other half of the stopped claim: a machine that ran the whole
+    window genuinely never printed the text, and pointing the reader at
+    `c64 continue` there would be a wrong answer."""
     fake, mon = _fake()
     with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"), \
          patch("c64lib.cli.wait_for_text",
                return_value={"fired": None, "timeout": 0.1, "screen": "READY."}):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "wait", "--text", "X",
                                       "--timeout", "0.1"])
     assert r.exit_code == 1
-    assert json.loads(r.output)["machine"] == "running"
+    out = json.loads(r.output)
+    assert out["machine"] == "running"
+    assert "STOPPED" not in out["error"]
 
 
 def test_wait_break_with_id_filter():
@@ -313,10 +394,12 @@ def test_wait_idle_fires():
 
 
 def test_wait_idle_timeout_points_at_the_wedge_playbook():
-    """The timeout IS the wedge detector: it has to say the machine may be
-    stuck and name the playbook that takes it apart."""
+    """On a machine that was RUNNING the timeout IS the wedge detector: it has
+    to say the machine may be stuck and name the playbook that takes it
+    apart."""
     fake, _ = _fake()
     with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"), \
          patch("c64lib.cli.wait_for_idle",
                return_value={"fired": None, "timeout": 0.1,
                              "last_pcs": [0x033C, 0x0340, 0x033C]}):

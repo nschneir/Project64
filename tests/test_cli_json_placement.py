@@ -1,5 +1,6 @@
 """--json works before OR after the subcommand (the trailing position is
-what people type first)."""
+what people type first), and an exception no command caught still lands as a
+JSON error object rather than a traceback over empty stdout."""
 
 import json
 from unittest.mock import Mock, patch
@@ -8,7 +9,9 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from c64lib.cli import main
+from c64lib.cli import JsonAwareGroup, fail, main
+from c64lib.session import SessionError
+from tests.conftest import assert_json_error
 
 
 @pytest.fixture(autouse=True)
@@ -125,6 +128,117 @@ def test_trailing_dash_s_wins_over_a_leading_one():
                                       "-s", "b"])
     assert r.exit_code == 0, r.output
     S.attach.assert_called_once_with("b")
+
+
+# --- the last-chance error boundary ---------------------------------------
+
+def _boom_cli(exc: BaseException) -> click.Group:
+    """A `main` look-alike built on the real group class: `boom` raises `exc`
+    with nothing catching it, `nested boom` does the same one group deeper, and
+    `polite` reports through `fail()`. Synthetic because the guard is generic —
+    it must hold for a command that has not been written yet."""
+    @click.group(cls=JsonAwareGroup)
+    @click.option("--json", "json_out", is_flag=True)
+    @click.pass_context
+    def cli(ctx: click.Context, json_out: bool) -> None:
+        ctx.obj = {"json": json_out, "session": None}
+
+    @cli.command("boom")
+    def boom() -> None:
+        raise exc
+
+    @cli.group("nested")
+    def nested() -> None:
+        pass
+
+    @nested.command("boom")
+    def nested_boom() -> None:
+        raise exc
+
+    @cli.command("polite")
+    @click.pass_context
+    def polite(ctx: click.Context) -> None:
+        fail(ctx, "no such thing; run `c64 help` for the list")
+
+    return cli
+
+
+@pytest.mark.parametrize("exc, fragment", [
+    (ValueError("bad LENGTH 'zz'"), "bad LENGTH 'zz'"),
+    (KeyError("port"), "port"),            # str(KeyError) is the bare quoted key
+    (OSError("registry unreadable"), "registry unreadable"),
+    # SessionError subclasses none of the three, so the tuple names it:
+    (SessionError("session record is unreadable"), "session record is unreadable"),
+    # An argless raise: `str(ValueError())` is '', and `{"error": ""}` is a
+    # payload that parses and says nothing. The class name is the floor.
+    (ValueError(), "ValueError"),
+])
+def test_an_escaped_input_error_still_lands_in_the_json_contract(exc, fragment):
+    r = CliRunner().invoke(_boom_cli(exc), ["boom", "--json"])
+    assert fragment in assert_json_error(r)["error"]
+
+
+def test_an_escaped_error_from_a_nested_group_is_reported_exactly_once():
+    """Every nested group is a `JsonAwareGroup` too (`group_class = type`), so
+    the guard is inherited at every level. The inner one reports and exits;
+    `SystemExit` is not caught, so the outer one must not report again — two
+    concatenated objects on stdout would not parse."""
+    r = CliRunner().invoke(_boom_cli(ValueError("bad LENGTH 'zz'")),
+                           ["nested", "boom", "--json"])
+    assert assert_json_error(r)["error"] == "bad LENGTH 'zz'"
+
+
+def test_the_escaped_traceback_still_reaches_stderr():
+    """The payload says what broke; the traceback says where. stderr is the
+    only place it can go without making stdout unparseable."""
+    r = CliRunner().invoke(_boom_cli(ValueError("bad LENGTH 'zz'")),
+                           ["boom", "--json"])
+    assert "Traceback (most recent call last)" in r.stderr
+    assert "ValueError: bad LENGTH 'zz'" in r.stderr
+
+
+def test_a_fail_call_is_not_double_reported():
+    """`fail()` exits by raising `SystemExit`; catching that would append the
+    guard's own payload to the one the command already wrote."""
+    r = CliRunner().invoke(_boom_cli(ValueError("never raised")), ["polite", "--json"])
+    assert assert_json_error(r)["error"] == "no such thing; run `c64 help` for the list"
+    assert "Traceback" not in r.stderr
+
+
+def test_an_escaped_error_without_json_stays_human():
+    r = CliRunner().invoke(_boom_cli(ValueError("bad LENGTH 'zz'")), ["boom"])
+    assert r.exit_code == 1
+    assert r.stdout == "", "a --json-less caller got machine output on stdout"
+    assert "error: bad LENGTH 'zz'" in r.stderr
+
+
+def test_a_failure_before_the_group_callback_is_still_reported():
+    """`ctx.obj` is None until the group callback fills it, and the guard wraps
+    that callback too — so the json flag is read defensively. Indexing
+    `ctx.obj` here would replace the report with a `TypeError`."""
+    @click.group(cls=JsonAwareGroup)
+    def cli() -> None:
+        raise ValueError("bad --session name ''")
+
+    @cli.command("boom")
+    def boom() -> None:
+        pass
+
+    r = CliRunner().invoke(cli, ["boom"])
+    assert r.exit_code == 1
+    assert "error: bad --session name ''" in r.stderr
+
+
+def test_a_genuine_bug_is_not_dressed_up_as_an_input_error():
+    """The tuple never widens to bare `Exception`, so a defect that is not
+    input-shaped stays a traceback instead of posing as user error. `RuntimeError`
+    specifically must stay out for a second reason: `ctx.exit()` raises
+    `click.exceptions.Exit`, which subclasses it, so catching `RuntimeError`
+    would turn every `ctx.exit(1)` into `{"error": "1"}`."""
+    r = CliRunner().invoke(_boom_cli(RuntimeError("monitor client is confused")),
+                           ["boom", "--json"])
+    assert isinstance(r.exception, RuntimeError)
+    assert r.stdout == ""
 
 
 def test_session_commands_keep_their_own_dash_s_meaning():

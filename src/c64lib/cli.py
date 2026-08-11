@@ -6,6 +6,7 @@ from __future__ import annotations
 import json as _json
 import sys
 import time
+import traceback
 from dataclasses import asdict
 from pathlib import Path
 from typing import NoReturn
@@ -103,17 +104,28 @@ from .text import GUTTER_LABELS, gutter_text
 
 
 def emit(ctx: click.Context, data: dict, human: str) -> None:
+    # Indexes `ctx.obj` where `fail()` goes through `_json_mode()`: `emit` is
+    # only ever reached from a command body, which cannot run before the group
+    # callback has filled `ctx.obj`. A KeyError here would be that invariant
+    # breaking, and worth the traceback.
     if ctx.obj["json"]:
         click.echo(_json.dumps(data))
     else:
         click.echo(human)
 
 
+def _json_mode(ctx: click.Context) -> bool:
+    """Whether --json was asked for, tolerating `ctx.obj is None` — which is how
+    a context looks before the group callback that fills it has run. Ordinary
+    commands cannot see that state; `JsonAwareGroup`'s boundary guard can."""
+    return bool(ctx.obj and ctx.obj.get("json"))
+
+
 def fail(ctx: click.Context, message: str, extra: dict | None = None) -> NoReturn:
     """Report `message` and exit 1. Never returns — `NoReturn` is what lets a
     caller treat the line after a `fail()` as unreachable (the `help` command
     relies on it to know a resolved subcommand is not None)."""
-    if ctx.obj["json"]:
+    if _json_mode(ctx):
         click.echo(_json.dumps({"error": message, **(extra or {})}))
     else:
         click.echo(f"error: {message}", err=True)
@@ -212,6 +224,65 @@ class JsonAwareGroup(click.Group):
         super().__init__(*args, **kwargs)
         _append_json_option(self)
         _append_session_option(self)
+
+    def invoke(self, ctx: click.Context) -> object:
+        """Last-chance funnel into the `fail()` contract: an input-shaped
+        exception no command thought to catch still exits 1 with a parseable
+        `{"error": ...}` on stdout, rather than a traceback over stdout left
+        empty — which no `--json` caller can read, and cannot be told apart
+        from a crashed process.
+
+        Structural because per-site patching demonstrably failed: six instances
+        of this one defect were fixed one at a time, and two of those were found
+        only by a later sweep, having survived review. The guard is the floor,
+        not the ceiling — a command that wants an actionable sentence still
+        calls `fail()` itself, and the traceback goes to stderr either way.
+
+        The tuple is narrower than "every input error", and in both
+        directions. A bug that is *not* input-shaped still surfaces as a
+        traceback — but a `KeyError` on one of our own dicts, or an `OSError`
+        from the daemon socket, is a bug and is caught here, dressed as user
+        error. `SessionError` is named because it subclasses none of the three.
+
+        Deliberately outside the tuple: every other domain exception in
+        `src/c64lib/` — `BasicError`, `BuildError`, `CartError`, `DiskError`,
+        `MonitorError`, `PackageError`, `ProtocolError` and `TestError`, all
+        direct `Exception` subclasses, plus `AudioError` (and its
+        `PinnedStopError`) under `RuntimeError`. `CharsetError` is the only one
+        that arrives here by inheritance, being a `ValueError`. *Most* are
+        input-shaped by construction — raised for a bad user file, manifest or
+        spec — but not all, and a widening would have to sort them rather than
+        take the family wholesale: `ProtocolError` reports a corrupt monitor
+        frame (`protocol.py`'s bad start byte) and `MonitorError` is VICE
+        rejecting a command, each as often a defect here as a user's mistake.
+        Either way the omission is scope rather than judgement: the change that
+        added this guard specified this tuple, and widening it to those nine is
+        its own change with its own tests. Until that happens they still
+        escape wherever no local `try` covers them,
+        which is why the per-site `except DiskError`/`except BuildError`
+        handlers below — two dozen of them — stay load-bearing, not redundant.
+
+        `click.ClickException`, `click.Abort` and `SystemExit` are absent for
+        two *separate* mechanisms. `fail()` exits by raising `SystemExit`, so
+        catching that would double-report every ordinary error. `ctx.exit()`
+        does not: it raises `click.exceptions.Exit`, which is a `RuntimeError`
+        subclass (so is `click.Abort`) — **which is why `RuntimeError` must
+        never enter the tuple**. It is a deliberate error type in this tree
+        rather than a rare one — eight raise sites in `src/c64lib/`, including
+        `rpc.py` turning every daemon-side error into one and the MCP server's
+        routine-never-returned timeouts — so widening to it reads as
+        reasonable, and it would swallow `_verdict_report`'s `ctx.exit(1)`
+        below and report `{"error": "1"}` for a FAIL or `--strict` verdict.
+        """
+        try:
+            return super().invoke(ctx)
+        except (ValueError, KeyError, OSError, SessionError) as e:
+            traceback.print_exc()
+            # The class name as a floor: `str(ValueError())` is '' and an
+            # `{"error": ""}` payload tells a --json caller nothing (and is
+            # what `assert_json_error` rejects). No argless raise reaches here
+            # today; this costs one `or` to keep it that way.
+            fail(ctx, str(e) or type(e).__name__)
 
 
 @click.group(cls=JsonAwareGroup)
@@ -1334,6 +1405,18 @@ def profile_cmd(ctx, ref, samples, with_irq, timeout):
     emit(ctx, payload, human)
 
 
+def _stopped_wait_detail(effect: str, polls: str) -> str:
+    """The `wait` timeout clause for a machine that was halted the whole
+    window. Shared by --text/--mem/--idle so the three cannot drift: only the
+    effect ("the byte could not change") and what the wait polls differ, and
+    the remedy is the same one in every case."""
+    return (f" — the machine was STOPPED for the whole wait, so {effect}: a "
+            f"wait polls {polls}, it never resumes the CPU. Something before "
+            "this stopped it (`c64 until`, `step`, `finish`, or a checkpoint "
+            "hit). Run `c64 continue` first, or use `c64 wait --break` if you "
+            "meant to run to a checkpoint.")
+
+
 @main.command("wait")
 @click.option("--text", "text_cond", default=None, help="Wait for screen text.")
 @click.option("--mem", "mem_cond", default=None,
@@ -1376,19 +1459,29 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
     labels = session_labels(s)
 
     if idle_cond:
+        # Sampled either side of the wait, for the reason spelled out at
+        # --mem below: one sample cannot support "stopped the whole time".
+        before = machine_state(s)
         out = wait_for_idle(s, timeout)
         if out["fired"]:
             emit(ctx, {"fired": "idle", "elapsed": out["elapsed"]},
                  "machine idle: the program has finished or errored")
             return
         pcs = " ".join(f"${pc:04x}" for pc in out["last_pcs"])
+        stopped = before == "stopped" == machine_state(s)
+        # A stopped machine is not a wedge, so here the diagnosis REPLACES the
+        # playbook instead of joining it: the playbook has the reader sample
+        # `reg` a second apart and then `step`, on a PC that cannot move.
+        detail = (_stopped_wait_detail("the program could not reach direct mode",
+                                       "the PC") if stopped else
+                  " — it never reached direct mode, and may be wedged. Take it "
+                  "apart with the wedged-machine playbook in the "
+                  "`6502-debugging` skill: sample `c64 reg` a second apart, "
+                  "`c64 disasm <PC-8> 24` the loop body, then `c64 step` "
+                  "watching for the register that never changes.")
         fail(ctx, f"timeout after {timeout}s waiting for the machine to go "
-                  f"idle — it never reached direct mode, and may be wedged "
-                  f"(PC last seen at {pcs}). Take it apart with the wedged-machine "
-                  "playbook in the `6502-debugging` skill: sample `c64 reg` "
-                  "a second apart, `c64 disasm <PC-8> 24` the loop body, then "
-                  "`c64 step` watching for the register that never changes.",
-             extra={"machine": "running"})
+                  f"idle (PC last seen at {pcs}){detail}",
+             extra={"machine": "stopped" if stopped else "running"})
         return
 
     if break_cond:
@@ -1399,6 +1492,10 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
             return
         out = wait_for_break(s, timeout, number=number)
         if not out.get("fired"):
+            # Deliberately keeps the unconditional claim: this is the one wait
+            # that RESUMES the machine (and resumes it again on the timeout
+            # path), so "running" is true and there is no window a "stopped
+            # the whole time" diagnosis could describe.
             fail(ctx, f"timeout: no checkpoint hit within {timeout}s — machine "
                       "left running; your checkpoints remain set.",
                  extra={"machine": "running"})
@@ -1410,13 +1507,21 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         return
 
     if text_cond:
+        # Sampled either side of the wait, for the reason spelled out at
+        # --mem below: one sample cannot support "stopped the whole time".
+        before = machine_state(s)
         out = wait_for_text(s, text_cond, timeout, since=since)
         if out["fired"]:
             emit(ctx, {"fired": "text", "elapsed": out["elapsed"]}, "text condition met")
             return
+        stopped = before == "stopped" == machine_state(s)
+        # Ahead of the screen dump: the diagnosis is why the timeout happened,
+        # and 25 lines of screen between it and the reader buries it.
+        detail = ("" if not stopped else
+                  _stopped_wait_detail("nothing could be printed", "the screen"))
         fail(ctx, f"timeout after {timeout}s waiting for --text {text_cond}"
-                  f"; last screen:\n{out['screen']}",
-             extra={"machine": "running"})
+                  f"{detail}\nlast screen:\n{out['screen']}",
+             extra={"machine": "stopped" if stopped else "running"})
         return
 
     try:
@@ -1443,11 +1548,7 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         return
     stopped = before == "stopped" == machine_state(s)
     detail = ("" if not stopped else
-              " — the machine was STOPPED for the whole wait, so the byte "
-              "could not change: a wait polls memory, it never resumes the "
-              "CPU. Something before this stopped it (`c64 until`, `step`, "
-              "`finish`, or a checkpoint hit). Run `c64 continue` first, or "
-              "use `c64 wait --break` if you meant to run to a checkpoint.")
+              _stopped_wait_detail("the byte could not change", "memory"))
     fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}"
               f" (last value {out['last_value']}){detail}",
          extra={"machine": "stopped" if stopped else "running"})
@@ -2424,17 +2525,29 @@ def audio_sidlog(ctx, frames, path):
 #: capture can produce one diff per note; the report holds them all.
 FINDINGS_SHOWN = 10
 
+#: One wording for both verdict commands: the flag means the same thing on
+#: each, and `_verdict_report` implements it once, so two hand-written help
+#: strings could only drift apart.
+STRICT_HELP = ("Treat a verdict that checked nothing as a failure: exit 1 when "
+               "nothing played. Off by default, since a program proved quiet "
+               "is a real result — turn it on where it cannot be one, as an "
+               "evidence script should.")
 
-def _verdict_report(ctx, out: dict, headline: str) -> None:
-    """Emit a report payload, then exit 1 if its verdict is FAIL.
+
+def _verdict_report(ctx, out: dict, headline: str, strict: bool = False) -> None:
+    """Emit a report payload, then exit 1 if its verdict is FAIL — or, under
+    `strict`, if the verdict checked nothing.
 
     A FAIL is a finding about the program, not a broken command, so the
     payload is emitted in full first (`--json` callers get the diffs, not an
     `{"error": ...}`) — but it exits non-zero, because an evidence script that
-    treats "the report was written" as success proves nothing.
+    treats "the report was written" as success proves nothing. `strict` is that
+    same argument applied to `nothing_played`, and it is opt-in for the reason
+    the warning below gives.
     """
     lines = [f"{out['verdict']}: {out['report']}", headline]
-    if out.get("nothing_played"):
+    nothing_played = bool(out.get("nothing_played"))
+    if nothing_played:
         # A PASS over an empty capture is the one verdict that means nothing:
         # no note sounded, so no check had anything to disagree with. It is
         # not a failure — proving a program is quiet is a real claim — but it
@@ -2443,13 +2556,21 @@ def _verdict_report(ctx, out: dict, headline: str) -> None:
                      "capture, so the verdict above checked nothing. Confirm "
                      "the capture window was where you meant it. (Details "
                      "under the verdict in the report.)")
+        if strict:
+            # Its own line, leaving the wording above untouched: the warning is
+            # what the default prints and the exit code is all the flag adds,
+            # so the flag says so itself rather than leaving an unexplained 1.
+            # Phrased as the rule, not as this run's cause — a payload can be
+            # FAIL and nothing_played at once, and then the FAIL exited anyway.
+            lines.append("--strict: a verdict that checked nothing counts as a "
+                         "failure, so this exits 1")
     findings = list(out["diffs"]) + list(out["anomalies"])
     lines += [f"- {f}" for f in findings[:FINDINGS_SHOWN]]
     if len(findings) > FINDINGS_SHOWN:
         lines.append(f"- ... and {len(findings) - FINDINGS_SHOWN} more, "
                      f"all of them in the report")
     emit(ctx, out, "\n".join(line for line in lines if line))
-    if out["verdict"] == "FAIL":
+    if out["verdict"] == "FAIL" or (strict and nothing_played):
         ctx.exit(1)
 
 
@@ -2466,14 +2587,17 @@ def _verdict_report(ctx, out: dict, headline: str) -> None:
 @click.option("--peak-hz", "peak_hz", is_flag=True,
               help="Also measure the WAV's loudest frequency, and how precise "
                    "that answer is. Needs --wav.")
+@click.option("--strict", is_flag=True, help=STRICT_HELP)
 @click.pass_context
-def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
+def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz, strict):
     """Analyse a captured SID log (and its WAV) into a verdict.
 
     Writes `report.md` into OUTDIR next to `piano-roll.png` and, with a WAV,
     `spectrogram.png`. Transcribes the log to note events, diffs them against
     --ref, and lists the anomalies no working tune produces. Exits 1 when the
-    verdict is FAIL — the payload is still printed.
+    verdict is FAIL — the payload is still printed. With --strict, a capture in
+    which nothing played exits 1 the same way: that verdict checked nothing,
+    which is a legitimate result and never a passing one for an evidence run.
 
     The transcription needs the machine's clock. A log captured by these
     tools STAMPS it on line 1, so a re-score needs nothing: `-s NAME` is an
@@ -2531,7 +2655,7 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
                  else f" (+-{peak['resolution_cents']:.2f} cents)")
         headline += (f"\npeak {peak['peak_hz']:.2f} Hz, bin {peak['bin']} of "
                      f"{peak['bin_hz']:.4f} Hz{cents}")
-    _verdict_report(ctx, out, headline)
+    _verdict_report(ctx, out, headline, strict=strict)
 
 
 @audio.command("score")
@@ -2592,14 +2716,16 @@ def audio_score(ctx, file):
                    "window — the only way to trigger something inside it, "
                    "since nothing else may drive the session while it is "
                    "open. Repeatable; repeats of one frame merge in order.")
+@click.option("--strict", is_flag=True, help=STRICT_HELP)
 @click.pass_context
-def audio_capture(ctx, seconds, outdir, ref_path, at_frames):
+def audio_capture(ctx, seconds, outdir, ref_path, at_frames, strict):
     """Record SECONDS of the running program and report on what it played.
 
     One call for the whole loop: pin real time, record `capture.wav`, log the
     SID's registers to `sid-log.jsonl`, restore the session's speed, and write
     `piano-roll.png`, `spectrogram.png`, and `report.md` into OUTDIR. Exits 1
-    when the verdict is FAIL.
+    when the verdict is FAIL, and with --strict when nothing played — a window
+    that recorded silence checked nothing, whatever verdict it reached.
 
     SECONDS is EMULATED time, and it costs several times that in wall clock:
     the machine advances one frame per monitor round trip while the log is
@@ -2661,4 +2787,4 @@ def audio_capture(ctx, seconds, outdir, ref_path, at_frames):
         # under the verdict says that much and where the rest is.
         headline += ("\nwarning: this session could not be unpinned; the "
                      "reason is on stderr, and in `unpin_error` with --json")
-    _verdict_report(ctx, out, headline)
+    _verdict_report(ctx, out, headline, strict=strict)

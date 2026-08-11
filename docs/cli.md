@@ -657,24 +657,34 @@ Exactly one of `--text`/`--mem`/`--break`/`--idle` is required. JSON on fire:
 "checkpoint", "pc", "pc_symbol", "elapsed"}`. Exit 1 on timeout (the error
 carries the last screen for `--text`).
 
-On timeout `c64 wait` exits 1 and the machine is **left running**;
-checkpoints you set remain set (JSON gains `"machine": "running"`).
+On timeout `c64 wait` exits 1 and checkpoints you set remain set; the JSON
+says **where the machine was** (`"machine": "running"` or `"stopped"`).
+`"stopped"` is the claim that carries weight — it takes two samples, both
+stopped — so read `"running"` as *not provably stopped for the whole window*:
+a session with no daemon socket cannot be asked, and that unknown reads as
+`"running"` too. `--break` always reports `"running"`, because it resumes the
+machine itself.
 
-One timeout is not that. A `--mem` wait issued on a machine that is
-**stopped** — after a `c64 until`, a `step`, a `finish`, or a checkpoint hit
-— polls a byte no running CPU is writing, so it can only burn the full
-timeout and report the value it started with. `c64 wait --mem` therefore
-samples the machine's state either side of the wait, and when it was stopped
-for the whole window the error says so and points at `c64 continue`
-(JSON gains `"machine": "stopped"` instead). This is the repo's
-most-repeated footgun; the message is what stops it costing two minutes and
-a false "the program is stuck" diagnosis.
+The other three only poll, and that is the footgun. A `--text`, `--mem` or
+`--idle` wait issued on a machine that is **stopped** — after a `c64 until`,
+a `step`, a `finish`, or a checkpoint hit — polls a screen, a byte or a PC no
+running CPU is changing, so it can only burn the full timeout and report what
+it started with. All three therefore sample the machine's state either side of
+the wait, and when it was stopped for the whole window the error says so and
+points at `c64 continue` (JSON gains `"machine": "stopped"` instead). This is
+the repo's most-repeated footgun; the message is what stops it costing two
+minutes and a false "the program is stuck" diagnosis. Two samples, because a
+machine stopped only at the end was running for part of the window and the
+condition genuinely never fired.
 
-A `--idle` timeout is the **wedge detector**: the machine ran the whole
-window without ever reaching direct mode, so it is still running or stuck in
-a loop. The error says so and carries the PCs it last saw — feed one to
-`c64 disasm` — and points at the wedged-machine playbook in the
-`6502-debugging` skill, which takes it apart in three steps.
+A `--idle` timeout on a machine that was **running** is the **wedge
+detector**: it ran the whole window without ever reaching direct mode, so it
+is still working or stuck in a loop. The error says so and carries the PCs it
+last saw — feed one to `c64 disasm` — and points at the wedged-machine
+playbook in the `6502-debugging` skill, which takes it apart in three steps.
+On a machine that was stopped throughout, that playbook is the wrong advice
+(its recipe watches a PC that cannot move), so the stopped diagnosis replaces
+it rather than joining it.
 
 ---
 
@@ -1661,6 +1671,9 @@ into OUTDIR.
   the order given, as do the writes inside one flag. Numbers are decimal,
   `$hex`, or `0xhex`; a value is one byte. A frame the window never reaches
   is refused before anything is pinned, like a malformed `--ref`.
+- `--strict` — also exit 1 when nothing played, not only when the verdict is
+  FAIL. Off by default; see **A capture in which nothing played still passes**
+  below.
 
 Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
@@ -1707,6 +1720,16 @@ result when the claim is that the program is quiet, and it is equally what a
 capture window that opened on the wrong moment produces. `nothing_played`
 needs the recording to agree: no gated voice over a WAV with audio in it is
 `$D418` sample playback, which the transcription cannot see and does not deny.
+
+**`--strict` is the opt-in for callers that cannot mean the quiet claim.**
+With it, `nothing_played` exits 1 — the payload still printed in full, exactly
+as a FAIL is, plus one line naming the flag as the reason for the code. Without
+it nothing changes: same warning, same exit 0. An evidence script is the caller
+the flag exists for, because "the report was written" is not evidence that
+anything played (both demos' `tools/audio-evidence.sh` pass it); a session
+where quiet is the hypothesis is the caller that must not have it.
+`c64 audio report --strict` is the same flag on the same verdict, so a re-score
+of an old log reaches the same exit code as the capture would have.
 
 Start the music before you call this. A capture that opens before the first
 gate begins with a rest the reference score does not list; that rest is
@@ -1801,6 +1824,8 @@ new capture only when the *program* changes.
 - `--peak-hz` — also measure the recording's loudest frequency. Needs
   `--wav`. (MCP note: the same measurement is `peak_hz` on `c64_sid_report`,
   which refuses it without a `wav` for the same reason.)
+- `--strict` — also exit 1 when nothing played. The same flag `audio capture`
+  carries, documented under it.
 
 Exits 1 when the verdict is FAIL, same as `audio capture`.
 

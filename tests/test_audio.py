@@ -2004,6 +2004,39 @@ def test_capture_refuses_a_write_aimed_past_its_own_window(vice_text, tmp_path):
     assert vice.sets == []
 
 
+#: The default's wording, pinned in full: `--strict`/`strict` changes the exit
+#: contract and nothing else, so this sentence has to read the same in both
+#: modes and on both front ends.
+NOTHING_PLAYED_WARNING = (
+    "warning: nothing played — no voice sounded in this capture, so the "
+    "verdict above checked nothing. Confirm the capture window was where you "
+    "meant it. (Details under the verdict in the report.)")
+
+
+#: A silent capture scored against a reference: `diff_score` emits one of these
+#: per scored entry (`sid_analysis.py`), which is what makes the verdict FAIL
+#: and `nothing_played` true at the same time.
+HEARD_NOTHING = "voice 1 event 1: expected A4, heard nothing (log ended)"
+
+
+def _quiet_report(**extra) -> dict:
+    """A PASS payload over a capture in which nothing sounded — enough keys for
+    either front end's verdict path, shared so the strict cases below all judge
+    the same payload."""
+    return {"outdir": "/tmp/o", "report": "/tmp/o/report.md",
+            "verdict": "PASS", "diffs": [], "anomalies": [], "notes": 0,
+            "nothing_played": True, "machine": "c64", "clock_hz": NTSC,
+            "fps": 60, **extra}
+
+
+def _failing_quiet_report(**extra) -> dict:
+    """The payload a `--ref`'d silent capture really produces — FAIL *and*
+    `nothing_played` — which is the state both adopted evidence scripts hit
+    first, since every capture in them passes a score."""
+    return _quiet_report(verdict="FAIL", diffs=[HEARD_NOTHING],
+                         failures=["score diff: 1 difference"], **extra)
+
+
 # --- MCP tools ----------------------------------------------------------------
 
 def test_mcp_sid_report_defaults_to_pal_with_no_session(tmp_path):
@@ -2105,6 +2138,93 @@ def test_mcp_audio_capture_reports_a_write_it_cannot_parse():
                               "at_frame": {"6": "$d404"}})
     assert err is True and "ADDR=VAL" in str(out)
     cap.assert_not_called()
+
+
+def test_mcp_sid_report_returns_a_quiet_capture_by_default():
+    """The default is the same on both front ends: a verdict that checked
+    nothing comes back as data, because proving a program is quiet is a real
+    claim and `nothing_played` in the payload is how it is reported."""
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report", return_value=_quiet_report()):
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                                "outdir": "/tmp/o"})
+    assert err is False and out["nothing_played"] is True
+
+
+def test_mcp_sid_report_strict_raises_when_nothing_played():
+    """`strict=True` is the CLI exit code's analogue: a raise. It must not lose
+    the evidence — the artifacts are written before the verdict is judged, so
+    the message names the report the caller still has to read."""
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report", return_value=_quiet_report()):
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                                "outdir": "/tmp/o",
+                                                "strict": True})
+    assert err is True
+    assert "nothing played" in str(out), out
+    assert "checked nothing" in str(out), \
+        "over a PASS the raise has to say the verdict itself proved nothing"
+    assert "/tmp/o/report.md" in str(out), \
+        "a strict raise that names no artifact leaves the caller nothing to read"
+
+
+def test_mcp_sid_report_strict_over_a_failing_silent_capture():
+    """FAIL and `nothing_played` at once — what a silent capture scored against
+    a reference really produces, and the state an evidence run reaches first.
+
+    The raise must not claim that verdict checked nothing: it checked the score
+    and found differences. And since a raise carries no payload, those diffs
+    are gone from the return value, so the message has to send the caller to
+    the report for them."""
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report",
+               return_value=_failing_quiet_report()):
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                               "outdir": "/tmp/o",
+                                               "ref": "/tmp/score.yaml",
+                                               "strict": True})
+    assert err is True
+    text = str(out)
+    assert "checked nothing" not in text, \
+        "the FAIL verdict did check something — the reference score"
+    assert "in the report" in text and "/tmp/o/report.md" in text, \
+        "the diffs this raise discards are not pointed at anywhere"
+
+
+def test_mcp_sid_report_strict_is_quiet_about_a_capture_that_played():
+    """Same flag over a payload that sounded: `strict` fails the one verdict
+    that checked nothing, not every verdict."""
+    with patch("c64lib.mcp_server.Session"), \
+         patch("c64lib.mcp_server.sid_report",
+               return_value=_quiet_report(nothing_played=False)):
+        err, out = call_tool("c64_sid_report", {"log": "/tmp/s.jsonl",
+                                                "outdir": "/tmp/o",
+                                                "strict": True})
+    assert err is False and out["verdict"] == "PASS"
+
+
+def test_mcp_audio_capture_strict_raises_when_nothing_played():
+    """The sibling tool carries the same parameter — an MCP client running an
+    evidence pass needs it on the command that spends the window."""
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture", return_value=_quiet_report()):
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture", {"seconds": 1.0,
+                                                   "outdir": "/tmp/o",
+                                                   "strict": True})
+    assert err is True
+    assert "nothing played" in str(out) and "/tmp/o/report.md" in str(out)
+
+
+def test_mcp_audio_capture_returns_a_quiet_capture_by_default():
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture", return_value=_quiet_report()):
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture", {"seconds": 1.0,
+                                                   "outdir": "/tmp/o"})
+    assert err is False and out["nothing_played"] is True
 
 
 def test_mcp_sid_report_reads_the_clock_the_log_was_stamped_with(tmp_path):
@@ -2330,6 +2450,94 @@ def test_cli_audio_capture_is_quiet_about_a_capture_that_played():
         r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
     assert r.exit_code == 0, r.output
     assert "nothing played" not in r.output
+
+
+def test_nothing_played_exits_0_without_strict(tmp_path):
+    """The default, pinned so `--strict` cannot quietly become it: a verdict
+    that checked nothing warns and exits 0. Proving a program is quiet is a
+    real claim, so a FAIL here would be wrong — the warning is the finding."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.sid_report", return_value=_quiet_report()):
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    assert NOTHING_PLAYED_WARNING in r.output
+    assert "--strict" not in r.output, \
+        "the default names a flag it was not given"
+
+
+def test_nothing_played_exits_1_with_strict(tmp_path):
+    """The opt-in: an evidence run must not read a verdict that checked nothing
+    as success. The payload is still emitted in full first, exactly as a FAIL
+    is — a `--json` caller reads `nothing_played`, not an `{"error": ...}`."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.sid_report", return_value=_quiet_report()):
+        r = CliRunner().invoke(main, ["--json", "audio", "report", str(log),
+                                      "/tmp/o", "--strict"])
+    assert r.exit_code == 1, r.output
+    out = json.loads(r.output)
+    assert out["nothing_played"] is True and "error" not in out
+
+
+def test_strict_names_itself_under_an_unchanged_warning(tmp_path):
+    """--strict adds the exit code and one clause naming itself as the reason;
+    it does not reword the warning, which the default's own test pins."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.sid_report", return_value=_quiet_report()):
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o",
+                                      "--strict"])
+    assert r.exit_code == 1, r.output
+    assert NOTHING_PLAYED_WARNING in r.output
+    assert "--strict" in r.output, \
+        "exit 1 with nothing on screen naming the flag that caused it"
+
+
+def test_cli_audio_report_strict_leaves_a_capture_that_played_alone(tmp_path):
+    """The flag fails the one verdict that checked nothing, not every PASS."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.sid_report",
+               return_value=_quiet_report(nothing_played=False)):
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o",
+                                      "--strict"])
+    assert r.exit_code == 0, r.output
+    assert "nothing played" not in r.output
+
+
+def test_cli_strict_over_a_failing_silent_capture_keeps_the_diffs(tmp_path):
+    """FAIL and `nothing_played` at once, which is what a silent capture scored
+    against a reference produces — every scored entry diffs as "heard nothing".
+    That is the state the adopted evidence scripts reach first, so it is worth
+    pinning that the CLI loses nothing there: exit 1 (the FAIL would have exited
+    anyway), the emptiness named, the flag named, and the diffs still on screen
+    for someone reading the failure."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.sid_report", return_value=_failing_quiet_report()):
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o",
+                                      "--ref", "score.yaml", "--strict"])
+    assert r.exit_code == 1, r.output
+    assert NOTHING_PLAYED_WARNING in r.output and "--strict" in r.output
+    assert HEARD_NOTHING in r.output, \
+        "the strict line displaced the findings the verdict is about"
+
+
+def test_cli_audio_capture_nothing_played_exits_1_with_strict():
+    """The sibling verdict command carries the same flag: an evidence script
+    calls `audio capture`, and it is the caller for which "the report was
+    written" must never count as success."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value=_quiet_report(frames=60, emulated_s=1.0,
+                                          wall_clock_s=2.8)):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
+                                      "--strict"])
+    assert r.exit_code == 1, r.output
+    assert NOTHING_PLAYED_WARNING in r.output and "--strict" in r.output
 
 
 def test_cli_audio_capture_passes_the_reference_score():

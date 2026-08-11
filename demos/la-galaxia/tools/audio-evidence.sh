@@ -94,8 +94,17 @@ play() {                                # play -- fly into a running stage 1
 }
 
 cap() {                                 # cap <dir> <seconds> <score>
+    # --strict is the second line of defence here, not the first: every call
+    # below passes --ref and every score lists sounding notes, so a silent
+    # window already FAILs on the diff -- one "heard nothing (log ended)" per
+    # scored entry -- and exits 1 without the flag.  What the flag covers is
+    # the day that stops holding: a score regenerated to nothing, or a window
+    # that loses its --ref, where the reference-free reading of an empty
+    # capture is PASS and exit 0.  It also names the cause once instead of
+    # forty times.  docs/cli.md's `c64 audio capture` entry has the general
+    # rule and why the flag is opt-in.
     mkdir -p "$OUT/$1"
-    $C audio capture "$2" "$OUT/$1" --ref "$OUT/$3" $S
+    $C audio capture "$2" "$OUT/$1" --ref "$OUT/$3" --strict $S
 }
 
 # --- open: the theme from row 0, both edges of the window in silence ------
