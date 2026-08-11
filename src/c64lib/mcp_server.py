@@ -60,6 +60,8 @@ from .ops import (
     run_until,
     session_labels,
     session_ref,
+    sprite_shape,
+    sprite_states,
     staleness,
     wait_for_break,
     wait_for_idle,
@@ -1198,31 +1200,6 @@ if __name__ == "__main__":
     main()
 
 
-def _sprite_states(s):
-    from .screen import screen_base
-    from .sprites import read_sprite_states
-    with s.monitor() as mon:
-        try:
-            return read_sprite_states(mon, screen_base(mon))
-        finally:
-            mon.release()
-
-
-def _sprite_shape(s, index: int, block: str | None):
-    from .sprites import read_sprite_block
-    if not 0 <= index <= 7:
-        raise ValueError(f"sprite index {index} outside 0-7")
-    states, shared = _sprite_states(s)
-    st = states[index]
-    addr = session_ref(s, block) if block else st.block_addr
-    with s.monitor() as mon:
-        try:
-            data = read_sprite_block(mon, addr)
-        finally:
-            mon.release()
-    return data, st, shared, addr
-
-
 @srv.tool()
 def c64_sprite_status(session: str | None = None) -> dict:
     """Decode the VIC-II sprite registers and pointers into a per-sprite
@@ -1231,7 +1208,7 @@ def c64_sprite_status(session: str | None = None) -> dict:
     Relocation-aware and state-preserving."""
     from dataclasses import asdict
     s = _attach(session)
-    states, shared = _sprite_states(s)
+    states, shared = sprite_states(s)
     return {"sprites": [asdict(st) for st in states], "shared": shared}
 
 
@@ -1243,7 +1220,7 @@ def c64_sprite_show(index: int, block: str | None = None,
     block address/symbol instead of the sprite's pointer target."""
     from .sprites import sprite_ascii
     s = _attach(session)
-    data, st, _, addr = _sprite_shape(s, index, block)
+    data, st, _, addr = sprite_shape(s, index, block)
     return {"rows": sprite_ascii(data, st.multicolor),
             "block_addr": addr, "multicolor": st.multicolor}
 
@@ -1257,7 +1234,7 @@ def c64_sprite_png(index: int, path: str, scale: int = 8,
     one sprite's shape exactly."""
     from .sprites import sprite_image
     s = _attach(session)
-    data, st, shared, _ = _sprite_shape(s, index, block)
+    data, st, shared, _ = sprite_shape(s, index, block)
     img = sprite_image(data, st, shared, scale=scale)
     img.save(path, format="PNG")
     return {"png": path, "width": img.width, "height": img.height}

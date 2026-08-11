@@ -61,6 +61,8 @@ from .ops import (
     session_labels,
     session_ref,
     split_mem_condition,
+    sprite_shape,
+    sprite_states,
     staleness,
     wait_for_break,
     wait_for_idle,
@@ -86,7 +88,6 @@ from .screen import (
     read_screen_text,
     resolve_text_encoding,
     save_screenshot_png,
-    screen_base,
 )
 from .session import Session, SessionError
 from .symbols import format_addr
@@ -2169,37 +2170,14 @@ def sprite() -> None:
     """Inspect, render, and convert VIC-II sprites."""
 
 
-
-
-def _sprite_states(s):
-    from .sprites import read_sprite_states
-    with s.monitor() as mon:
-        try:
-            base = screen_base(mon)
-            return read_sprite_states(mon, base)
-        finally:
-            mon.release()
-
-
-def _sprite_index(ctx, n) -> int:
-    if not 0 <= n <= 7:
-        fail(ctx, f"sprite index {n} outside 0-7")
-    return n
-
-
 def _sprite_shape(ctx, s, n, block):
-    """(data, state, shared, block_addr) for sprite N (or an explicit block)."""
-    from .sprites import read_sprite_block
-    states, shared = _sprite_states(s)
-    st = states[_sprite_index(ctx, n)]
-    addr = resolve_ref(ctx, session_labels(s), block, session=s) \
-        if block else st.block_addr
-    with s.monitor() as mon:
-        try:
-            data = read_sprite_block(mon, addr)
-        finally:
-            mon.release()
-    return data, st, shared, addr
+    """ops.sprite_shape with CLI error reporting: a bad index (ValueError) and
+    an unresolvable --block ref (KeyError/ValueError) both exit 1."""
+    try:
+        return sprite_shape(s, n, block)
+    except (KeyError, ValueError) as e:
+        fail(ctx, str(e))
+        raise AssertionError("unreachable") from None
 
 
 @sprite.command("status")
@@ -2212,7 +2190,7 @@ def sprite_status(ctx):
     """
     from dataclasses import asdict
     s = attach(ctx)
-    states, shared = _sprite_states(s)
+    states, shared = sprite_states(s)
     lines = []
     for st in states:
         flags = "".join((

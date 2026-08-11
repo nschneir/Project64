@@ -17,6 +17,7 @@ from .build import RESERVED_AREA_NAMES, Area
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
 from .screen import read_screen_text, screen_base
+from .sprites import SpriteState, read_sprite_block, read_sprite_states
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
 
@@ -962,6 +963,39 @@ def clear_checkpoints(mon, include_mask: int, exclude_mask: int = 0) -> list[int
             mon.checkpoint_delete(ck.number)
             removed.append(ck.number)
     return removed
+
+
+def sprite_states(session) -> tuple[list[SpriteState], dict]:
+    """Every sprite's decoded state plus the shared colors, read from the
+    live registers and the pointers at the LIVE screen base + $3F8
+    (relocation-aware, state-preserving)."""
+    with session.monitor() as mon:
+        try:
+            return read_sprite_states(mon, screen_base(mon))
+        finally:
+            mon.release()
+
+
+def sprite_shape(session, index: int, block: str | None = None
+                 ) -> tuple[bytes, SpriteState, dict, int]:
+    """(data, state, shared colors, block address) for sprite `index`, or for
+    an explicit `block` ref in place of its pointer target.
+
+    The range check runs BEFORE any monitor traffic, so a bad index costs no
+    round trip and cannot surface as a MonitorError. Raises ValueError on an
+    out-of-range index, and KeyError/ValueError from an unresolvable `block`:
+    presentation belongs to the front ends."""
+    if not 0 <= index <= 7:
+        raise ValueError(f"sprite index {index} outside 0-7")
+    states, shared = sprite_states(session)
+    st = states[index]
+    addr = session_ref(session, block) if block else st.block_addr
+    with session.monitor() as mon:
+        try:
+            data = read_sprite_block(mon, addr)
+        finally:
+            mon.release()
+    return data, st, shared, addr
 
 
 def machine_state(session) -> str:

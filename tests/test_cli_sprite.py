@@ -114,6 +114,19 @@ def test_sprite_bad_index_fails():
     assert "0-7" in json.loads(r.output)["error"]
 
 
+def test_bad_index_is_rejected_before_the_machine_is_read():
+    """The range check runs before any monitor traffic, so a bad index can
+    never cost a round trip or surface as a MonitorError from the read."""
+    fake, mon = _fake()
+    mon.memory_read.side_effect = AssertionError("read the machine")
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "sprite", "show", "9"])
+    assert mon.memory_read.call_count == 0, "the machine was read first"
+    assert r.exit_code == 1, r.output
+    assert json.loads(r.output)["error"] == "sprite index 9 outside 0-7"
+
+
 def test_sprite_from_png_no_session(tmp_path):
     from PIL import Image
     src = tmp_path / "in.png"
