@@ -27,7 +27,7 @@ Full games, each with its own fidelity bar and evidence protocol:
 | [Snake](snake/PROMPT.md) | 6502 assembly | Arcade Snake on a custom hires charset — the assembler + debugger workflow, `$CB` held-key steering, SID sound, nine speeding-up levels |
 | [Invaders](invaders/PROMPT.md) | 6502 assembly | The 1978 arcade original to an arcade-fidelity spec — sprites and custom charset, the one-invader-per-tick march, 3-voice SID, review loop, packaging |
 | [Ms. Muncher](ms-muncher/PROMPT.md) | 6502 assembly | A maze chase with four rotating mazes — per-ghost targeting AI, six sprites, animated cut scenes, 3-voice SID |
-| [La Galaxia](la-galaxia/PROMPT.md) | 6502 assembly | A fixed shooter in Spanish — a 40-enemy formation in character RAM, raster-IRQ sprite multiplexing, a hires-bitmap cold open, the capture/dual-fighter mechanic |
+| [La Galaxia](la-galaxia/PROMPT.md) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing |
 
 ## Miscellaneous cool stuff
 

@@ -140,6 +140,34 @@ REALTIME_SPEED = 100
 SID_BASE = 0xD400
 SID_REGISTERS = 25
 
+#: The KERNAL jiffy clock, `$A0-$A2` most-significant byte first — the only
+#: counter of EMULATED time the binary monitor can reach. VICE's binary
+#: monitor has no cycle or frame counter of its own (see the module
+#: docstring); the text monitor's register line does carry a cycle
+#: `STOPWATCH`, and it is deliberately not used here: reading it costs a
+#: text-monitor open, and at real time that round trip is worth several
+#: frames of the very lead-in it would be measuring.
+JIFFY_BASE = 0xA0
+JIFFY_BYTES = 3
+#: What the KERNAL runs the jiffy at, on BOTH machines: reset sets CIA 1
+#: timer A to 16421 cycles on PAL and 17045 on NTSC, and each divides its
+#: clock to 60.00 Hz. So it is a clock, not a frame counter — 1.2 ticks per
+#: frame on PAL — and a lead-in in frames goes through seconds, never
+#: straight across. (`basic_lint`'s W160 rests on the same 60.00.)
+JIFFY_HZ = 60.0
+_JIFFY_WRAP = 1 << (8 * JIFFY_BYTES)
+#: A lead-in longer than this is not a lead-in: the jiffy is being used by
+#: the program as ordinary zero-page storage, and the delta is somebody
+#: else's data. Ten emulated minutes against an arming that costs a fraction
+#: of an emulated second, so it excludes garbage without ever cutting off a
+#: real measurement — including a warped session's, where the same wall
+#: clock buys ~10x the emulated frames.
+_MAX_LEAD_IN_JIFFIES = round(JIFFY_HZ * 600)
+#: The sampling loop's own first resume, which happens after the last jiffy
+#: read and produces log frame 0. It is counted rather than measured because
+#: measuring it would cost another round trip — i.e. another frame.
+_LEAD_IN_LOOP_FRAMES = 1
+
 #: The fastest frame rate a supported machine has at real time (NTSC 60; PAL
 #: is 50). The sampling loop takes at most one sample per frame, so an
 #: observed rate above this is proof the session is running faster than real
@@ -205,6 +233,110 @@ class PinnedStopError(AudioError):
         parts.append("the recording is complete on disk" if wav_complete else
                      "the recording could not be confirmed complete")
         super().__init__("; ".join(parts))
+
+
+def parse_frame_writes(specs) -> dict[int, list[tuple[int, int]]]:
+    """`--at-frame N 'ADDR=VAL[,ADDR=VAL…]'` tokens as `{frame: [(addr, val)]}`.
+
+    `specs` is an iterable of `(frame, spec)` pairs — Click's `nargs=2`
+    option tuples, and the MCP tool's `{frame: spec}` items — so both front
+    ends read one parser and cannot drift. Numbers are `ops.parse_number`'s:
+    decimal, `$d404`, or `0xd404`.
+
+    Repeats of a frame MERGE, in the order given, because two `--at-frame 6`
+    flags mean two writes at frame 6 and not "the second one wins". Order
+    inside a frame is preserved for the same reason a poke sequence has one:
+    the gate bit is normally written after the frequency.
+
+    Every rejection here is a mistake that would otherwise be found after
+    the capture window closed, which is the most expensive moment for it.
+    """
+    from .ops import parse_number
+
+    out: dict[int, list[tuple[int, int]]] = {}
+    for raw_frame, raw_spec in specs:
+        try:
+            frame = parse_number(raw_frame)
+        except ValueError as e:
+            raise ValueError(f"frame {raw_frame!r} is not a number ({e})") from e
+        if frame < 0:
+            raise ValueError(f"frame {frame} must be at least 0: writes are "
+                             f"scheduled against the log's own frame numbers, "
+                             f"which count from 0")
+        for token in str(raw_spec).split(","):
+            addr_s, sep, val_s = token.partition("=")
+            if not sep or not addr_s.strip():
+                raise ValueError(
+                    f"--at-frame needs ADDR=VAL, got {token.strip()!r}: "
+                    f"e.g. '$d404=$11' or '53280=1,53281=0'")
+            try:
+                addr, value = parse_number(addr_s), parse_number(val_s)
+            except ValueError as e:
+                raise ValueError(f"{token.strip()!r} is not a number "
+                                 f"({e}); use decimal, $hex, or 0xhex") from e
+            if not 0 <= addr <= 0xFFFF:
+                raise ValueError(f"address {addr} in {token.strip()!r} is "
+                                 f"outside 0-65535")
+            if not 0 <= value <= 0xFF:
+                raise ValueError(f"value {value} in {token.strip()!r} is "
+                                 f"outside 0-255: a write is one byte")
+            out.setdefault(frame, []).append((addr, value))
+    return out
+
+
+def _check_frame_writes(writes, frames: int) -> None:
+    """Refuse a schedule the window cannot reach — before anything is pinned.
+
+    `_check_reference`'s reasoning applied to the other pre-window mistake: a
+    frame number past the end of the log is a capture that spends its whole
+    real-time window doing exactly nothing it was asked to do, and says so
+    only afterwards.
+    """
+    late = sorted(f for f in (writes or {}) if f >= frames)
+    if late:
+        raise ValueError(
+            f"--at-frame {late[0]} is outside this capture's window: it logs "
+            f"frames 0-{frames - 1}. Ask for a longer capture, or aim the "
+            f"write earlier")
+
+
+def _read_jiffy(session) -> int | None:
+    """The machine's own emulated-time counter, or None if it cannot be read.
+
+    Best effort by construction: this exists to REPORT what a capture cost,
+    and a measurement must never be the reason a capture fails, so every
+    failure below becomes a None that `capture` reports as "not measured".
+    """
+    try:
+        with session.monitor() as mon:
+            try:
+                raw = bytes(mon.memory_read(JIFFY_BASE, JIFFY_BYTES))
+            finally:
+                # resume, not release: the capture needs the machine running,
+                # and every binary-monitor command halts it.
+                mon.resume()
+    except Exception:                       # noqa: BLE001 - see the docstring
+        return None
+    return int.from_bytes(raw, "big") if len(raw) == JIFFY_BYTES else None
+
+
+def _lead_in_frames(before: int | None, after: int | None,
+                    fps: float) -> int | None:
+    """Emulated frames between two jiffy readings, plus the loop's own resume.
+
+    None rather than a guess whenever the jiffy cannot answer. The frozen
+    case is the one that matters: the jiffy is incremented by the KERNAL's
+    IRQ handler, and a music player that takes the IRQ over — which is most
+    of them — stops it dead. A capture of such a program reports no lead-in;
+    it does not report a plausible zero, and it does not report the 15 frames
+    somebody else measured on some other program.
+    """
+    if before is None or after is None:
+        return None
+    delta = (after - before) % _JIFFY_WRAP        # 24 bits, ~77 hours
+    if not 0 < delta <= _MAX_LEAD_IN_JIFFIES:
+        return None
+    return round(delta / JIFFY_HZ * fps) + _LEAD_IN_LOOP_FRAMES
 
 
 def _abs(path) -> str:
@@ -580,15 +712,30 @@ def sid_log(session, frames: int, jsonl_path, timeout: float | None = None) -> i
 
 
 def sid_log_detail(session, frames: int, jsonl_path,
-                   timeout: float | None = None) -> dict:
+                   timeout: float | None = None, *, writes=None) -> dict:
     """`sid_log` with its measurements: `{path, frames, requested, seconds,
     sample_rate_hz, warning}`, where `warning` is None or a line the caller
     must show.
 
-    The file is one JSONL `FrameRecord` per frame — `{"frame": n, "regs":
-    [25 ints]}`, `regs[0]` being `$D400` — and nothing else. No header, no
-    trailing note, not even the warning: `sid_analysis.parse_log` raises on
-    any line that is not a frame record.
+    `writes` is `{frame: [(addr, value), …]}` — memory writes performed at
+    named frames of the window, which is what `c64 audio capture --at-frame`
+    schedules. They land while the machine is HALTED, immediately before the
+    resume that runs that frame, so frame N is the first LOGGED frame whose
+    registers show their effect. Nothing else can reach the machine while a
+    capture is open — the daemon runs the whole loop on one round trip — so
+    a short effect is reachable this way and no other.
+
+    The file opens with a one-line clock stamp — `{"machine", "clock_hz",
+    "fps"}`, taken from the session's own model — and is otherwise one JSONL
+    `FrameRecord` per frame: `{"frame": n, "regs": [25 ints]}`, `regs[0]`
+    being `$D400`. Nothing else. No trailing note, and not the warning:
+    `sid_analysis.parse_log` skips the stamp and raises on any other line
+    that is not a frame record.
+
+    The stamp is what lets `c64 audio report` re-score a log months later
+    without a session to name the machine — the same registers are A4 on
+    NTSC and G#4 +35 cents on PAL, so a re-score that assumed PAL renamed
+    every note of an NTSC capture and looked plausible doing it.
 
     Frame numbers count from 0 and are the captured frames, which are the
     elapsed frames as long as a round trip is short against a frame. At real
@@ -648,6 +795,7 @@ def sid_log_detail(session, frames: int, jsonl_path,
             f"whole log is held in memory and returned in one response, and "
             f"{MAX_SID_LOG_FRAMES} frames is already about ten minutes of "
             f"emulated time")
+    _check_frame_writes(writes, frames)
     path = _abs(jsonl_path)
     budget = (float(timeout) if timeout is not None
               else max(SID_LOG_MIN_TIMEOUT, frames * SID_LOG_FRAME_BUDGET))
@@ -656,7 +804,7 @@ def sid_log_detail(session, frames: int, jsonl_path,
         # overhead, and folding that into the rate would drag short logs down
         # against the same ceiling a long one is judged by.
         started = time.monotonic()
-        samples = _sample_frames(mon, frames, budget)
+        samples = _sample_frames(mon, frames, budget, writes)
         seconds = time.monotonic() - started
     if not samples:
         # Reachable only when the deadline had already passed at loop entry:
@@ -667,9 +815,20 @@ def sid_log_detail(session, frames: int, jsonl_path,
         raise AudioError(
             f"sampled no SID frames: the {budget:g}s budget was already spent "
             f"when sampling began — `timeout` must be positive")
-    Path(path).write_text("".join(
-        json.dumps({"frame": n, "regs": list(regs)}, separators=(",", ":")) + "\n"
-        for n, regs in enumerate(samples)))
+    # Spelled out rather than filtered from `report_timing_for`: this is a
+    # FILE FORMAT, and it must not gain a field because the timing dict did.
+    # `sid_analysis.log_timing` reads exactly these three back, and
+    # `test_sid_log_stamp_does_not_disturb_the_frame_records` is the round
+    # trip that keeps the writer and the reader honest about it.
+    clock = report_timing_for(session.model)
+    stamp = {"machine": clock["machine"], "clock_hz": clock["clock_hz"],
+             "fps": clock["fps"]}
+    Path(path).write_text(
+        json.dumps(stamp, separators=(",", ":")) + "\n"
+        + "".join(
+            json.dumps({"frame": n, "regs": list(regs)},
+                       separators=(",", ":")) + "\n"
+            for n, regs in enumerate(samples)))
     # None, never an infinity: this dict is `c64 --json audio sidlog` and the
     # MCP result, and `json.dumps` spells a float infinity `Infinity`, which
     # is not JSON. Reachable only if the whole log fit inside the clock's
@@ -689,33 +848,50 @@ def sid_log_detail(session, frames: int, jsonl_path,
             "seconds": seconds, "sample_rate_hz": rate, "warning": warning}
 
 
-def _sample_frames(mon, frames: int, timeout: float) -> list[bytes]:
+def _sample_frames(mon, frames: int, timeout: float,
+                   writes=None) -> list[bytes]:
     """Daemon-side loop when there is a daemon, client-side when there is
     not — `ops.run_until`'s shape, for `ops.run_until`'s reason: a per-frame
     RPC costs about 0.5 s, which would make a 50-frame log take half a
     minute. A pre-sid_log daemon answers ValueError; take the local loop.
+
+    `writes` travels WITH the loop for the same reason the loop is one RPC:
+    a client that stepped in at frame N to poke would spend two round trips
+    doing it, and at real time that is frames the log never sees. A daemon
+    too old for scheduled writes answers ValueError from the `sid_log_at`
+    method it does not have, and the fallback below performs them properly
+    rather than dropping them — a silently unaimed capture is worse than a
+    slow one.
 
     Each branch leaves the machine running on its own, so the caller adds no
     resume of its own: a second one would cost a round trip and let two more
     unlogged frames pass after the final record."""
     if isinstance(mon, DaemonMonitorClient):
         try:
-            return mon.sid_log(frames, timeout)
+            return mon.sid_log(frames, timeout, writes=writes)
         except ValueError:
             pass
-    return _sample_frames_client(mon, frames, timeout)
+    return _sample_frames_client(mon, frames, timeout, writes)
 
 
-def _sample_frames_client(mon, frames: int, timeout: float) -> list[bytes]:
+def _sample_frames_client(mon, frames: int, timeout: float,
+                          writes=None) -> list[bytes]:
     """The loop the daemon runs on its own VICE connection, here on a direct
     one. Deliberately not the `$D012` poll the plan called for: see this
     module's docstring — every halt is at raster line 12, so the wrap that
     was meant to mark a frame never happens, while the halt itself already
-    is the frame boundary."""
+    is the frame boundary.
+
+    A scheduled write goes out BEFORE the resume that runs its frame, so the
+    frame runs with the value in place and the read that follows samples what
+    it left behind: frame N is the first logged frame showing the effect."""
     deadline = time.monotonic() + timeout
+    scheduled = dict(writes or {})
     out: list[bytes] = []
     try:
         while len(out) < frames and time.monotonic() < deadline:
+            for addr, value in scheduled.get(len(out), ()):
+                mon.memory_write(addr, bytes([value]))
             mon.resume()
             out.append(mon.memory_read(SID_BASE, SID_REGISTERS))
     finally:
@@ -853,7 +1029,27 @@ def pinned_record_start(session, wav_path) -> dict:
     demonstrated upside to flipping and an undischarged risk in doing so
     (a recorder armed under warp may not survive the unwarp as a sound
     consumer). The arm-failure rollback below runs `restore_speed` inside
-    the gap's window; the retry shields its readback too."""
+    the gap's window; the retry shields its readback too.
+
+    The gap's *cause* is gone as of 2026-08-10, which is why the ordering
+    question is now academic rather than urgent. This is the step the
+    la-galaxia dogfood run found hanging every time, and its reproducer is
+    a host reporting no audio output device (`ioreg -rc IOAudioDevice`
+    counts 0 nodes, `system_profiler SPAudioDataType` comes back empty):
+    warped work was untouched — builds, tests, 14 evidence captures,
+    thousands of frame-stepped ticks — while every real-time operation
+    wedged, and `audio record --start` is the first one a capture reaches.
+    That upgraded the flow-control mechanism from hypothesis to confirmed:
+    VICE's sound device paces the emulation loop at real time, so with
+    coreaudio open on nothing, the buffer never drains and the loop stops
+    answering its binary monitor. `Session.launch` now gives every headless
+    session a sound device that needs no host consumer at all
+    (`-sounddev dump -soundarg os.devnull` — see the comment there, which
+    is also where the measurement against `dummy` lives), so the window
+    this docstring is about no longer depends on anything outside VICE.
+    The retry and the pin-first order stay: both are cheap, both are
+    measured, and neither's evidence is superseded by removing the
+    dependency."""
     path = _abs(wav_path)
     saved = pin_realtime(session)
     earlier = _read_pin(session)
@@ -939,7 +1135,11 @@ def pinned_record_stop(session) -> dict:
       consumer armed put the `warp on` readback where it stalled 39 times in
       240 measured pin/unpin cycles (0 in ~877 readbacks made with one; see
       `_TextMonitor.warp_state`). So something stays armed across the
-      restore.
+      restore. (As of 2026-08-10 a headless session's playback device is a
+      sink that always drains — see `Session.launch` — so that dependency
+      is gone at the source for the sessions the front ends make. The sink
+      dance stays: the second race below is not about the host device at
+      all, and a windowed session still uses the host's.)
     - VICE finalizes a closed WAV asynchronously (~50 ms), and only while
       the sound layer is being serviced — a recorder disarmed under warp can
       leave the placeholder header on disk until the session exits. So the
@@ -1037,16 +1237,72 @@ _VERDICT = re.compile(r"^\*\*(PASS|FAIL)\*\*$", re.M)
 
 
 def report_timing_for(model: str | None) -> dict:
-    """`{"machine", "clock_hz", "fps"}` for a machine model, PAL for None.
+    """`{"machine", "clock_hz", "fps", "clock_source"}` for a machine model,
+    PAL for None.
 
     The one place a clock is chosen. Both numbers come from the machine
     profile table, never from a constant at a call site: a table built for
     the wrong machine transcribes every note about 65 cents out, which is a
     plausible-looking report rather than an error.
+
+    `clock_source` says WHERE the choice came from — `"session"` when a model
+    was named, `"default"` when nothing did — because the failure this whole
+    field exists for is silent. A report that assumed PAL and one that was
+    told PAL read identically otherwise, and only the first is a guess.
     """
     profile = get_profile(model or DEFAULT_REPORT_MODEL)
     return {"machine": profile.name, "clock_hz": profile.clock_hz,
-            "fps": profile.fps}
+            "fps": profile.fps,
+            "clock_source": "session" if model else "default"}
+
+
+def report_timing_from(log_path, model: str | None = None) -> dict:
+    """The clock to read a log with: a named model first, then the log's own
+    stamp, then PAL.
+
+    The order is the point. `-s NAME` is an OVERRIDE — a caller who names a
+    session means it — and everything else is the log speaking for itself.
+    Before the stamp existed the only fallback was PAL, so a re-score run
+    after the session had stopped silently renamed every note of an NTSC
+    capture; `clock_source == "log"` is that failure made visible even when
+    the answer is right.
+
+    A stamp naming a machine this build does not have is ignored rather than
+    trusted: `get_profile` is the authority on what a machine's clock is, and
+    a hand-edited header must not be able to invent one.
+
+    A log this cannot READ is not this function's error to raise, and the
+    breadth of the catch below is the whole point. `Path.read_text` on a
+    binary file raises `UnicodeDecodeError`, which is a ValueError and NOT an
+    OSError, and that is exactly how it once escaped as a bare traceback with
+    an empty `--json` payload — on an input as ordinary as passing
+    `capture.wav` where the log goes. The CLI calls this INSIDE the `try`
+    that turns a failure into `fail()`'s exit-1 JSON now, and MCP hands any
+    raise back as a structured tool error, so an escape is no longer
+    unparseable on either side; the breadth stays because it is still the
+    right answer, not a containment measure. An unreadable log has no knowable
+    clock either way; hand back the default and let `sid_report`, in the same
+    try, report the real problem — which it can describe and this cannot.
+
+    The named-model branch below is deliberately outside that reasoning: a
+    caller who names a session means it, so a machine this build has no
+    profile for raises rather than quietly becoming PAL. That raise is what
+    the callers' `try` is now sized for.
+    """
+    if model:
+        return report_timing_for(model)
+    from .sid_analysis import log_timing
+    try:
+        stamped = log_timing(log_path)
+    except (OSError, ValueError):
+        stamped = None
+    if stamped:
+        try:
+            return {**report_timing_for(stamped["machine"]),
+                    "clock_source": "log"}
+        except (KeyError, ValueError):
+            pass
+    return report_timing_for(None)
 
 
 def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
@@ -1199,7 +1455,7 @@ def _check_reference(ref_path) -> None:
         raise AudioError(f"{ref_path} is not readable YAML ({e})") from e
 
 
-def capture(session, seconds: float, outdir, ref_path=None) -> dict:
+def capture(session, seconds: float, outdir, ref_path=None, writes=None) -> dict:
     """Record the session's audio for `seconds` of EMULATED time and report.
 
     The end-to-end verification path: pin real time, arm the WAV recorder,
@@ -1251,6 +1507,25 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
 
     A `ref_path` is parsed before anything is pinned or armed — see
     `_check_reference` — so a malformed score costs no wall clock at all.
+    `writes` is checked against the window in the same place and for the same
+    reason.
+
+    `writes` — `{frame: [(addr, value), …]}`, which `parse_frame_writes`
+    builds from `--at-frame` — is the only way to make something happen
+    INSIDE the window. Nothing outside may touch the session while it is
+    open (the daemon runs the whole sampling loop on one round trip, and a
+    second client would be waiting on it), and arming costs emulated frames
+    before frame 0, so an effect shorter than that lead-in is otherwise over
+    before the log starts. Frame N is the first logged frame that shows the
+    write; see `sid_log_detail`.
+
+    `lead_in_frames` is that cost, measured per capture rather than quoted:
+    the KERNAL jiffy read before the pin against the jiffy read after the
+    arm, converted through 60.00 Hz to the machine's frames, plus the
+    sampling loop's own first resume. It is None when the jiffy cannot answer
+    — a program that owns the IRQ freezes it — and it INCLUDES the two round
+    trips it costs to take, which is a frame or so of the number it reports.
+    Precision is about a frame either way: the jiffy quantizes to 1/60 s.
     """
     seconds = float(seconds)
     timing = report_timing_for(session.model)
@@ -1262,15 +1537,21 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
     if ref_path is not None:
         # Before the pin, not after the window: see `_check_reference`.
         _check_reference(ref_path)
+    _check_frame_writes(writes, frames)
     outdir = Path(_abs(outdir))
     outdir.mkdir(parents=True, exist_ok=True)
     wav, log = outdir / CAPTURE_WAV, outdir / CAPTURE_LOG
 
     started = time.monotonic()
+    jiffy_before = _read_jiffy(session)
     pinned_record_start(session, wav)
+    # The last look before the window: everything from here to frame 0 is
+    # one resume, so this reading and the loop's own first resume bracket the
+    # lead-in.
+    jiffy_armed = _read_jiffy(session)
     unpin_error: str | None = None
     try:
-        detail = sid_log_detail(session, frames, log)
+        detail = sid_log_detail(session, frames, log, writes=writes)
     finally:
         try:
             recorded = pinned_record_stop(session)["bytes"]
@@ -1313,5 +1594,10 @@ def capture(session, seconds: float, outdir, ref_path=None) -> dict:
             "emulated_s": detail["frames"] / timing["fps"],
             "wall_clock_s": wall_clock,
             "wav_bytes": recorded,
+            # The frames the arming burned before frame 0 — None when the
+            # machine's own clock could not answer. See this function's
+            # docstring for what it is measured from and what it costs.
+            "lead_in_frames": _lead_in_frames(jiffy_before, jiffy_armed,
+                                              timing["fps"]),
             "log_warning": detail["warning"],
             "unpin_error": unpin_error}

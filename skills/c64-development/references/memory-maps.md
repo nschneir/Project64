@@ -24,7 +24,10 @@ Notes:
   I/O all visible, 38911 BASIC bytes free ($0801-$9FFF).
 - The VIC-II always reads through its own 16 KB bank (bank 0, $0000-$3FFF
   by default, selected via CIA2 $DD00) — it sees the char ROM at $1000
-  even though the CPU doesn't.
+  even though the CPU doesn't. That image is **4 KB** ($1000-$1FFF:
+  uppercase set, then lowercase), which covers **two** of the eight 2 KB
+  charset bases — a RAM charset in bank 0 must avoid both $1000 and $1800,
+  and $1800 fails silently by drawing the ROM's lowercase glyphs.
 - The screen can be relocated by the VIC-II ($D018, plus the VIC bank in
   $DD00); `c64 screen` and `@row,col` follow both, so a relocated screen
   still reads back correctly. Color RAM never moves — it stays at $D800.

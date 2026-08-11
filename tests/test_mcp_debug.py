@@ -135,6 +135,62 @@ def test_key_hold_zero_frames_is_a_no_op_not_a_timeout():
     mon.memory_write.assert_not_called()
 
 
+def test_key_hold_releases_by_default_over_mcp():
+    """CLI/MCP lockstep: the tool defaults to releasing the key, forwards
+    the same `release` argument, and passes `released` back to the caller."""
+    s, _ = _fake()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold",
+               return_value={"frames": 2, "requested": 2, "released": True,
+                             "registers": {"PC": 0x0819}}) as kh:
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 2})
+    assert err is False, out
+    assert kh.call_args.kwargs["release"] is True
+    assert out["released"] is True and out["frames"] == 2
+
+
+def test_key_hold_timeout_reports_the_key_state_over_mcp():
+    """Same lockstep on the error path: the timeout says the key was let
+    go, and with release=false it names $CB and the poke that clears it
+    (an MCP error is text only — there is no extras dict to carry it)."""
+    s, _ = _fake()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold",
+               return_value={"frames": 1, "requested": 5, "released": True,
+                             "registers": None}):
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 5})
+    assert err is True
+    assert "left RUNNING" in out["raw"] and "key released" in out["raw"]
+
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold",
+               return_value={"frames": 0, "requested": 3, "released": False,
+                             "registers": None}):
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 3, "release": False})
+    assert err is True
+    assert "$CB" in out["raw"] and "c64_mem_write" in out["raw"]
+
+
+def test_key_hold_release_false_is_forwarded_over_mcp():
+    s, _ = _fake()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold",
+               return_value={"frames": 1, "requested": 1, "released": False,
+                             "registers": {"PC": 0x0819}}) as kh:
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "release": False})
+    assert err is False, out
+    assert kh.call_args.kwargs["release"] is False
+    assert out["released"] is False
+
+
 def test_key_hold_negative_frames_is_an_error():
     """`frames < 0` is the one hold length that is neither work nor a
     no-op: it must come back as an error naming `frames`, with nothing

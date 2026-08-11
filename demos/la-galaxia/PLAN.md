@@ -518,7 +518,9 @@ opposite to `PROMPT.md` §10. The charset lives at `$3800`.
 **R2 — area fill (Task 0, confirmed).** `c64 build --area` fills every
 region *below* the last one, and leaves the last one at its real length.
 `SPRITES=$2000:$1800 CHARS=$3800:$0800 ENGINE=$4000:$5000` therefore costs
-a flat 14,342 bytes of padding plus the engine's own size, and the labels
+a flat 14,342 bytes of padding plus the engine's own size — *corrected
+2026-08-10: rebuilt at 14,337 (2 + `$4000`-`$0801`); the figure recorded here
+was wrong and reached task-10's brief* — and the labels
 land where they say (`__SPRITES_LOAD__` = `$2000`, `__CHARS_LOAD__` =
 `$3800`, `__ENGINE_LOAD__` = `$4000`). MAIN's `$0801-$1FFF` would be
 padding either way, so the trajectory LUTs and the music data are placed

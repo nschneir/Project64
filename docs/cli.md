@@ -94,6 +94,14 @@ Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
 file registered from `--disk`/`--cart`, or `null`. Machine left running.
 
+When sessions are already running, `start` first prints
+`note: N other session(s) already running (c64 session list)` on **stderr**
+— every one of them is an emulator process holding a CPU core, and the ones
+that outlive the work that started them are invisible until something counts
+them. It is a notice, not a failure: the exit code is unchanged, and because
+it goes to stderr the `--json` payload on stdout is unchanged too.
+`c64 session stop --all` clears the lot.
+
 Starting a session also starts its monitor daemon — the process that owns
 the VICE monitor connection and holds run/stop state between commands.
 Daemon output goes to `<sessions-dir>/<name>.daemon.log`; a crashed daemon
@@ -125,8 +133,21 @@ Stop a session and remove its registry record.
 - `NAME` (optional) — the session to stop; defaults to the current one.
 - `-s, --name NAME` — the same, as an option (the spelling every command
   understands). Giving both forms with different names is an error.
+- `--all` — stop **every** session in the registry: the one-command cleanup
+  at the end of a run, and the way out of "multiple sessions running (pick
+  one with --session)". Naming a session as well is an error, in any
+  spelling — positional, `--name`, or a global `c64 -s NAME` — because
+  `--all` is the opposite of picking one. A session whose emulator is
+  already gone is reaped (record, socket and daemon bookkeeping removed),
+  not reported as a failure: cleaning up after a dead run is the point.
 
-JSON: `{"stopped": NAME}`.
+JSON: `{"stopped": NAME}`; with `--all`, `{"stopped": ["a", "b"]}` — a list
+of the names stopped, empty when nothing was running (still exit 0).
+
+If `--all` cannot stop one of them it still stops the rest, then exits 1 with
+a message naming both halves — what it stopped, and what is still registered:
+`stopped 'a'; could not stop 'b': <reason> — still registered, check
+c64 session list`. Re-running it is safe.
 
 ### `c64 session reset`
 
@@ -222,10 +243,21 @@ deterministic first frame, stop at the anchor first (`c64 until REF`).
   `--frames 0` is a validated no-op (exit 0, machine untouched) — a
   computed hold length of zero needs no shell guard.
 - `--timeout SECS` (default `30`) — per-frame wait limit.
+- `--release` / `--no-release` (default `--release`) — after the last frame,
+  poke 64 (no key) into `$CB` so the key is let go. **The per-frame re-poke
+  assumes the KERNAL keyboard scan is running to clear `$CB`** — a game that
+  takes the interrupt over has no scan, so a key left down without this stays
+  down for the rest of the session. The machine still ends stopped at the
+  anchor either way. Use `--no-release` only when the next command needs the
+  key still held.
 
-JSON: `{"registers", "pc_symbol", "stopped": true, "frames"}`. With
-`--frames 0`: `{"frames": 0, "requested": 0, "machine": "untouched"}`. On a
-frame timeout: exit 1, machine left running, checkpoint removed.
+JSON: `{"registers", "pc_symbol", "stopped": true, "frames", "released"}`.
+With `--frames 0`: `{"frames": 0, "requested": 0, "machine": "untouched"}`. On
+a frame timeout: exit 1, machine left running, checkpoint removed — the key is
+still released (a mistyped anchor is the commonest cause, and it would
+otherwise leave the key jammed on a running machine), and the failure says
+which, with `released` in the JSON. With `--no-release` the failure names the
+key `$CB` still holds and the `c64 mem write '$CB' 64` that clears it.
 
 ---
 
@@ -497,16 +529,39 @@ counter across the run. Reports the cycles from the routine's first
 instruction through its own RTS.
 
 - `REF` — address or symbol of a subroutine ending in RTS.
+- `--samples N` (default `1`) — price N consecutive arrivals and report the
+  spread instead of one number.
 - `--with-irq` — leave interrupts live during the window (real-world cost;
   expect variance and rerun a few times). By default the I flag is set on
   entry so the KERNAL IRQ cannot land inside the measurement, and the
   flag's entry value is restored afterwards.
-- `--timeout N` (default `30.0`) — give up after N seconds (machine left
-  running, like `c64 call`).
+- `--timeout N` (default `30.0`) — give up after N seconds. The budget covers
+  the whole run, not each sample (machine left running, like `c64 call`).
 
 Counts are wall cycles: badline DMA steals are included, which is the
 frame-budget truth (blank the screen — `$D011` bit 4 — if you want the
 bare instruction cost).
+
+**Sample a per-frame routine more than once.** One arrival is one honest
+number about one frame, and a game's tick costs what the game's *state* makes
+it cost, so the honest number can be about an unrepresentative frame. La
+Galaxia's tick was **bimodal**: 10,729 cycles on an ordinary frame and 31,695
+on a repaint frame, with repaints on roughly 5 frames in 32. A single profile
+reported "comfortably inside the 19,656-cycle PAL frame" 27 times out of 32,
+and the 5 frames in 32 that blew the budget never appeared. `--samples 32`
+shows both modes at once:
+
+```console
+$ c64 profile tick --samples 32
+tick: 14004.9 cycles mean over 32 arrivals (min 10729, max 31695; entry to rts, IRQs masked)
+```
+
+A `max` above the frame budget with a `mean` below it is the shape to look
+for — it means some frames drop and most do not. The arrivals are consecutive
+*runs of the routine* (the fake JSR is re-armed in place between them, one
+persistent trap for the whole run, and the whole loop runs inside the session
+daemon), so the state that drives the spread advances exactly as it would in
+the program.
 
 A run whose timers read back untouched — a raw count of 0, which no real
 routine can cost — is reported as an error naming the likely cause (the CIA
@@ -520,12 +575,19 @@ they cannot be stopped safely. The same goes for the I flag: a timed-out
 profile leaves it as profile set it (masked, unless `--with-irq`), so the
 jiffy clock stays frozen and the keyboard stays dead until you clear it —
 `c64 reg set FL ...` with the I bit off, or a session restart, recovers.
-The machine ends STOPPED at the trap, like `c64 call` — and as with `call`,
-the interrupted program is gone, not paused (see `c64 call`). Sessions
-started before this verb existed need a `c64 session stop`/`start` once
-(the old daemon predates a monitor argument profile uses).
+Both hazards are named in the timeout's own error message, which also
+reports how many arrivals were priced before the deadline (`"reached"`,
+`"count"`, and the partial `"samples"` in the JSON). The machine ends
+STOPPED at the trap, like `c64 call` — and as with `call`, the interrupted
+program is gone, not paused (see `c64 call`). Sessions started before this
+verb existed need a `c64 session stop`/`start` once (the old daemon predates
+a monitor argument profile uses).
 
-JSON: `{"called", "cycles", "irq_masked", "registers", "trap"}`.
+JSON: `{"called", "samples", "min", "max", "mean", "irq_masked", "registers",
+"trap", "count"}` — plus `"cycles"`, the single number, **only** at
+`--samples 1`, which is what every pre-sampling caller reads. Above one
+sample there is no `"cycles"` key on purpose: calling one arrival of a
+bimodal cost *the* cost is the mistake the option exists to prevent.
 
 ---
 
@@ -594,6 +656,16 @@ carries the last screen for `--text`).
 On timeout `c64 wait` exits 1 and the machine is **left running**;
 checkpoints you set remain set (JSON gains `"machine": "running"`).
 
+One timeout is not that. A `--mem` wait issued on a machine that is
+**stopped** — after a `c64 until`, a `step`, a `finish`, or a checkpoint hit
+— polls a byte no running CPU is writing, so it can only burn the full
+timeout and report the value it started with. `c64 wait --mem` therefore
+samples the machine's state either side of the wait, and when it was stopped
+for the whole window the error says so and points at `c64 continue`
+(JSON gains `"machine": "stopped"` instead). This is the repo's
+most-repeated footgun; the message is what stops it costing two minutes and
+a false "the program is stuck" diagnosis.
+
 A `--idle` timeout is the **wedge detector**: the machine ran the whole
 window without ever reaching direct mode, so it is still running or stuck in
 a loop. The error says so and carries the PCs it last saw — feed one to
@@ -638,8 +710,22 @@ A `.prg` is a flat file — the KERNAL reads the 2-byte header, then copies
 every following byte to consecutive addresses — so a segment only lands at
 `$4000` if all 14,335 bytes below it ship too. The flag arranges that: `MAIN`
 is capped at `area.start - load_address` and filled, so the gap between the
-end of your code and the area is written out as zero bytes. Two consequences
-worth knowing before you reach for it:
+end of your code and the area is written out as zero bytes.
+
+**Every area below the last one is filled to its declared size; the last one
+is not** — nothing above it needs placing, so the file simply ends at the last
+byte the topmost area holds and its *unused tail* costs nothing, while every
+area underneath pays for its whole declared span whatever it contains. One
+trap in that: an area's segment is linked `type = ro`, so a `.res` inside one
+is **content, not a hole** — reserved bytes ship as zeros even in the last
+area, and only the span beyond what the segment holds is free. That makes the
+padding a constant you can compute:
+La Galaxia's `--area 'SPRITES=$2000:$1800' --area 'CHARS=$3800:$0800'
+--area 'ENGINE=$4000:$5000'` costs a flat **14,337 bytes** — the 2-byte load
+header plus every address from `$0801` to `$3FFF` — whatever the three areas
+hold, and the finished `.prg` is that number plus the contents of `ENGINE`.
+
+Two consequences worth knowing before you reach for it:
 
 - **The file gets big.** `--area 'HIGH=$4000:$2000'` produces a `.prg` of at
   least 14 KB no matter how small the program is. For data the VIC never
@@ -816,8 +902,25 @@ Build/tokenize `SOURCE` as needed, then load and RUN it. `.bas` is tokenized,
 `.prg` is loaded directly.
 
 - `SOURCE` — a `.bas`, `.s`, `.prg`, or `.crt` file.
+- `--area NAME=START:SIZE` — link segment `NAME` at a fixed address, exactly
+  as `c64 build --area` does (repeatable; `$hex`, `0x` or decimal). The load
+  address is the session's, since there is no `--model` here.
 
 JSON: `{"source", "prg", "symbols"}`. Machine left running.
+
+**`--area`.** A program whose engine or art has to land at a fixed address
+needs the flag to link at all, and without it here that program could not be
+run from `c64 run` — it needed a `c64 build` + `c64 load --symbols` script
+instead. It is **assembly sources only**: `--area applies to assembly sources
+only` is the error for a `.bas`, a `.prg` or a `.crt`, because a tokenized
+BASIC program and an already-built `.prg` never go through the linker config
+an area rewrites, and a cartridge brings its own memory map. A malformed area
+is rejected before ca65 runs, naming the flag you typed. See `c64 build` for
+what an area costs in file size.
+
+```sh
+c64 run game.s --area 'ENGINE=$4000:$6000'
+```
 
 **Cartridges.** A `.crt` cannot be loaded into a running machine — it is
 mapped at power-on — so `c64 run game.crt` stops the current session and boots
@@ -1258,11 +1361,13 @@ alongside `c64 sprite from-png` (image input) and the inverse of
 `c64 sprite show` (bytes back to ASCII). Needs no session.
 
 - `FILE` — one or more sprites, each exactly 21 rows, separated by a
-  truly blank line (a row of all-background pixels is 12/24 spaces and is
-  *not* a separator — only a zero-character line splits sprites).
-  Multicolor rows (the default) are 12 characters using the friendly
-  legend `' .#+'` (background/mc_color1/sprite-color/mc_color2); hires
-  rows are 24 characters using `' #'`. Either mode also accepts the
+  truly blank line (a row of all-background pixels is 12/24 background
+  characters and is *not* a separator — only a zero-character line splits
+  sprites) or by a `name:` header. Multicolor rows (the default) are 12
+  characters using the friendly legend `' .#+'`
+  (background/mc_color1/sprite-color/mc_color2) or the digit legend
+  charset sheets use, `1 2 3` (the digit *is* the pair value); hires rows
+  are 24 characters using `' #'`. Either mode also accepts the
   glyphs `c64 sprite show` emits (`·▒█▓` multicolor, `█·` hires — including
   its double-wide 24-char multicolor rows), so `show` output round-trips
   straight back through `encode`. A block that is the wrong shape is
@@ -1270,8 +1375,28 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   — because "must be 21 rows" alone costs a hand bisection in a sheet of 27.
   Blocks are counted from 1 the way you read them; the emitted labels are
   0-based, which is why the line number travels with the number.
+- **`name:` headers** — `fighter:hires`, `drone:multicolor`, or a bare
+  `drone:` that takes the file's mode (`--hires` or not). Row width then
+  follows the block's own mode, so a game's hires ship and its multicolor
+  aliens are one sheet and one invocation — the same headers, spelled by
+  the same parser, that `c64 charset encode` reads. A name is echoed in the
+  block's header comment (`; sprite 5 (captured), …`) and reported in
+  errors and in `--json`; the emitted label stays positional (`sprite5:`).
+  Names must be unique, and an unrecognized suffix is rejected by name:
+  `sprite sheet line 12: unknown mode 'mono' — use 'hires' or 'multicolor'`.
+- **`#` comments** — ignored, *except* that `#` is also a legend character,
+  so a line counts as a comment only when it holds something the legend
+  does not. An all-`#` line at exactly row width is a solid row of
+  sprite-color pixels and is kept as art.
 - `--hires` — encode as hires (1 bit/pixel, 24 chars/row) instead of the
-  default multicolor pairs (12 chars/row).
+  default multicolor pairs (12 chars/row). It is the mode a bare `name:`
+  header takes; a block that names its own mode overrides it.
+- `--background CHAR` (default a space) — the character that means
+  background (pair `00`). `--background .` is the conventional visible
+  alternative: every pixel of the art is then a printing character, so a
+  row's width is countable and no editor can strip it. Claiming `.` for
+  `00` is why `1` also spells pair `01` — with a visible background a
+  multicolor sheet reads exactly like a charset sheet's `.123`.
 - `--format asm|basic` (default `asm`) — `asm` emits ca65 `.byte %...` rows,
   one sprite row (3 bytes) per line, under a `spriteN:` label with a header
   comment — the same shape `c64 sprite from-png` emits, so hand- and
@@ -1293,27 +1418,26 @@ alongside `c64 sprite from-png` (image input) and the inverse of
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Worked example (one 12x21 multicolor sprite — a small diamond, padded
-with all-background rows). Every content row below is exactly 12
-characters wide (trailing spaces are significant — some viewers trim
-them visually, so count columns rather than trusting the rendering if
-you retype this by hand):
+with all-background rows), authored with a visible background so every
+row is 12 printing characters:
 
 ```
-   ..##..   
-   .####.   
-   ######   
-   ######   
-   .####.   
-   ..##..   
-            
-            
-            
-... (12 more all-space rows to reach 21 total)
+gem:
+...11##11...
+...1####1...
+...######...
+...######...
+...1####1...
+...11##11...
+............
+............
+............
+... (12 more all-background rows to reach 21 total)
 ```
 
 ```
-$ c64 sprite encode diamond.txt
-; sprite 0, 24x21 multicolor (63 bytes: 3 bytes x 21 rows) — c64 sprite encode
+$ c64 sprite encode diamond.txt --background .
+; sprite 0 (gem), 24x21 multicolor (63 bytes: 3 bytes x 21 rows) — c64 sprite encode
 ; place in a 64-byte block; pointer = block_address / 64
 sprite0: .byte %00000001, %01101001, %01000000
          .byte %00000001, %10101010, %01000000
@@ -1325,11 +1449,12 @@ sprite0: .byte %00000001, %01101001, %01000000
 ... (14 more all-background rows to reach 21 total)
 ```
 
-JSON: `{"sprites": [[...63 ints...], ...]}` — one array per sprite in
-FILE. (MCP note: `c64_sprite_encode` is the twin, taking the same file
-path and options, and returns the same `sprites` array plus the text this
-command prints to stdout under `"rendered"` — MCP has no stdout, so
-without it `fmt`/`start_line` would be no-ops.)
+JSON: `{"sprites": [[...63 ints...], ...], "blocks": [{"name", "multicolor"},
+...]}` — one entry per sprite in FILE, in file order; `name` is `null` for a
+block the sheet never named. (MCP note: `c64_sprite_encode` is the twin,
+taking the same file path and options, and returns the same `sprites` and
+`blocks` plus the text this command prints to stdout under `"rendered"` —
+MCP has no stdout, so without it `fmt`/`start_line` would be no-ops.)
 
 ---
 
@@ -1360,13 +1485,20 @@ twin of `c64 sprite encode`. Needs no session.
   takes; a block that names its own mode overrides it.
 - `--first-code N` (default `0`) — screen code of the first glyph; sets
   the `; code N: name` comments (the data itself is position-independent).
+- `--label NAME` (default `glyphs`) — name the emitted block: `NAME:` and
+  `NAME_end:`. A program that installs several sheets (a font, its
+  punctuation, its playfield tiles) concatenates the three invocations into
+  one include and each block keeps its own pair of labels, instead of being
+  `sed`-renamed on the way out. Rejected unless it is an assembler
+  identifier.
 - `-o, --out PATH` — write the rendered rows to PATH instead of stdout.
 
 Output is one contiguous block: a `glyphs:` label, 8 `.byte %binary` rows
 per glyph (each echoing its art row as a trailing comment), and a
 `glyphs_end:` label — so an installer copies with
-`cpx #(glyphs_end - glyphs)` and patches over `CHARSET + code*8`. See the
-cookbook's custom-character-set recipe for the RAM-charset setup.
+`cpx #(glyphs_end - glyphs)` and patches over `CHARSET + code*8`
+(`--label` renames both ends together). See the cookbook's
+custom-character-set recipe for the RAM-charset setup.
 
 JSON: `{"glyphs": [{"name", "multicolor", "bytes"}, ...]}` — 8 ints per glyph,
 file order, each with the mode it was encoded in. (MCP note:
@@ -1439,10 +1571,17 @@ analysis side reads to work out what a tune actually played.
 - `FRAMES` — how many frames to sample (at least 1).
 - `PATH` — the JSONL file to write.
 
-One line per frame and nothing else: `{"frame": n, "regs": [25 ints]}`,
-where `regs[0]` is `$D400` and `regs[24]` is `$D418`. The whole block is
-one 25-byte read taken at a frame boundary, so the registers in a record
-are consistent with each other.
+Line 1 is a clock stamp — `{"machine", "clock_hz", "fps"}`, taken from the
+session's own model — and every line after it is one frame and nothing else:
+`{"frame": n, "regs": [25 ints]}`, where `regs[0]` is `$D400` and `regs[24]`
+is `$D418`. The whole block is one 25-byte read taken at a frame boundary, so
+the registers in a record are consistent with each other.
+
+The stamp exists because the records cannot carry a clock and the same
+registers are different notes on different machines: `c64 audio report` reads
+it back, so a re-score months later needs no `-s` and cannot silently assume
+PAL. Logs written before the stamp existed still parse — the header is
+optional to the reader, never to the writer.
 
 The sampling loop runs inside the session daemon, one frame per round trip
 — a per-frame round trip from the client would cost about half a second
@@ -1505,9 +1644,47 @@ into OUTDIR.
 - `SECONDS` — how much **emulated** time to capture.
 - `OUTDIR` — where the five artifacts go (created if needed).
 - `--ref PATH` — reference score YAML to diff the transcription against.
+- `--at-frame N ADDR=VAL[,ADDR=VAL...]` — perform those memory writes at
+  frame N of the window. Repeatable; two flags naming the same frame merge in
+  the order given, as do the writes inside one flag. Numbers are decimal,
+  `$hex`, or `0xhex`; a value is one byte. A frame the window never reaches
+  is refused before anything is pinned, like a malformed `--ref`.
 
 Exits 1 when the verdict is FAIL; the payload is still printed, so a `--json`
 caller reads the diffs rather than an `{"error": ...}`.
+
+**`--at-frame` is the only way to trigger something inside the window, and
+short effects need it.** Two things close every other route. Arming costs
+emulated frames before frame 0 — `lead_in_frames` in the payload measures how
+many on *this* capture — so an effect fired just before the command starts is
+already over when the log opens. And once the window is open the sampling
+loop owns the session: it runs as one round trip inside the session daemon,
+so a `c64 mem write` from another shell is queued behind the whole capture,
+not interleaved with it. A six-frame laser is therefore unreachable from
+outside and trivial from inside:
+
+```
+c64 audio capture 1 out/ --at-frame 20 '$d404=$81' --at-frame 26 '$d404=$80'
+```
+
+The writes land while the machine is halted, immediately before the resume
+that runs frame N, so frame N is the first *logged* frame whose registers
+show them — and because the machine is already stopped, scheduling costs no
+emulated time and does not move the frame clock.
+
+**`lead_in_frames` is measured, not quoted.** It is the KERNAL jiffy read
+before the pin against the jiffy read after the arm, converted through the
+jiffy's 60.00 Hz to the machine's frames, plus the sampling loop's own first
+resume. It is accurate to about a frame — the jiffy quantizes to 1/60 s — and
+it includes the two round trips taking it costs, which is roughly one frame of
+what it reports. It is **null** when the jiffy cannot answer: the KERNAL's IRQ
+handler is what increments it, so a player that takes the IRQ over freezes it,
+and a program storing its own data at `$A0-$A2` poisons it (a delta outside
+ten emulated minutes is discarded rather than reported). Null means "not
+measured here", never "no lead-in". VICE's binary monitor has no frame or
+cycle counter of its own; its text monitor does carry a cycle `STOPWATCH`, and
+it is not used, because opening that channel costs several frames of the very
+number it would be measuring.
 
 **A capture in which nothing played still passes** — nothing sounded, so no
 check had anything to disagree with — but it says so: `nothing_played` is
@@ -1563,7 +1740,7 @@ the pitch half re-runs on any capture.
 
 JSON: everything `audio report` returns, plus `frames` (what landed),
 `requested_frames`, `emulated_s`, `wall_clock_s`, `wav_bytes`,
-`log_warning`, and `unpin_error`.
+`lead_in_frames`, `log_warning`, and `unpin_error`.
 
 A failed *restore* does not fail the capture. The WAV and the register log are
 already complete by the time the session is put back, so a restore that cannot
@@ -1624,12 +1801,30 @@ what the registers predict (`hz = reg16 * clock / 2**24`): that comparison is
 what establishes a capture's WAV and its register log share a time base, and
 it is the measurement `src/c64lib/audio.py`'s module docstring rests on.
 
-The transcription needs the machine's clock and a register log does not carry
-one: `-s NAME` takes it from that session's model, and with no session PAL is
-assumed (985248 Hz, 50 fps). The wrong clock is not an error, it is a
-plausible report of the wrong pitches — reading the NTSC capture above as PAL
-turns its A4 into "G#4, detuned +35.4 cents". Name the session when the
-capture was NTSC.
+The transcription needs the machine's clock, and a *record* does not carry
+one — but the log does, on line 1. Three sources, in this order, and the
+payload's `clock_source` says which answered:
+
+| `clock_source` | Where it came from |
+|---|---|
+| `session` | `-s NAME` was given: that session's model, overriding any stamp. |
+| `log` | The log's own clock stamp — what any capture by these tools writes. |
+| `default` | Neither: PAL is **assumed** (985248 Hz, 50 fps). |
+
+The wrong clock is not an error, it is a plausible report of the wrong
+pitches — reading the NTSC capture above as PAL turns its A4 into "G#4,
+detuned +35.4 cents" — and before the stamp existed a re-score run after the
+session had stopped did exactly that, silently, renaming every note. So
+`default` is the line to look at twice: it means nothing named the machine.
+It appears only for a hand-written log or one captured before the stamp.
+
+The reference score is compared by **pitch, not spelling**. A score written
+from music data spells the black keys however the key signature does, while
+the transcription only ever emits sharps — a frequency carries no key
+signature to choose from — so `Ab4`, `A♭4`, `G#4` and `G♯4` all match the
+same note, and `Cb4` correctly matches `B3` an octave digit down rather than
+`B4`. A diff quotes both spellings when they differ: `expected Ab4 (= G#4),
+heard A4 at frame 96`.
 
 The reference score is positional per voice — event *n* of a voice against
 entry *n* of that voice's list:
@@ -1648,7 +1843,8 @@ evidence.
 
 JSON: `{"outdir", "report", "verdict", "failures", "log", "wav",
 "piano_roll", "spectrogram", "events", "notes", "nothing_played", "diffs",
-"anomalies", "metrics", "machine", "clock_hz", "fps"}` — `verdict` is
+"anomalies", "metrics", "machine", "clock_hz", "fps", "clock_source"}` —
+`verdict` is
 `"PASS"` or `"FAIL"`, `failures` is the reasons behind a FAIL,
 `nothing_played` is true when no voice sounded and the recording (if there
 was one) agrees, `events` counts note events (rests included) against
@@ -1717,7 +1913,10 @@ The format:
 name: hello-world          # optional; defaults to the file name
 machine: c64           # optional; any c64 model
 program: hello.bas         # .bas/.s/.prg, path relative to this file;
-                           #   built/tokenized as needed
+                           #   built/tokenized as needed. A .prg picks up a
+                           #   sibling .lbl of the same stem for its symbols
+areas:                     # only with a .s program: — `c64 build --area`,
+  - ENGINE=$4000:$6000     #   one NAME=START:SIZE string per entry
 cart: game.crt             # instead of program: — a .crt, a .s, or an
                            #   .ef.yaml manifest, path relative to this file;
                            #   built as needed and mapped at power-on
@@ -1836,6 +2035,46 @@ A `poke` right before an `until` is the held-key protocol (`c64 key
 hold` as steps). Step addresses accept everything the CLI does —
 `$hex`/`0xhex`/decimal, symbols from the built program's label file,
 `symbol+offset`, `@row,col`, and `@@row,col` (color RAM).
+
+**Program tests.** `program:` is resolved relative to the spec file and is a
+`.bas` (tokenized), a `.s` (assembled) or a `.prg` (loaded as it is). Symbols
+follow the same rule `cart:` and `disk:` do: a built program uses its own
+label file, and for a ready-made `.prg` a sibling `.lbl` of the same stem is
+picked up if it is there, and silently skipped if it is not — so `until:
+{ref: mainloop}` works against a `.prg` that was built elsewhere.
+
+**The build lands beside the source, not in a temp directory.** A `.s`
+`program:` is assembled to `<stem>.prg` and `<stem>.lbl` in the spec's own
+directory, overwriting both, on every run — the same files `c64 build` writes
+there. Two consequences: a *committed* build artifact is republished by a
+test run (byte-identical while the sources have not changed, so the working
+tree stays clean, but it is rewritten), and the fresh `<stem>.lbl` is then
+newer than any sibling `<stem>.d64`, so a `disk:` spec pointed at that image
+afterwards stops with the staleness error below until the image is
+repackaged.
+
+`areas:` is `c64 build --area` as a spec key: a list of `NAME=START:SIZE`
+strings that link segments at fixed addresses, for a program that needs one to
+link at all. It applies to a `.s` `program:` only — beside a `.bas`, a `.prg`,
+a `cart:` or a `disk:` it is an error naming the conflict rather than a
+directive quietly dropped, and a malformed entry is rejected before the
+session boots.
+
+```yaml
+program: game.s
+areas:
+  - ENGINE=$4000:$6000
+```
+
+**A disk older than its labels.** When a `disk:` spec's symbols come from a
+sibling `<image>.lbl` written *after* the image, the run stops before the
+first step: the image predates the symbols, so every address the spec names
+would be resolved against a program the image does not contain, and the
+failure would otherwise arrive as a plausible wrong byte (`mem $414b = 4a !=
+00`). Rebuild the image — `c64 package` or `c64 disk build` — and run again.
+The label copies `c64 disk build` keeps for the image's own entries are never
+judged this way: they are written by the command that wrote the image, so they
+cannot go stale on their own.
 
 **Cartridge tests.** A spec sets `cart:` **or** `program:`, never both —
 setting both is an error, because a cartridge boots itself and there is

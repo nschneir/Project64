@@ -80,7 +80,10 @@ Write → run → observe → fix:
 5. Fix and repeat.
 
 Start a machine with `c64 session start` before anything else, and
-`c64 session stop` when done.
+`c64 session stop` when done — `c64 session stop --all` if you started
+several, or if `start` told you others were already running. Every session
+left behind is an emulator holding a CPU core, and sessions outlive the
+conversation that started them.
 
 ## Sessions and models
 
@@ -204,6 +207,19 @@ invisible to `c64 screen` text — inspect them with `c64 sprite status`
 (decoded registers), `c64 sprite show` (ASCII art), and `c64 sprite png`
 (exact rendered shape), and assert on registers and state bytes. Screen
 relocation is followed automatically by `c64 screen` and `@row,col`.
+
+**More than eight objects, and things that must happen at a known
+scanline.** Eight sprites is a per-scanline ceiling, not a per-screen one:
+the cookbook's *sprite multiplexer* recipe sorts objects by Y, hands each
+the first register free by the time the beam reaches it, and — the part
+that makes it testable — publishes a displayed count and an overflow count
+as plain memory, because a screenshot shows the result and never the
+budget. Its reposition schedule is played out by the *raster event chain*
+recipe, one sorted `(line, kind, arg)` list per frame with a frame marker
+that paces the main loop. Read both before writing a raster handler by
+hand; between them they carry the two subtleties that cost the most time
+(arming `$D012` past the live raster, and the `$D019` re-acknowledge on the
+way out).
 
 **Anchoring an observation on a moving program.** Anything you sample or
 screenshot while the machine runs is a race — at warp the ball has flown on
@@ -378,7 +394,10 @@ source of bugs:
 - Driving a game that reads the held key from `$CB` (or the joystick)?
   `c64 key type` only fills the type-ahead buffer — use
   `c64 key hold KEY --at <loop-label>` (it re-pokes the key's matrix code
-  into `$CB` each frame; see the hardware reference).
+  into `$CB` each frame; see the hardware reference). The hold lets the key
+  go afterwards unless you pass `--no-release`: the re-poke assumes the
+  KERNAL keyboard scan is running to clear `$CB`, and a game that owns the
+  interrupt has no scan, so an unreleased key stays down for ever.
 - A sprite demo that "shows nothing" in `c64 screen` — sprites never appear
   in decoded text. Check `$D015` and positions with `c64 mem read '$D000' 17`
   and capture `c64 screen --png` for the visual.
@@ -444,6 +463,11 @@ hand. The fixes are simple:
   (or pick a different `--name`), then start fresh.
 - **Commands say "no C64 session running."** You have no session, or you're
   not naming it — start one, or pass `--session <name>`.
+- **"multiple sessions running (pick one with --session)", or `start` said
+  `note: N other session(s) already running`.** Something — often an earlier
+  conversation — left emulators behind. `c64 session list` to see them and
+  `c64 session stop --all` to clear the lot, including any whose process has
+  already died.
 - **A session seems wedged.** `c64 session stop <name>` and start a new one;
   a fresh session is cheap.
 - **A capture died mid-window** — `audio capture: no response to EXIT`. The
@@ -515,7 +539,8 @@ final action before a capture.
 Read the matching file when you need the detail:
 
 - `references/cookbook.md` — **start here for a new program**: tested,
-  copy-adaptable recipes (game loops, screen pokes, sprites, sound) in BASIC and asm.
+  copy-adaptable recipes (game loops, screen pokes, sprites, sprite
+  multiplexing, raster event chains, sound) in BASIC and asm.
 - `references/memory-maps.md` — the C64 memory layout (RAM, screen, ROM, I/O, banking).
 - `references/zero-page.md` — the 6510 port, BASIC pointer chain, low-memory
   usage, handy control-flag locations (RUN/STOP, key repeat, color, region),

@@ -46,7 +46,7 @@ Four tools, three of them the pieces and one the whole job:
 | `c64_audio_record` — `c64 audio record --start <path>` / `c64 audio record --stop` | Drives VICE's WAV sound recorder. Start writes to `<path>`; stop closes it. |
 | `c64_sid_log` — `c64 audio sidlog <frames> <path>` | Samples all 25 SID registers once per frame for `<frames>` frames into a JSONL log. |
 | `c64_sid_report` — `c64 audio report …` | Analysis only, no machine: takes an existing log (and optionally the WAV and a score) and writes the roll, the spectrogram, and `report.md`. Re-run it after editing a score without re-capturing. |
-| `c64_audio_capture` — `c64 audio capture …` | **The one you want.** Starts the recorder, logs the frames, stops the recorder, analyses, and writes all five artifacts. Over MCP: `c64_audio_capture(seconds, outdir, ref=None, session=None)`; on the CLI the first two are positional and the rest are options (`--help` for the exact spelling). |
+| `c64_audio_capture` — `c64 audio capture …` | **The one you want.** Starts the recorder, logs the frames, stops the recorder, analyses, and writes all five artifacts. Over MCP: `c64_audio_capture(seconds, outdir, ref=None, session=None, at_frame=None)`; on the CLI the first two are positional and the rest are options (`--help` for the exact spelling). |
 
 **The artifact set.** `c64_audio_capture` writes exactly these five files
 into `outdir`, under those exact names, so every demo's audio evidence looks
@@ -55,7 +55,7 @@ the same:
 | File | What it is |
 |---|---|
 | `capture.wav` | The machine's audio output. The maintainer's listen is the final gate, and this is what gets listened to. |
-| `sid-log.jsonl` | One line per frame: `{"frame": <int>, "regs": [25 ints]}`, `regs[0]` = `$D400`. The raw evidence — everything else is derived from it. |
+| `sid-log.jsonl` | A clock stamp on line 1 (`{"machine", "clock_hz", "fps"}`), then one line per frame: `{"frame": <int>, "regs": [25 ints]}`, `regs[0]` = `$D400`. The raw evidence — everything else is derived from it, and the stamp is what lets `c64 audio report` re-score it later without a session to name the machine. |
 | `piano-roll.png` | Transcribed notes per voice over time. |
 | `spectrogram.png` | The WAV's frequency content over time — where the filter and the noise live. |
 | `report.md` | Transcription, score diff, anomalies, WAV metrics, and the overall verdict. |
@@ -134,6 +134,43 @@ first — `c64 until` on your per-frame tick label, a hidden key that jumps to
 the act you want, a `c64 call` into the effect routine — and capture from
 there. Same discipline as a screenshot: stage the state, then sample it.
 
+### Triggering inside the window: `--at-frame`
+
+For anything **shorter than the lead-in**, staging beforehand does not work
+and no amount of care fixes it. Two facts close every outside route:
+
+- Arming spends emulated frames before log frame 0. Every capture now
+  measures its own and reports it as `lead_in_frames`.
+- Once the window is open, the sampling loop owns the session. It runs as one
+  round trip inside the session daemon, so a `c64 mem write` from anywhere
+  else waits for the whole capture rather than landing inside it.
+
+So a six-frame laser triggered by a poke is always over before frame 0.
+Schedule it instead:
+
+```
+c64 audio capture 1 out/ --at-frame 20 '$d404=$81' --at-frame 26 '$d404=$80'
+```
+
+Over MCP the same thing is `at_frame={"20": "$d404=$81", "26": "$d404=$80"}`.
+The writes happen while the machine is halted, immediately before the resume
+that runs frame N, so **frame N is the first logged frame that shows them**
+and the schedule costs no emulated time at all. Repeats of one frame merge in
+order, so a frequency and its gate go in one flag: `--at-frame 20
+'$d400=$67,$d401=$11,$d404=$41'`.
+
+This is also the honest way to test an effect the *game* cannot be made to
+fire: driving the real input edge needs the KERNAL scan the program has
+usually turned off, and a held key pins its byte to one value instead of
+producing an edge. Writing the effect's own registers at a named frame proves
+the sound, not the input path — say which of the two you are claiming.
+
+**`lead_in_frames` is null on programs that own the IRQ.** It is measured
+from the KERNAL jiffy at `$A0-$A2`, which the KERNAL's own interrupt handler
+increments — a player that takes the IRQ over freezes it, and null then means
+"not measured", never "no lead-in". Reach for `--at-frame` rather than for a
+number in that case.
+
 ### Give the program a silent lead-in
 
 Whether the program is BASIC or assembly, arming the capture takes real time
@@ -166,7 +203,10 @@ sequencer on it.
 comes up, an act begins — and you *can* drive the machine to that moment, so
 the lead-in is smaller but not optional: arming still consumed about **84
 frames (1.4 s)** on the run this was measured on (2026-08-07, NTSC), which
-is a phrase and a half of a fast tune.
+is a phrase and a half of a fast tune. You no longer have to take that figure
+on trust: every capture now measures its own and reports it as
+`lead_in_frames`, so size the program's silent lead-in against the number
+this host and this program actually produce.
 
 The mistake to avoid is baking the silence into the track data. A player
 that loops its pattern replays the lead-in every time round, which puts a
@@ -202,6 +242,13 @@ voices:
 note's length in frames, and it is optional — omit it to check the note but
 not its duration.
 
+**Spell the note however your music data spells it.** The comparison is by
+pitch, not by string: `Ab4`, `A♭4`, `G#4` and `G♯4` are one note, and `Cb4`
+is `B3` — an octave digit down, checked as such, so a genuine wrong-octave
+bug still fails. The transcription itself only ever emits sharps, because a
+frequency carries no key signature to choose a spelling from; a diff quotes
+both when they differ (`expected Ab4 (= G#4), heard A4 at frame 96`).
+
 Only the voices the score lists are compared, so listing all three is a
 convention rather than a rule: an empty list is the positive claim "this
 voice sits out the captured passage", while omitting a voice claims nothing
@@ -227,6 +274,23 @@ it can carry a duration — the first entry's rule above still applies).
 is exempt, but an extra *sounding* note is a diff by design — so a score that
 stops eight notes into a window holding twelve fails on the last four. Count
 what the window holds and list exactly that many events.
+
+**And the window's contents have to be under your control.** Counting what
+the window holds only helps if you decide what it holds — a score is a claim
+about *every voice for every frame*, not about the music, so anything else in
+the program that can gate a voice is in the score whether you meant it or
+not. La Galaxia's first play score was captured over ordinary gameplay, so
+alongside the melody it scored the enemies' dive whines and the collisions
+the game raised on its own. It passed on the run it was written from and
+failed on the next one, when an edit to the wave tables moved the enemies:
+the same effects fired on different frames, and nothing about the music had
+changed. **The fix is to take the other sounds out of the window, not into
+the score** — clear the enemy state (and anything else that can seize a
+voice) immediately before the capture opens, so the only thing gating a voice
+during the window is the thing you are claiming about. Stage the window the
+way you stage a screenshot; a score over a window you do not control is a
+test that fails on the next unrelated change, and a re-scored one just moves
+the failure to the change after that.
 
 Both edges are where a first fully-durationed attempt fails, and neither is a
 reason to do what the next paragraph forbids. In the Project64 repo,
@@ -306,6 +370,62 @@ making on purpose:
 
 Both are correct players. The choice belongs in the player, and the score
 follows it — so decide which one you are writing before you write either.
+
+#### Generate the score: model the player one frame at a time
+
+Hand-counting is fine for the four rows above. For a whole tune it is not,
+and the arithmetic that looks obvious — rows × frames-per-row, one entry per
+notated note — is wrong for the reason the worked example just gave: what the
+player does at a note boundary happens inside the frame grid, and the score
+describes that grid, not the sheet. The rule is constructive, and it is two
+steps:
+
+1. **Model the player one frame at a time.** Walk your own sequencer data and
+   emit one entry per frame — the note name a once-per-frame sampler would
+   read on that frame, or `rest` — *including* the frames the player spends
+   with the gate down.
+2. **Run-length encode that list.** Collapse consecutive equal entries into
+   one `{note, frames}`, and that is the score.
+
+It works because it is the same algorithm the transcriber runs from the other
+side: it also reads one sample per frame and merges equal neighbours (see
+*What divides one entry from the next*, above). Two models of the same grid
+agree by construction. This is **not** the forbidden move of pasting a
+transcription back in as the score — the input is your note table, not the
+capture, so a player that gates the wrong voice, drops a row, or indexes the
+wrong note still fails the diff.
+
+Skipping the model costs a capture to rediscover. La Galaxia's first
+generator walked rows and multiplied: every note came out one frame too long and no
+leading rest was listed anywhere, because the gate-down frame a retrigger
+costs exists in the frame grid and not in the row data.
+
+`demos/la-galaxia/tools/genmusic.py` is the worked example. `per_frame()` is
+the model — rows in, one entry per frame out:
+
+```python
+for entry in part:                    # one entry per row
+    if entry == NOTE_OFF:
+        gate = False
+    elif entry != NOTE_HOLD:          # a new note: this row retriggers
+        cur, gate, trig = entry, True, True
+    for _ in range(ROWTICKS):         # the row's frames, one at a time
+        if cur is None or not gate:
+            out.append("rest")
+        elif trig:
+            trig = False
+            out.append("rest")        # the gate-down frame the retrigger costs
+        else:
+            out.append(cur)
+```
+
+and `events()` is the run-length encoder over its output — six lines that
+turn the pattern tables into the YAML. Two details there are worth copying.
+The model takes the voice's **state on entry to the window** (the note it is
+already holding, and whether that note is gated), which is what makes a score
+starting mid-phrase come out right; and it takes an **overlay** of the frames
+where a sound effect owns the voice, so the score says what the chip did
+rather than what the music alone would have done.
 
 To check that the table entry behind `E4` really is E4, run the register
 through the frequency formula — `hz = reg16 * clock / 2**24` — with *your
@@ -393,7 +513,11 @@ every WAV finding with the roll before naming a cause.
 - **Clocks and frame rates:** PAL `985248` Hz at 50 fps, NTSC `1022727` Hz
   at 60 fps. The analysis resolves both from the session's machine model —
   never hardcode a clock, and never compare a PAL capture against an
-  NTSC-tuned score without converting.
+  NTSC-tuned score without converting. A capture stamps its machine on line 1
+  of `sid-log.jsonl`, so a later `c64 audio report` on that log resolves the
+  clock without a session; `clock_source` in the payload says whether it came
+  from the stamp (`log`), from `-s` (`session`), or from nowhere (`default`,
+  meaning PAL was assumed).
 - **One resume is one frame — not a `$D012` poll.** On real hardware a read
   of `$D012` (the raster line's low byte) wrapping to a smaller value marks
   a new frame, and that is what this reference used to claim the sid log

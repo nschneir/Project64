@@ -10,6 +10,7 @@ was written, not a restatement of the implementation.
 import json
 import math
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -53,6 +54,8 @@ NTSC_FPS = 60
 A4_REG = 7493        # 440.03 Hz, A4, +0.11 cents
 C4_REG = 4455        # 261.62 Hz, C4, -0.03 cents
 E4_REG = 5613        # 329.63 Hz, E4, -0.01 cents
+GS4_REG = 7072       # 415.31 Hz, G#4, +0.00 cents — the enharmonic case
+B3_REG = 4205        # 246.94 Hz, B3, -0.01 cents — one below C4
 A4_SHARP30_REG = 7623   # 447.66 Hz, A4 +29.9 cents — audibly out of tune
 
 #: Voice 3's frequency in the 8 s NTSC Space Invaders gameplay capture of
@@ -170,6 +173,51 @@ def test_parse_log_rejects_missing_keys(tmp_path):
     path = tmp_path / "sid-log.jsonl"
     path.write_text(json.dumps({"regs": [0] * 25}) + "\n")
     with pytest.raises(ValueError, match="line 1"):
+        parse_log(path)
+
+
+STAMP = {"machine": "c64", "clock_hz": 1022727, "fps": 60}
+
+
+def _stamped(tmp_path, *rows) -> Path:
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in (STAMP, *rows)))
+    return path
+
+
+def test_parse_log_skips_the_clock_stamp_on_line_one(tmp_path):
+    """A log carries its machine so a re-score does not have to guess it.
+    The stamp is not a frame record and must not be read as one."""
+    path = _stamped(tmp_path, {"frame": 0, "regs": [0] * 25})
+    assert parse_log(path) == [FrameRecord(frame=0, regs=tuple([0] * 25))]
+
+
+def test_log_timing_reads_the_stamp_back(tmp_path):
+    assert sid_analysis.log_timing(_stamped(tmp_path)) == STAMP
+
+
+def test_log_timing_is_none_for_a_log_written_before_the_stamp(tmp_path):
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    assert sid_analysis.log_timing(path) is None
+
+
+def test_parse_log_still_rejects_a_first_line_that_is_neither(tmp_path):
+    """The stamp is a specific shape, not "any object without frames": a
+    truncated or foreign first line is still the error it always was."""
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text(json.dumps({"machine": "c64"}) + "\n")
+    with pytest.raises(ValueError, match="line 1"):
+        parse_log(path)
+
+
+def test_parse_log_rejects_a_stamp_that_is_not_on_line_one(tmp_path):
+    """One header, at the top. A stamp mid-file would silently swallow a
+    frame's worth of evidence."""
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n"
+                    + json.dumps(STAMP) + "\n")
+    with pytest.raises(ValueError, match="line 2"):
         parse_log(path)
 
 
@@ -326,6 +374,41 @@ def test_diff_score_reports_a_wrong_note():
     diffs = diff_score(events, ref)
     assert len(diffs) == 1
     assert "voice 1" in diffs[0] and "C4" in diffs[0] and "A4" in diffs[0]
+
+
+def test_diff_score_accepts_a_flat_spelling_of_the_note_it_heard():
+    """A score written from music data spells `Ab4`; the transcription only
+    ever emits sharps. Seven diffs of pure orthography is what comparing the
+    STRINGS cost the first --ref run of a real demo."""
+    records = _log((25, {1: (GS4_REG, TRIANGLE_ON)}))
+    events = transcribe(records, PAL_CLOCK)
+    assert _voice(events, 1)[0].note == "G#4"          # what it hears
+    assert diff_score(events, {"voices": {1: [{"note": "Ab4", "frames": 25}]}}) == []
+
+
+@pytest.mark.parametrize("spelling", ["Ab4", "A♭4", "G#4", "G♯4"])
+def test_diff_score_reads_every_spelling_of_one_pitch(spelling):
+    events = transcribe(_log((25, {1: (GS4_REG, TRIANGLE_ON)})), PAL_CLOCK)
+    assert diff_score(events, {"voices": {1: [{"note": spelling}]}}) == []
+
+
+@pytest.mark.parametrize("spelling, same_as", [("Cb4", "B3"), ("B#3", "C4")])
+def test_diff_score_carries_an_octave_across_the_c_boundary(spelling, same_as):
+    """`Cb4` is `B3`, an octave digit lower — a pitch-class-only comparison
+    would call it a match against B4 and hide a real wrong-octave bug."""
+    events = transcribe(_log((25, {1: (B3_REG, TRIANGLE_ON)})), PAL_CLOCK)
+    heard = _voice(events, 1)[0].note
+    expected_ok = heard == same_as
+    assert (diff_score(events, {"voices": {1: [{"note": spelling}]}}) == []) is expected_ok
+
+
+def test_diff_score_shows_both_spellings_when_a_flat_note_is_wrong():
+    """The diff still has to be readable against the score as written, so it
+    quotes the score's spelling and the one the transcription would use."""
+    events = transcribe(_log((25, {1: (A4_REG, TRIANGLE_ON)})), PAL_CLOCK)
+    diffs = diff_score(events, {"voices": {1: [{"note": "Ab4"}]}})
+    assert len(diffs) == 1
+    assert "Ab4 (= G#4)" in diffs[0] and "heard A4" in diffs[0]
 
 
 def test_diff_score_reports_a_duration_mismatch():

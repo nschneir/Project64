@@ -237,11 +237,60 @@ def _register_byte(value) -> int:
     return value
 
 
+#: The keys a log's clock stamp carries, and the whole test for one. A first
+#: line holding exactly these is the header `c64lib.audio.sid_log_detail`
+#: writes; anything else on line 1 is still the malformed frame record it
+#: always was, so a truncated or foreign line cannot pass as a header.
+LOG_STAMP_KEYS = ("machine", "clock_hz", "fps")
+
+
+def _log_stamp(line: str) -> dict | None:
+    """The clock stamp in a log's first line, or None if it is not one."""
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(row, dict) or set(row) != set(LOG_STAMP_KEYS):
+        return None
+    return row
+
+
+def log_timing(path: str | Path) -> dict | None:
+    """`{"machine", "clock_hz", "fps"}` a log was captured with, or None.
+
+    A register log does not carry its clock in its records — the same
+    `$D400/$D401` pair is A4 on the NTSC machine and G#4 +35 cents on PAL —
+    so a capture stamps the machine it came from on line 1 and a re-score
+    reads it back here instead of assuming PAL. None is what every log
+    written before the stamp existed answers; `c64lib.audio.report_timing_from`
+    is where that falls back.
+    """
+    for line in Path(path).read_text().splitlines():
+        if not line.strip():
+            continue
+        return _log_stamp(line)
+    return None
+
+
 def parse_log(path: str | Path) -> list[FrameRecord]:
-    """Read a captured SID log (JSONL, one frame per line)."""
+    """Read a captured SID log (JSONL, one frame per line).
+
+    A clock stamp on line 1 is skipped, not returned — `log_timing` is what
+    reads it. Everywhere else the rule is unchanged: a line that is not a
+    25-register frame record is an error naming its line number, which is
+    what keeps a stray warning or a half-written log from being analysed.
+    """
     records = []
+    first = True
     for number, line in enumerate(Path(path).read_text().splitlines(), start=1):
         if not line.strip():
+            continue
+        stamp, first = (first and _log_stamp(line) is not None), False
+        if stamp:
+            # The FIRST content line only: a log has one header and it is at
+            # the top. A stamp anywhere else falls through to the frame-record
+            # parse and is reported there, rather than silently swallowing a
+            # frame's worth of evidence.
             continue
         try:
             row = json.loads(line)
@@ -405,8 +454,8 @@ def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[s
         for index in range(max(len(expected), len(heard))):
             label = f"voice {voice} event {index + 1}"
             if index >= len(heard):
-                want = _reference_note(expected[index], label)
-                diffs.append(f"{label}: expected {want}, heard nothing (log ended)")
+                shown = _expected_note(expected[index], label)[1]
+                diffs.append(f"{label}: expected {shown}, heard nothing (log ended)")
                 continue
             got = heard[index]
             if index >= len(expected):
@@ -416,11 +465,11 @@ def diff_score(events: Sequence[NoteEvent], ref: Mapping | str | Path) -> list[s
                         f"(reference lists {len(expected)} events)"
                     )
                 continue
-            want = _reference_note(expected[index], label)
+            want, shown = _expected_note(expected[index], label)
             want_frames = expected[index].get("frames")
             if want != got.note:
                 diffs.append(
-                    f"{label}: expected {want}, heard {got.note} at frame {got.start_frame}"
+                    f"{label}: expected {shown}, heard {got.note} at frame {got.start_frame}"
                 )
             elif want_frames is not None and int(want_frames) != got.frames:
                 diffs.append(
@@ -813,6 +862,21 @@ def _reference_note(entry: Mapping, label: str) -> str:
         raise ValueError(f"reference {label} has no 'note': {entry!r}") from exc
 
 
+def _expected_note(entry: Mapping, label: str) -> tuple[str, str]:
+    """`(pitch, how to show it)` for one reference entry.
+
+    The pitch is respelled the way the transcription writes it, so `Ab4`
+    matches the `G#4` it heard. The display keeps the score's own spelling
+    and appends the transcription's when they differ — `Ab4 (= G#4)` — so a
+    diff is still readable against the file the reader wrote, and the
+    respelling is visible rather than something the reader has to know
+    happened.
+    """
+    written = _reference_note(entry, label)
+    pitch = spell_as_transcribed(written)
+    return pitch, written if pitch == written else f"{written} (= {pitch})"
+
+
 def _stuck_gates(
     records: Sequence[FrameRecord], voice: int
 ) -> list[tuple[int, int, str]]:
@@ -943,16 +1007,52 @@ def _midi_name(midi: int) -> str:
     return f"{_NOTE_NAMES[midi % 12]}{midi // 12 - 1}"
 
 
+#: What one of each accidental is worth in semitones. `♯`/`♭` are here
+#: because a score is hand-written by a human with a keyboard layout, and a
+#: typographic accidental is a spelling of the same pitch, not a typo.
+_ACCIDENTALS = {"#": 1, "♯": 1, "b": -1, "♭": -1}
+
+
 def _note_to_midi(note: str) -> int | None:
     """MIDI number for a name from :func:`freq_to_note`; ``None`` for a rest."""
     if note == REST:
         return None
-    accidental = 2 if len(note) > 1 and note[1] == "#" else 1
-    name, octave = note[:accidental], note[accidental:]
+    body = note.strip()
+    letter, body = body[:1].upper(), body[1:]
+    shift = 0
+    while body and body[0] in _ACCIDENTALS:
+        shift += _ACCIDENTALS[body[0]]
+        body = body[1:]
     try:
-        return (int(octave) + 1) * 12 + _NOTE_NAMES.index(name)
+        return (int(body) + 1) * 12 + _NOTE_NAMES.index(letter) + shift
     except ValueError as exc:
         raise ValueError(f"{note!r} is not a note name") from exc
+
+
+def spell_as_transcribed(note: str) -> str:
+    """A reference note respelled the way the transcription writes it.
+
+    `freq_to_note` names every black key with a sharp, because a frequency
+    carries no key signature to choose a spelling from. A score written from
+    music data does carry one, and `Ab4` is the same pitch as `G#4` — so
+    comparing the STRINGS reports orthography as a wrong note. (Measured: the
+    first `--ref` run of one demo came back as seven diffs, every one of them
+    a flat against its sharp.)
+
+    Round-tripping through MIDI is what makes this a PITCH comparison without
+    losing the octave: `Cb4` is `B3`, an octave digit lower, so a bare
+    pitch-class match would call it B4 and hide a real wrong-octave bug.
+
+    Anything that is not a note name — a rest, a typo — comes back unchanged,
+    for `diff_score` to report against as it always did.
+    """
+    if note == REST:
+        return REST
+    try:
+        midi = _note_to_midi(note)
+    except (ValueError, IndexError):
+        return note
+    return note if midi is None else _midi_name(midi)
 
 
 def _frame_span(events: Sequence[NoteEvent]) -> tuple[int, int]:

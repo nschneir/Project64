@@ -60,10 +60,10 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
 
 | Tool | CLI | Divergence |
 |------|-----|------------|
-| `c64_session_start` | `c64 session start` | headless and warp are always on, not flags; `--disk` is `disk` |
+| `c64_session_start` | `c64 session start` | headless and warp are always on, not flags; `--disk` is `disk`; the CLI's stderr `note: N other session(s) already running` has no MCP counterpart (the payload is the CLI's `--json`, which the notice deliberately stays out of) — call `c64_session_list` to see what is up |
 | `c64_session_ensure` | `c64 session ensure` | same: headless and warp are always on when it boots |
 | `c64_session_list` | `c64 session list` | — |
-| `c64_session_stop` | `c64 session stop` | — |
+| `c64_session_stop` | `c64 session stop` | `--all` is `all`; with `all=true`, `stopped` is a list of names instead of one name |
 | `c64_session_reset` | `c64 session reset` | — |
 | `c64_status` | `c64 status` | — |
 
@@ -80,7 +80,7 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
 | Tool | CLI | Divergence |
 |------|-----|------------|
 | `c64_key_type` | `c64 key type` | — |
-| `c64_key_hold` | `c64 key hold` | `KEYNAME` is `key`, `--at` is `at` |
+| `c64_key_hold` | `c64 key hold` | `KEYNAME` is `key`, `--at` is `at`, `--no-release` is `release=false` |
 
 ### Memory
 
@@ -126,6 +126,14 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
 One command with four mutually exclusive condition flags becomes four tools,
 each taking its own condition. On all four, a timeout returns
 `{"fired": null, ...}` rather than exiting 1.
+
+`c64_wait_mem` says **where the machine was** when it timed out, the way the
+CLI's `--mem` timeout does: `"machine": "stopped"` plus a `diagnosis` string
+means it was halted for the whole window — after a `c64_until`, `c64_step`,
+`c64_finish` or a checkpoint hit — so the byte could not change and
+`c64_continue` is the way out. `"machine": "running"` means the value
+genuinely never arrived. It is sampled either side of the wait, because one
+sample cannot support "stopped the whole time".
 
 | Tool | CLI | Divergence |
 |------|-----|------------|
@@ -192,8 +200,8 @@ each taking its own condition. On all four, a timeout returns
 | `c64_sprite_show` | `c64 sprite show` | — |
 | `c64_sprite_png` | `c64 sprite png` | `--out`/`-o` is `path` (required on both sides) |
 | `c64_sprite_from_png` | `c64 sprite from-png` | the ca65 rows come back in the payload under `rows`, so `--out`/`-o` has no counterpart |
-| `c64_sprite_encode` | `c64 sprite encode` | returns the text the CLI prints under `rendered`, which supersedes `--out`/`-o`; `--format` is `fmt` |
-| `c64_charset_encode` | `c64 charset encode` | same `rendered` key, superseding `--out`/`-o`; `--first-code` is `first_code` |
+| `c64_sprite_encode` | `c64 sprite encode` | returns the text the CLI prints under `rendered`, which supersedes `--out`/`-o`; `--format` is `fmt`, `--background` is `background` |
+| `c64_charset_encode` | `c64 charset encode` | same `rendered` key, superseding `--out`/`-o`; `--first-code` is `first_code`, `--label` is `label` |
 
 ### ROM tools
 
@@ -208,7 +216,7 @@ each taking its own condition. On all four, a timeout returns
 |------|-----|------------|
 | `c64_audio_record` | `c64 audio record` | `--start PATH` and `--stop` become `action="start"` with `path`, or `action="stop"` |
 | `c64_sid_log` | `c64 audio sidlog` | renamed: the tool is named for what it logs |
-| `c64_audio_capture` | `c64 audio capture` | — |
+| `c64_audio_capture` | `c64 audio capture` | `--at-frame N SPEC` (repeatable) is one `at_frame` mapping, `{"N": "SPEC"}` |
 | `c64_sid_report` | `c64 audio report` | renamed to match `c64_sid_log`; `--peak-hz` is `peak_hz` |
 | `c64_audio_score` | `c64 audio score` | — |
 

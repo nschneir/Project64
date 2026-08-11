@@ -64,12 +64,20 @@ fail_under = 90
 # this policy started from, 80 were resolved at their cause and 7 needed a
 # per-site suppression.
 #
+# `skills` is in `include` for the same reason: a skill's `references/` may
+# ship a runnable script — the first is 6502-assembly's fix-branch-range.py,
+# which the skill tells an agent to pipe a failed build into, and which
+# rewrites the agent's source files in place. That is code, and it was
+# type-checked exactly once, by hand, before this line existed. Demo `tools/`
+# scripts are deliberately NOT here: each is its own demo's artifact, tested
+# by that demo, and pulling them in would gate this repo on their style.
+#
 # Suppressions are per-site `# pyright: ignore[<rule>]` with a comment saying
 # why, never a bare `# type: ignore` and never a rule switched off here. If a
 # whole file needs one, that is evidence the code wants changing instead.
 venvPath = "."
 venv = ".venv"
-include = ["src", "tests"]
+include = ["src", "tests", "skills"]
 typeCheckingMode = "standard"
 
 [tool.ruff]

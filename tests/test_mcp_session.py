@@ -35,6 +35,33 @@ def test_session_start():
                                      warp=True, disk8=None, cart=None)
 
 
+def test_session_stop_all():
+    """CLI lockstep with `c64 session stop --all`: one call clears every
+    session, including any whose emulator is already gone."""
+    with patch("c64lib.mcp_server.Session") as S:
+        S.stop_all.return_value = ["a", "b"]
+        err, out = call_tool("c64_session_stop", {"all": True})
+    assert err is False and out == {"stopped": ["a", "b"]}
+    S.attach.assert_not_called()
+
+
+def test_session_stop_all_with_a_name_is_an_error():
+    with patch("c64lib.mcp_server.Session") as S:
+        err, out = call_tool("c64_session_stop", {"all": True, "name": "boo"})
+    assert err is True and "all" in out["raw"] and "boo" in out["raw"]
+    S.stop_all.assert_not_called()
+    S.attach.assert_not_called()
+
+
+def test_session_stop_one_still_returns_a_bare_name():
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_session_stop", {})
+    assert err is False and out == {"stopped": "c64"}
+    s.stop.assert_called_once()
+
+
 def test_screen_text():
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \

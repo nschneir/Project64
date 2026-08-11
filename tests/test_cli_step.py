@@ -197,11 +197,23 @@ def test_call_command_timeout_fails():
     assert "never returned" in r.output
 
 
+def _profiled(samples, fired=True):
+    """A profile_routine_samples payload for `samples` cycle counts."""
+    out = {"fired": fired, "samples": samples,
+           "min": min(samples) if samples else None,
+           "max": max(samples) if samples else None,
+           "mean": round(sum(samples) / len(samples), 1) if samples else None,
+           "registers": {"PC": 0x0400} if fired else None, "trap": 0x0400,
+           "irq_masked": True, "reached": len(samples), "count": len(samples)}
+    if len(samples) == 1:
+        out["cycles"] = samples[0]
+    return out
+
+
 def test_profile_reports_cycles():
     fake, mon = _fake()
-    with patch("c64lib.cli.profile_routine",
-               return_value={"fired": True, "cycles": 396,
-                             "registers": {"PC": 0x0400}, "trap": 0x0400}) as pr, \
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled([396])) as pr, \
          patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "profile", "$C000"])
@@ -209,13 +221,13 @@ def test_profile_reports_cycles():
     out = json.loads(r.output)
     assert out["cycles"] == 396 and out["irq_masked"] is True
     pr.assert_called_once()
+    assert pr.call_args.args[2] == 1                # one sample by default
 
 
 def test_profile_with_irq_flags_the_payload():
     fake, mon = _fake()
-    with patch("c64lib.cli.profile_routine",
-               return_value={"fired": True, "cycles": 1695,
-                             "registers": {"PC": 0x0400}, "trap": 0x0400}) as pr, \
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled([1695])) as pr, \
          patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["--json", "profile", "$C000", "--with-irq"])
@@ -225,23 +237,94 @@ def test_profile_with_irq_flags_the_payload():
     assert pr.call_args.kwargs["with_irq"] is True
 
 
-def test_profile_timeout_is_a_clean_failure():
+def test_profile_samples_reports_min_max_mean():
+    """la-galaxia's tick: 10,729 cycles ordinarily, 31,695 on a repaint. One
+    sample called that fine 27 frames in 32 — the spread is the finding, so
+    it has to reach both the JSON and the human line."""
     fake, mon = _fake()
-    with patch("c64lib.cli.profile_routine",
-               return_value={"fired": False, "cycles": None,
-                             "registers": None, "trap": 0x0400}), \
+    costs = [10729, 10729, 31695, 10729]
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled(costs)) as pr, \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000",
+                                      "--samples", "4"])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out["samples"] == costs
+    assert out["min"] == 10729 and out["max"] == 31695
+    assert out["mean"] == round(sum(costs) / 4, 1) and out["count"] == 4
+    assert pr.call_args.args[2] == 4
+
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled(costs)), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["profile", "$C000", "--samples", "4"])
+    assert r.exit_code == 0, r.output
+    assert "10729" in r.output and "31695" in r.output and "4 arrivals" in r.output
+
+
+def test_profile_rejects_a_sample_count_below_one():
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["profile", "$C000", "--samples", "0"])
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)
+    assert "--samples" in r.output
+
+
+def test_profile_timeout_is_a_clean_failure():
+    """The timeout message has to name the state it left behind: the CIA#2
+    timers are still running and the I flag is still masked, and neither can
+    be undone with the machine running."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled([], fired=False)), \
          patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["profile", "$C000"])
     assert r.exit_code == 1
     assert "never returned" in r.output
+    assert "timers" in r.output and "I flag" in r.output
+    assert "reg set FL" in r.output
+
+
+def test_profile_samples_timeout_reports_how_many_it_priced():
+    fake, mon = _fake()
+    partial = _profiled([10729, 31695], fired=False)
+    partial["count"] = 5
+    with patch("c64lib.cli.profile_routine_samples", return_value=partial), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000",
+                                      "--samples", "5"])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert "2/5" in out["error"]
+    assert out["machine"] == "running" and out["timers_running"] is True
+    assert out["samples"] == [10729, 31695] and out["reached"] == 2
+
+
+def test_profile_with_irq_timeout_does_not_blame_the_i_flag():
+    """--with-irq never touched the I flag, so a timeout must not send the
+    caller off to clear a bit profile did not set."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled([], fired=False)), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["profile", "$C000", "--with-irq"])
+    assert r.exit_code == 1
+    assert "timers" in r.output and "I flag" not in r.output
 
 
 def test_profile_impossible_zero_count_is_a_clean_failure():
-    """profile_routine raises RuntimeError when the timers never moved; the
-    CLI must turn that into a message, not a traceback."""
+    """profile raises RuntimeError when the timers never moved; the CLI must
+    turn that into a message, not a traceback."""
     fake, mon = _fake()
-    with patch("c64lib.cli.profile_routine",
+    with patch("c64lib.cli.profile_routine_samples",
                side_effect=RuntimeError(
                    "measured 0 raw cycles ... never reached the chip model")), \
          patch("c64lib.cli.Session") as S:
@@ -250,3 +333,21 @@ def test_profile_impossible_zero_count_is_a_clean_failure():
     assert r.exit_code == 1
     assert isinstance(r.exception, SystemExit)      # fail(), not a traceback
     assert "chip model" in r.output
+
+
+def test_profile_daemon_side_valueerror_is_a_message_not_a_traceback():
+    """The daemon path re-raises any ValueError that is not the old-daemon
+    handshake (falling back would re-run the routine), so `profile` has a
+    second exception type to report — and it must not claim to know where
+    the machine stopped, the way the zero-raw RuntimeError can."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.profile_routine_samples",
+               side_effect=ValueError("daemon said no")), \
+         patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000"])
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)      # fail(), not a traceback
+    out = json.loads(r.output)
+    assert "daemon said no" in out["error"]
+    assert "machine" not in out

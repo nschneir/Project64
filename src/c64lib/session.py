@@ -10,6 +10,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -87,6 +88,40 @@ def _supports_minimized(exe: str) -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return "-minimized" in (r.stdout or "")
+
+
+#: The `-sounddev` line of VICE's own --help, whose parenthesised list is the
+#: set of playback devices THIS build has. `dump` also appears in the
+#: `-soundrecdev` list (a different resource entirely), so the device list is
+#: read from its own line rather than by looking for the word anywhere.
+_SOUNDDEV_HELP = re.compile(r"^-sounddev\b.*\n(?:[ \t].*\n?)*", re.M)
+
+
+@functools.cache
+def _supports_sound_dump(exe: str) -> bool:
+    """Whether this VICE binary offers `dump` as a *playback* sound device.
+
+    Probed rather than assumed, and the failure it avoids is worse than the
+    one `_supports_minimized` avoids. VICE rejects an unknown command-line
+    OPTION by exiting, which is loud; it rejects an unknown `-sounddev`
+    VALUE by logging `device '<name>' not found or not supported` and
+    popping a modal error dialog. A modal dialog blocks the emulation loop
+    even on a `-minimized` headless launch, so the process stays up with its
+    monitor unanswered — which is indistinguishable from the wedge this
+    device is here to remove (observed 2026-08-10 on this GTK3 build, from a
+    deliberately bogus value; it took a human looking at the screen to see
+    what the runner could not). Degrading to the host device is always safe:
+    it is what every session did before.
+    """
+    try:
+        r = subprocess.run(
+            [exe, "--help"], capture_output=True, text=True, errors="replace",
+            timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    match = _SOUNDDEV_HELP.search(r.stdout or "")
+    return bool(match) and "dump" in match.group(0)
 
 
 RESPAWN_LIMIT = 5
@@ -211,16 +246,54 @@ class Session:
             )
 
     @staticmethod
+    def _from_record(path: Path) -> Session:
+        """One session record, whether or not its process is still alive.
+
+        A record this cannot read raises `SessionError` naming the file, not
+        the raw `KeyError('port')` the lookup produces. Two reasons, and the
+        message is the smaller one: `str(KeyError)` is the bare quoted key,
+        so a caller reading `{"error": "'port'"}` learns neither which of the
+        records on disk is wrong nor that the registry is what broke.
+
+        The type is the larger one. Every registry read goes through here —
+        `attach`, `list_all` and `launch`'s duplicate-name check all do — and
+        MOST of their callers already handle `SessionError` by reporting it,
+        so one truncated or older-format record now exits 1 with a message
+        from them instead of escaping as a traceback.
+
+        Not all of them: `cli.py`'s `session list` calls `Session.list_all()`
+        bare, outside any try, so there this still escapes — a `SessionError`
+        now rather than a `KeyError`, but an unhandled one either way, with
+        `--json` stdout empty. Widening the type does not reach it and
+        neither should a per-command patch; it is the case for the
+        last-chance handler on `JsonAwareGroup` (the `fail()`-boundary guard
+        in the follow-up plan), which catches what no command thought to.
+        """
+        try:
+            r = json.loads(path.read_text())
+            return Session(name=r["name"], pid=r["pid"], port=r["port"],
+                           model=r["model"], labels=r.get("labels"),
+                           daemon_pid=r.get("daemon_pid"), socket=r.get("socket"),
+                           loaded_prg=r.get("loaded_prg"),
+                           loaded_at=r.get("loaded_at", 0.0),
+                           loaded_deps=r.get("loaded_deps"))
+        except KeyError as e:
+            raise SessionError(
+                f"session record {path} is unreadable: missing {e.args[0]!r}"
+            ) from None
+        except (ValueError, OSError) as e:
+            # ValueError covers both halves of the read: JSONDecodeError for
+            # a truncated write, and UnicodeDecodeError (a ValueError, NOT an
+            # OSError) for a record that is not text at all.
+            raise SessionError(
+                f"session record {path} is unreadable: {e}"
+            ) from None
+
+    @staticmethod
     def _load_all() -> list[Session]:
         out = []
         for f in sorted(sessions_dir().glob("*.json")):
-            r = json.loads(f.read_text())
-            s = Session(name=r["name"], pid=r["pid"], port=r["port"],
-                        model=r["model"], labels=r.get("labels"),
-                        daemon_pid=r.get("daemon_pid"), socket=r.get("socket"),
-                        loaded_prg=r.get("loaded_prg"),
-                        loaded_at=r.get("loaded_at", 0.0),
-                        loaded_deps=r.get("loaded_deps"))
+            s = Session._from_record(f)
             if s.is_alive():
                 out.append(s)
             else:
@@ -287,6 +360,33 @@ class Session:
             # for why this can't be passed unconditionally) closes that gap.
             if _supports_minimized(exe):
                 base_args.append("-minimized")
+            # Nobody is listening to a headless session, and depending on a
+            # host that is has been measured to hang it: VICE's sound device
+            # is the emulation loop's flow control at real time (see
+            # `c64lib.audio`), so where the host reports no output device
+            # coreaudio never drains VICE's buffer and every real-time
+            # operation wedges — `pinned_record_start`'s pin-and-arm first.
+            # `dump` is a file-backed sink that always consumes, so the
+            # dependency is gone rather than raced around, and WAV recording
+            # is unaffected (measured: the live arpeggio capture passes, WAV
+            # growing at real time's 96 kB/s).
+            #
+            # NOT `dummy`, the obvious name: it never consumes, so VICE
+            # overflows its own sound buffer ("Sound buffer overflow (cycle
+            # based)") and discards it — `SoundRecordDeviceName` then sees no
+            # samples and a capture comes back as a bare 44-byte header
+            # (measured 2026-08-10, same fixture that verifies `dump`).
+            #
+            # -soundarg is mandatory, not decoration: unset, the dump device
+            # writes its register dump to `vicesnd.sid` in the *caller's*
+            # working directory. os.devnull cannot grow and cannot litter.
+            #
+            # The device name is probed, never assumed — an unrecognized
+            # -sounddev value pops a modal dialog that blocks the emulation
+            # loop, which is this bug wearing a different hat. See
+            # _supports_sound_dump.
+            if _supports_sound_dump(exe):
+                base_args += ["-sounddev", "dump", "-soundarg", os.devnull]
 
         # A cold x64sc under heavy system load can be slow to open its binary
         # monitor; retry with a fresh port so a transient slow start self-heals
@@ -405,3 +505,69 @@ class Session:
         self._respawns_path().unlink(missing_ok=True)
         audio_pin_path(self.name).unlink(missing_ok=True)
         self._record_path().unlink(missing_ok=True)
+
+    @classmethod
+    def stop_all(cls) -> list[str]:
+        """Stop every session in the registry; return the names stopped.
+
+        Records are read straight off disk rather than through `_load_all()`,
+        which drops a dead one as it goes: a session whose emulator is already
+        gone is exactly what this is for — the la-galaxia dogfood (2026-08-08)
+        found two x64sc processes orphaned by a *previous* conversation — and
+        pruning it there would leave its socket and respawn counter behind
+        instead of letting `stop()` (already safe on a dead pid) clear them.
+        So a dead session is reaped and counted as stopped, never an error.
+
+        A failure does not abandon the rest: one session that refuses to die
+        must not strand the others, so the errors are collected and raised
+        once, naming both halves of the state left behind — what went down,
+        and what is still registered.
+
+        A record that cannot be READ is discarded and reported, which is the
+        one place this parts company with the reaping above. Reading is
+        inside the same try as stopping because it is exactly as
+        failure-prone: it ran above the try once, and a single truncated
+        record turned this whole command into a traceback — on the ONE
+        command that could have cleared it, since every other registry read
+        goes through `_from_record` too. So the file goes: a record this
+        cannot parse is a record it cannot stop, with no pid to signal and
+        no socket to close, and leaving it would keep `session list`,
+        `session stop NAME` and `session start` broken as well.
+
+        But it is counted as a failure rather than reaped like a dead
+        session, because the two are not the same claim. A dead session is
+        KNOWN dead — its pid was checked. An unparseable record is precisely
+        where an orphaned emulator hides, which is what this command exists
+        to find, so `stopped` must not claim a stop nobody made and the
+        caller has to be told to go look.
+        """
+        stopped: list[str] = []
+        failures: list[str] = []
+        discarded: list[str] = []
+        for f in sorted(sessions_dir().glob("*.json")):
+            try:
+                s = cls._from_record(f)
+            except SessionError as e:
+                # `_from_record` normalizes every way a record can fail to
+                # read — missing key, bad JSON, undecodable bytes — into this
+                # one type, with the file named in the message.
+                f.unlink(missing_ok=True)
+                discarded.append(str(e))
+                continue
+            try:
+                s.stop()
+            except (SessionError, OSError) as e:
+                failures.append(f"{s.name!r}: {e}")
+            else:
+                stopped.append(s.name)
+        if failures or discarded:
+            parts = [f"stopped {', '.join(repr(n) for n in stopped) or 'nothing'}"]
+            if failures:
+                parts.append(f"could not stop {'; '.join(failures)} — still "
+                             f"registered, check `c64 session list`")
+            if discarded:
+                parts.append(f"discarded {'; '.join(discarded)} — nothing "
+                             f"could be stopped for it, so check `ps` for an "
+                             f"emulator it may have left behind")
+            raise SessionError("; ".join(parts))
+        return stopped

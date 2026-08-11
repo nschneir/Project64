@@ -36,6 +36,8 @@ Assembly:
 - [Time a routine and print the jiffies (LINPRT)](#time-a-routine-and-print-the-jiffies-linprt)
 - [IRQ wedge: run code 60×/second behind BASIC](#irq-wedge-run-code-60second-behind-basic)
 - [Sprite setup and movement](#sprite-setup-and-movement)
+- [Sprite multiplexer: more objects than sprites](#sprite-multiplexer-more-objects-than-sprites)
+- [Raster event chain: one sorted interrupt list per frame](#raster-event-chain-one-sorted-interrupt-list-per-frame)
 - [Custom character set: copy the ROM charset to RAM and redefine glyphs](#custom-character-set-copy-the-rom-charset-to-ram-and-redefine-glyphs)
 - [Multicolor bitmap: mode, clear, and one masked span](#multicolor-bitmap-mode-clear-and-one-masked-span)
 - [Read the screen code you are moving into (collision by glyph)](#read-the-screen-code-you-are-moving-into-collision-by-glyph)
@@ -377,7 +379,9 @@ Don't work out the bit pairs by hand. Draw the shape as 21 rows of 12
 characters using the `c64 sprite encode` legend — `' '` transparent, `'.'`
 → `$D025`, `'#'` → the sprite's own color, `'+'` → `$D026` — and let the
 tool encode it. A beach ball, `ball.txt` (every row is exactly 12 columns
-wide, trailing spaces included):
+wide, trailing spaces included — or pass `--background .` and draw the
+transparent pixels as dots, so the width is countable and no editor can
+strip it):
 
 ```
     ++++    
@@ -607,7 +611,11 @@ No key down, no motion; hold a key and it glides. Test it exactly like a
 player holding the key: `c64 run keyhold.s`, then
 `c64 key hold d --frames 5 --at mainloop` — the CLI re-pokes the matrix
 code into `$CB` before each frame (the IRQ rewrites it every tick) and
-frame-steps to your loop label; read `c64 mem read pos 1` between holds.
+frame-steps to your loop label; read `c64 mem read pos 1` between holds. The
+hold pokes 64 back after the last frame — the re-poke above assumes the
+KERNAL scan is alive to clear `$CB`, and a game that owns the interrupt has
+none, so without that the key would stay down for ever. Pass `--no-release`
+to keep it held.
 In a `c64 test run` YAML the same protocol is the `poke:` + `until:` step
 pair.
 
@@ -1474,6 +1482,494 @@ text never shows them. Verify with register reads (`$D015`, `$D000/$D001`)
 and `c64 screen --png`; X > 255 additionally needs the MSB bit in `$D010`
 (see hardware.md).
 
+### Sprite multiplexer: more objects than sprites
+
+Eight hardware sprites is the ceiling *per scanline*, not per screen. Reuse
+a register down the screen and a shooter flies twenty objects: sort the
+objects by Y once a frame, hand each one the first register that has come
+free by the time the beam reaches it, and reprogram that register from a
+raster interrupt a few lines above the object. Three parts, in this order:
+
+- **Sort by Y.** Insertion sort over an *index* array (`sortix`) with the
+  keys copied alongside it (`sortkey`), never over the object records
+  themselves. Quadratic in the worst case and linear in practice, because a
+  real game hands it last frame's order and nothing moved more than a few
+  pixels — an entry already above its predecessor costs one compare and no
+  copy at all. Stop on equal keys as well as smaller ones, or a band of
+  objects sharing one Y goes quadratic on ties alone.
+- **Assign greedily.** Keep one "free at line" byte per register, walk the
+  sorted list, and take the first register whose free-line the beam has
+  reached. Because the list ascends in Y, greedy is *optimal* here — a
+  register passed over could not have served this object either — so there
+  is no search and no backtracking. Reserve it for `MUXGAP` lines: the 21
+  lines of the sprite plus at least one more for the reprogramming to land
+  in. Saturate that addition rather than let it wrap, or an object near the
+  bottom of the screen frees its register at line 4.
+- **Publish counters.** `DISPLAYED` is what the frame put on screen,
+  `OVERFLOW` is what no register could hold. Both are plain memory, and that
+  is the point: a screenshot shows the result, never the budget. A
+  multiplexer quietly dropping a third of its objects still makes a
+  perfectly good PNG — it fails `assert mem OVERFLOW equals 0`.
+
+The demo runs the build once over a fixed list of 18 objects, ten of them
+crowded into 18 scanlines (more than eight registers can cover), and leaves
+the first object on each register on screen with the counters and the
+reposition schedule in memory:
+
+```asm
+; mux.s — 18 objects on 8 sprite registers: sort by Y, assign, count.
+NOBJ    = 18
+MUXREGS = 8                     ; hardware sprites 0-7
+MUXGAP  = 22                    ; 21 sprite lines, plus one to reprogram in
+MAXEV   = 24                    ; cap on the reposition schedule
+SPR0X   = $D000                 ; register r's X/Y pair is SPR0X + r*2
+SPRENA  = $D015
+SPRCOL0 = $D027
+SPRPTR  = $07F8
+SHAPE   = $0340                 ; block 13 (832 = 13*64): tape buffer, unused
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  ldx     #62             ; one solid 24x21 shape, shared by every object
+shp:    lda     #$FF
+        sta     SHAPE,x
+        dex
+        bpl     shp
+        lda     #0
+        sta     DONE
+        ldx     #NOBJ-1         ; gather: the index list in slot order and the
+gath:   txa                     ; sort keys beside it
+        sta     sortix,x
+        lda     objy,x
+        sta     sortkey,x
+        dex
+        bpl     gath
+        jsr     muxsort
+        jsr     muxassign
+        lda     #$2a
+        sta     DONE            ; marker: the counters below are final
+        rts                     ; the eight registers stay on screen
+
+; --- sort: insertion, over a list that is already nearly in order ----------
+muxsort:
+        ldx     #1
+ms1:    lda     sortkey,x
+        cmp     sortkey-1,x
+        bcs     ms4             ; above its predecessor: nothing to do at all
+        sta     tmpk            ; the key being placed...
+        lda     sortix,x
+        sta     tmpi            ; ...and the object it belongs to
+        txa
+        tay                     ; Y = the hole
+ms2:    dey
+        bmi     ms3
+        lda     sortkey,y
+        cmp     tmpk
+        bcc     ms3             ; predecessor is smaller: the hole is here
+        beq     ms3             ; equal: ties stay put, so a band sharing one Y
+        sta     sortkey+1,y     ;   does not go quadratic
+        lda     sortix,y
+        sta     sortix+1,y
+        jmp     ms2
+ms3:    iny
+        lda     tmpk
+        sta     sortkey,y
+        lda     tmpi
+        sta     sortix,y
+ms4:    inx
+        cpx     #NOBJ
+        bne     ms1
+        rts
+
+; --- assign: the first register free by this object's line -----------------
+muxassign:
+        ldx     #MUXREGS-1
+        lda     #0
+ma0:    sta     regfree,x       ; "free at line": 0 = free from the top
+        sta     regused,x
+        dex
+        bpl     ma0
+        sta     DISPLAYED
+        sta     OVERFLOW
+        sta     EVCOUNT
+        sta     k
+ma1:    ldy     k
+        cpy     #NOBJ
+        bcc     ma1a
+        jmp     ma8
+ma1a:   lda     sortkey,y
+        sta     ytop            ; this object's Y...
+        ldx     sortix,y        ; ...and the object itself, in X from here on
+        ldy     #0
+ma2:    lda     regfree,y
+        cmp     ytop
+        beq     ma3
+        bcc     ma3             ; free at or above this line: take it
+        iny
+        cpy     #MUXREGS
+        bne     ma2
+        inc     OVERFLOW        ; nothing comes free in time — drop the object
+        jmp     ma7
+ma3:    lda     ytop
+        clc
+        adc     #MUXGAP
+        bcc     ma4
+        lda     #$FF            ; saturate: an object near the bottom holds its
+ma4:    sta     regfree,y       ;   register to the end of the frame
+        tya
+        asl     a
+        sta     mreg,x          ; register * 2, ready for SPR0X,y
+        lda     regused,y
+        bne     ma5
+        lda     #1              ; first object on this register: program it now,
+        sta     regused,y       ;   at the top of the frame
+        jsr     program
+        jmp     ma6
+ma5:    jsr     emit            ; a later one: it needs a reposition interrupt
+ma6:    inc     DISPLAYED
+ma7:    inc     k
+        jmp     ma1
+ma8:    ldy     #MUXREGS-1      ; the enable mask falls out of which registers
+        lda     #0              ;   were used at all
+        sta     tmpk
+mm1:    lda     regused,y
+        beq     mm2
+        lda     regbit,y
+        ora     tmpk
+        sta     tmpk
+mm2:    dey
+        bpl     mm1
+        lda     tmpk
+        sta     SPRENA
+        rts
+
+; --- program: X = object, mreg,x = its register * 2 ------------------------
+program:
+        txa                     ; this demo's X: 24 + object*8, all under 256
+        asl     a
+        asl     a
+        asl     a
+        clc
+        adc     #24
+        ldy     mreg,x
+        sta     SPR0X,y
+        lda     objy,x
+        sta     SPR0X+1,y
+        tya
+        lsr     a
+        tay                     ; Y = the register number again
+        lda     #13
+        sta     SPRPTR,y        ; every object shares the one shape here
+        txa
+        and     #7
+        ora     #8
+        sta     SPRCOL0,y
+        rts
+
+; --- emit: X = object, ytop = its Y — append a reposition event ------------
+emit:   ldy     EVCOUNT
+        cpy     #MAXEV
+        bcs     em9
+        lda     ytop
+        sec
+        sbc     #3              ; reprogram three lines early...
+        bcc     emtop
+        cmp     #51
+        bcs     emok
+emtop:  lda     #51             ; ...but never above the first visible line
+emok:   sta     evline,y
+        txa
+        sta     evobj,y
+        inc     EVCOUNT
+em9:    rts
+
+regbit: .byte   $01, $02, $04, $08, $10, $20, $40, $80
+objy:   .byte   140, 60, 240, 66, 100, 74, 180, 62, 220
+        .byte   70, 120, 78, 160, 64, 200, 72, 76, 68
+
+        .segment "BSS"
+DISPLAYED: .res 1               ; objects the frame actually put on screen
+OVERFLOW:  .res 1               ; objects no register could hold
+EVCOUNT:   .res 1
+DONE:      .res 1
+sortix:    .res NOBJ
+sortkey:   .res NOBJ
+mreg:      .res NOBJ
+regfree:   .res MUXREGS
+regused:   .res MUXREGS
+evline:    .res MAXEV
+evobj:     .res MAXEV
+k:         .res 1
+ytop:      .res 1
+tmpk:      .res 1
+tmpi:      .res 1
+```
+
+`DISPLAYED` = 16, `OVERFLOW` = 2: the pile at the top fills all eight
+registers and the last two objects in it are dropped, while the eight
+objects spread down the rest of the screen reuse registers 0 and 1 between
+them. That leaves `EVCOUNT` = 8 reposition events at `evline` = 97, 117 …
+237, each three lines above its object; playing them out down the screen is
+the [raster event chain](#raster-event-chain-one-sorted-interrupt-list-per-frame)'s
+job. Build at the *top* of the tick, before any game logic — a schedule
+built at the end of the tick is rewritten under the beam that is already
+playing it.
+
+Two things a real game does differently. It keeps the object list from frame
+to frame instead of rebuilding it in slot order, which is what makes the
+sort nearly free (rebuilding hands it a fresh permutation every frame — 4,875
+cycles for eighteen objects in the demo this recipe came from). And it starts
+the register search at a round-robin cursor rather than at register 0,
+because with the list ascending the register that comes free soonest is
+always the one used longest ago, so the search hits on the first try. Both
+are in `demos/la-galaxia/mux.s`, which multiplexes six registers under two
+reserved for the player. X above 255 needs the MSB bit in `$D010` (see
+hardware.md), and the key is the sprite's Y register, not a screen row.
+
+### Raster event chain: one sorted interrupt list per frame
+
+Once more than one thing has to happen at a known scanline — a multiplexer's
+repositions, a split-screen mode change, a scroll register that goes on for
+the playfield and off for the HUD — stop writing one raster handler per
+effect and build a list. Three parallel arrays, sorted by line, one entry per
+event: `evline` (the scanline), `evkind` (what to do), `evarg` (who to do it
+to). The handler dispatches on `evkind`, advances the cursor, arms the next
+`$D012` and returns. `EV_FRAME` at line 0 is the frame marker: it hands the
+tick to the main loop, so the main loop is paced by the chain instead of by
+the jiffy clock. `EV_END` parks the cursor back on the marker.
+
+Two things about that are not obvious, and both cost real debugging time:
+
+**Compare the line you just armed against the live raster, and loop instead
+of returning.** Events one or two lines apart are ordinary — two sprites a
+pixel apart in Y produce exactly that — and by the time the handler has
+finished the first the beam is already past the second. Arming `$D012` and
+returning then means the compare does not match again until the *next*
+frame: the event is a whole frame late and so is everything after it in the
+list. After arming, subtract the slack you need and compare against `$D012`
+read back — the same register returns the *current* raster line — and if the
+beam is already there, jump back into the dispatcher and run the event now.
+
+**Acknowledge `$D019` again on the way out.** The compare register is written
+*before* that check, so when the check dispatches inline the beam crosses the
+just-armed line while the handler is still running and re-sets the latch —
+for an event this handler has by then already run. Left set, the `RTI`
+re-enters immediately, and with the cursor parked at 0 by `EV_END` that means
+`EV_FRAME` fires mid-frame: the tick runs twice, the chain replays from the
+top, and the main loop gets two frames of logic inside one frame. Deleting
+just the second `sta $D019` from the program below takes `MIDFRAME` from 0 to
+90 and `LASTLOOP` from 1 to 10 over the same 180 ticks.
+
+```asm
+; rasterchain.s — one sorted (line, kind, arg) event list, replayed per frame.
+CINV     = $0314
+EV_FRAME = 0                    ; hand the tick to the main loop
+EV_BACK  = 1                    ; arg -> $D021
+EV_BORDER= 2                    ; arg -> $D020
+EV_END   = 3                    ; wrap to the frame marker
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  lda     #0
+        sta     FRAMES
+        sta     DONE
+        sta     MIDFRAME
+        sta     OVERRUN
+        sta     RELATCH
+        sta     tickpend
+        jsr     irqon
+mainloop:
+        lda     tickpend        ; the frame marker handed us the tick
+        beq     mainloop
+        lda     #0
+        sta     tickpend
+        inc     FRAMES          ; ...one frame of game logic would go here
+        lda     FRAMES
+        cmp     #180            ; three seconds of chain, then stop
+        bne     mainloop
+        jsr     irqoff
+        lda     #$2a
+        sta     DONE
+        rts
+
+irqon:  sei
+        lda     #$7F
+        sta     $DC0D           ; CIA1 timer IRQ off: no keyboard jitter, and
+        lda     $DC0D           ;   ack whatever it had pending
+        lda     CINV
+        sta     oldvec
+        lda     CINV+1
+        sta     oldvec+1
+        lda     #<irq
+        sta     CINV
+        lda     #>irq
+        sta     CINV+1
+        lda     $D011
+        and     #$7F            ; every event line is below 256
+        sta     $D011
+        lda     #0
+        sta     evidx
+        lda     evline          ; arm the frame marker
+        sta     $D012
+        lda     #$01
+        sta     $D01A           ; raster source on...
+        sta     $D019           ; ...with no stale latch
+        cli
+        rts
+
+irqoff: sei
+        lda     #0
+        sta     $D01A
+        lda     #$01
+        sta     $D019
+        lda     oldvec
+        sta     CINV
+        lda     oldvec+1
+        sta     CINV+1
+        lda     #$81
+        sta     $DC0D           ; jiffy clock and keyboard scan back on
+        lda     #6
+        sta     $D021           ; the screen as BASIC left it
+        lda     #14
+        sta     $D020
+        cli
+        rts
+
+; --- the chain -------------------------------------------------------------
+; Entry is through the KERNAL's $0314 vector, so A/X/Y are already on the
+; stack; $EA81 pulls them and RTIs without running any KERNAL work.
+irq:    lda     #$01
+        sta     $D019           ; ack the latch that got us here
+        ldx     evidx
+irqdisp:
+        lda     evkind,x
+        beq     irqframe        ; EV_FRAME
+        cmp     #EV_BACK
+        beq     irqback
+        cmp     #EV_BORDER
+        beq     irqborder
+irqend: lda     seen            ; EV_END: publish what this frame played...
+        sta     LASTSEEN
+        lda     loops
+        sta     LASTLOOP
+        lda     #0              ; ...and park on the marker's line
+        sta     evidx
+        sta     $D012
+        jmp     irqexit
+
+irqframe:
+        lda     $D012           ; the marker is armed at line 0, so a frame
+        cmp     #60             ;   tick from down the screen is a phantom
+        bcc     irqf1
+        inc     MIDFRAME
+irqf1:  lda     tickpend        ; still pending? the main loop missed a frame
+        beq     irqf2
+        inc     OVERRUN
+irqf2:  lda     #1
+        sta     tickpend
+        lda     #0
+        sta     seen
+        sta     loops
+        jmp     irqadv
+
+irqback:
+        lda     evarg,x
+        sta     $D021
+        inc     seen
+        jmp     irqadv
+
+irqborder:
+        lda     evarg,x
+        sta     $D020
+        inc     seen
+        ; fall through
+
+irqadv: inx
+        stx     evidx
+        lda     evkind,x
+        cmp     #EV_END
+        beq     irqend
+        lda     evline,x
+        sta     $D012           ; arm the next event...
+        sec
+        sbc     #2
+        cmp     $D012           ; ...and compare it with the LIVE raster line
+        bcs     irqexit         ; two clear lines in hand: return and wait
+        inc     loops
+        jmp     irqdisp         ; the beam is already there — run it now
+
+irqexit:
+        ; Ack AGAIN on the way out. The compare register was written before
+        ; the guard above, so when the guard dispatches inline the beam has
+        ; crossed that line meanwhile and re-set the latch — for an event
+        ; this handler has already run. Left set, the RTI re-enters at once
+        ; with evidx parked at 0: EV_FRAME fires mid-frame, the tick runs
+        ; twice, and the chain replays from the top. The final $D012 write is
+        ; always >= 2 lines ahead, so nothing legitimate can latch in between.
+        lda     $D019
+        and     #$01
+        beq     irqx1
+        inc     RELATCH         ; it happened — this is the ack that matters
+irqx1:  lda     #$01
+        sta     $D019
+        jmp     $EA81           ; pull A/X/Y and RTI
+
+; --- the list: ascending in line, EV_END last ------------------------------
+; The frame's two restores land one line apart, and that pair is the case the
+; guard in irqadv exists for: a multiplexer gets one every time two objects
+; sit within a line of each other in Y.
+evline: .byte     0,  50,  60,  84, 108, 132, 156, 180, 204, 228, 229, $FF
+evkind: .byte     0,   2,   1,   1,   1,   1,   1,   1,   1,   1,   2,   3
+evarg:  .byte     0,   0,   6,  14,   3,  13,   7,   8,   2,   6,  14,   0
+
+        .segment "BSS"
+FRAMES:      .res 1
+DONE:        .res 1
+MIDFRAME:    .res 1             ; frame markers that fired away from line 0
+OVERRUN:     .res 1             ; ticks the main loop had not consumed
+LASTSEEN:    .res 1             ; events the last whole frame dispatched
+LASTLOOP:    .res 1             ; ...of which, ones the guard ran inline
+RELATCH:     .res 1             ; exits that found the latch re-set (running)
+evidx:       .res 1
+tickpend:    .res 1
+seen:        .res 1
+loops:       .res 1
+oldvec:      .res 2
+```
+
+The counters are the whole test surface. `LASTSEEN` = 10 events dispatched
+in the last complete frame — the chain played the entire list. `LASTLOOP` =
+1 of them run inline by the guard: the 228/229 pair. `MIDFRAME` = 0 frame
+markers fired anywhere but the top of the screen, and `OVERRUN` = 0 ticks
+the main loop failed to consume before the next one arrived — a real game's
+"am I still inside my frame budget?" pair. `RELATCH` reaches 179 over 180
+frames: that is the re-latch warning above happening on the machine rather
+than in a comment, once a frame, acknowledged.
+
+While the chain owns the IRQ the jiffy clock and the keyboard scan are dead
+— `$DC0D` bit 7 is clear and the exit at `$EA81` runs no KERNAL code — so
+`TI` and `GETIN` come back only when `irqoff` restores them. To keep the
+clock alive instead, exit the *frame marker* through `$EA31` and every other
+event through `$EA81`; the price is the keyboard scan's ~15 lines of jitter
+on whatever event follows it. Feed this the schedule from the
+[sprite multiplexer](#sprite-multiplexer-more-objects-than-sprites) and one
+more event kind — `EV_MUX`, `evarg` = the object to reprogram — is all it
+takes.
+
 ### Custom character set: copy the ROM charset to RAM and redefine glyphs
 
 Giving a game its own bricks, snake segments or spaceships means pointing
@@ -1485,7 +1981,10 @@ put it back. Copy all 2 KB, patch only the glyphs you want, and the other
 
 ```asm
 ; charset.s — ROM charset -> RAM at $3000, then redefine screen codes 96/97.
-CHARSET = $3000                 ; must be in the VIC's bank ($0000-$3FFF)
+CHARSET = $3000                 ; in the VIC's bank ($0000-$3FFF) — and NOT
+                                ;   $1000 or $1800: the char ROM's 4 KB image
+                                ;   covers both of those bases in bank 0, so
+                                ;   RAM there is invisible to the VIC
 SCREEN  = $0400
 COLOR   = $D800
 CHROUT  = $FFD2
@@ -1586,9 +2085,15 @@ Five more things this encodes:
 
 - **Where the charset can live.** The VIC-II sees only one 16 KB bank at a
   time, bank 0 (`$0000-$3FFF`) at power-on — a charset outside it is
-  invisible no matter what `$D018` says. `$3000` is the usual home: inside
-  the bank, above a `.prg` of a few KB. Check `load_addr + len - 2` still
-  lands below it every time the code grows (see the 6502-assembly skill).
+  invisible no matter what `$D018` says. Inside the bank is necessary but
+  **not sufficient**: the character ROM's image is 4 KB, `$1000-$1FFF`, so
+  the `$1000` and `$1800` bases are the ROM's uppercase and lowercase halves
+  and RAM written there never reaches the chip. Base `$1800` is the one that
+  bites, because the lowercase glyphs it draws look like text rather than
+  like a fault. Bank 0 leaves `$2000`, `$2800`, `$3000` and `$3800`. `$3000`
+  is the usual home: inside the bank, above a `.prg` of a few KB. Check
+  `load_addr + len - 2` still lands below it every time the code grows (see
+  the 6502-assembly skill).
 - **Leave the screen at `$0400`.** The `$D018` high nybble can move it, but
   the toolset's screen reader assumes `$0400`.
 - **Hand the ROM charset back before returning to BASIC** if the program

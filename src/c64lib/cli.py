@@ -15,9 +15,10 @@ import click
 from . import __version__
 from .audio import (
     capture,
+    parse_frame_writes,
     pinned_record_start,
     pinned_record_stop,
-    report_timing_for,
+    report_timing_from,
     sid_log_detail,
     sid_report,
 )
@@ -57,7 +58,7 @@ from .ops import (
     parse_number,
     parse_ref,
     pc_region,
-    profile_routine,
+    profile_routine_samples,
     run_until,
     session_labels,
     split_mem_condition,
@@ -272,8 +273,29 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     Leaves the machine running; reports the new session's name, model, pid,
     and monitor port. A cartridge is mapped at power-on, so `--cart` boots
     straight into it — there is nothing to load afterwards.
+
+    Says on stderr how many sessions are already up, if any: each one is a
+    warped emulator holding a CPU core, and the ones that outlive the work
+    are invisible until something counts them.
     """
     try:
+        # Inside the try, not above it: reading the registry is exactly as
+        # failure-prone as launching from it — a truncated or older-format
+        # record fails `_from_record` out of `_load_all()` — and
+        # `Session.launch` reads it too, so before this call that failure
+        # already exited 1 through `fail()`. Hoisting the read out of the try
+        # would have turned one caller's corrupt record into an unhandled
+        # traceback with unparseable `--json` stdout. (`_from_record` raises
+        # `SessionError` now, and raised `KeyError` when this was written;
+        # the `except` below names both, so the move is what matters, not
+        # which type arrives.)
+        already = Session.list_all()
+        if already:
+            # stderr, never the payload: `--json` is a script contract, and
+            # this is advice for whoever is watching — a start that had to be
+            # told about the other three emulators is still a successful start.
+            click.echo(f"note: {len(already)} other session(s) already running "
+                       f"(c64 session list)", err=True)
         s = Session.launch(model=model, name=name, headless=headless, warp=warp,
                            disk8=disk8, cart=cart)
     except (SessionError, DiskError, KeyError) as e:
@@ -338,17 +360,46 @@ def session_list(ctx):
 @click.argument("name", required=False)
 @click.option("--name", "-s", "name_opt", default=None,
               help="Session to stop (same as the positional NAME).")
+@click.option("--all", "all_", is_flag=True,
+              help="Stop every session in the registry, including any whose "
+                   "emulator is already gone.")
 @click.pass_context
-def session_stop(ctx, name, name_opt):
+def session_stop(ctx, name, name_opt, all_):
     """Stop a session, kill its daemon, and remove its registry record.
 
-    NAME defaults to the current (or only) running session.
+    NAME defaults to the current (or only) running session. `--all` stops
+    every session instead — the one-command cleanup after a run that left
+    emulators behind. A session whose process is already gone is reaped
+    rather than reported as a failure; `stopped` is then a list of names. A
+    record too corrupt to read is discarded and reported as a failure, since
+    nothing can be stopped for it and it would otherwise break every command
+    that reads the registry, this one included.
     """
+    # Every spelling of "this one session" counts, including the global
+    # `c64 -s NAME session stop --all`: --all is the opposite of picking one,
+    # and guessing which the caller meant would either spare the sessions
+    # they asked to clear or kill the ones they did not.
+    target = name or name_opt or ctx.obj["session"]
+    if all_ and target:
+        fail(ctx, f"--all stops every session; drop the name {target!r}")
+        return
+    if all_:
+        try:
+            names = Session.stop_all()
+        except SessionError as e:
+            # Partial cleanup: the message names what stopped and what is
+            # still registered, so the next step is a re-run, not a guess.
+            fail(ctx, str(e))
+            return
+        emit(ctx, {"stopped": names},
+             ("stopped " + ", ".join(repr(n) for n in names)) if names
+             else "no sessions running")
+        return
     if name and name_opt and name != name_opt:
         fail(ctx, f"conflicting session names: positional {name!r} vs --name {name_opt!r}")
         return
     try:
-        s = Session.attach(name or name_opt or ctx.obj["session"])
+        s = Session.attach(target)
     except SessionError as e:
         fail(ctx, str(e))
         return
@@ -882,14 +933,21 @@ def load_cmd(ctx, prg, do_run, symbols):
 
 @main.command("run")
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--area", "areas", multiple=True, metavar="NAME=START:SIZE",
+              help="Link segment NAME at a fixed address (repeatable, "
+                   "e.g. 'HIGH=$4000:$2000'). Assembly sources only.")
 @click.pass_context
-def run_cmd(ctx, source):
+def run_cmd(ctx, source, areas):
     """Build/tokenize SOURCE as needed, then load and RUN it.
 
     `.bas` is tokenized, `.s` is assembled and its labels registered on the
     session (so symbols work in later commands), `.prg` is loaded directly,
     and a `.crt` reboots the session with the cartridge attached.
     Leaves the machine running.
+
+    `--area` is `c64 build`'s, and applies to a `.s` source only — a program
+    that needs a fixed-address segment to link at all is otherwise unrunnable
+    from here, which is what sent La Galaxia to a two-command build script.
 
     For a `.crt`, "no session to reboot" and "no session by that name" are the
     same case: a `--session` name that does not exist boots an unnamed default
@@ -899,6 +957,12 @@ def run_cmd(ctx, source):
     """
     src = source.resolve()
     ext = src.suffix.lower()
+    # Before the session is touched: --area rewrites the linker config that
+    # only an assembled .s goes through, and a cartridge brings its own memory
+    # map. Rejected rather than ignored, in `c64 package`'s words.
+    if areas and ext != ".s":
+        fail(ctx, "--area applies to assembly sources only")
+        return
     if ext == ".crt":
         # A cartridge is mapped at power-on, so "running" one means booting a
         # fresh session with it attached rather than loading into this one.
@@ -945,6 +1009,16 @@ def run_cmd(ctx, source):
              f"booted {new.name} with {src} attached")
         return
     s = attach(ctx)
+    # Parsed against the session's load address (there is no --model here) and
+    # before ca65 runs, so an area that cannot link is reported as the flag the
+    # user typed rather than as the config the toolset generated behind it. Its
+    # own try: a rejected flag is not a failed build, and must not pick up the
+    # "still running the PREVIOUS program" note a failed build carries.
+    try:
+        area_list = parse_areas(areas, s.profile.basic_start)
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
     labels = None
     deps: tuple = ()
     try:
@@ -953,7 +1027,8 @@ def run_cmd(ctx, source):
         elif ext == ".bas":
             prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
         elif ext == ".s":
-            res = build_asm(src, basic_start=s.profile.basic_start)
+            res = build_asm(src, basic_start=s.profile.basic_start,
+                            areas=area_list)
             prg, labels, deps = res.prg, res.labels, res.deps
         else:
             fail(ctx,
@@ -1268,13 +1343,19 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
 
 @main.command("profile")
 @click.argument("ref")
+@click.option("--samples", default=1, show_default=True,
+              help="Price N consecutive arrivals and report min/max/mean. A "
+                   "per-frame cost that is bimodal — ordinary most frames, a "
+                   "spike on the repaint ones — reads as fine when it is "
+                   "sampled once.")
 @click.option("--with-irq", "with_irq", is_flag=True,
               help="Leave interrupts live during the measurement (real-world "
                    "cost; expect variance — rerun a few times).")
 @click.option("--timeout", default=30.0, show_default=True,
-              help="Give up after this many seconds.")
+              help="Give up after this many seconds (the whole run, not each "
+                   "sample).")
 @click.pass_context
-def profile_cmd(ctx, ref, with_irq, timeout):
+def profile_cmd(ctx, ref, samples, with_irq, timeout):
     """Measure the cycle cost of the routine at REF (entry to its RTS).
 
     A fake JSR exactly like `c64 call`, with CIA#2 timers A+B cascaded as
@@ -1283,28 +1364,60 @@ def profile_cmd(ctx, ref, with_irq, timeout):
     default the I flag is set on entry so the KERNAL IRQ cannot land
     inside the window; --with-irq measures with interrupts live. The
     machine ends STOPPED at the trap, like `c64 call`.
+
+    --samples N runs the routine N times in a row and reports the spread:
+    the cost of a game's tick depends on the game's own state, so one
+    arrival can be an honest number about an unrepresentative frame.
     """
+    if samples < 1:
+        fail(ctx, f"profile: --samples must be at least 1 (got {samples})")
+        return
     s = attach(ctx)
     labels = session_labels(s)
     addr = resolve_ref(ctx, labels, ref, session=s)
+    where = format_addr(labels, addr)
     try:
-        out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
-    except RuntimeError as e:
-        fail(ctx, f"profile {format_addr(labels, addr)}: {e}",
-             extra={"machine": "stopped"})
+        out = profile_routine_samples(s, addr, samples, timeout=timeout,
+                                      with_irq=with_irq)
+    except (RuntimeError, ValueError) as e:
+        # ValueError as well as RuntimeError: on the daemon path any
+        # ValueError that is NOT the old-daemon handshake is re-raised rather
+        # than fallen back on (see ops), and a daemon-side one reaches here
+        # through rpc — it has to be a message, not a traceback. Only the
+        # zero-raw RuntimeError knows where the machine is (stopped at the
+        # trap, cleanup done); an escaped ValueError does not, so it says
+        # nothing about the machine rather than guessing.
+        extra = {"machine": "stopped"} if isinstance(e, RuntimeError) else None
+        fail(ctx, f"profile {where}: {e}", extra=extra)
         return
     if not out["fired"]:
-        fail(ctx, f"profile {format_addr(labels, addr)}: never returned in "
-                  f"{timeout}s — machine left running (runaway routine? "
-                  "check the address is a subroutine ending in RTS)",
-             extra={"machine": "running"})
+        # Name what the abandoned window left behind: the docs say it, but a
+        # caller reading only this line still has to know the jiffy clock and
+        # keyboard are dead until the I bit is cleared by hand.
+        left = ("CIA#2 timers A/B are left RUNNING" if with_irq else
+                "CIA#2 timers A/B are left RUNNING and the I flag is left "
+                "masked — the jiffy clock and keyboard stay dead until "
+                "`c64 reg set FL ...` clears it (or the session restarts)")
+        fail(ctx, f"profile {where}: never returned in {timeout}s after "
+                  f"{out['reached']}/{samples} arrival(s) — machine left "
+                  "running (runaway routine? check the address is a "
+                  f"subroutine ending in RTS). {left}.",
+             extra={"machine": "running", "reached": out["reached"],
+                    "count": samples, "samples": out["samples"],
+                    "timers_running": True, "irq_masked": not with_irq})
         return
-    where = format_addr(labels, addr)
     mask = "IRQs masked" if not with_irq else "IRQs live"
-    emit(ctx, {"called": where, "cycles": out["cycles"],
+    payload = {"called": where, "samples": out["samples"], "min": out["min"],
+               "max": out["max"], "mean": out["mean"],
                "irq_masked": not with_irq, "registers": out["registers"],
-               "trap": out["trap"]},
-         f"{where}: {out['cycles']} cycles (entry to rts, {mask})")
+               "trap": out["trap"], "count": samples}
+    if samples == 1:
+        payload["cycles"] = out["cycles"]
+        human = f"{where}: {out['cycles']} cycles (entry to rts, {mask})"
+    else:
+        human = (f"{where}: {out['mean']} cycles mean over {samples} arrivals "
+                 f"(min {out['min']}, max {out['max']}; entry to rts, {mask})")
+    emit(ctx, payload, human)
 
 
 @main.command("wait")
@@ -1404,13 +1517,26 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         fail(ctx, f"bad --mem value {val_s!r} in {mem_cond!r}; "
                   "use a decimal or $hex byte")
         return
+    # Sampled either side of the wait, because "stopped the whole time" is
+    # the diagnosis and one sample cannot support it: a machine stopped only
+    # at the end was running for part of the window and the value genuinely
+    # never arrived. machine_state never raises and answers from the daemon's
+    # own bookkeeping, so this costs no emulator traffic.
+    before = machine_state(s)
     out = wait_for_mem(s, addr, want, timeout, op=op)
     if out["fired"]:
         emit(ctx, {"fired": "mem", "elapsed": out["elapsed"]}, "mem condition met")
         return
+    stopped = before == "stopped" == machine_state(s)
+    detail = ("" if not stopped else
+              " — the machine was STOPPED for the whole wait, so the byte "
+              "could not change: a wait polls memory, it never resumes the "
+              "CPU. Something before this stopped it (`c64 until`, `step`, "
+              "`finish`, or a checkpoint hit). Run `c64 continue` first, or "
+              "use `c64 wait --break` if you meant to run to a checkpoint.")
     fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}"
-              f" (last value {out['last_value']})",
-         extra={"machine": "running"})
+              f" (last value {out['last_value']}){detail}",
+         extra={"machine": "stopped" if stopped else "running"})
 
 
 @main.group()
@@ -1998,8 +2124,10 @@ def key_type(ctx, text):
               help="How many ticks to hold the key across.")
 @click.option("--timeout", default=30.0, show_default=True,
               help="Per-frame wait limit, seconds.")
+@click.option("--release/--no-release", default=True, show_default=True,
+              help="Let the key go (poke 64 into $CB) after the last frame.")
 @click.pass_context
-def key_hold(ctx, keyname, at_ref, frames, timeout):
+def key_hold(ctx, keyname, at_ref, frames, timeout, release):
     """Hold KEY down for N game ticks by re-poking $CB before each one.
 
     Drives games that read the live current-key state: writes the key's
@@ -2007,12 +2135,18 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
     at REF (continue with `c64 continue`). KEY is one character, or
     `space`. For a deterministic first frame, stop at REF first
     (`c64 until REF`).
+
+    The key is released after the last frame unless `--no-release`: the
+    per-frame re-poke assumes the KERNAL keyboard scan is running to clear
+    $CB, and a game that owns the interrupt has no scan, so an unreleased
+    key stays down for ever.
     """
     s = attach(ctx)
     labels = session_labels(s)
     addr = resolve_ref(ctx, labels, at_ref, session=s)
     try:
-        out = ops_key_hold(s, keyname, addr, frames=frames, timeout=timeout)
+        out = ops_key_hold(s, keyname, addr, frames=frames, timeout=timeout,
+                           release=release)
     except ValueError as e:
         fail(ctx, str(e))
         return
@@ -2021,13 +2155,21 @@ def key_hold(ctx, keyname, at_ref, frames, timeout):
              "0 frames requested — nothing held; machine untouched")
         return
     if out["registers"] is None:
+        # The machine is left RUNNING, so the caller cannot look at $CB —
+        # say what happened to the key rather than making them guess.
+        key_state = ("key released ($CB=64)" if out["released"] else
+                     f"$CB still holds {keyname!r} (--no-release) — clear it "
+                     "with `c64 mem write '$CB' 64`")
         fail(ctx, f"timeout: only {out['frames']}/{frames} frame(s) reached "
                   f"{format_addr(labels, addr)} — machine left RUNNING, "
-                  "checkpoint removed. Is REF really executed every tick?",
-             extra={"frames": out["frames"], "requested": frames})
+                  f"checkpoint removed, {key_state}. "
+                  "Is REF really executed every tick?",
+             extra={"frames": out["frames"], "requested": frames,
+                    "released": out["released"]})
         return
     _emit_stopped_regs(ctx, labels, out["registers"],
-                       extra={"frames": out["frames"]})
+                       extra={"frames": out["frames"],
+                              "released": out["released"]})
 
 
 @main.group()
@@ -2178,44 +2320,66 @@ def sprite_from_png(ctx, image, out_path, multicolor):
                    "otherwise, and a bare DATA line will not store).")
 @click.option("--line-step", type=int, default=10, show_default=True,
               help="With --start-line: gap between generated line numbers.")
+@click.option("--background", "background", default=" ", show_default=False,
+              metavar="CHAR",
+              help="Character that means background (pair 00). Default is a "
+                   "space; pass '.' to author with a visible background, so "
+                   "a row's width is countable and no editor can strip it.")
 @click.option("--out", "-o", "out_path", default=None,
               help="Write the rendered rows to this file instead of stdout.")
 @click.pass_context
-def sprite_encode(ctx, file, hires, fmt, start_line, line_step, out_path):
+def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
+                  out_path):
     """Encode ASCII-art sprite(s) from FILE into 63 sprite bytes each.
 
-    FILE holds one or more 21-row sprites, separated by a blank line. Rows
-    use the friendly authoring legend (multicolor ' .#+', hires ' #') or
-    the glyphs `c64 sprite show` emits ('·▒█▓', '█·') — `show` output
-    round-trips straight back through `encode`. Needs no session; pairs
-    with `c64 sprite from-png` (image input instead of ASCII art) and
-    `c64 sprite show` (the inverse: bytes back to ASCII).
+    FILE holds one or more 21-row sprites, separated by a blank line or by a
+    `name:` header. A header may set its own mode — `fighter:hires`,
+    `drone:multicolor` — so one sheet holds both, exactly as charset sheets
+    do; a bare `name:` takes the file's mode (`--hires` or not). `#`
+    comments are ignored, except that a `#` line which is a legal row at
+    exactly row width is art. Rows use the friendly authoring legend
+    (multicolor ' .#+', hires ' #'), the digit legend charset sheets use
+    ('.123', digit = pair value), or the glyphs `c64 sprite show` emits
+    ('·▒█▓', '█·') — `show` output round-trips straight back through
+    `encode`. Needs no session; pairs with `c64 sprite from-png` (image
+    input instead of ASCII art) and `c64 sprite show` (the inverse).
     """
-    from .sprites import encode_sheet, render_sheet
+    from .sprites import encode_sheet_blocks, render_sheet
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
-    text_in = file.read_text()
+    try:
+        text_in = file.read_text()
+    except (OSError, ValueError) as e:
+        # UnicodeDecodeError is a ValueError and NOT an OSError, and handing
+        # the encoder a .prg or a .png where the sheet goes is an ordinary
+        # slip — the same shape `audio report` was fixed for. Outside a try
+        # it was a traceback over an empty `--json` stdout.
+        fail(ctx, f"cannot read sprite sheet {file}: {e}")
+        return
     if not text_in.strip():
         fail(ctx, f"no sprite art found in {file}")
         return
     try:
-        sprites = encode_sheet(text_in, multicolor=not hires)
+        blocks = encode_sheet_blocks(text_in, multicolor=not hires,
+                                     background=background)
     except ValueError as e:
         fail(ctx, str(e))
         return
-    if not sprites:
+    if not blocks:
         fail(ctx, f"no sprite art found in {file}")
         return
     try:
-        text = render_sheet(sprites, fmt, multicolor=not hires,
+        text = render_sheet(blocks, fmt, multicolor=not hires,
                             start_line=start_line, line_step=line_step)
     except ValueError as e:
         fail(ctx, str(e))
         return
     if out_path:
         Path(out_path).write_text(text)
-    emit(ctx, {"sprites": [list(data) for data in sprites]},
+    emit(ctx, {"sprites": [list(b.data) for b in blocks],
+               "blocks": [{"name": b.name, "multicolor": b.multicolor}
+                          for b in blocks]},
          text if not out_path else f"wrote {out_path}")
 
 
@@ -2233,10 +2397,15 @@ def charset() -> None:
 @click.option("--first-code", default=0, show_default=True,
               help="Screen code of the first glyph (sets the per-glyph "
                    "comments; the data itself is position-independent).")
+@click.option("--label", "label", default="glyphs", show_default=True,
+              metavar="NAME",
+              help="Name the emitted block: `NAME:` and `NAME_end:`. Several "
+                   "sheets then land in one file without being renamed on "
+                   "the way out.")
 @click.option("--out", "-o", "out_path", default=None,
               help="Write the rendered rows to this file instead of stdout.")
 @click.pass_context
-def charset_encode(ctx, file, hires, first_code, out_path):
+def charset_encode(ctx, file, hires, first_code, label, out_path):
     """Encode ASCII-art glyphs from FILE into 8 charset bytes each.
 
     FILE holds `name:` blocks of exactly 8 rows. Multicolor rows (the
@@ -2248,17 +2417,34 @@ def charset_encode(ctx, file, hires, first_code, out_path):
     sheet; a bare `name:` takes the file's mode (`--hires` or not).
     `#` comment lines and blank lines are ignored;
     block order is screen-code order. Emits one contiguous block under a
-    `glyphs:` label with a `glyphs_end:` end label, 8 `.byte` rows per
-    glyph, each glyph introduced by a `; code N: name` comment. Needs no
-    session; the charset twin of `c64 sprite encode`.
+    `glyphs:` label with a `glyphs_end:` end label (`--label` renames both),
+    8 `.byte` rows per glyph, each glyph introduced by a `; code N: name`
+    comment. Needs no session; the charset twin of `c64 sprite encode`.
     """
+    import re
+
     from .charset import CharsetError, encode_row, format_glyphs, parse_charset
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        fail(ctx, f"--label {label!r} is not an assembler identifier "
+                  f"(letters, digits and underscore, not starting with a digit)")
+        return
     try:
-        glyphs = parse_charset(file.read_text(), multicolor=not hires)
+        text_in = file.read_text()
+    except (OSError, ValueError) as e:
+        # The read was already inside the try below, but `CharsetError` does
+        # not catch it: both it and `UnicodeDecodeError` subclass ValueError
+        # and neither subclasses the other, so a binary file handed to the
+        # encoder escaped as a traceback. Its own try, so the message can
+        # name the file rather than quote a codec.
+        fail(ctx, f"cannot read charset sheet {file}: {e}")
+        return
+    try:
+        glyphs = parse_charset(text_in, multicolor=not hires)
     except CharsetError as e:
         fail(ctx, str(e))
         return
-    text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires)
+    text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires,
+                         label=label)
     if out_path:
         Path(out_path).write_text(text)
     emit(ctx, {"glyphs": [{"name": g.name,
@@ -2423,11 +2609,14 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     --ref, and lists the anomalies no working tune produces. Exits 1 when the
     verdict is FAIL — the payload is still printed.
 
-    The transcription needs the machine's clock, and a register log does not
-    carry it: `-s NAME` takes it from that session's model, and without a
-    session PAL is assumed (985248 Hz, 50 fps). Reading an NTSC capture as PAL
-    transcribes every note about 65 cents out, which looks like a badly tuned
-    program rather than a mistake here, so name the session when it was NTSC.
+    The transcription needs the machine's clock. A log captured by these
+    tools STAMPS it on line 1, so a re-score needs nothing: `-s NAME` is an
+    override, taking the clock from that session's model instead, and only a
+    log written before the stamp existed (or by hand) falls back to PAL
+    (985248 Hz, 50 fps). `clock_source` in the payload says which of the
+    three it was. Reading an NTSC capture as PAL transcribes every note about
+    65 cents out, which looks like a badly tuned program rather than a
+    mistake here — that silent fallback is what the stamp closes.
 
     --peak-hz adds the recording's loudest frequency to the payload, measured
     by one rFFT over the whole file with DC excluded. It is a bin centre, not
@@ -2438,12 +2627,18 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     rests its emulated-time alignment on.
     """
     name = ctx.obj["session"]
-    timing = report_timing_for(attach(ctx).model if name else None)
     if peak_hz and not wav_path:
         fail(ctx, "audio report --peak-hz needs --wav: a dominant partial is "
                   "a property of the recording, not of the register log")
         return
     try:
+        # Inside the try, not above it. An unreadable log already falls back
+        # to the default clock here, but a NAMED model is an override and
+        # must not: `get_profile` raises KeyError on a machine this build
+        # does not have, and a session record carrying one — an older or
+        # hand-edited record is all it takes — escaped as a traceback over
+        # an empty `--json` stdout while this line sat outside the handler.
+        timing = report_timing_from(log, attach(ctx).model if name else None)
         out = sid_report(log, outdir, wav_path=wav_path, ref_path=ref_path,
                          timing=timing)
         if peak_hz:
@@ -2451,12 +2646,19 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
             # and Pillow double the startup of every `c64` command.
             from .sid_analysis import dominant_partial_hz
             out["peak"] = dominant_partial_hz(wav_path)
-    except (RuntimeError, OSError, ValueError) as e:
+    except (RuntimeError, OSError, ValueError, KeyError) as e:
         fail(ctx, f"audio report: {e}")
         return
     notes = f"{out['notes']} note" + ("" if out["notes"] == 1 else "s")
+    # Where the clock came from, not just which one it was: "assumed PAL"
+    # and "the log says PAL" produce identical transcriptions and only one
+    # of them is evidence.
+    source = {"session": "from the named session",
+              "log": "stamped on the log",
+              "default": "ASSUMED — the log carries no clock and no session "
+                         "was named"}.get(timing["clock_source"], "")
     headline = (f"transcribed {notes} as a {out['machine']} "
-                f"machine ({out['clock_hz']} Hz, {out['fps']} fps)")
+                f"machine ({out['clock_hz']} Hz, {out['fps']} fps, {source})")
     if peak_hz:
         peak = out["peak"]
         cents = ("" if peak["resolution_cents"] is None
@@ -2518,8 +2720,14 @@ def audio_score(ctx, file):
               help="Reference score YAML to diff the transcription against — "
                    "write it from your own note data BEFORE capturing, never "
                    "from a transcription this produced.")
+@click.option("--at-frame", "at_frames", nargs=2, multiple=True,
+              metavar="N ADDR=VAL[,ADDR=VAL...]",
+              help="Perform these memory writes at frame N of the capture "
+                   "window — the only way to trigger something inside it, "
+                   "since nothing else may drive the session while it is "
+                   "open. Repeatable; repeats of one frame merge in order.")
 @click.pass_context
-def audio_capture(ctx, seconds, outdir, ref_path):
+def audio_capture(ctx, seconds, outdir, ref_path, at_frames):
     """Record SECONDS of the running program and report on what it played.
 
     One call for the whole loop: pin real time, record `capture.wav`, log the
@@ -2547,12 +2755,25 @@ def audio_capture(ctx, seconds, outdir, ref_path):
     but the program's delay runs before that, and under warp an eight-second
     jiffy delay is over in a fraction of a real second.
 
+    A short effect cannot be triggered from outside: arming costs emulated
+    frames before frame 0 (the payload's `lead_in_frames` measures how many
+    on this capture), and once the window is open the sampling loop owns the
+    session, so a poke from another command is queued behind it. Use
+    `--at-frame N 'ADDR=VAL'` — the writes happen while the machine is halted
+    just before frame N runs, so frame N is the first logged frame that shows
+    them: `--at-frame 30 '$d404=$81'` gates a voice 30 frames in.
+
     Check the score with `c64 audio score` before you get here. A typo'd voice
     key costs nothing to find there and the whole window to find here.
     """
+    try:
+        writes = parse_frame_writes(at_frames)
+    except ValueError as e:
+        fail(ctx, f"audio capture --at-frame: {e}")
+        return
     s = attach(ctx)
     try:
-        out = capture(s, seconds, outdir, ref_path=ref_path)
+        out = capture(s, seconds, outdir, ref_path=ref_path, writes=writes)
     except (RuntimeError, OSError, ValueError, MonitorError, SessionError) as e:
         # As wide as `audio record`: a capture drives two monitors, and a
         # MonitorError, a busy daemon's TimeoutError, or a failed respawn's
@@ -2561,6 +2782,12 @@ def audio_capture(ctx, seconds, outdir, ref_path):
         return
     headline = (f"{out['frames']} frames — {out['emulated_s']:.1f} s "
                 f"emulated in {out['wall_clock_s']:.1f} s of wall clock")
+    if out.get("lead_in_frames") is not None:
+        # The frames the arming spent before frame 0. Worth a line rather
+        # than only a JSON field: it is the answer to "why did my effect not
+        # appear", and the number an agent needs to aim --at-frame.
+        headline += (f"; lead-in {out['lead_in_frames']} frames before "
+                     f"frame 0")
     if out.get("unpin_error"):
         # A pointer, not a repeat: `capture` has already printed the whole
         # sentence to stderr. The verdict is about the audio, and this is about

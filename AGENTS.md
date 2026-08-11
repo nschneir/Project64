@@ -32,7 +32,8 @@ pytest tests/test_monitor.py::test_name   # one test
 python -m coverage run -m pytest && python -m coverage combine && python -m coverage report
                                 # coverage (fail_under=90); subprocesses (daemon, MCP stdio) are measured too
 
-ruff check src tests            # lint (config in pyproject.toml); must be clean
+ruff check src tests skills     # lint (config in pyproject.toml); must be clean
+                                # `skills` for the scripts shipped in a skill's references/
 pyright                         # type check (config in pyproject.toml); must be clean — local-only, CI does not run it
 ```
 
@@ -107,8 +108,12 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   timeout says the machine was left running). MCP tools return the same
   structured data as the CLI's `--json` and let exceptions surface with
   their messages intact.
-- Lint with `ruff check src tests` and keep it clean (rules E/F/W/B/UP/I,
-  line length 100 — configured in `pyproject.toml`). There is deliberately
+- Lint with `ruff check src tests skills` and keep it clean (rules E/F/W/B/UP/I,
+  line length 100 — configured in `pyproject.toml`). `skills` is in the list
+  because a skill's `references/` may ship a runnable script — the first is
+  `6502-assembly/references/fix-branch-range.py` — and a tool an agent is told
+  to pipe a build into is code, not prose. Demo `tools/` scripts stay outside
+  both gates: they are the demo's own artifact, tested by the demo. There is deliberately
   **no auto-formatter**: match the surrounding style by hand
   (`from __future__ import annotations`, type hints on public signatures,
   and the aligned struct/profile tables in `protocol.py`/`machines.py` are

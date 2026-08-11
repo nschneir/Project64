@@ -20,11 +20,12 @@ def home(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _write_record(name, pid, port=6502, model="c64"):
+def _write_record(name, pid, port=6502, model="c64", **extra):
     d = sessions_dir()
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.json").write_text(
-        json.dumps({"name": name, "pid": pid, "port": port, "model": model, "created": 0})
+        json.dumps({"name": name, "pid": pid, "port": port, "model": model,
+                    "created": 0, **extra})
     )
 
 
@@ -32,6 +33,18 @@ def _live_pid():
     # a real process we control, standing in for x64sc
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     return proc
+
+
+def _dead_pid() -> int:
+    """A pid whose process has exited *and* been reaped.
+
+    The wait() is load-bearing: an unreaped child lingers as a zombie, and
+    `os.kill(zombie, 0)` succeeds — `_pid_alive` would call it alive and
+    `stop()` would sit out its whole 3s SIGTERM wait.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", ""])
+    proc.wait()
+    return proc.pid
 
 
 def test_attach_by_name(home):
@@ -281,6 +294,107 @@ def test_stop_cleans_up_dead_session(home):
     assert not sock.exists()
 
 
+class _QuitMon:
+    """A monitor whose quit() really ends — and reaps — the process, so
+    `stop()` takes its live path in milliseconds instead of waiting out the
+    3s SIGTERM fallback on a zombie that still answers `kill(pid, 0)`."""
+
+    def __init__(self, proc):
+        self._proc = proc
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def quit(self):
+        self._proc.terminate()
+        self._proc.wait(timeout=10)
+
+
+def test_stop_all_stops_every_live_session(home, monkeypatch):
+    procs = {"a": _live_pid(), "b": _live_pid()}
+    try:
+        for name, proc in procs.items():
+            _write_record(name, proc.pid)
+        monkeypatch.setattr(Session, "monitor",
+                            lambda self: _QuitMon(procs[self.name]))
+        assert Session.stop_all() == ["a", "b"]
+        assert not list(sessions_dir().glob("*.json"))
+        assert not any(_pid_alive(p.pid) for p in procs.values())
+    finally:
+        for proc in procs.values():
+            proc.kill()
+
+
+def test_stop_all_reaps_a_session_whose_process_is_already_gone(home):
+    """The case this exists for: the la-galaxia dogfood found two x64sc
+    processes orphaned by a *previous* conversation. A record whose emulator
+    is gone is reaped — record and socket both — never reported as a failure,
+    because cleaning up after a dead run is the whole point."""
+    sock = sessions_dir() / "ghost.sock"
+    sock.write_text("")
+    _write_record("ghost", _dead_pid(), socket=str(sock))
+    assert Session.stop_all() == ["ghost"]
+    assert not (sessions_dir() / "ghost.json").exists()
+    assert not sock.exists()
+
+
+def test_stop_all_with_nothing_running_is_not_an_error(home):
+    assert Session.stop_all() == []
+
+
+def test_stop_all_discards_a_record_it_cannot_read_and_says_so(home):
+    """The other half of the reaping above, and deliberately not the same
+    answer. A dead session is KNOWN dead, so it is reaped and counted as
+    stopped; a record that will not parse is a record nothing can be stopped
+    FOR — no pid to signal, no socket to close — and it is exactly where an
+    orphaned emulator hides, which is what this command exists to find.
+
+    So it is discarded (every registry read goes through `_from_record`, so
+    leaving it would keep `session list`, `session stop NAME` and `session
+    start` broken too, with this command the only one left to try) and still
+    reported, naming the file. The live session next to it must go down
+    either way.
+    """
+    sessions_dir().mkdir(parents=True, exist_ok=True)
+    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+    _write_record("ghost", _dead_pid())
+    with pytest.raises(SessionError) as e:
+        Session.stop_all()
+    msg = str(e.value)
+    assert "'ghost'" in msg, "the message never says what it DID stop"
+    assert "truncated.json" in msg and "port" in msg, \
+        "the message never says which record is unreadable, or how"
+    assert not (sessions_dir() / "truncated.json").exists(), \
+        "the unreadable record survived the command that exists to clear it"
+    assert not (sessions_dir() / "ghost.json").exists()
+
+
+def test_stop_all_reports_both_what_stopped_and_what_did_not(home, monkeypatch):
+    """A stop that fails halfway still takes what it can, and the message has
+    to name both halves: the caller's registry is now part-cleared."""
+    _write_record("a", _dead_pid())
+    _write_record("b", _dead_pid())
+    real_stop = Session.stop
+
+    def flaky(self):
+        if self.name == "b":
+            raise OSError("Operation not permitted")
+        real_stop(self)
+
+    monkeypatch.setattr(Session, "stop", flaky)
+    with pytest.raises(SessionError) as e:
+        Session.stop_all()
+    msg = str(e.value)
+    assert "'b'" in msg and "Operation not permitted" in msg
+    assert "'a'" in msg, "the message never says what it DID stop"
+    assert "c64 session list" in msg, "no command to see what is left"
+    assert not (sessions_dir() / "a.json").exists()
+    assert (sessions_dir() / "b.json").exists()   # left behind, still listed
+
+
 def test_launch_passes_cartcrt(home, monkeypatch, tmp_path):
     """A cartridge is attached at boot, like a disk — never autostart-loaded.
 
@@ -334,10 +448,12 @@ def _clear_minimized_cache():
     """_supports_minimized is process-cached per binary path; without this,
     an earlier test's fake "/usr/bin/x64sc" result would leak into a later
     test that stubs the same path with a different --help output."""
-    from c64lib.session import _supports_minimized
-    _supports_minimized.cache_clear()
+    from c64lib.session import _supports_minimized, _supports_sound_dump
+    for probe in (_supports_minimized, _supports_sound_dump):
+        probe.cache_clear()
     yield
-    _supports_minimized.cache_clear()
+    for probe in (_supports_minimized, _supports_sound_dump):
+        probe.cache_clear()
 
 
 def test_supports_minimized_true_when_help_lists_it(monkeypatch):
@@ -458,3 +574,142 @@ def test_launch_non_headless_omits_minimized(home, monkeypatch):
     assert "-minimized" not in seen["args"]
     assert "SDL_VIDEODRIVER" not in seen["env"]
     assert "SDL_AUDIODRIVER" not in seen["env"]
+
+
+# --- the headless sound sink and its capability probe ----------------------
+#
+# VICE's sound device is the emulation loop's flow control at real time, so a
+# headless session that depends on a host consumer hangs where the host has
+# none: coreaudio never drains, and `audio record --start` — the pin-and-arm
+# — is the first real-time step a capture reaches. `dump` is a file-backed
+# sink that always consumes. The device NAME is probed, not assumed: an
+# unrecognized -sounddev value does not fail cleanly on a GTK3 build, it pops
+# a modal error dialog that blocks the emulation loop even under -minimized,
+# which looks exactly like the wedge this is fixing.
+
+#: A --help whose sound section is this build's: the device list is what the
+#: probe reads.
+HELP_WITH_DUMP = ("-minimized\n\tStart VICE minimized\n"
+                  "-sounddev <Name>\n\tSpecify sound driver. "
+                  "(coreaudio/dummy/dump)\n")
+
+
+def test_supports_sound_dump_true_when_help_lists_it(monkeypatch):
+    from c64lib import session as session_mod
+
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=HELP_WITH_DUMP, returncode=0),
+    )
+    assert session_mod._supports_sound_dump("/usr/bin/x64sc") is True
+
+
+def test_supports_sound_dump_false_when_the_device_list_omits_it(monkeypatch):
+    """A build whose sound drivers do not include `dump` must not be handed
+    it: the value would be rejected at runtime with a blocking dialog."""
+    from c64lib import session as session_mod
+
+    help_text = ("-sounddev <Name>\n\tSpecify sound driver. "
+                 "(alsa/pulse/dummy)\n")
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=help_text, returncode=0),
+    )
+    assert session_mod._supports_sound_dump("/some/other/vice/x64sc") is False
+
+
+def test_supports_sound_dump_reads_only_the_sounddev_line(monkeypatch):
+    """`dump` appears elsewhere in VICE's --help (`-dump`-ish debug options,
+    the recording drivers). Matching the bare word anywhere would hand the
+    value to a build that has no such *playback* device."""
+    from c64lib import session as session_mod
+
+    help_text = ("-soundrecdev <Name>\n\tSpecify recording sound driver. "
+                 "(fs/wav/dump)\n"
+                 "-sounddev <Name>\n\tSpecify sound driver. (alsa/dummy)\n")
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=help_text, returncode=0),
+    )
+    assert session_mod._supports_sound_dump("/vice/no-dump/x64sc") is False
+
+
+def test_supports_sound_dump_false_when_probe_fails(monkeypatch):
+    """A binary that cannot run --help degrades to the host device rather
+    than raising: same rule as the -minimized probe."""
+    from c64lib import session as session_mod
+
+    def boom(*a, **k):
+        raise OSError("nope")
+
+    monkeypatch.setattr(session_mod.subprocess, "run", boom)
+    assert session_mod._supports_sound_dump("/broken/x64sc") is False
+
+
+def test_launch_headless_sinks_sound_to_the_null_device(home, monkeypatch):
+    """A headless session must not depend on a host sound consumer.
+
+    `dump` is a file-backed sink that always consumes; pointed at the null
+    device it writes nowhere. The `-soundarg` half is not decoration: unset,
+    VICE's dump device writes its register dump to `vicesnd.sid` in the
+    caller's working directory.
+    """
+    import os
+
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(monkeypatch, session_mod, seen, HELP_WITH_DUMP)
+    session_mod.Session.launch(name="sink-sess", headless=True)
+    args = seen["args"]
+    assert "-sounddev" in args
+    assert args[args.index("-sounddev") + 1] == "dump"
+    assert args[args.index("-soundarg") + 1] == os.devnull
+
+
+def test_launch_headless_does_not_use_the_dummy_sound_device(home, monkeypatch):
+    """`dummy` is the obvious sink and the wrong one, measured 2026-08-10:
+    it never consumes, so VICE overflows its own sound buffer ("Sound buffer
+    overflow (cycle based)") and discards it — the WAV recorder receives no
+    samples and a capture comes back as a bare 44-byte header. Pinned so the
+    simplification is not re-attempted from the name alone."""
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(monkeypatch, session_mod, seen, HELP_WITH_DUMP)
+    session_mod.Session.launch(name="not-dummy-sess", headless=True)
+    args = seen["args"]
+    assert args[args.index("-sounddev") + 1] != "dummy"
+
+
+def test_launch_headless_omits_sounddev_when_the_build_lacks_dump(home,
+                                                                 monkeypatch):
+    """No sink is better than a rejected device name: an unrecognized
+    -sounddev value pops a modal error dialog on a GTK3 build, and a modal
+    dialog blocks the emulation loop even under -minimized — the very
+    symptom the sink exists to remove. Such a build keeps host audio and
+    the launch still works."""
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(
+        monkeypatch, session_mod, seen,
+        "-minimized\n\tStart VICE minimized\n"
+        "-sounddev <Name>\n\tSpecify sound driver. (alsa/dummy)\n")
+    session_mod.Session.launch(name="no-dump-sess", headless=True)
+    assert "-sounddev" not in seen["args"]
+    assert "-soundarg" not in seen["args"]
+    assert "-minimized" in seen["args"]          # the rest of headless stands
+
+
+def test_launch_non_headless_keeps_the_host_sound_device(home, monkeypatch):
+    """A windowed session is one somebody is watching, so it keeps host
+    audio: the sink is what "headless" already means (the SDL_AUDIODRIVER
+    line beside it says the same thing, inertly, on GTK3 builds)."""
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(monkeypatch, session_mod, seen, HELP_WITH_DUMP)
+    session_mod.Session.launch(name="windowed-audio-sess", headless=False)
+    assert "-sounddev" not in seen["args"]
+    assert "-soundarg" not in seen["args"]

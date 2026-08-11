@@ -30,6 +30,7 @@ from c64lib import audio, sid_analysis
 from c64lib.audio import (
     AudioError,
     capture,
+    parse_frame_writes,
     pin_realtime,
     pinned_record_start,
     pinned_record_stop,
@@ -813,6 +814,31 @@ def test_cli_audio_record_reports_a_capture_failure():
     assert "warp would not clear" in r.output
 
 
+@pytest.mark.parametrize("argv,target,prefix", [
+    (["audio", "capture", "2", "OUT"], "capture", "audio capture"),
+    (["audio", "record", "--start", "a.wav"], "pinned_record_start",
+     "audio record"),
+])
+def test_cli_audio_timeout_exits_1(argv, target, prefix):
+    """A timeout on the evidence path is a failure, not a note.
+
+    The la-galaxia dogfood (2026-08-08) recorded both of these as printing
+    `error: … timed out` and still exiting 0 — the shape that would let an
+    evidence script finish against a dead session and leave the previous
+    run's reports in place. They exit 1: TimeoutError is an OSError, which
+    both handlers already name, so it reaches `fail()`. Pinned for the
+    timeout that run actually hit, not just the AudioError and SessionError
+    the neighbouring tests cover.
+    """
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch(f"c64lib.cli.{target}", side_effect=TimeoutError("timed out")):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, argv)
+    assert r.exit_code == 1, r.output
+    assert f"error: {prefix}: timed out" in r.output
+
+
 @pytest.mark.parametrize("argv,target", [
     (["audio", "record", "--start", "a.wav"], "pinned_record_start"),
     (["audio", "record", "--stop"], "pinned_record_stop"),
@@ -852,13 +878,31 @@ class FakeMachine:
     So this fake advances one scripted frame per resume, answers a SID block
     read with that frame's registers, and reports 12 for any raster read.
     `calls` records the interleaving, which is the contract under test.
+
+    It also serves the jiffy, because that is the machine's own emulated
+    clock and `capture` reads it twice to report `lead_in_frames`. The jiffy
+    is NOT a frame counter — the KERNAL runs it at 60.00 Hz on both machines
+    — so it advances 60/fps per frame here, which is 1:1 on the NTSC machine
+    (where the +1-per-resume observation was made) and 1.2:1 on PAL.
+    `jiffy=False` is the program that owns the IRQ: the counter is frozen,
+    and no lead-in can be measured from it.
     """
 
     RASTER_AT_HALT = 12
+    #: What the KERNAL runs the jiffy at, on either machine. Mirrors
+    #: `audio.JIFFY_HZ`, spelled out here so the fake does not inherit the
+    #: constant it is meant to check.
+    JIFFY_HZ = 60.0
+    #: Where the fake's jiffy starts, so a test cannot pass on a zero.
+    JIFFY_START = 0x0040_0000
 
-    def __init__(self, states, delay: float = 0.0):
+    def __init__(self, states, delay: float = 0.0, fps: float = 60.0,
+                 jiffy: bool = True):
         self.states = [bytes(s) for s in states]
         self.delay = delay
+        self.fps = fps
+        self.jiffy = jiffy
+        self.jiffy_reads: list[int] = []
         self.frame = -1
         self.calls: list = []
 
@@ -868,12 +912,25 @@ class FakeMachine:
         if self.delay:
             time.sleep(self.delay)
 
+    def _jiffy_now(self) -> int:
+        if not self.jiffy:
+            return self.JIFFY_START            # frozen: the program owns the IRQ
+        return self.JIFFY_START + round(max(self.frame, 0)
+                                        * self.JIFFY_HZ / self.fps)
+
     def memory_read(self, start: int, length: int, **kw) -> bytes:
         self.calls.append((start, length))
+        if start == audio.JIFFY_BASE:
+            value = self._jiffy_now()
+            self.jiffy_reads.append(value)
+            return value.to_bytes(3, "big")[:length]
         if start != audio.SID_BASE:
             return bytes([self.RASTER_AT_HALT]) * length
         assert self.frame >= 0, "sampled a frame the machine was never run to"
         return self.states[self.frame % len(self.states)]
+
+    def memory_write(self, start: int, data: bytes, **kw) -> None:
+        self.calls.append(("write", start, bytes(data)))
 
 
 def _machine_session(machine: FakeMachine):
@@ -891,8 +948,18 @@ def _states(count: int) -> list[bytes]:
     return [bytes([n + 1] + [0] * 24) for n in range(count)]
 
 
+def _lines(path) -> list[dict]:
+    return [json.loads(line) for line in Path(path).read_text().splitlines()]
+
+
 def _rows(path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    """The FRAME records of a log — line 1 is the clock stamp."""
+    return [row for row in _lines(path) if "frame" in row]
+
+
+def _stamp(path) -> dict:
+    """The clock stamp a log opens with."""
+    return _lines(path)[0]
 
 
 def test_sid_log_writes_one_frame_record_per_frame(tmp_path):
@@ -1187,6 +1254,113 @@ def test_cli_audio_sidlog_reports_a_capture_failure():
     assert "the machine is stopped" in r.output
 
 
+# --- the clock stamp on a log ------------------------------------------------
+
+def test_sid_log_stamps_the_machines_clock_on_line_one(tmp_path):
+    """A register log does not carry its clock, and a re-score after the
+    session is gone used to assume PAL and rename every note. The session
+    knows the machine at capture time, so the log says so itself."""
+    out = tmp_path / "sid.jsonl"
+    sid_log(_machine_session(FakeMachine(_states(3))), 3, str(out))
+    assert _stamp(out) == {"machine": "c64", "clock_hz": 1022727, "fps": 60}
+    assert [r["frame"] for r in _rows(out)] == [0, 1, 2]
+
+
+def test_sid_log_stamp_does_not_disturb_the_frame_records(tmp_path):
+    """`sid_analysis.parse_log` is the only consumer and it must still see
+    exactly the frames, numbered from 0."""
+    out = tmp_path / "sid.jsonl"
+    sid_log(_machine_session(FakeMachine(_states(4))), 4, str(out))
+    records = sid_analysis.parse_log(out)
+    assert [r.frame for r in records] == [0, 1, 2, 3]
+    assert sid_analysis.log_timing(out) == {"machine": "c64",
+                                            "clock_hz": 1022727, "fps": 60}
+
+
+def test_report_timing_prefers_the_named_session_over_the_logs_stamp(tmp_path):
+    """`-s` is an OVERRIDE, not the only source: a stamped log needs none."""
+    log = tmp_path / "sid.jsonl"
+    sid_log(_machine_session(FakeMachine(_states(2))), 2, str(log))   # NTSC
+    assert audio.report_timing_from(log, None)["machine"] == "c64"
+    assert audio.report_timing_from(log, None)["clock_source"] == "log"
+    assert audio.report_timing_from(log, "c64pal")["machine"] == "c64pal"
+    assert audio.report_timing_from(log, "c64pal")["clock_source"] == "session"
+
+
+def test_report_timing_falls_back_to_pal_for_a_log_with_no_stamp(tmp_path):
+    """Logs captured before the stamp existed still read, and still say
+    which clock they were read with."""
+    log = tmp_path / "old.jsonl"
+    _log(log, _states(2))
+    timing = audio.report_timing_from(log, None)
+    assert timing["machine"] == "c64pal" and timing["clock_source"] == "default"
+
+
+# --- writes scheduled inside the capture window -------------------------------
+
+def test_parse_frame_writes_reads_a_repeatable_spec():
+    assert parse_frame_writes([("6", "$d404=$11"), ("6", "53280=1"),
+                               ("0", "0xd418=0x0f")]) == {
+        0: [(0xD418, 0x0F)], 6: [(0xD404, 0x11), (0xD020, 1)]}
+
+
+@pytest.mark.parametrize("spec, complaint", [
+    (("6", "d404=17"), "not a number"),
+    (("6", "$d404"), "ADDR=VAL"),
+    (("6", "$d404=256"), "0-255"),
+    (("6", "$10000=1"), "0-65535"),
+    (("-1", "$d404=1"), "at least 0"),
+    (("six", "$d404=1"), "not a number"),
+])
+def test_parse_frame_writes_rejects_what_it_cannot_aim(spec, complaint):
+    with pytest.raises(ValueError, match=complaint):
+        parse_frame_writes([spec])
+
+
+def test_sid_log_performs_a_scheduled_write_before_the_frame_it_names(tmp_path):
+    """Frame N is the first LOGGED frame that shows the effect: the write
+    lands while the machine is halted, then the resume runs frame N with it
+    in place, then the read samples what frame N left behind."""
+    m = FakeMachine(_states(4))
+    sid_log_detail(_machine_session(m), 4, str(tmp_path / "sid.jsonl"),
+                   writes={2: [(0xD404, 0x11), (0xD418, 0x0F)]})
+    assert m.calls == (["resume", (audio.SID_BASE, 25)] * 2
+                       + [("write", 0xD404, b"\x11"), ("write", 0xD418, b"\x0f")]
+                       + ["resume", (audio.SID_BASE, 25)] * 2
+                       + ["resume"])
+
+
+def test_sid_log_sends_scheduled_writes_to_the_daemon_in_one_round_trip(tmp_path):
+    """The whole loop is one RPC, so the writes have to travel with it — a
+    client that stepped in mid-window would lose the frames it stepped in."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.return_value = _states(3)
+    s = Mock()
+    s.name, s.model, s.socket, s.pid = "c64", "c64", "/tmp/sock", 4242
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    sid_log_detail(s, 3, str(tmp_path / "sid.jsonl"), writes={1: [(0xD404, 0x11)]})
+    assert mon.sid_log.call_args.kwargs["writes"] == {1: [(0xD404, 0x11)]}
+
+
+def test_sid_log_falls_back_to_the_client_loop_when_the_daemon_cannot_aim(tmp_path):
+    """A daemon too old for scheduled writes answers ValueError, exactly as
+    it does for the whole `sid_log` method — and the writes must still land,
+    so the client loop takes over rather than the schedule being dropped."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.side_effect = ValueError("unknown daemon method 'sid_log_at'")
+    machine = FakeMachine(_states(3))
+    mon.resume.side_effect = machine.resume
+    mon.memory_read.side_effect = machine.memory_read
+    mon.memory_write.side_effect = machine.memory_write
+    s = Mock()
+    s.name, s.model, s.socket, s.pid = "c64", "c64", "/tmp/sock", 4242
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    sid_log_detail(s, 3, str(tmp_path / "sid.jsonl"), writes={0: [(0xD404, 0x11)]})
+    assert machine.calls[0] == ("write", 0xD404, b"\x11")
+
+
 def test_module_exposes_only_the_capture_surface():
     """The text-monitor channel is a capture-time detail of this module, not
     a new public surface — it must not appear on MonitorClient."""
@@ -1258,10 +1432,9 @@ class FakeVice(FakeMachine):
     """
 
     def __init__(self, states, fps: float = 60.0, delay: float = 0.0,
-                 records: bool | str = True, **resources):
-        super().__init__(states, delay)
+                 records: bool | str = True, jiffy: bool = True, **resources):
+        super().__init__(states, delay, fps=fps, jiffy=jiffy)
         self.resources = {**VICE_DEFAULTS, **resources}
-        self.fps = fps
         self.records = records
         self.wav_path: str | None = None
         self.armed_at: int | None = None
@@ -1743,6 +1916,69 @@ def test_capture_reports_the_wall_clock_it_cost(vice_text, tmp_path):
     assert out["wall_clock_s"] > 0
 
 
+# --- aiming the window: lead-in, the clock stamp, and scheduled writes --------
+
+def test_capture_measures_its_lead_in_from_the_machines_own_clock(vice_text,
+                                                                  tmp_path):
+    """The frames the arming burns before log frame 0. Not a constant: it is
+    the jiffy read before the pin against the jiffy read after the arm, which
+    is why the fake serves one."""
+    vice = FakeVice([_voice1()] * 8)
+    with _port(vice_text):
+        out = audio.capture(_capture_session(vice), 0.1, tmp_path)
+    before, armed = vice.jiffy_reads
+    assert armed > before
+    assert out["lead_in_frames"] == round(
+        (armed - before) / FakeMachine.JIFFY_HZ * out["fps"]) + 1
+    assert out["lead_in_frames"] >= 1
+
+
+def test_capture_reports_no_lead_in_when_the_program_owns_the_irq(vice_text,
+                                                                  tmp_path):
+    """The jiffy is the KERNAL's, and a player that takes the IRQ over
+    freezes it. None is the honest answer; a hardcoded 15 would not be."""
+    vice = FakeVice([_voice1()] * 8, jiffy=False)
+    with _port(vice_text):
+        out = audio.capture(_capture_session(vice), 0.1, tmp_path)
+    assert out["lead_in_frames"] is None
+
+
+def test_capture_stamps_the_clock_on_the_log_it_writes(vice_text, tmp_path):
+    """So a re-score months later reads the capture's own machine rather
+    than assuming PAL and renaming every note."""
+    vice = FakeVice([_voice1()] * 4, fps=50.0)
+    with _port(vice_text):
+        out = audio.capture(_capture_session(vice, model="c64pal"), 0.2,
+                            tmp_path / "cap")
+    assert _stamp(tmp_path / "cap" / "sid-log.jsonl") == {
+        "machine": "c64pal", "clock_hz": 985248, "fps": 50}
+    assert out["clock_source"] == "session"
+
+
+def test_capture_writes_at_the_frame_it_was_aimed_at(vice_text, tmp_path):
+    """The point of the whole flag: nothing outside may drive the session
+    once the window is open, so a 6-frame effect is only reachable from
+    inside the sampling loop."""
+    vice = FakeVice([_voice1()] * 8)
+    with _port(vice_text):
+        audio.capture(_capture_session(vice), 0.1, tmp_path,
+                      writes={3: [(0xD404, 0x11)]})
+    write = vice.calls.index(("write", 0xD404, b"\x11"))
+    sampled = [i for i, c in enumerate(vice.calls) if c == (audio.SID_BASE, 25)]
+    assert len([i for i in sampled if i < write]) == 3   # frames 0,1,2 logged
+    assert min(sampled) < write < max(sampled)           # strictly inside
+
+
+def test_capture_refuses_a_write_aimed_past_its_own_window(vice_text, tmp_path):
+    """Before the pin, like the reference score: a frame number the window
+    never reaches would spend the whole window doing nothing."""
+    vice = FakeVice([_voice1()] * 4)
+    with _port(vice_text), pytest.raises(ValueError, match="frame 12"):
+        audio.capture(_capture_session(vice), 0.2, tmp_path,
+                      writes={12: [(0xD404, 0x11)]})
+    assert vice.sets == []
+
+
 # --- MCP tools ----------------------------------------------------------------
 
 def test_mcp_sid_report_defaults_to_pal_with_no_session(tmp_path):
@@ -1813,7 +2049,49 @@ def test_mcp_audio_capture():
         err, out = call_tool("c64_audio_capture", {"seconds": 2.0,
                                                    "outdir": "/tmp/o"})
     assert err is False and out["verdict"] == "PASS"
-    cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None)
+    cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None, writes={})
+
+
+def test_mcp_audio_capture_aims_writes_at_a_frame():
+    """CLI/MCP lockstep: `--at-frame N 'ADDR=VAL'` is `at_frame={"N": ...}`,
+    read by the same parser, so the two cannot drift."""
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture",
+               return_value={"verdict": "PASS"}) as cap:
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture",
+                             {"seconds": 1.0, "outdir": "/tmp/o",
+                              "at_frame": {"6": "$d404=$11,$d418=15"}})
+    assert err is False
+    assert cap.call_args.kwargs["writes"] == {6: [(0xD404, 0x11), (0xD418, 15)]}
+
+
+def test_mcp_audio_capture_reports_a_write_it_cannot_parse():
+    """The same complaint the CLI gives, before anything is pinned."""
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture") as cap:
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture",
+                             {"seconds": 1.0, "outdir": "/tmp/o",
+                              "at_frame": {"6": "$d404"}})
+    assert err is True and "ADDR=VAL" in str(out)
+    cap.assert_not_called()
+
+
+def test_mcp_sid_report_reads_the_clock_the_log_was_stamped_with(tmp_path):
+    """No session named, but the log knows: the NTSC stamp must not be
+    re-read as PAL."""
+    log = tmp_path / "sid.jsonl"
+    sid_log(_machine_session(FakeMachine(_states(2))), 2, str(log))
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.sid_report",
+               return_value={"verdict": "PASS"}) as report:
+        call_tool("c64_sid_report", {"log": str(log), "outdir": "/tmp/o"})
+    S.attach.assert_not_called()
+    assert report.call_args.kwargs["timing"]["clock_hz"] == NTSC
+    assert report.call_args.kwargs["timing"]["clock_source"] == "log"
 
 
 # --- CLI ----------------------------------------------------------------------
@@ -1884,7 +2162,114 @@ def test_cli_audio_capture_reports_the_verdict():
         r = CliRunner().invoke(main, ["audio", "capture", "2", "/tmp/o"])
     assert r.exit_code == 1, r.output          # a FAIL verdict is a failure
     assert "/tmp/o/report.md" in r.output and "expected C4" in r.output
-    cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None)
+    cap.assert_called_once_with(s, 2.0, "/tmp/o", ref_path=None, writes={})
+
+
+def test_cli_audio_capture_aims_writes_at_a_frame():
+    """`--at-frame N SPEC`, repeatable, merged in the order given."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8}) as cap:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
+                                      "--at-frame", "6", "$d404=$11",
+                                      "--at-frame", "12", "$d404=$10"])
+    assert r.exit_code == 0, r.output
+    assert cap.call_args.kwargs["writes"] == {6: [(0xD404, 0x11)],
+                                              12: [(0xD404, 0x10)]}
+
+
+def test_cli_audio_capture_reports_a_write_it_cannot_parse():
+    """Exit 1 with the spelling in the message, and nothing pinned."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, patch("c64lib.cli.capture") as cap:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
+                                      "--at-frame", "6", "$d404"])
+    assert r.exit_code == 1
+    assert "--at-frame" in r.output and "ADDR=VAL" in r.output
+    cap.assert_not_called()
+
+
+def test_cli_audio_capture_reports_the_lead_in_it_measured():
+    """The number an agent needs to know why an early effect was missed."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "lead_in_frames": 15,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8}):
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    assert "15 frames" in r.output and "lead-in" in r.output
+
+
+def test_report_timing_falls_back_for_a_log_it_cannot_decode(tmp_path):
+    """Resolving the clock must not be able to raise: it runs before the
+    front end's try/except, so anything escaping is a bare traceback. A
+    binary file raises UnicodeDecodeError out of `read_text` — a ValueError,
+    not an OSError — and an unreadable log has no knowable clock anyway."""
+    binary = tmp_path / "capture.wav"
+    binary.write_bytes(b"RIFF\x24\x08\x00\x00WAVEfmt \xff\xfe\x00\x80")
+    timing = audio.report_timing_from(binary, None)
+    assert timing["machine"] == "c64pal" and timing["clock_source"] == "default"
+
+
+def test_cli_audio_report_reports_a_log_it_cannot_decode(tmp_path):
+    """Handing `audio report` a capture.wav where the log goes is an ordinary
+    slip, and it has to come back as this command's own exit-1 `--json`
+    payload — not a traceback over an empty stdout, which is what a
+    UnicodeDecodeError escaping the clock lookup produced."""
+    binary = tmp_path / "capture.wav"
+    binary.write_bytes(b"RIFF\x24\x08\x00\x00WAVEfmt \xff\xfe\x00\x80")
+    r = CliRunner().invoke(main, ["--json", "audio", "report", str(binary),
+                                  str(tmp_path / "out")])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.output)["error"]
+    assert error.startswith("audio report:") and "decode" in error
+
+
+def test_cli_audio_report_reports_a_machine_it_does_not_have(tmp_path):
+    """The other half of the clock lookup. An unreadable log falls back to
+    the default clock, but a NAMED model is an override and must not — and
+    `get_profile` raises KeyError on a machine this build has no profile
+    for, which an older or hand-edited session record is enough to produce.
+    With the lookup outside the command's try that was a traceback over an
+    empty `--json` stdout, on the same `-s NAME` a working report uses."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = Mock(model="c65")
+        r = CliRunner().invoke(main, ["--json", "-s", "bogus", "audio",
+                                      "report", str(log),
+                                      str(tmp_path / "out")])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.output)["error"]
+    assert error.startswith("audio report:") and "c65" in error, \
+        "the error never names the machine profile it could not find"
+
+
+def test_cli_audio_report_reads_the_clock_the_log_was_stamped_with(tmp_path):
+    """The re-score path: no session left to name, and the log's own stamp
+    is what keeps it from being read as PAL."""
+    log = tmp_path / "sid-log.jsonl"
+    sid_log(_machine_session(FakeMachine(_states(4))), 4, str(log))   # NTSC
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.sid_report",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "notes": 1,
+                             "machine": "c64", "clock_hz": NTSC,
+                             "fps": 60}) as report:
+        r = CliRunner().invoke(main, ["audio", "report", str(log), "/tmp/o"])
+    assert r.exit_code == 0, r.output
+    S.attach.assert_not_called()
+    assert report.call_args.kwargs["timing"]["clock_hz"] == NTSC
+    assert "stamped" in r.output
 
 
 def test_cli_audio_capture_warns_when_nothing_played():
@@ -1931,7 +2316,8 @@ def test_cli_audio_capture_passes_the_reference_score():
         r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
                                       "--ref", "score.yaml"])
     assert r.exit_code == 0, r.output
-    cap.assert_called_once_with(s, 1.0, "/tmp/o", ref_path="score.yaml")
+    cap.assert_called_once_with(s, 1.0, "/tmp/o", ref_path="score.yaml",
+                                writes={})
 
 
 def test_cli_audio_capture_shows_an_unpin_failure_under_the_verdict():
@@ -2133,12 +2519,15 @@ def _pin_and_arm(session, wav_path) -> None:
     cascading a wrong-note diff down the voice — but window is exactly what
     this fixture has none of to spare.
 
-    The pin has to arm a recorder to survive, which is why this takes a path:
-    a headless VICE at real time with nothing consuming its sound output stops
-    answering its binary monitor within a second (`Session.launch(warp=False)`
-    times out on this host for the same reason). `capture()` re-arms the
-    recorder onto its own WAV, and its `pinned_record_stop` reads the pin this
-    one wrote, so the session still gets its warp back at the end.
+    The recorder this arms was survival gear and is now belt and braces: a
+    headless VICE at real time with nothing consuming its sound output
+    stopped answering its binary monitor within a second, so the recorder
+    had to be the consumer. `Session.launch` now hands every headless
+    session a sound device that needs no host consumer at all (see the
+    `-sounddev dump` comment in `session.py`), which is what that dependency
+    was. It stays anyway: `capture()` re-arms the recorder onto its own WAV,
+    and its `pinned_record_stop` reads the pin this one wrote, so the session
+    still gets its warp back at the end.
     """
     pinned_record_start(session, wav_path)
 

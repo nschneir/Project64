@@ -181,26 +181,78 @@ def test_until_success_and_timeout():
     assert err is True and "timeout" in out["raw"].lower()
 
 
+def _profiled(samples, fired=True):
+    """A profile_routine_samples payload for `samples` cycle counts."""
+    out = {"fired": fired, "samples": samples,
+           "min": min(samples) if samples else None,
+           "max": max(samples) if samples else None,
+           "mean": round(sum(samples) / len(samples), 1) if samples else None,
+           "registers": {"PC": 0x0400} if fired else None, "trap": 0x0400,
+           "irq_masked": True, "reached": len(samples), "count": len(samples)}
+    if len(samples) == 1:
+        out["cycles"] = samples[0]
+    return out
+
+
 def test_profile_reports_cycles_and_timeout_is_an_error():
     s, _ = _fake_session()
-    fired = {"fired": True, "cycles": 507, "registers": {"PC": 0x0400},
-             "trap": 0x0400}
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.profile_routine", return_value=fired) as pr:
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=_profiled([507])) as pr:
         S.attach.return_value = s
         err, out = call_tool("c64_profile", {"routine": "$c000"})
     assert err is False
     assert out["cycles"] == 507 and out["irq_masked"] is True
     assert out["trap"] == 0x0400 and out["called"] == "$c000"
     assert pr.call_args.args[1] == 0xC000
+    assert pr.call_args.args[2] == 1
 
-    timed_out = {"fired": False, "cycles": None, "registers": None,
-                 "trap": 0x0400}
     with patch("c64lib.mcp_server.Session") as S, \
-         patch("c64lib.mcp_server.profile_routine", return_value=timed_out):
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=_profiled([], fired=False)):
         S.attach.return_value = s
         err, out = call_tool("c64_profile", {"routine": "$c000"})
     assert err is True and "never returned" in out["raw"]
+    # the hazards the timeout leaves behind, in the only channel MCP has
+    assert "timers" in out["raw"] and "I flag" in out["raw"]
+
+
+def test_profile_samples_reports_min_max_mean_in_lockstep_with_the_cli():
+    """CLI/MCP lockstep for `c64 profile --samples`: a bimodal per-frame cost
+    (la-galaxia's tick was 10,729 cycles, 31,695 on a repaint) reads as fine
+    when sampled once, so the tool has to be able to ask for N."""
+    s, _ = _fake_session()
+    costs = [10729, 10729, 31695, 10729]
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=_profiled(costs)) as pr:
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000", "samples": 4})
+    assert err is False
+    assert out["samples"] == costs
+    assert out["min"] == 10729 and out["max"] == 31695
+    assert out["mean"] == round(sum(costs) / 4, 1)
+    assert "cycles" not in out          # no single number to mistake for THE cost
+    assert pr.call_args.args[2] == 4
+
+
+def test_profile_valueerror_is_a_tool_error_not_a_crash():
+    """The CLI twin of this needed a widened `except`; the tool needs none —
+    FastMCP turns any exception into an error result — but that has to be
+    pinned, because ops gained a second exception type (the re-raised
+    non-handshake ValueError, and the `samples < 1` guard)."""
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine_samples",
+               side_effect=ValueError("daemon said no")):
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000"})
+    assert err is True and "daemon said no" in out["raw"]
+
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000", "samples": 0})
+    assert err is True and "at least 1 sample" in out["raw"]
 
 
 def test_wait_mem_parses_and_passes_through():
@@ -225,6 +277,54 @@ def test_wait_mem_passes_the_comparison_through():
                              {"addr": "$fb", "equals": "20", "op": ">="})
     assert err is False and out == result
     w.assert_called_once_with(s, 0xFB, 20, 30.0, op=">=")
+
+
+def test_wait_mem_timeout_says_the_machine_was_stopped_throughout():
+    """The CLI's `--mem` timeout names this; the tool has to say it too, and
+    on the surface agents actually drive. A wait polls memory — it never
+    resumes the CPU — so on a machine halted by an earlier c64_until the byte
+    cannot change and the full timeout is burned for nothing."""
+    s, _ = _fake_session()
+    timed_out = {"fired": None, "timeout": 5.0, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="stopped"), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem", {"addr": "$0400", "equals": "42"})
+    assert err is False, out
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["diagnosis"]
+    assert "c64_continue" in out["diagnosis"], "no way out is named"
+
+
+def test_wait_mem_timeout_on_a_running_machine_carries_no_diagnosis():
+    """A machine that ran the whole window genuinely never reached the value;
+    pointing the client at c64_continue there would be a wrong answer."""
+    s, _ = _fake_session()
+    timed_out = {"fired": None, "timeout": 5.0, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="running"), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem", {"addr": "$0400", "equals": "42"})
+    assert err is False and out["machine"] == "running"
+    assert "diagnosis" not in out
+
+
+def test_wait_mem_timeout_needs_both_samples_stopped():
+    """One sample cannot support "stopped for the whole wait" — the same rule
+    the CLI applies, so the two surfaces cannot disagree about the same run."""
+    s, _ = _fake_session()
+    states = iter(["running", "stopped"])
+    timed_out = {"fired": None, "timeout": 5.0, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state",
+               side_effect=lambda _s: next(states)), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem", {"addr": "$0400", "equals": "42"})
+    assert err is False and out["machine"] == "running"
+    assert "diagnosis" not in out
 
 
 # --- program running ----------------------------------------------------------
@@ -252,6 +352,37 @@ def test_run_bas_tokenizes(tmp_path):
         err, out = call_tool("c64_run", {"source": str(bas)})
     assert err is False
     tok.assert_called_once_with(bas.resolve(), bas.resolve().with_suffix(".prg"), "2.0")
+
+
+def test_run_areas_reach_the_linker(tmp_path):
+    """CLI parity with test_cli_basic.test_run_area_reaches_the_linker."""
+    from c64lib.build import Area, BuildResult
+
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
+        S.attach.return_value = s
+        err, out = call_tool("c64_run", {"source": str(src),
+                                         "areas": ["ENGINE=$4000:$6000"]})
+    assert err is False, out
+    assert ba.call_args.kwargs["areas"] == [Area("ENGINE", 0x4000, 0x6000)]
+    mon.autostart.assert_called_once_with(res.prg.resolve(), run=True)
+
+
+def test_run_areas_outside_assembly_is_an_error(tmp_path):
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_run", {"source": str(prg),
+                                         "areas": ["ENGINE=$4000:$6000"]})
+    # same wording as the CLI's: both front ends say it one way
+    assert err is True and "--area applies to assembly sources only" in out["raw"]
+    mon.autostart.assert_not_called()
 
 
 def test_run_unknown_extension_is_error(tmp_path):
@@ -496,6 +627,23 @@ def test_sprite_encode_start_line_needs_basic_format(tmp_path):
     assert "start_line only applies to fmt='basic'" in str(out)
 
 
+def test_sprite_encode_background_and_named_blocks_reach_mcp(tmp_path):
+    """CLI/MCP lockstep: `--background` and the sheet's `name:`/mode headers
+    are the CLI's whole new surface, so the twin has to carry both — and
+    report the names it parsed, which is what makes the payload a block map."""
+    src = tmp_path / "mixed.txt"
+    src.write_text("# a sheet\n\nfighter:hires\n" + ("." * 24 + "\n") * 21
+                   + "\ndrone:multicolor\n" + (".123" * 3 + "\n") * 21)
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "background": "."})
+    assert err is False, out
+    assert out["blocks"] == [{"name": "fighter", "multicolor": False},
+                             {"name": "drone", "multicolor": True}]
+    assert out["sprites"][0] == [0] * 63              # '.' is background now
+    assert out["sprites"][1] == [0b00011011] * 63     # digit == pair value
+    assert "; sprite 1 (drone), 24x21 multicolor" in out["rendered"]
+
+
 def test_sprite_encode_empty_file_is_an_error(tmp_path):
     src = tmp_path / "empty.txt"
     src.write_text("\n   \n")
@@ -525,6 +673,22 @@ def test_charset_encode_returns_glyphs_and_rendering(tmp_path):
         {"name": "letter", "multicolor": False, "bytes": [0b11000000] * 8},
     ]
     assert out["rendered"] == format_glyphs(parse_charset(_MIXED_SHEET))
+
+
+def test_charset_encode_label_reaches_mcp(tmp_path):
+    """CLI/MCP lockstep for `--label`, including the identifier check — an
+    unusable label has to fail here the way it fails there, not assemble
+    into a broken include."""
+    src = tmp_path / "chars.txt"
+    src.write_text(_MIXED_SHEET)
+    err, out = call_tool("c64_charset_encode",
+                         {"file": str(src), "label": "fontgly"})
+    assert err is False, out
+    assert "fontgly:" in out["rendered"] and "fontgly_end:" in out["rendered"]
+    err, out = call_tool("c64_charset_encode",
+                         {"file": str(src), "label": "font gly"})
+    assert err is True
+    assert "not an assembler identifier" in str(out)
 
 
 def test_charset_encode_bad_sheet_is_an_error(tmp_path):
@@ -567,3 +731,18 @@ def test_audio_score_reports_a_voice_the_sid_does_not_have(tmp_path):
     err, out = call_tool("c64_audio_score", {"file": str(path)})
     assert err is True
     assert "voice 4" in str(out)
+
+
+@pytest.mark.parametrize("tool,what", [("c64_sprite_encode", "sprite sheet"),
+                                       ("c64_charset_encode", "charset sheet")])
+def test_encoders_report_a_file_they_cannot_decode(tmp_path, tool, what):
+    """CLI/MCP lockstep on the message. FastMCP already turns any raise into
+    a tool error, so this side never had the CLI's traceback — but a raw
+    `UnicodeDecodeError` says only which byte offset failed, and a caller
+    that handed a .prg to an ASCII-art encoder needs to be told which of the
+    paths it passed was the wrong one."""
+    binary = tmp_path / "blob.bin"
+    binary.write_bytes(bytes(range(256)))
+    err, out = call_tool(tool, {"file": str(binary)})
+    assert err is True
+    assert f"cannot read {what} {binary}" in str(out)

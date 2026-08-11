@@ -27,6 +27,11 @@ from . import rpc
 # `audio` reaches the daemon through `daemon_client`, never through this module.
 from .audio import SID_BASE, SID_REGISTERS
 from .monitor import MonitorClient
+
+# `profile_samples_loop` is the profile bracket itself, shared rather than
+# copied: see `_profile_samples`. Not a cycle either — `ops` reaches the
+# daemon through `daemon_client`, never through this module.
+from .ops import profile_samples_loop
 from .protocol import CP_EXEC, Command, ResponseType
 
 RUNNING = "running"
@@ -39,11 +44,41 @@ ALLOWED = frozenset({
     "vice_info", "quit", "resource_get", "resource_set", "autostart",
     "checkpoint_set", "checkpoint_delete", "checkpoint_toggle", "checkpoint_list",
     "condition_set", "step", "finish", "wait_for_stop", "status", "run_until",
-    "sid_log",
+    "profile_samples",
+    # `sid_log_at` is `sid_log` with writes scheduled inside the window. It is
+    # a SEPARATE method name rather than a third argument on purpose: an older
+    # daemon ignores extra positional args, so a schedule sent that way would
+    # be dropped without a word and the capture would look aimed and not be.
+    # An unknown method name is a ValueError the client can fall back on —
+    # the same mechanism `run_until` and `sid_log` were introduced with.
+    "sid_log", "sid_log_at",
 })
 
 #: methods that leave the machine halted by their own meaning.
 STOPPING = frozenset({"step", "finish"})
+
+
+def _frame_writes(raw) -> dict[int, list[tuple[int, int]]]:
+    """A `sid_log_at` schedule off the wire, re-checked here.
+
+    JSON has no integer keys and no tuples, so `{6: [(0xd404, 0x11)]}`
+    arrives as `{"6": [[54276, 17]]}`. Re-validated rather than trusted:
+    the range checks `audio.parse_frame_writes` makes belong to the front
+    end's error message, but this process holds the session's only VICE
+    connection, and a bad byte here would be a `memory_write` raising in
+    the middle of somebody's capture window.
+    """
+    out: dict[int, list[tuple[int, int]]] = {}
+    for frame, pairs in dict(raw or {}).items():
+        entries = []
+        for addr, value in pairs:
+            addr, value = int(addr), int(value)
+            if not 0 <= addr <= 0xFFFF or not 0 <= value <= 0xFF:
+                raise ValueError(f"sid_log_at write ${addr:x}={value} is out "
+                                 f"of range (address 0-65535, value 0-255)")
+            entries.append((addr, value))
+        out[int(frame)] = entries
+    return out
 
 
 class PetDaemon:
@@ -182,8 +217,15 @@ class PetDaemon:
         if method == "run_until":
             return self._run_until(client, int(args[0]), float(args[1]),
                                    int(args[2]))
+        if method == "profile_samples":
+            return self._profile_samples(client, int(args[0]), float(args[1]),
+                                         int(args[2]), bool(args[3]),
+                                         int(args[4]))
         if method == "sid_log":
             return self._sid_log(client, int(args[0]), float(args[1]))
+        if method == "sid_log_at":
+            return self._sid_log(client, int(args[0]), float(args[1]),
+                                 _frame_writes(args[2]))
         result = getattr(self.mon, method)(*args, **kwargs)
         if method in STOPPING:
             self.state = STOPPED
@@ -246,8 +288,38 @@ class PetDaemon:
         self.state = STOPPED
         return {"registers": regs, "reached": count, "count": count}
 
-    def _sid_log(self, client: socket.socket, frames: int,
-                 timeout: float) -> list[bytes]:
+    def _profile_samples(self, client: socket.socket, addr: int,
+                         timeout: float, n: int, with_irq: bool,
+                         trap: int) -> dict:
+        """The `c64 profile --samples` loop, run against the direct VICE
+        connection — N arrivals cost one IPC round-trip instead of one
+        re-arm-and-measure bracket (~15 monitor commands) each.
+
+        The loop itself is `ops.profile_samples_loop`, called here with the
+        two hooks it leaves open: the CIA cascade, the fake-JSR re-arm and
+        the I-flag bookkeeping are intricate enough that a second copy would
+        drift, and it is the same code a direct connection runs. `run_until`
+        and `_sid_log` predate that split and still carry their own copies.
+
+        Contract as documented there: machine STOPPED at the final arrival;
+        on timeout (or the client vanishing) the checkpoint is deleted, the
+        machine is left RUNNING with registers None — and the CIA#2 timers
+        are left running with the I flag still masked, which the front ends
+        report, because the machine is running again by then.
+        """
+        def _gone() -> bool:
+            r, _, _ = select.select([client], [], [], 0)
+            return bool(r) and client.recv(1, socket.MSG_PEEK) == b""
+
+        def _state(running: bool) -> None:
+            self.state = RUNNING if running else STOPPED
+
+        return profile_samples_loop(self.mon, addr, n, timeout, with_irq,
+                                    trap, on_state=_state, abort=_gone)
+
+    def _sid_log(self, client: socket.socket, frames: int, timeout: float,
+                 writes: dict[int, list[tuple[int, int]]] | None = None
+                 ) -> list[bytes]:
         """Sample the SID's whole register block once per video frame, on the
         daemon's own VICE connection — one IPC round-trip for the entire log
         instead of two per frame (see `_run_until` for the same arithmetic:
@@ -272,10 +344,23 @@ class PetDaemon:
         interleaving for: a capture that shared the machine would no longer be
         capturing what it claims to. Read a stalled session during an audio
         capture as this, and wait for it.
+
+        Which is exactly why `writes` exists. Owning the machine for the whole
+        window means nothing outside can act during it, so an effect the
+        capture is meant to observe has to be triggered from in here:
+        `{frame: [(addr, value), …]}` is performed while the machine is
+        halted, immediately before the resume that runs that frame, so frame N
+        is the first SAMPLED frame carrying its effect. Writing between the
+        read and the resume costs no emulated time at all — the machine is
+        already stopped — so an aimed capture and an unaimed one have the same
+        frame clock.
         """
         deadline = time.monotonic() + timeout
+        scheduled = writes or {}
         out: list[bytes] = []
         while len(out) < frames and time.monotonic() < deadline:
+            for addr, value in scheduled.get(len(out), ()):
+                self.mon.memory_write(addr, bytes([value]))
             self.mon.resume()
             self.state = RUNNING
             out.append(self.mon.memory_read(SID_BASE, SID_REGISTERS))

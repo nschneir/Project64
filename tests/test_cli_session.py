@@ -26,6 +26,7 @@ def _fake(labels=None):
 
 def test_session_start_json():
     with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []       # nothing else up: no stderr notice
         S.launch.return_value = _fake_session()
         r = CliRunner().invoke(main, ["--json", "session", "start", "--model", "c64"])
     assert r.exit_code == 0, r.output
@@ -107,6 +108,7 @@ def test_session_stop_conflicting_names_error():
 
 def test_session_start_dash_s_alias():
     with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []
         S.launch.return_value = _fake_session(name="snake")
         r = CliRunner().invoke(main, ["--json", "session", "start", "-s", "snake"])
     assert r.exit_code == 0, r.output
@@ -126,6 +128,7 @@ def test_session_start_with_disk_registers_its_labels(tmp_path):
     s = Mock()
     s.name, s.model, s.pid, s.port = "c64", "c64", 1, 6510
     with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []
         S.launch.return_value = s
         r = CliRunner().invoke(
             main, ["--json", "session", "start", "--disk", str(img)])
@@ -142,6 +145,7 @@ def test_session_start_with_cart_registers_its_sibling_lbl(tmp_path):
     s = Mock()
     s.name, s.model, s.pid, s.port = "c64", "c64", 1, 6510
     with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []
         S.launch.return_value = s
         r = CliRunner().invoke(
             main, ["--json", "session", "start", "--cart", str(crt)])
@@ -151,10 +155,32 @@ def test_session_start_with_cart_registers_its_sibling_lbl(tmp_path):
 
 def test_session_start_failure_is_json_error():
     with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []
         S.launch.side_effect = SessionError("x64sc not found")
         r = CliRunner().invoke(main, ["--json", "session", "start"])
     assert r.exit_code == 1
     assert "x64sc not found" in json.loads(r.output)["error"]
+
+
+def test_session_start_monitor_timeout_exits_1():
+    """The la-galaxia dogfood (2026-08-08) recorded this as printing its error
+    and still exiting 0, which would let `set -e` carry an evidence script on
+    against a dead session. It does not: `Session.launch` raises SessionError
+    and `session start` reports it through `fail()`. Verified end to end on
+    2026-08-09 against the real `.venv/bin/c64` under `/bin/sh -e`, with a fake
+    x64sc that accepts the monitor connection and never answers — exit 1, and
+    the line after the launch never ran. Pinned here so the claim is not
+    re-derived from the demo script's comment.
+    """
+    with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []
+        S.launch.side_effect = SessionError(
+            "VICE started but its monitor never answered after 2 attempt(s): "
+            "timed out")
+        r = CliRunner().invoke(
+            main, ["session", "start", "--name", "X", "--headless"])
+    assert r.exit_code == 1, r.output
+    assert "never answered" in r.output
 
 
 def test_status_command():
@@ -211,3 +237,161 @@ def test_session_ensure_reports_running():
         r = CliRunner().invoke(main, ["session", "ensure"])
     assert r.exit_code == 0
     assert "already running" in r.output.lower()
+
+
+# --- stop --all, and the "already up" notice ------------------------------
+# The la-galaxia dogfood (2026-08-08) ran four x64sc processes at once, two of
+# them orphaned by a *previous* conversation, each holding a warped emulator
+# on a CPU core. Cleanup is one command, and start says how many are up.
+
+
+def test_session_stop_all_stops_every_session():
+    with patch("c64lib.cli.Session") as S:
+        S.stop_all.return_value = ["a", "b"]
+        r = CliRunner().invoke(main, ["session", "stop", "--all"])
+    assert r.exit_code == 0, r.output
+    S.stop_all.assert_called_once_with()
+    S.attach.assert_not_called()           # --all never resolves a single one
+    assert "a" in r.output and "b" in r.output
+
+
+def test_session_stop_all_json_lists_every_name():
+    with patch("c64lib.cli.Session") as S:
+        S.stop_all.return_value = ["a", "b"]
+        r = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.stdout) == {"stopped": ["a", "b"]}
+
+
+def test_session_stop_all_with_nothing_running_exits_0():
+    with patch("c64lib.cli.Session") as S:
+        S.stop_all.return_value = []
+        r = CliRunner().invoke(main, ["session", "stop", "--all"])
+    assert r.exit_code == 0, r.output
+    assert "no sessions running" in r.output
+
+
+def test_session_stop_all_with_a_positional_name_is_an_error():
+    with patch("c64lib.cli.Session") as S:
+        r = CliRunner().invoke(main, ["--json", "session", "stop", "boo", "--all"])
+    assert r.exit_code == 1
+    err = json.loads(r.stdout)["error"]
+    assert "--all" in err and "boo" in err
+    S.stop_all.assert_not_called()
+    S.attach.assert_not_called()
+
+
+def test_session_stop_all_with_the_name_option_is_an_error():
+    with patch("c64lib.cli.Session") as S:
+        r = CliRunner().invoke(
+            main, ["--json", "session", "stop", "--all", "--name", "boo"])
+    assert r.exit_code == 1
+    assert "--all" in json.loads(r.stdout)["error"]
+    S.stop_all.assert_not_called()
+
+
+def test_session_stop_all_with_the_global_session_option_is_an_error():
+    """`c64 -s foo session stop --all` names one session and asks for every
+    session; guessing either way clears the wrong set."""
+    with patch("c64lib.cli.Session") as S:
+        r = CliRunner().invoke(
+            main, ["--json", "-s", "foo", "session", "stop", "--all"])
+    assert r.exit_code == 1
+    err = json.loads(r.stdout)["error"]
+    assert "--all" in err and "foo" in err
+    S.stop_all.assert_not_called()
+    S.attach.assert_not_called()
+
+
+def test_session_stop_all_failure_exits_1_and_names_the_leftovers():
+    with patch("c64lib.cli.Session") as S:
+        S.stop_all.side_effect = SessionError(
+            "stopped 'a'; could not stop 'b': Operation not permitted — still "
+            "registered, check `c64 session list`")
+        r = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
+    assert r.exit_code == 1
+    err = json.loads(r.stdout)["error"]
+    assert "'a'" in err and "'b'" in err
+
+
+def test_session_start_notes_the_sessions_already_running_on_stderr():
+    with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = [_fake_session("a"), _fake_session("b")]
+        S.launch.return_value = _fake_session()
+        r = CliRunner().invoke(main, ["session", "start"])
+    assert r.exit_code == 0, r.output
+    assert ("note: 2 other session(s) already running (c64 session list)"
+            in r.stderr)
+
+
+def test_session_start_notice_leaves_json_stdout_alone():
+    """The notice goes to stderr precisely so `--json` stays a script
+    contract: stdout must still parse as exactly the start payload."""
+    with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = [_fake_session("a")]
+        S.launch.return_value = _fake_session()
+        r = CliRunner().invoke(main, ["--json", "session", "start"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.stdout) == {"name": "c64", "model": "c64", "pid": 1234,
+                                    "port": 6502, "symbols": None}
+    assert "note: 1 other session(s) already running" in r.stderr
+
+
+def test_session_start_reports_a_corrupt_registry_record_as_a_json_error(
+        tmp_path, monkeypatch):
+    """Counting the running sessions reads the registry, and reading it can
+    fail: a truncated or older-format record fails `_from_record` out of
+    `_load_all()`. That has always exited 1 through `fail()` (via
+    `Session.launch`, which reads the registry too), and adding the notice
+    must not move it out of reach — an unhandled traceback would leave
+    `--json` stdout unparseable for the script reading it.
+
+    Unmocked on purpose: the real registry is what raises.
+    """
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    r = CliRunner().invoke(main, ["--json", "session", "start"])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.stdout)["error"]
+    assert "port" in error, \
+        "the error never names the key the record is missing"
+    assert "truncated.json" in error, \
+        "the error never names the record on disk that is wrong"
+
+
+def test_session_stop_all_reports_a_corrupt_registry_record_as_a_json_error(
+        tmp_path, monkeypatch):
+    """`stop --all` is the RECOVERY command, and reading a record is as
+    failure-prone as stopping what it describes: with the read above the try
+    a truncated record escaped as a traceback over an empty `--json` stdout,
+    from the one command that could have cleared it.
+
+    So: exit 1 with a parseable payload naming the file, and the record gone
+    — a second run has nothing left to trip over. Unmocked on purpose: the
+    real registry is what raises.
+    """
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    r = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.stdout)["error"]
+    assert "truncated.json" in error and "port" in error, \
+        "the error never says which record on disk is wrong, or how"
+    assert not (sessions / "truncated.json").exists(), \
+        "the record that broke the only command for removing it is still there"
+    again = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
+    assert again.exit_code == 0, again.output
+    assert json.loads(again.stdout) == {"stopped": []}
+
+
+def test_session_start_says_nothing_when_no_other_session_is_running():
+    with patch("c64lib.cli.Session") as S:
+        S.list_all.return_value = []
+        S.launch.return_value = _fake_session()
+        r = CliRunner().invoke(main, ["session", "start"])
+    assert r.exit_code == 0, r.output
+    assert "note:" not in r.stdout and "note:" not in r.stderr

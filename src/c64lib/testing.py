@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
 from .basic import tokenize
-from .build import build_asm
+from .build import Area, build_asm
 from .cart_build import build_cart, build_easyflash
 from .disk import IMAGE_DRIVE_TYPES, build_disk
 from .machines import get_profile
@@ -26,6 +27,7 @@ from .ops import (
     call_routine,
     disk_labels_path,
     live_screen_base,
+    parse_areas,
     parse_ref,
     run_until,
     wait_for_idle,
@@ -146,6 +148,7 @@ def load_test(path: str | Path) -> dict:
     spec.setdefault("cart", None)
     spec.setdefault("cart_type", "8k")
     spec.setdefault("disk", None)
+    spec.setdefault("areas", [])         # `--area NAME=START:SIZE` strings
     spec.setdefault("dir", str(path.parent.resolve()))  # what `cart:` is relative to
     # Every conflict first, then every existence check: a spec that names two
     # boot sources is contradictory whether or not both paths exist, and
@@ -205,8 +208,41 @@ def _reject_spec_conflicts(where: str, spec: dict) -> None:
         raise TestError(
             f"{where}: a spec sets either `cart` or `program`, not both — "
             "a cartridge boots itself and nothing is autostarted")
+    _reject_areas_conflicts(where, spec)
     if spec.get("disk"):
         _reject_disk_conflicts(where, spec)
+
+
+def _reject_areas_conflicts(where: str, spec: dict) -> None:
+    """`areas:` is `--area`, and it rewrites the linker config only a `.s`
+    `program:` goes through. Everything else it could be written beside would
+    drop it silently: a cartridge brings its own memory map, a disk image is
+    built by its own manifest, a `.bas` is tokenized and a `.prg` is loaded as
+    it is. This is the single enforcing site: `_prepare` forwards `areas`
+    straight to `build_asm` on the strength of it.
+    """
+    areas = spec.get("areas")
+    if not areas:
+        return
+    if not isinstance(areas, list):
+        # A bare `areas: ENGINE=$4000:$6000` is a string, and parse_areas
+        # would iterate it one character at a time — "got 'E'" tells nobody
+        # that the dash is what is missing.
+        raise TestError(
+            f"{where}: `areas:` is a YAML list of NAME=START:SIZE strings, "
+            f"one per `- ` item (got {areas!r})")
+    program = spec.get("program")
+    if not program:
+        raise TestError(
+            f"{where}: `areas:` needs a `program:` — a cartridge brings its "
+            "own memory map and a disk image is built by its own manifest, so "
+            "areas beside one would link nothing")
+    if Path(program).suffix.lower() != ".s":
+        raise TestError(
+            f"{where}: `areas:` applies to assembly programs only, but "
+            f"`program:` is {Path(program).name} — a .bas is tokenized and a "
+            ".prg is loaded as it is, so neither is linked (drop `areas:`, or "
+            "name the .s source)")
 
 
 def _reject_disk_conflicts(where: str, spec: dict) -> None:
@@ -305,20 +341,61 @@ class TestResult:
         }
 
 
-def _prepare(program: str, profile) -> tuple[Path, Path | None]:
-    """Build/tokenize the program; returns (prg, label file or None)."""
+def _prepare(program: str, profile,
+             areas: Sequence[Area] = ()) -> tuple[Path, Path | None]:
+    """Build/tokenize the program; returns (prg, label file or None).
+
+    `areas` is the spec's `areas:`, already parsed — the same fixed-address
+    segments `c64 build --area` links, and reaching only the `.s` branch.
+    `areas` beside a `.bas`/`.prg` program is rejected before anything boots,
+    by `_reject_areas_conflicts`; it is not silently dropped here.
+    """
     src = Path(program)
     ext = src.suffix.lower()
     if ext == ".prg":
-        return src, None
+        # Same rule as `cart:` and `disk:`: a sibling .lbl of the same stem is
+        # this program's symbol table, silently skipped when it is not there.
+        # Without it a `.prg` spec resolved no symbols at all, and every
+        # `until: {ref: …}` failed with an empty known-list.
+        lbl = src.with_suffix(".lbl")
+        return src, (lbl if lbl.exists() else None)
     if ext == ".bas":
         return tokenize(src, src.with_suffix(".prg"), profile.basic_version), None
     if ext == ".s":
-        out = build_asm(src, basic_start=profile.basic_start)
+        out = build_asm(src, basic_start=profile.basic_start, areas=areas)
         return out.prg, out.labels
     raise TestError(
         f"cannot run {ext!r} programs (a spec's `program:` is a .bas, .s, or "
         ".prg; a cartridge goes in `cart:` instead — .crt, .s, or .ef.yaml)")
+
+
+def _reject_stale_disk_labels(image: Path, labels: Path) -> None:
+    """Refuse a disk image older than the sibling `.lbl` it takes symbols from.
+
+    Rebuilding the program without repackaging the image is the whole failure:
+    the runner resolves fresh addresses against stale bytes and the spec fails
+    on a plausible wrong value (`mem $414b = 4a != 00`) that says nothing about
+    the artifact being the wrong one.
+
+    Only the sibling `<stem>.lbl` is checked, because only it can go stale on
+    its own — it comes from a separate command (`c64 build`, `c64 package`).
+    `c64 disk build`'s `<stem>.<cbm-name>.lbl` copies are written immediately
+    *after* the image they were copied for, so they are newer by milliseconds
+    on every successful build and comparing them would reject working images.
+    """
+    if labels != image.with_suffix(".lbl"):
+        return
+    img_at, lbl_at = image.stat().st_mtime, labels.stat().st_mtime
+    if lbl_at <= img_at:
+        return
+    when = "%Y-%m-%d %H:%M:%S"
+    raise TestError(
+        f"{image.name} predates its symbols: the image is dated "
+        f"{time.strftime(when, time.localtime(img_at))} and {labels.name} "
+        f"{time.strftime(when, time.localtime(lbl_at))}, so every symbol this "
+        f"spec names would resolve against a program the image does not "
+        f"contain. Rebuild the image (c64 package <source> -o {image.name}, "
+        "or c64 disk build) and run the test again.")
 
 
 def prepare_cart(spec_dir: str | Path, cart: str | Path,
@@ -659,6 +736,14 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
     # assembling one in code) never passes through that layer, and one branch
     # would silently win — the losing artifact would never load.
     _reject_spec_conflicts(spec.get("name", "spec"), spec)
+    try:
+        # Parsed before anything boots, like `c64 build`'s: an area that cannot
+        # link is a spec mistake, and paying a session start to find that out
+        # helps nobody. ValueError is parse_areas' own spelling and no front
+        # end catches it, so it arrives as the TestError every spec mistake is.
+        areas = parse_areas(spec.get("areas") or (), profile.basic_start)
+    except ValueError as e:
+        raise TestError(f"{spec.get('name', 'spec')}: {e}") from None
     if spec.get("disk"):
         # Built before the machine boots: a manifest that cannot fit must fail
         # as a build error, not as a program that never appears on screen.
@@ -694,9 +779,10 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
                 # file `disk build` kept for the image's first entry.
                 lblp = disk_labels_path(started)
                 if lblp is not None:
+                    _reject_stale_disk_labels(started, lblp)
                     labels = load_labels(lblp)
             elif spec.get("program"):
-                prg, lbl = _prepare(spec["program"], profile)
+                prg, lbl = _prepare(spec["program"], profile, areas)
                 if lbl is not None and Path(lbl).exists():
                     labels = load_labels(lbl)   # until/poke steps take symbols
                 started = Path(prg).resolve()

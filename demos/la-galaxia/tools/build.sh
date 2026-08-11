@@ -1,10 +1,12 @@
 #!/bin/sh
 # build.sh -- assemble La Galaxia and load it into a session.
 #
-# `c64 run` does not accept --area, and this program needs it (the engine is
-# linked at $4000 and the fill from $080D up is what blanks the charset and
-# sprite areas before startup writes the art).  So the cycle is two commands:
-# build with the area, then load the .prg with its label file.
+# This program needs --area to link at all (the engine is linked at $4000 and
+# the fill from $080D up is what blanks the charset and sprite areas before
+# startup writes the art).  `c64 run --area 'ENGINE=$4000:$6000'` builds and
+# RUNS it in one command now; this script is the debugging cycle instead --
+# build with the area, then LOAD the .prg with its label file, so the symbols
+# are registered and nothing has started running before you set a breakpoint.
 #
 #   tools/build.sh              build + load into session "dbg"
 #   tools/build.sh lg           build + load into session "lg"

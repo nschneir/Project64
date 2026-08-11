@@ -2,26 +2,32 @@
 #
 #   c64 test run demos/la-galaxia/test.yaml
 #
-# It tests the packaged disk, not the source, and that is not a preference:
-# this program needs `--area 'ENGINE=$4000:$6000'` to link, and a test spec
-# has nowhere to put that flag. Naming the built `.prg` instead does not work
-# either — `program:` with a `.prg` resolves no symbols at all (an empty
-# `known:` list), while `cart:` and `disk:` both pick up a sibling `.lbl`.
-# So `disk:` is the only route to a spec that can say `until: {ref: tick}`.
-# Rebuild the image first if the sources have changed:
+# It builds from source. That used to be impossible: this program needs
+# `--area 'ENGINE=$4000:$6000'` to link at all, a spec had nowhere to put
+# that flag, and naming the built `.prg` instead resolved no symbols (an
+# empty `known:` list), so `disk:` was the only route to a spec that could
+# say `until: {ref: tick}` — at the price of assembling and packaging by hand
+# first, and of ~13 s of serial load before step 1. Both halves are fixed:
+# `areas:` is `c64 build --area` as a spec key, and the run assembles
+# `la-galaxia.s` here, with its own labels, on every invocation. Nothing to
+# rebuild first and nothing that can go stale between the symbols and the
+# bytes they are read against.
 #
-#   c64 package demos/la-galaxia/la-galaxia.s -o demos/la-galaxia/la-galaxia.d64 \
-#       --title "LA GALAXIA" --area 'ENGINE=$4000:$6000'
-#
-# Serial-loading a 35 KB image costs ~13 s before step 1, hence the timeout.
+# `la-galaxia.d64` still ships, and `tools/evidence.sh` still builds the
+# `.prg` it loads; neither is what this spec tests.
 #
 # Everything here is anchored on `tick`, the once-per-frame label the whole
 # evidence protocol uses. Nothing asserts a free-running frame count, and
 # nothing waits on a stopped machine — a `wait:` after an `until:` polls a
 # machine that is not executing and can only time out.
+#
+# The timeout is per step and stays at 120: no single step loads a disk any
+# more, but the long `until:` runs here are thousands of emulated frames.
 
 name: la-galaxia
-disk: la-galaxia.d64
+program: la-galaxia.s
+areas:
+  - ENGINE=$4000:$6000
 timeout: 120
 
 steps:

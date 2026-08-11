@@ -52,9 +52,18 @@ $C session stop lgaud >/dev/null 2>&1 || true
 # session STARTED at 100% with no recorder armed is the wedge documented as
 # the first entry in docs/todo.md ("VICE wedges at real time with no recorder
 # armed"), and it fails every time on this machine.  Starting warped steps
-# around it.  Note the failure is silent: `c64 session start` prints its
-# error and still exits 0, so `set -e` does not catch it and the run
-# continues against a dead session.
+# around it.
+#
+# An earlier revision of this comment claimed the failure is silent -- that
+# `c64 session start` prints its error and still exits 0, so `set -e` misses
+# it and the run continues against a dead session.  That is wrong, and it was
+# checked on 2026-08-09: with a stand-in x64sc that accepts the monitor
+# connection and never answers, the real .venv/bin/c64 prints
+# "error: VICE started but its monitor never answered after 2 attempt(s):
+# timed out" and exits 1 under /bin/sh -e, and the next line never runs.
+# Every error path in cli.py reports through fail(), which exits 1.
+# tests/test_cli_session.py::test_session_start_monitor_timeout_exits_1 pins
+# it, so please do not re-derive the claim from here.
 $C session start --name lgaud --headless --warp >/dev/null
 trap '$C session stop lgaud >/dev/null 2>&1 || true' EXIT
 

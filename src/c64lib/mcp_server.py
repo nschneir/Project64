@@ -14,9 +14,10 @@ from mcp.server.fastmcp import FastMCP
 
 from .audio import (
     capture,
+    parse_frame_writes,
     pinned_record_start,
     pinned_record_stop,
-    report_timing_for,
+    report_timing_from,
     sid_log_detail,
     sid_report,
 )
@@ -57,7 +58,7 @@ from .ops import (
     parse_ref,
     pc_region,
     pc_symbol,
-    profile_routine,
+    profile_routine_samples,
     run_until,
     session_labels,
     staleness,
@@ -86,6 +87,22 @@ srv = FastMCP("c64-tools")
 
 def _attach(session: str | None = None) -> Session:
     return Session.attach(session)
+
+
+def _read_sheet(file: str, what: str) -> str:
+    """An authored ASCII-art sheet, read with the file named in any failure.
+
+    Lockstep with the CLI's encoders, which name the file for the same
+    reason: `read_text` on a .prg or a .png raises `UnicodeDecodeError`,
+    whose own message is a byte offset and a codec — true, and no help in
+    saying which of the paths in the call was the wrong one.
+    """
+    try:
+        return Path(file).read_text()
+    except (OSError, ValueError) as e:
+        # UnicodeDecodeError is a ValueError and NOT an OSError; catching
+        # only OSError here is exactly how the CLI twin leaked a traceback.
+        raise ValueError(f"cannot read {what} {file}: {e}") from None
 
 
 def _ref(s, ref, labels=None):
@@ -142,8 +159,21 @@ def c64_session_ensure(model: str = "c64", name: str | None = None) -> dict:
 
 
 @srv.tool()
-def c64_session_stop(name: str | None = None) -> dict:
-    """Stop a running C64 session (the only one if name is omitted)."""
+def c64_session_stop(name: str | None = None, all: bool = False) -> dict:
+    """Stop a running C64 session (the only one if name is omitted), or every
+    session at once with all=true — the cleanup for a run that left emulators
+    behind, including any whose process is already gone. `stopped` is the
+    session name, or the list of names for all=true. A registry record too
+    corrupt to read is discarded and reported as an error, since nothing can
+    be stopped for it. Naming a session and asking for all is an error."""
+    # `all` shadows the builtin, deliberately: the parameter is this tool's
+    # public API and CLI/MCP lockstep is worth more here than the name — it
+    # is `c64 session stop --all`. The builtin is unused in this function.
+    if all:
+        if name is not None:
+            raise SessionError(
+                f"all=true stops every session; drop name={name!r}")
+        return {"stopped": Session.stop_all()}
     s = Session.attach(name)
     s.stop()
     return {"stopped": s.name}
@@ -508,10 +538,32 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     `op` is one of = != > >= < <= and decides how `equals` (the right-hand
     value, named for the equality case) is compared. Use an inequality for
     a counter the machine can race past between polls.
+
+    A timeout is data, not an error, and it says where the machine was:
+    {"fired": null, "last_value": N, "machine": "stopped", "diagnosis": ...}
+    means the machine was halted for the whole window, so the byte could not
+    change — a wait polls memory, it never resumes the CPU. Call
+    c64_continue first (or c64_wait_break, if a checkpoint is what you meant
+    to wait for). "machine": "running" means the value genuinely never
+    arrived.
     """
     s = _attach(session)
-    return wait_for_mem(s, _ref(s, addr),
-                        parse_number(equals), timeout, op=op)
+    # Sampled either side of the wait: one sample cannot support "stopped the
+    # whole time", and a machine stopped only at the end was running for part
+    # of the window. Same reasoning, and same wording, as `c64 wait --mem`.
+    before = machine_state(s)
+    out = wait_for_mem(s, _ref(s, addr), parse_number(equals), timeout, op=op)
+    if not out.get("fired"):
+        stopped = before == "stopped" == machine_state(s)
+        out["machine"] = "stopped" if stopped else "running"
+        if stopped:
+            out["diagnosis"] = (
+                "the machine was STOPPED for the whole wait, so the byte "
+                "could not change: a wait polls memory, it never resumes the "
+                "CPU. Something before this stopped it (c64_until, c64_step, "
+                "c64_finish, or a checkpoint hit). Call c64_continue first, "
+                "or c64_wait_break if you meant to run to a checkpoint.")
+    return out
 
 
 @srv.tool()
@@ -553,20 +605,38 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
 
 @srv.tool()
 def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
-                session: str | None = None) -> dict:
+                samples: int = 1, session: str | None = None) -> dict:
     """Measure a routine's cycle cost: fake-JSR it (like c64_call) with
     CIA#2 timers cascaded as a cycle counter. IRQs are masked during the
     window unless with_irq; counts include badline DMA. Machine ends
-    STOPPED at the trap; on timeout it is left running."""
+    STOPPED at the trap; on timeout it is left running.
+
+    `samples` N prices N consecutive arrivals and reports
+    `samples`/`min`/`max`/`mean` instead of one number — reach for it on
+    anything whose cost depends on the program's own state. A game tick that
+    costs ~10,700 cycles most frames and ~31,700 on the repaint frames reads
+    as comfortably inside budget when it is sampled once. At `samples` 1 the
+    payload still carries `cycles`; above 1 it deliberately does not, because
+    no single number is the answer. `timeout` covers the whole run."""
     s = _attach(session)
     addr = _ref(s, routine, session_labels(s))
-    out = profile_routine(s, addr, timeout=timeout, with_irq=with_irq)
+    out = profile_routine_samples(s, addr, samples, timeout=timeout,
+                                  with_irq=with_irq)
     if not out["fired"]:
-        raise RuntimeError(f"profile {routine}: never returned in {timeout}s — "
-                           "machine left running")
-    return {"called": routine, "cycles": out["cycles"],
-            "irq_masked": not with_irq, "registers": out["registers"],
-            "trap": out["trap"]}
+        left = ("CIA#2 timers A/B are left RUNNING" if with_irq else
+                "CIA#2 timers A/B are left RUNNING and the I flag is left "
+                "masked — the jiffy clock and keyboard stay dead until the I "
+                "bit is cleared (c64_reg_set FL) or the session is restarted")
+        raise RuntimeError(f"profile {routine}: never returned in {timeout}s "
+                           f"after {out['reached']}/{samples} arrival(s) — "
+                           f"machine left running. {left}.")
+    payload = {"called": routine, "samples": out["samples"], "min": out["min"],
+               "max": out["max"], "mean": out["mean"],
+               "irq_masked": not with_irq, "registers": out["registers"],
+               "trap": out["trap"], "count": samples}
+    if samples == 1:
+        payload["cycles"] = out["cycles"]
+    return payload
 
 
 @srv.tool()
@@ -631,12 +701,17 @@ def c64_package(source: str, output: str | None = None, title: str | None = None
 
 
 @srv.tool()
-def c64_run(source: str, session: str | None = None) -> dict:
+def c64_run(source: str, session: str | None = None,
+            areas: list[str] | None = None) -> dict:
     """Build/tokenize a .bas/.s/.prg as needed, then load and RUN it on the
     running C64. Registers assembly symbols on the session automatically. A
     .crt cannot be loaded into a running machine, so running one stops the
     session and boots a fresh one of the same name and model with the
     cartridge attached (returns {"cart", "session", "model", "symbols"}).
+
+    `areas` is c64_build's, and applies to a .s source only: each entry is
+    "NAME=START:SIZE" linking segment NAME at a fixed address. Passing it for
+    a .bas, a .prg or a .crt is an error rather than a no-op.
 
     For a .crt, "no session to reboot" and "no session by that name" are the
     same case: a session name that does not exist boots an unnamed default c64
@@ -645,6 +720,11 @@ def c64_run(source: str, session: str | None = None) -> dict:
     unexpected."""
     src = Path(source).resolve()
     ext = src.suffix.lower()
+    # Before the session is touched, in the CLI's words: --area rewrites the
+    # linker config only an assembled .s goes through, and a cartridge brings
+    # its own memory map.
+    if areas and ext != ".s":
+        raise ValueError("--area applies to assembly sources only")
     if ext == ".crt":
         # A cartridge is mapped at power-on, so "running" one means booting a
         # fresh session with it attached rather than loading into this one.
@@ -690,7 +770,8 @@ def c64_run(source: str, session: str | None = None) -> dict:
     elif ext == ".bas":
         prg = tokenize(src, src.with_suffix(".prg"), s.profile.basic_version)
     elif ext == ".s":
-        res = build_asm(src, basic_start=s.profile.basic_start)
+        res = build_asm(src, basic_start=s.profile.basic_start,
+                        areas=parse_areas(areas or (), s.profile.basic_start))
         prg, labels_path, deps = res.prg, res.labels, res.deps
     else:
         raise ValueError(                       # same wording as the CLI's
@@ -799,28 +880,39 @@ def c64_key_type(text: str, session: str | None = None) -> dict:
 
 @srv.tool()
 def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
-                 session: str | None = None) -> dict:
+                 release: bool = True, session: str | None = None) -> dict:
     """Hold KEY down for N game ticks by re-poking its matrix code into
     $CB before each one, running to the frame anchor `at` (label or
     address executed once per tick) between pokes; the machine ends
-    STOPPED there. KEY is one character or 'space'. frames=0 is a
-    validated no-op: the machine is untouched and the result is
-    {"frames": 0, "requested": 0, "machine": "untouched"}."""
+    STOPPED there. KEY is one character or 'space'. `release` (default
+    true) lets the key go after the last frame by poking 64 into $CB —
+    the per-frame re-poke assumes the KERNAL keyboard scan is running to
+    clear $CB, and a game that owns the interrupt has no scan, so an
+    unreleased key stays down for ever; the result reports `released`.
+    frames=0 is a validated no-op: the machine is untouched and the result
+    is {"frames": 0, "requested": 0, "machine": "untouched"}."""
     s = _attach(session)
     labels = session_labels(s)
     addr = _ref(s, at, labels)
-    out = key_hold(s, key, addr, frames=frames, timeout=timeout)
+    out = key_hold(s, key, addr, frames=frames, timeout=timeout,
+                   release=release)
     if out["requested"] == 0:
         # Nothing poked, nothing armed, nothing to time out — the same
         # honest no-op the CLI reports, not the registers-is-None timeout
         # below (which would blame a checkpoint that never existed).
         return {"frames": 0, "requested": 0, "machine": "untouched"}
     if out["registers"] is None:
+        # An MCP error is text only — there is no extras dict — so the key
+        # state has to travel in the message the caller reads.
+        key_state = ("key released ($CB=64)" if out["released"] else
+                     f"$CB still holds {key!r} (release=false) — clear it "
+                     "with c64_mem_write addr='$CB' values=[64]")
         raise RuntimeError(
             f"timeout: only {out['frames']}/{frames} frame(s) reached "
             f"{format_addr(labels, addr)} — machine left RUNNING, checkpoint "
-            "removed. Is the anchor really executed every tick?")
-    return {**_stopped_regs(s, out["registers"]), "frames": out["frames"]}
+            f"removed, {key_state}. Is the anchor really executed every tick?")
+    return {**_stopped_regs(s, out["registers"]), "frames": out["frames"],
+            "released": out["released"]}
 
 
 @srv.tool()
@@ -1091,7 +1183,12 @@ def c64_rom_disasm(start: str, length: int = 32,
 @srv.tool()
 def c64_test_run(yaml_file: str) -> dict:
     """Run a declarative YAML test (boots its own fresh C64; the file
-    format is documented in docs/cli.md under `c64 test run`)."""
+    format is documented in docs/cli.md under `c64 test run`).
+
+    A spec's `program:` may be a .bas, .s or .prg; a .prg picks up a sibling
+    .lbl of the same stem for its symbols, and an `areas:` list of
+    "NAME=START:SIZE" strings links a .s program's fixed-address segments
+    (c64_run's `areas`, and an error beside anything else)."""
     return run_test(load_test(Path(yaml_file))).to_dict()
 
 
@@ -1195,34 +1292,44 @@ def c64_sprite_from_png(image: str, multicolor: bool = False) -> dict:
 @srv.tool()
 def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
                       start_line: int | None = None,
-                      line_step: int = 10) -> dict:
+                      line_step: int = 10, background: str = " ") -> dict:
     """Encode ASCII-art sprite(s) from `file` into 63 sprite bytes each (no
     session needed). The file holds one or more 21-row sprites separated by a
-    blank line, in the friendly authoring legend (multicolor ' .#+', hires
-    ' #') or the glyphs c64_sprite_show emits — so show output round-trips
-    straight back through encode. Returns the bytes plus a paste-ready
-    rendering (fmt "asm" ca65 .byte rows, or "basic" data lines that
-    start_line numbers)."""
-    from .sprites import encode_sheet, render_sheet
+    blank line or by a `name:` header — `fighter:hires`, `drone:multicolor`,
+    or a bare `drone:` that takes the file's mode, so one sheet holds both
+    modes exactly as a charset sheet does. `#` comment lines are ignored
+    unless they are a legal row at row width (an all-'#' row is art). Rows
+    use the friendly authoring legend (multicolor ' .#+', hires ' #'), the
+    digit legend '.123' (digit = pair value), or the glyphs c64_sprite_show
+    emits — so show output round-trips straight back through encode.
+    `background` is the character that means pair 00, a space by default;
+    pass "." to author with a visible background whose width is countable.
+    Returns each block's bytes and name plus a paste-ready rendering (fmt
+    "asm" ca65 .byte rows, or "basic" data lines that start_line
+    numbers)."""
+    from .sprites import encode_sheet_blocks, render_sheet
     if start_line is not None and fmt != "basic":
         raise ValueError("start_line only applies to fmt='basic'")
-    text_in = Path(file).read_text()
+    text_in = _read_sheet(file, "sprite sheet")
     if not text_in.strip():
         raise ValueError(f"no sprite art found in {file}")
-    sprites = encode_sheet(text_in, multicolor=not hires)
-    if not sprites:
+    blocks = encode_sheet_blocks(text_in, multicolor=not hires,
+                                 background=background)
+    if not blocks:
         raise ValueError(f"no sprite art found in {file}")
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it fmt/start_line would be no-ops here. The CLI omits
     # it from --json only because it prints the same text itself.
-    return {"sprites": [list(data) for data in sprites],
-            "rendered": render_sheet(sprites, fmt, multicolor=not hires,
+    return {"sprites": [list(b.data) for b in blocks],
+            "blocks": [{"name": b.name, "multicolor": b.multicolor}
+                       for b in blocks],
+            "rendered": render_sheet(blocks, fmt, multicolor=not hires,
                                      start_line=start_line, line_step=line_step)}
 
 
 @srv.tool()
 def c64_charset_encode(file: str, hires: bool = False,
-                       first_code: int = 0) -> dict:
+                       first_code: int = 0, label: str = "glyphs") -> dict:
     """Encode ASCII-art glyphs from `file` into 8 charset bytes each (no
     session needed). The file holds `name:` blocks of exactly 8 rows.
     Multicolor rows (the default) are 4 characters of '.123' — pair values
@@ -1232,10 +1339,18 @@ def c64_charset_encode(file: str, hires: bool = False,
     `wall:multicolor`, `letter:hires` — so a multicolor playfield and a
     hires HUD font are one sheet; a bare `name:` takes the file's mode
     (`hires` or not). Returns each glyph's bytes plus a paste-ready ca65
-    rendering under a `glyphs:`/`glyphs_end:` pair. The charset twin of
-    c64_sprite_encode."""
+    rendering under a `glyphs:`/`glyphs_end:` pair — `label` renames both
+    ends, so several sheets concatenate into one include without being
+    renamed on the way out. The charset twin of c64_sprite_encode."""
+    import re
+
     from .charset import encode_row, format_glyphs, parse_charset
-    glyphs = parse_charset(Path(file).read_text(), multicolor=not hires)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        raise ValueError(
+            f"label {label!r} is not an assembler identifier (letters, digits "
+            f"and underscore, not starting with a digit)")
+    glyphs = parse_charset(_read_sheet(file, "charset sheet"),
+                           multicolor=not hires)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it first_code would be a no-op here. The CLI omits
     # it from --json only because it prints the same text itself.
@@ -1244,7 +1359,7 @@ def c64_charset_encode(file: str, hires: bool = False,
                         "bytes": [encode_row(r, g.multicolor) for r in g.rows]}
                        for g in glyphs],
             "rendered": format_glyphs(glyphs, first_code=first_code,
-                                      multicolor=not hires)}
+                                      multicolor=not hires, label=label)}
 
 
 @srv.tool()
@@ -1319,18 +1434,22 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     but a score you wrote from your own note data BEFORE capturing is what
     turns this from a description into a test.
 
-    Name a `session` when the capture came from an NTSC machine: a register
-    log does not carry its clock, so with no session PAL is assumed (985248
-    Hz, 50 fps) and an NTSC log transcribes about 65 cents out — a plausible
-    report of the wrong pitches. Returns the artifact paths, the verdict, and
-    the findings behind it. `peak_hz` adds a `peak` object measuring the WAV's
-    loudest frequency — one rFFT over the whole file with DC excluded, so it is
-    a bin centre and `resolution_cents` names how precise that answer is.
+    A log captured by these tools STAMPS its machine on line 1, so a re-score
+    needs no session at all — `session` is an override for that clock, and
+    only an unstamped log (written by hand, or before the stamp existed) falls
+    back to PAL (985248 Hz, 50 fps), where an NTSC log transcribes about 65
+    cents out as a plausible report of the wrong pitches. `clock_source` in
+    the result says which of the three answered: `"session"`, `"log"`, or
+    `"default"` — and `"default"` is the one to look at twice. Returns the
+    artifact paths, the verdict, and the findings behind it. `peak_hz` adds a
+    `peak` object measuring the WAV's loudest frequency — one rFFT over the
+    whole file with DC excluded, so it is a bin centre and `resolution_cents`
+    names how precise that answer is.
     """
     if peak_hz and not wav:
         raise ValueError("peak_hz needs wav: a dominant partial is a property "
                          "of the recording, not of the register log")
-    timing = report_timing_for(_attach(session).model if session else None)
+    timing = report_timing_from(log, _attach(session).model if session else None)
     out = sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
     # `and wav` re-states what the guard above already refused, and narrows
     # `wav` to str for the call that needs a path.
@@ -1367,7 +1486,8 @@ def c64_audio_score(file: str) -> dict:
 
 @srv.tool()
 def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
-                      session: str | None = None) -> dict:
+                      session: str | None = None,
+                      at_frame: dict[str, str] | None = None) -> dict:
     """Record the running program's audio and report on what it played — the
     one call that verifies SID music end to end. Pins real time, records
     `capture.wav`, logs the SID's registers to `sid-log.jsonl`, restores the
@@ -1390,8 +1510,21 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     it, and let nothing else drive the session meanwhile — the capture window
     has to stay at real time, since a warped VICE writes a 0-frame WAV.
 
+    `at_frame` is how you make something HAPPEN inside the window, and it is
+    the only way: `{"30": "$d404=$81"}` performs those writes just before
+    frame 30 runs, so frame 30 is the first logged frame showing them.
+    Nothing outside can do it — arming costs emulated frames before frame 0
+    (`lead_in_frames` measures how many on this capture), and while the
+    window is open the sampling loop owns the session, so a
+    `c64_mem_write` from elsewhere waits until it closes. An effect shorter
+    than the lead-in is otherwise unreachable. Keys are frame numbers as
+    strings; values are `ADDR=VAL` lists, comma-separated, in decimal, `$hex`
+    or `0xhex`.
+
     Returns the artifact paths, the verdict, the score diff, the anomalies,
-    and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`).
+    and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`,
+    `lead_in_frames`). `lead_in_frames` is measured from the machine's own
+    jiffy clock, and is null when a program that owns the IRQ has frozen it.
 
     `unpin_error` is None on a capture that put its session back. When it is
     not, the artifacts and the verdict are still good — they were complete
@@ -1401,5 +1534,8 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     is a different failure and still raises: that one leaves no finalized WAV
     to report on.)
     """
+    # Parsed before the session is touched, and by the CLI's own parser: the
+    # two front ends must reject the same spellings with the same words.
+    writes = parse_frame_writes((at_frame or {}).items())
     s = _attach(session)
-    return capture(s, seconds, outdir, ref_path=ref)
+    return capture(s, seconds, outdir, ref_path=ref, writes=writes)

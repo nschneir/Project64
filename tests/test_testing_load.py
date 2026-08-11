@@ -121,9 +121,14 @@ def test_load_test_rejects_non_mapping(tmp_path):
 
 
 def test_prepare_prg_passthrough(tmp_path):
+    """A `.prg` is loaded as it is, and its symbols are a sibling `.lbl` of the
+    same stem when there is one — `cart:`'s rule, and None when there is not."""
     prg = tmp_path / "x.prg"
     prg.write_bytes(b"\x01\x08")
     assert _prepare(str(prg), get_profile("c64")) == (prg, None)
+    lbl = tmp_path / "x.lbl"
+    lbl.write_text("al C:c000 .entry\n")
+    assert _prepare(str(prg), get_profile("c64")) == (prg, lbl)
 
 
 def test_prepare_unknown_extension(tmp_path):

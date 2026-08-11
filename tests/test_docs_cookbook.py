@@ -184,6 +184,41 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$07F8", "equals": 13}},   # pointer: block 13
         {"assert": {"mem": "$D000", "equals": 219}},  # last x written
     ]),
+    ("asm-sprite-multiplex", "asm", "mux.s", [
+        {"wait": {"mem": "DONE", "equals": "$2a"}},
+        # ten objects piled into 18 scanlines: eight fit, two are dropped;
+        # the eight spread down the screen all reuse registers 0 and 1
+        {"assert": {"mem": "DISPLAYED", "equals": 16}},
+        {"assert": {"mem": "OVERFLOW", "equals": 2}},
+        # the sort is the claim, so assert the sorted keys, not a spot check
+        {"assert": {"mem": "sortkey", "equals": [
+            60, 62, 64, 66, 68, 70, 72, 74, 76, 78,
+            100, 120, 140, 160, 180, 200, 220, 240]}},
+        # 16 displayed - 8 programmed at the top of the frame = 8 repositions,
+        # each three lines above its object
+        {"assert": {"mem": "EVCOUNT", "equals": 8}},
+        {"assert": {"mem": "evline", "equals": [97, 117, 137, 157,
+                                                177, 197, 217, 237]}},
+        {"assert": {"mem": "$D015", "equals": "$ff"}},   # all 8 registers used
+        # registers 0-7 hold the eight topmost objects, X = 24 + object*8
+        {"assert": {"mem": "$D000", "equals": [32, 60, 80, 62, 128, 64, 48, 66,
+                                               160, 68, 96, 70, 144, 72, 64, 74]}},
+    ]),
+    ("asm-raster_chain", "asm", "rasterchain.s", [
+        # 180 chain-driven ticks, then the handler unhooks itself
+        {"wait": {"mem": "DONE", "equals": "$2a", "timeout": 30 * timeout_scale()}},
+        {"assert": {"mem": "FRAMES", "equals": 180}},
+        # the whole list played, and exactly the 228/229 pair ran inline
+        {"assert": {"mem": "LASTSEEN", "equals": 10}},
+        {"assert": {"mem": "LASTLOOP", "equals": 1}},
+        # the two claims the recipe's warnings make. Delete the second
+        # `sta $D019` and MIDFRAME goes 0 -> 90, LASTLOOP 1 -> 10: the RTI
+        # re-enters on the stale latch and replays the chain mid-frame.
+        {"assert": {"mem": "MIDFRAME", "equals": 0}},
+        {"assert": {"mem": "OVERRUN", "equals": 0}},
+        # ...and the latch really is re-set on the way out (179 of 180 frames)
+        {"assert": {"mem": "RELATCH", "at_least": 1}},
+    ]),
     ("asm-custom-charset", "asm", "charset.s", [
         {"wait": {"mem": "@5,0", "equals": 96}},       # the patched glyph is shown
         {"assert": {"mem": "@5,1", "equals": 97}},
@@ -342,3 +377,21 @@ def test_cookbook_frame_stepping_workflow_live(tmp_path, session):
     with s.monitor() as mon:
         f1 = mon.memory_read(labels["FRAMES"], 1)[0]
     assert (f1 - f0) % 256 == 5
+
+
+def test_charset_recipe_names_the_bases_the_char_rom_takes():
+    """Being in the VIC's bank is necessary and not sufficient: a reader
+    can obey it, pick `$1800`, and get the char ROM's lowercase half — which
+    looks like text, so nothing announces the mistake."""
+    block = _block_by_key("asm", "charset.s")
+    header = block[:block.index("SCREEN")]
+    assert "$1800" in header and "4 KB" in header, \
+        "the CHARSET equate's comment never rules out the char-ROM bases"
+    prose = COOKBOOK.read_text()
+    section = prose[prose.index("- **Where the charset can live.**"):]
+    section = " ".join(section[:section.index("- **Leave the screen")].split())
+    assert "not sufficient" in section, \
+        "the bank rule is still stated as if it were the whole constraint"
+    assert "$1000" in section and "$1800" in section
+    assert "$2000`, `$2800`, `$3000` and `$3800`" in section, \
+        "the four bases that actually work in bank 0 are not listed"

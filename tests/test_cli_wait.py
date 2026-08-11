@@ -176,6 +176,59 @@ def test_wait_mem_timeout():
     assert r.exit_code == 1 and "timeout" in r.output.lower()
 
 
+def test_wait_mem_timeout_says_the_machine_was_stopped_throughout():
+    """The la-galaxia dogfood lost two minutes and filed a false "the game is
+    stuck": `wait --mem` after a `c64 until` polls a byte no CPU is writing.
+    The timeout is the only place that can say so."""
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="stopped"), \
+         patch("c64lib.cli.wait_for_mem",
+               return_value={"fired": None, "timeout": 0.1, "last_value": 1}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--mem", "$1000=3",
+                                      "--timeout", "0.1"])
+    assert r.exit_code == 1
+    out = json.loads(r.output)
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["error"]
+    assert "c64 continue" in out["error"]
+
+
+def test_wait_mem_timeout_on_a_running_machine_makes_no_such_claim():
+    """The other half of the same claim: a machine that ran the whole window
+    genuinely never reached the value, and saying "stopped" there would send
+    the reader to `c64 continue` for nothing."""
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", return_value="running"), \
+         patch("c64lib.cli.wait_for_mem",
+               return_value={"fired": None, "timeout": 0.1, "last_value": 1}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--mem", "$1000=3",
+                                      "--timeout", "0.1"])
+    out = json.loads(r.output)
+    assert r.exit_code == 1 and out["machine"] == "running"
+    assert "STOPPED" not in out["error"]
+
+
+def test_wait_mem_timeout_needs_both_samples_stopped():
+    """One sample cannot support "stopped for the whole wait": a machine
+    stopped only at the end was running for part of the window."""
+    fake, _ = _fake()
+    states = iter(["running", "stopped"])
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.machine_state", side_effect=lambda _s: next(states)), \
+         patch("c64lib.cli.wait_for_mem",
+               return_value={"fired": None, "timeout": 0.1, "last_value": 1}):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "wait", "--mem", "$1000=3",
+                                      "--timeout", "0.1"])
+    out = json.loads(r.output)
+    assert r.exit_code == 1 and out["machine"] == "running"
+    assert "STOPPED" not in out["error"]
+
+
 def test_wait_break_timeout_says_machine_running():
     fake, mon = _fake()
     with patch("c64lib.cli.Session") as S, \
