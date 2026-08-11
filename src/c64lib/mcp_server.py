@@ -69,7 +69,7 @@ from .ops import (
     wait_for_text,
 )
 from .packaging import package_program
-from .protocol import CP_EXEC, CP_LOAD, CP_STORE
+from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
 from .romdoc import identify, rom_labels
 from .screen import (
     number_screen_text,
@@ -364,7 +364,7 @@ def c64_break_list(session: str | None = None) -> dict:
             mon.release()
     return {"breakpoints": [
         {"id": ck.number, "address": format_addr(labels, ck.start), "end": ck.end,
-         "op": ck.op, "enabled": ck.enabled, "hits": ck.hit_count,
+         "op": op_name(ck.op), "enabled": ck.enabled, "hits": ck.hit_count,
          "has_condition": ck.has_condition}
         for ck in cks
     ]}
@@ -449,7 +449,8 @@ def c64_watch_add(ref: str, on_load: bool = False, on_store: bool = False,
             ck = mon.checkpoint_set(addr, addr + length - 1, op=op)
         finally:
             mon.release()
-    return {"id": ck.number, "address": format_addr(labels, addr), "length": length}
+    return {"id": ck.number, "address": format_addr(labels, addr), "length": length,
+            "op": op_name(op)}
 
 
 def _stopped_regs(s, regs: dict) -> dict:

@@ -406,7 +406,9 @@ JSON: `{"id", "address", "condition", "temporary"}`. Machine state preserved.
 
 List all checkpoints with hit counts.
 JSON: `{"breakpoints": [{"id", "address", "end", "op", "enabled", "hits",
-"has_condition"}, ...]}`.
+"has_condition"}, ...]}`. `op` is the **string** `exec`, `load` or `store` —
+several joined by `|` in that order (`load|store`), never the raw bitmask.
+`c64_break_list` reports the same string.
 
 ### `c64 break remove` (alias: `c64 break rm`)
 
@@ -436,7 +438,9 @@ Set a watchpoint on a memory range (default: both load and store).
 - `--store` — break on writes.
 - `--length N` (default `1`) — number of bytes to watch.
 
-JSON: `{"id", "address", "length", "op"}`. Machine state preserved.
+JSON: `{"id", "address", "length", "op"}`. `op` is the **string** `load`,
+`store` or `load|store` (the same spelling `c64 break list` reports), never the
+raw bitmask. `c64_watch_add` reports it too.
 
 ### `c64 watch remove` (alias: `c64 watch rm`)
 

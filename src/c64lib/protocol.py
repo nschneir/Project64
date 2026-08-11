@@ -201,6 +201,26 @@ CP_LOAD = 0x01
 CP_STORE = 0x02
 CP_EXEC = 0x04
 
+
+def op_name(op: int) -> str:
+    """Render a checkpoint op mask as `exec`, `load`, `store` joined by `|`.
+
+    The one spelling both front ends report as the `op` key, so `c64 break
+    list --json` and `c64_break_list` cannot drift into two types again.
+    Bits outside CP_EXEC/CP_LOAD/CP_STORE are dropped and an empty mask
+    renders as `""` — VICE never reports either, and inventing a placeholder
+    here would put a value in the payload that no real checkpoint produces.
+    """
+    parts = []
+    if op & CP_EXEC:
+        parts.append("exec")
+    if op & CP_LOAD:
+        parts.append("load")
+    if op & CP_STORE:
+        parts.append("store")
+    return "|".join(parts)
+
+
 _CKPT_INFO = struct.Struct("<IBHHBBBBIIBB")
 
 

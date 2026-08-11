@@ -79,7 +79,7 @@ from .ops import (
     pc_symbol as _pc_symbol,
 )
 from .packaging import PackageError, package_program
-from .protocol import CP_EXEC, CP_LOAD, CP_STORE
+from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
 from .romdoc import identify, rom_labels
 from .screen import (
     TEXT_ENCODINGS,
@@ -1080,17 +1080,6 @@ def break_add(ctx, ref, condition, temporary, once):
          + (f" when {condition}" if condition else ""))
 
 
-def _op_name(op: int) -> str:
-    parts = []
-    if op & CP_EXEC:
-        parts.append("exec")
-    if op & CP_LOAD:
-        parts.append("load")
-    if op & CP_STORE:
-        parts.append("store")
-    return "|".join(parts)
-
-
 @break_.command("list")
 @click.pass_context
 def break_list(ctx):
@@ -1103,7 +1092,7 @@ def break_list(ctx):
         finally:
             mon.release()
     rows = [{"id": ck.number, "address": format_addr(labels, ck.start),
-             "end": ck.end, "op": _op_name(ck.op), "enabled": ck.enabled,
+             "end": ck.end, "op": op_name(ck.op), "enabled": ck.enabled,
              "hits": ck.hit_count, "has_condition": ck.has_condition}
             for ck in cks]
     human = "\n".join(
@@ -1200,8 +1189,8 @@ def watch_add(ctx, ref, on_load, on_store, length):
         finally:
             mon.release()
     emit(ctx, {"id": ck.number, "address": format_addr(labels, addr),
-               "length": length, "op": _op_name(op)},
-         f"watchpoint #{ck.number} at {format_addr(labels, addr)} len={length} ({_op_name(op)})")
+               "length": length, "op": op_name(op)},
+         f"watchpoint #{ck.number} at {format_addr(labels, addr)} len={length} ({op_name(op)})")
 
 
 @watch.command("clear")
