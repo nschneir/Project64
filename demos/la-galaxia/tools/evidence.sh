@@ -50,8 +50,13 @@ hold()    { $C key hold "$1" --at tick --frames "${2:-4}" $S >/dev/null; }
 release() { $C mem write '$CB' 64 $S >/dev/null; }
 # boot lands in the COLD OPEN (§1a), which is now the top of the attract
 # cycle -- so every capture that needs the title or the stage select has to
-# skip it first.  `bootcold` is the one that stays there.
-bootcold() { $C load $PRG --symbols $LBL $S >/dev/null; ticks 30; }
+# skip it first.  `bootcold` is the one that stays there, and it takes the
+# tick count because the two uses want different ones: skipping the screen
+# can happen the moment it is up, but PHOTOGRAPHING it has to wait for a page
+# to be finished.  The smoothed 4x blit lays down two glyphs a tick, so the
+# clear, the colour pass, the pinned line and page one's four lines take 34
+# ticks, measured; 45 is inside the 240-frame hold with room either side.
+bootcold() { $C load $PRG --symbols $LBL $S >/dev/null; ticks "${1:-30}"; }
 boot()     { bootcold; hold space; release; ticks 40; }
 
 # peaks -- step $1 samples of 10 ticks each, reporting the high-water mark of

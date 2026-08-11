@@ -49,7 +49,7 @@ sbactive:    .res 1             ; 1 = a rebuild is in progress
 ; cycles and a single tick that ran them whole would show in tick_overrun.
         .export coldphase, coldpage
 coldphase:  .res 1              ; CPH_* / CPX_* -- which slice runs this tick
-coldpage:   .res 1              ; 0-3 -- which narration page is up
+coldpage:   .res 1              ; 0-4 -- which narration page is up
 coldline:   .res 1              ; index into the narration line table
 coldcp:     .res 1              ; character offset within that line
 coldcol:    .res 1              ; cell column the next glyph lands at
@@ -61,6 +61,14 @@ coldn:      .res 1              ; glyphs left in this tick's slice
 input_state: .res 1             ; the one byte everything downstream reads
 input_prev:  .res 1
 input_edge:  .res 1             ; bits that went 0->1 this frame
+; The any-key signal, derived beside input_edge from the same three sources
+; and kept separate from input_state: it reports keys the game has no
+; mapping for, and folding it into input_state would give every one of them
+; a meaning everywhere else in the game.  Only the cold open reads it (§1a).
+        .export anykey, anykey_edge
+anykey:      .res 1             ; 1 = something is down: any key, or fire
+anykey_prev: .res 1
+anykey_edge: .res 1             ; 1 = it went down THIS frame
 stage_select: .res 1            ; 0, or 1-10 chosen on the title screen
 matbits:     .res 1             ; what the matrix scan alone reported
 joybits:     .res 1             ; what the joystick alone reported

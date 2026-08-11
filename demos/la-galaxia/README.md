@@ -76,7 +76,7 @@ them, and does.
 | `AUDIT.md` | the five-iteration fidelity audit — every claim, with the measurement that settles it |
 | `la-galaxia.s` | load address, BASIC stub, equates, startup, the frame anchor, the state machine, includes |
 | `vars.s` | every mutable byte, with the labels the tests and the evidence read |
-| `cold.s` | the cold open: a hires bitmap over the sprite blocks, and the step machine that puts the art back |
+| `cold.s` | the cold open: a hires bitmap over the sprite blocks, the EPX pass that scales the narration glyphs 4x without a staircase, and the step machine that puts the art back |
 | `screen.s` | row tables, the cell pointer, text without CHROUT, the bezel, the background shadow |
 | `chars.s` + `chars.inc` | the character set installer and the original glyphs |
 | `sprites.s` + `sprites.inc` | the shape fan-out and the stored art |

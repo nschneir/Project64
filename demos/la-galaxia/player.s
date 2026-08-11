@@ -26,9 +26,12 @@ FIRECOOL = 8
 readinput:
         lda     input_state
         sta     input_prev
+        lda     anykey
+        sta     anykey_prev
         lda     #0
         sta     input_state
         sta     stage_select
+        sta     anykey
 
         jsr     matscan                 ; rows driven
         lda     #$FF
@@ -49,6 +52,14 @@ ri1:    lda     input_state
         eor     input_prev
         and     input_state
         sta     input_edge
+        ; ... and the same edge on the any-key flag the three decoders have
+        ; just set.  It has to be an edge: the cold open is re-entered from
+        ; the game over, and a key still held from the last life would
+        ; otherwise skip the narration before a single glyph was drawn.
+        lda     anykey
+        eor     anykey_prev
+        and     anykey
+        sta     anykey_edge
         rts
 
 ; ---- matscan -- the keyboard matrix, read directly ----------------------
@@ -64,7 +75,22 @@ ri1:    lda     input_state
 ; starts a game from the title state, and the fire path is edge-triggered,
 ; so a SPACE still held when play begins launches nothing.
 matscan:
-        lda     #0
+        ; Is ANY key down, anywhere on the matrix?  Driving every row low at
+        ; once and reading the columns answers that in ten cycles, and it
+        ; answers it for all eight rows -- including the three this scan does
+        ; not otherwise select, which is the whole point: the cold open must
+        ; yield to keys the game has no mapping for (§1a).  Testing each
+        ; unrolled row's byte below would have missed rows 0, 5 and 6 and
+        ; cost more.  A joystick in port 1 shares these column lines and
+        ; would read as a key; on this screen that is the right answer too.
+        lda     #$00
+        sta     CIA1PRA
+        lda     CIA1PRB
+        cmp     #$FF                    ; all columns high = nothing down
+        beq     :+
+        lda     #1
+        sta     anykey
+:       lda     #0
         sta     matbits
 
         lda     #$FD                    ; row 1: A bit 2, '3' bit 0, '4' bit 3
@@ -203,6 +229,8 @@ joydecode:
         lda     joybits
         ora     #IN_FIRE
         sta     joybits
+        lda     #1                      ; the stick has no keys, so fire is
+        sta     anykey                  ; its "get on with it" (§1a)
 :       lda     joybits
         ora     input_state
         sta     input_state
@@ -216,7 +244,9 @@ keydecode:
         lda     tmp1
         cmp     #KEY_NONE               ; the usual answer, and it is not in
         beq     kd8                     ; the table: walking all fifteen to
-        ldx     #0                      ; find that out cost 300 cycles
+        ldx     #1                      ; find that out cost 300 cycles
+        stx     anykey                  ; a code here is a key down, mapped
+        ldx     #0                      ; or not (§1a)
 kd1:    lda     keycodes,x
         cmp     #$FF
         beq     kd8

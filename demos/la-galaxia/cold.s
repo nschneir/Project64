@@ -18,14 +18,31 @@
 ; and tick_overrun stays 0.  The visible cost is a top-down wipe and a
 ; typewriter reveal, which read as intent rather than as slowness.
 ;
+; The 4x glyphs are not block-scaled.  Quadrupling a pixel into a 4x4 solid
+; block turns every diagonal into a staircase with 4-pixel treads, which at
+; this size is all the eye sees; so each glyph goes through one EPX (Scale2x)
+; pass to 16x16 first, where a corner whose two orthogonal neighbours agree
+; is cut, and only then is that doubled to 32x32.  A diagonal comes out as a
+; joined-up 45-degree stroke drawn in 2x2 pixels instead of a flight of
+; steps.  It is done in code, per glyph, per draw: a table of pre-smoothed
+; 32x32 glyphs is 128 bytes each and there are forty of them, and the ENGINE
+; segment has to end below BASIC at $A000.
+;
 ; Layout, from §1a's arithmetic: 4x narration is 10 characters by 6 lines
-; maximum, and the text is 98 characters, so it pages -- four pages of three
-; lines, each line centred, the block sitting above the vertical centre
-; (cell rows 2-15).  The Spanish instruction is pinned at 2x on two rows
-; (cell rows 20-23) on every page.  SPACE skips to the title at any point;
-; the timer advances the pages otherwise, and after the last page the state
-; leaves for the title on its own -- the attract loop's cycle is
-; cold open -> title -> (game) -> game over -> cold open.
+; maximum, and the text is 100 characters in fourteen lines, so it pages --
+; five pages, the first of four lines and the other four of three, each line
+; centred ((40 - 4*len) / 2) and the block above the vertical centre.  A
+; page's lines are pagefirst[page] up to pagefirst[page+1]: the pages are no
+; longer a uniform three, so nothing multiplies by three any more.  Three-line
+; pages sit on cell rows 2/7/12 and four-line pages on 0/5/10/15 -- a 4x glyph
+; is four cell rows tall, so both stop at row 18 and clear the pinned Spanish
+; line, which is at 2x on cell rows 21-22 on every page.  ANY key skips to the
+; title at any point (anykey_edge, from player.s); the timer advances the
+; pages otherwise, and after the last page the state leaves for the title on
+; its own -- the attract loop's cycle is cold open -> title -> (game) -> game
+; over -> cold open.  Nothing on the screen names the key: the pinned line is
+; the story's last words rather than an instruction, which is exactly why the
+; skip has to answer to every key and not to a documented one.
 
         .segment "ENGINE"
 
@@ -35,7 +52,8 @@ BITMAP  = $2000
 CPH_CLR  = 0                    ; clear the whole bitmap, 2 cell rows a tick
 CPH_COL  = 1                    ; colour nibbles into the screen matrix
 CPH_SPA  = 2                    ; the pinned Spanish line, 2x, screen still off
-CPH_DRAW = 3                    ; narration glyphs at 4x, 3 a tick
+                                ; -- one row, so it is three ticks, not five
+CPH_DRAW = 3                    ; narration glyphs at 4x, GLYPHTICK a tick
 CPH_HOLD = 4                    ; hold the page on a timer
 CPH_WIPE = 5                    ; clear the narration band for the next page
 ; exit phases -- the art restore, one slice a tick
@@ -54,8 +72,13 @@ CPX_SCR0 = 14                   ; clear the screen matrix, first half
 CPX_SCR1 = 15                   ; second half
 CPX_GO   = 16                   ; screen on, titlereset, ST_TITLE
 
-COLDPAGES = 4
+COLDPAGES = 5
 PAGE_HOLD = 240                 ; four seconds a page at 60 Hz
+; Glyphs per CPH_DRAW tick.  A smoothed 4x blit costs ~5,500 cycles against
+; the old block-scaled ~2,000, so three a tick no longer fits an NTSC frame
+; and tick_overrun would count it.  Two is what the frame holds; the reveal
+; is slower and reads as the typewriter it always was.
+GLYPHTICK = 2
 
 ; the colour nibbles: high nibble = the 1-pixels, low = the 0-pixels
 COLD_NARR = $10                 ; white on black
@@ -102,13 +125,15 @@ stcold: lda     stinit
         sta     coldrow
         rts
 
-cnorm:  ; SPACE leaves for the title from ANY point, including part-way
+cnorm:  ; ANY key leaves for the title from ANY point, including part-way
         ; through the first page -- but once the exit is running, let it run.
+        ; anykey_edge, not input_edge: this screen answers to keys the game
+        ; has no mapping for, and it is the edge because the game over walks
+        ; back in here with whatever the player was holding still held.
         lda     coldphase
         cmp     #CPX_OFF
         bcs     cdisp
-        lda     input_edge
-        and     #IN_ST1
+        lda     anykey_edge
         beq     cdisp
         lda     #CPX_OFF
         sta     coldphase
@@ -179,10 +204,14 @@ cphcol: lda     #COLD_NARR
         rts
 
 ; ---- CPH_SPA: the pinned line, eight 2x glyphs a tick --------------------
+; The bound is SPALINES rather than a literal because the pinned text has
+; been one row and two rows and may be either again; the loop below is the
+; same either way.
+SPALINES = 1
 cphspa: lda     #8
         sta     coldn
 csp1:   ldx     coldline
-        cpx     #2
+        cpx     #SPALINES
         bcs     cspdone
         lda     spalo,x
         sta     TXT
@@ -193,7 +222,7 @@ csp1:   ldx     coldline
         bne     csp2
         inc     coldline                ; this line is finished
         ldx     coldline
-        cpx     #2
+        cpx     #SPALINES
         bcs     cspdone
         lda     #0
         sta     coldcp
@@ -225,16 +254,12 @@ cspdone:
         sta     coldphase
         rts
 
-; ---- CPH_DRAW: narration glyphs, three 4x blits a tick -------------------
+; ---- CPH_DRAW: narration glyphs, GLYPHTICK 4x blits a tick ---------------
 cphdraw:
-        lda     #3
+        lda     #GLYPHTICK
         sta     coldn
-        lda     coldpage                ; tmp5 = (page+1)*3, the line past
-        clc                             ; this page's last
-        adc     #1
-        sta     tmp5
-        asl     a
-        adc     tmp5
+        ldx     coldpage                ; tmp5 = the line past this page's
+        lda     pagefirst+1,x           ; last, straight out of the table
         sta     tmp5
 cdr1:   lda     coldline
         cmp     tmp5
@@ -318,10 +343,9 @@ cwp9:   rts
 
 ; pagesetup -- point the draw cursor at the current page's first line
 pagesetup:
-        lda     coldpage
-        asl     a
-        adc     coldpage                ; *3; asl of a value this small
-        sta     coldline                ; cannot carry
+        ldx     coldpage
+        lda     pagefirst,x
+        sta     coldline
         lda     #0
         sta     coldcp
         ldx     coldline
@@ -502,62 +526,156 @@ bmdst:  lda     coldcol
         sta     DST+1
         rts
 
-; EXP4ROW -- expand tmp0 (one source row) to four bitmap bytes at (DST),
-; each written to four consecutive scanlines.  `off` is 0 for the upper
-; half of the cell row, 4 for the lower.  Pixel-doubling twice is the
-; 4-entry table: two source bits name one output byte.
-.macro  EXP4ROW off
-.repeat 4, j
-        lda     #0
-        asl     tmp0
-        rol     a
-        asl     tmp0
-        rol     a
-        tax
-        lda     quadtab,x
-        ldy     #off + j*8
-        sta     (DST),y
-        iny
-        sta     (DST),y
-        iny
-        sta     (DST),y
-        iny
-        sta     (DST),y
-.endrepeat
-.endmacro
-
-quadtab:
-        .byte   $00, $0F, $F0, $FF
-dobtab:                                 ; every bit doubled, for the 2x line
+dobtab:                                 ; every bit doubled: the 2x line's
         .byte   $00, $03, $0C, $0F, $30, $33, $3C, $3F
         .byte   $C0, $C3, $CC, $CF, $F0, $F3, $FC, $FF
 
-; blit4x -- the glyph at SRC, 32x32, to DST.  Two source rows fill one
-; bitmap cell row (byte offsets 0-31), then DST steps down 320.
+; What the smoother needs on top of the five zero page bytes la-galaxia.s
+; names for it.  epxD and epxE0 are deliberately the same byte: the row below
+; is spent the moment the corner masks are built, and one more scratch
+; location for it would be one the game has not got.
+epxA    = tmp0                          ; the row above, carried down the glyph
+epxD    = tmp1                          ; the row below
+epxE0   = tmp1                          ; ... then the left/top output bits
+epxE1   = tmp2                          ; ... and the right/bottom ones
+
+; ---- blit4x -- the glyph at SRC, smoothed, 32x32, to DST -----------------
+; EPX/Scale2x in 1bpp, a whole source row at a time.  For pixel P with
+; neighbours A (up), B (right), C (left), D (down) the 2x2 output is
+;
+;   E0 = (C==A && C!=D && A!=B) ? A : P     E1 = (A==B && A!=C && B!=D) ? B : P
+;   E2 = (D==C && D!=B && C!=A) ? C : P     E3 = (B==D && B!=A && D!=C) ? D : P
+;
+; With one bit per pixel those four conditions collapse into two masks that
+; cannot both be set: SX = ~((A^C)|(B^D)) & (A^B) says the up/left and
+; down/right corners are the ones to cut, SY = ~((A^B)|(C^D)) & (A^C) says it
+; is the other diagonal.  Then E0 = P^(SX&(A^P)), E1 = P^(SY&(A^P)),
+; E2 = P^(SY&(C^P)), E3 = P^(SX&(B^P)) -- eight bits at a time, no branches
+; and no per-pixel loop.  C and B are the row shifted one bit each way, so a
+; neighbour off the edge of the glyph shifts in as background, which is what
+; §1a asks for; A and D are the rows either side, zero past the ends.
+;
+; That gives 16x16.  The doubling to 32x32 happens in the same pass:
+; epxemit's dobtab entry is indexed by two pixels' worth of E0/E1 bits, so
+; one table lookup writes four output pixels, and each 16x16 row is written
+; to two scanlines.  Two source rows fill one bitmap cell row (byte offsets
+; 0-31), then DST steps down 320.
 blit4x: lda     #0
         sta     tmp3
+        sta     epxA                    ; nothing above the first row
 b4k:    ldy     tmp3
         lda     (SRC),y
-        sta     tmp0
-        EXP4ROW 0
-        inc     tmp3
-        ldy     tmp3
+        sta     epxP
+        lda     #0                      ; ... and nothing below the last
+        iny
+        cpy     #8
+        bcs     :+
         lda     (SRC),y
-        sta     tmp0
-        EXP4ROW 4
+:       sta     epxD
+        lda     epxP
+        lsr     a
+        sta     epxC
+        lda     epxP
+        asl     a
+        sta     epxB
+        lda     epxA                    ; X0 = A^C, parked where SY will go
+        eor     epxC
+        sta     epxSY
+        lda     epxB                    ; SX = ~(X0 | (B^D)) & (A^B)
+        eor     epxD
+        ora     epxSY
+        eor     #$FF
+        sta     epxSX
+        lda     epxA
+        eor     epxB                    ; X2 = A^B, wanted by both masks
+        pha
+        and     epxSX
+        sta     epxSX
+        lda     epxC
+        eor     epxD                    ; C^D; D is spent from here
+        sta     epxD
+        pla
+        ora     epxD
+        eor     #$FF
+        and     epxSY                   ; SY = ~(X2 | (C^D)) & X0
+        sta     epxSY
+        lda     epxA                    ; A^P, wanted by E1 and then E0
+        eor     epxP
+        sta     epxD
+        and     epxSY
+        eor     epxP
+        sta     epxE1
+        lda     epxD
+        and     epxSX
+        eor     epxP
+        sta     epxE0
+        lda     tmp3                    ; even source rows fill scanlines 0-3
+        and     #1                      ; of the cell row, odd rows 4-7
+        asl     a
+        asl     a
+        sta     tmp4
+        tay
+        jsr     epxemit
+        lda     epxC                    ; E2 = P ^ (SY & (C^P))
+        eor     epxP
+        and     epxSY
+        eor     epxP
+        sta     epxE0
+        lda     epxB                    ; E3 = P ^ (SX & (B^P))
+        eor     epxP
+        and     epxSX
+        eor     epxP
+        sta     epxE1
+        lda     tmp4
+        ora     #2
+        tay
+        jsr     epxemit
+        lda     epxP                    ; this row is the next one's "above"
+        sta     epxA
         inc     tmp3
-        lda     DST
+        lda     tmp3
+        and     #1
+        bne     b4c
+        lda     DST                     ; two source rows finish a cell row
         clc
         adc     #<320
         sta     DST
         lda     DST+1
         adc     #>320
         sta     DST+1
-        lda     tmp3
+b4c:    lda     tmp3
         cmp     #8
         bcs     b4x
-        jmp     b4k                     ; the unrolled expands are far away
+        jmp     b4k                     ; the row body is far away
 b4x:    rts
+
+; epxemit -- Y = the first byte offset: four bitmap bytes from E0/E1, each
+; written to two scanlines and stepping one cell column (8 bytes) along.
+; Four bits -- two pixels of E0 interleaved with two of E1 -- index dobtab,
+; which doubles each of them, so one lookup is four output pixels.  Y ends at
+; base+32 and the bases are 0, 2, 4 and 6, so `cpy #32` is the column count.
+epxemit:
+        lda     #0
+        asl     epxE0
+        rol     a
+        asl     epxE1
+        rol     a
+        asl     epxE0
+        rol     a
+        asl     epxE1
+        rol     a
+        tax
+        lda     dobtab,x
+        sta     (DST),y
+        iny
+        sta     (DST),y
+        tya
+        clc
+        adc     #7
+        tay
+        cpy     #32
+        bcc     epxemit
+        rts
 
 ; blit2x -- the glyph at SRC, 16x16, to DST.  Four source rows per cell row;
 ; each source byte becomes two bytes through the nibble-doubling table.
@@ -614,20 +732,38 @@ bmhi:   .repeat 25, i
         .byte   >(BITMAP + 320*i)
         .endrepeat
 
-; The narration, wrapped at 10 and paged 3 lines at a time; each line's
-; column centres it ((40 - 4*len) / 2), each page's rows are 2/7/12 -- the
-; block sits above the vertical centre, per §1a.
+; The narration, wrapped at 10 characters and paged where the story pauses.
+; Each line's column centres it ((40 - 4*len) / 2); a three-line page sits on
+; cell rows 2/7/12 and the one four-line page on 0/5/10/15, which puts the
+; block above the vertical centre and stops clear of the pinned line, per
+; §1a.  pagefirst has COLDPAGES+1 entries: page p owns lines pagefirst[p] up
+; to pagefirst[p+1], so a page is whatever length the wrap made it.
+;
+;   1  IN THE / BACK OF A / LONG / SHUTTERED    (four: "IN THE BACK" is 11
+;   2  MEXICO / CITY / ARCADE,                   characters and 4x fits ten)
+;   3  BEHIND THE / BROKEN
+;   4  PINBALL / MACHINES,
+;   5  SITS A / FORGOTTEN / RELIC...
+pagefirst:
+        .byte   0, 4, 7, 9, 11, 14
 linlo:  .byte   <t_cold1, <t_cold2, <t_cold3, <t_cold4
         .byte   <t_cold5, <t_cold6, <t_cold7, <t_cold8
         .byte   <t_cold9, <t_cold10, <t_cold11, <t_cold12
+        .byte   <t_cold13, <t_cold14
 linhi:  .byte   >t_cold1, >t_cold2, >t_cold3, >t_cold4
         .byte   >t_cold5, >t_cold6, >t_cold7, >t_cold8
         .byte   >t_cold9, >t_cold10, >t_cold11, >t_cold12
-linrow: .byte   2, 7, 12,  2, 7, 12,  2, 7, 12,  2, 7, 12
-lincol: .byte   8, 2, 8,   12, 6, 0,  8, 6, 2,   8, 2, 4
+        .byte   >t_cold13, >t_cold14
+linrow: .byte   0, 5, 10, 15,  2, 7, 12,  2, 7,  2, 7,  2, 7, 12
+lincol: .byte   8, 2, 12, 2,   8, 12, 6,  0, 8,   6, 2,  8, 2, 4
 
-; The pinned Spanish line, 2x on two rows, the same place on every page.
-spalo:  .byte   <t_pulsa1, <t_pulsa2
-spahi:  .byte   >t_pulsa1, >t_pulsa2
-sparow: .byte   20, 22
-spacol: .byte   2, 3
+; The pinned Spanish line: one 2x row, the same place on every page.
+; "COMIENZA TU VIAJE..." is twenty glyphs and 2x is two columns each, so it
+; fills the row exactly -- column 0 to column 39, the last byte at offset 319
+; of the row.  Row 21, not 20: a 2x glyph is two cell rows tall, so one line
+; at 21 sits centred in the 20-24 band the colour pass gives it, where 20
+; would pin it to the top of that band with three empty rows underneath.
+spalo:  .byte   <t_pulsa1
+spahi:  .byte   >t_pulsa1
+sparow: .byte   21
+spacol: .byte   0

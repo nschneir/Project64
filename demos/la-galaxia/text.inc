@@ -35,23 +35,34 @@ t_naves:    scrline "NAVES"
 ; ---- the cold open (§1a) --------------------------------------------------
 ; The narration is ENGLISH -- the documented exception to the all-Spanish
 ; rule: it is the narrator speaking, not the cabinet (PROMPT.md §1a).  The
-; lines are pre-wrapped for the 10-character 4x bitmap rows, no word broken.
+; lines are pre-wrapped for the 10-character 4x bitmap rows, no word broken
+; and no word carried across a page break: cold.s's pagefirst says where the
+; pages fall, and the wrap here is what has to fit under it.  "IN THE BACK"
+; is eleven characters, which 4x cannot draw at all, so the first page is
+; four lines rather than three -- that is a wrap, not a rewrite.
 t_cold1:    scrline "IN THE"
 t_cold2:    scrline "BACK OF A"
-t_cold3:    scrline "MEXICO"
-t_cold4:    scrline "CITY"
-t_cold5:    scrline "ARCADE,"
-t_cold6:    scrline "BEHIND THE"
-t_cold7:    scrline "BROKEN"
-t_cold8:    scrline "PINBALL"
-t_cold9:    scrline "MACHINES,"
-t_cold10:   scrline "SITS A"
-t_cold11:   scrline "FORGOTTEN"
-t_cold12:   scrline "RELIC..."
-; ... and its pinned instruction is Spanish like the rest of the game,
-; pre-split for two 2x rows.
-t_pulsa1:   scrline "PULSA ESPACIO PARA"
-t_pulsa2:   scrline "COMENZAR TU VIAJE"
+t_cold3:    scrline "LONG"
+t_cold4:    scrline "SHUTTERED"
+t_cold5:    scrline "MEXICO"
+t_cold6:    scrline "CITY"
+t_cold7:    scrline "ARCADE,"
+t_cold8:    scrline "BEHIND THE"
+t_cold9:    scrline "BROKEN"
+t_cold10:   scrline "PINBALL"
+t_cold11:   scrline "MACHINES,"
+t_cold12:   scrline "SITS A"
+t_cold13:   scrline "FORGOTTEN"
+t_cold14:   scrline "RELIC..."
+; ... and pinned under it, Spanish like the rest of the game, one 2x row.
+; It is a closing flourish and not an instruction -- it does not say which
+; key to press, because any key does (§1a) -- so it is short: COMIENZA is the
+; tu imperative, the register the whole cabinet is written in, and the
+; ellipsis answers RELIC... above it.  Twenty characters is exactly the 2x
+; row: two columns a glyph, forty columns.  The label keeps the name it had
+; when the line began PULSA; this text has been rewritten three times and
+; renaming it churns cold.s's spalo/spahi tables for nothing.
+t_pulsa1:   scrline "COMIENZA TU VIAJE..."
 
 t_desafio:  scrline "ETAPA DE DESAFiO"
 t_aciertos: scrline "ACIERTOS"

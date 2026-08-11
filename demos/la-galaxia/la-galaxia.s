@@ -10,6 +10,9 @@
 ;
 ; Controls: A/D move, SPACE fires; SPACE starts one player, X two.  On the
 ; title screen the digit keys pick a starting stage (1-9, and 0 for ten).
+; The cold open is the one screen that answers to ANY key -- it is a story
+; nobody should have to sit through twice -- so it watches `anykey_edge`
+; rather than a mapped bit; the title's start keys are unchanged.
 ; Input is read from the keyboard matrix, from $CB, and from joystick
 ; port 2, folded into one `input_state` byte.
 ;
@@ -124,6 +127,16 @@ digbuf  = $14                   ; six decimal digits, $14-$1B
 evcur   = $1C                   ; muxassign builds the event list as it goes
 bandix  = $1D                   ; which of the two band edges comes next
 evtline = $1E                   ; the raster line of the event being emitted
+; The cold open's EPX smoother (cold.s) holds a source row, both of its
+; shifted neighbours and both corner masks at once -- five more bytes than
+; tmp0-tmp5 has spare.  $1F-$21 and $02-$03 are the free zero page left: $02
+; is unused by BASIC and the KERNAL, $03 is the float-to-int vector, and
+; nothing here returns to either.
+epxP    = $1F                   ; the source row being expanded
+epxC    = $20                   ; ... its left neighbours, one bit over
+epxB    = $21                   ; ... and its right neighbours
+epxSX   = $02                   ; EPX's two corner masks, one bit per pixel
+epxSY   = $03
 
 PTR     = $FB                   ; screen cell pointer
 CPTR    = $FD                   ; matching colour-RAM pointer

@@ -61,36 +61,69 @@ Before the title screen there is one more screen, and it is the first thing
 anyone sees. It is **the only place in this game where the text is English**,
 because it is the narrator speaking rather than the cabinet:
 
-> In the back of a Mexico City arcade, behind the broken pinball machines,
-> sits a forgotten relic...
+> In the back of a long shuttered Mexico City arcade, behind the broken
+> pinball machines, sits a forgotten relic...
 
 Set it **large** — four times the size of ordinary text, each 8×8 glyph
 scaled to 32×32 pixels. That does not fit the character grid, so **this
 screen is a hires bitmap** (`$D011` bit 5), the one place the game leaves
 text mode; you already have the glyph bitmaps in the custom charset, and
-scaling them is a pixel-doubling blit, not a second font.
+scaling them is a blit, not a second font.
+
+Scale them **smoothly**. Quadrupling each source pixel into a solid 4×4
+block is the obvious blit and it is the wrong one: at this size every
+diagonal and every curve in the font becomes a flight of four-pixel steps,
+and the staircase is the first thing the eye finds on the first screen of
+the game. **The 4× glyphs must be corner-interpolated, not block-scaled** —
+run each one through an EPX/Scale2x pass, where a corner whose two
+orthogonal neighbours agree with each other and disagree across the diagonal
+is cut, so a diagonal comes out as a joined-up stroke instead of a stack of
+blocks. Take the neighbours from the glyph's own 8×8 bitmap and treat
+anything off its edge as background. Do the interpolation **at runtime, in
+code**: a table of pre-smoothed 32×32 glyphs is 128 bytes each across the
+whole alphabet, and §10's memory map has nowhere to put it.
 
 Do the arithmetic before you lay it out. A 320×200 bitmap at 32×32 per glyph
-is **10 characters per line and 6 lines per screen** — 60 characters — and
-the line above is 98. It therefore **cannot be one static screen at that
-size**. Split it across pages that advance on a timer, or crawl it; do not
-silently shrink the text to make it fit, and do not let a word break across
-a page. Centre each page horizontally and sit it **above** the vertical
-centre, nearer the top than the bottom.
+is **10 characters per line and 6 lines per screen**, and the pinned line
+below takes the bottom of every page, so the narration band is **four lines
+at most**. The line above is 113 characters, and it is 100 drawn glyphs once
+it is wrapped to fit — no line longer than ten. It therefore **cannot be one
+static screen at that size**. Split it across pages that advance on a timer,
+or crawl it; do not silently shrink the text to make it fit, and do not let
+a word break across a page. Centre each page horizontally and sit it
+**above** the vertical centre, nearer the top than the bottom.
+
+The pages are the story's own pauses, so they are not a uniform length: the
+wrap and the page breaks together give **five pages of fourteen lines**, the
+first of them four lines and the rest three. Nothing in the layout may
+assume a fixed number of lines per page.
 
 Pinned at the bottom of every page, in Spanish like the rest of the game:
 
-> PULSA ESPACIO PARA COMENZAR TU VIAJE
+> COMIENZA TU VIAJE...
 
-That line is 36 characters and does not fit on one row above 1× scale, so
-set it smaller than the narration — two rows at 2× is the obvious fit — and
-keep it in the same place on every page so it reads as a fixed instruction
-rather than part of the story.
+That is a closing flourish and not an instruction: it names no key, because
+any key will do, and its ellipsis answers the narration's. It is twenty
+characters, which is **exactly one row at 2×** — a 2× glyph is two columns
+wide, so twenty of them fill all forty — so set it smaller than the
+narration, give it one row rather than two, and keep it in the same place on
+every page so it reads as part of the cabinet rather than part of the story.
+A literal instruction was the other way to write this line and it does not
+fit: *PULSA CUALQUIER TECLA PARA COMENZAR EL VIAJE* is 43 characters against
+the 40 that even two 2× rows hold, and the third row it would need comes up
+into the narration band. Do not spend rows of the story telling the player
+what any key already does.
 
-`SPACE` leaves for the title screen at any point, including part-way through
-the first page: a player who has seen it once must never be made to sit
-through it again. The attract loop returns here, so this screen is the top
-of the cycle, not a one-shot splash.
+**Any key** leaves for the title screen at any point, including part-way
+through the first page: a player who has seen it once must never be made to
+sit through it again. Nothing on the screen says so — the pinned line is a
+flourish now, not an instruction — so the behaviour has to be true of every
+key rather than of a documented one. Any key means any key, not only the
+keys §2 maps, so the skip is driven by a derived any-key-down signal rather
+than by a bit of `input_state`, and it is edge-triggered, because the
+attract loop walks back in here from the game over with whatever the player
+was holding still held. The attract loop returns here, so this screen is the
+top of the cycle, not a one-shot splash.
 
 **Evidence:** `cold-open.png` — a page of the narration at full size with
 the Spanish line beneath it, captured from the stopped machine like every
@@ -111,10 +144,23 @@ title screen, the stage select — reads that byte and nothing else.
 | **Fire missile** | Fire button | Fire | `SPACE` | 60 | Two missiles in flight per fighter — four when dual. |
 | **Start 1P** | 1P start | — | `SPACE` | 60 | Single-player game, from stage 1. |
 | **Start 2P** | 2P start | — | `X` | 23 | Alternating two-player game. |
+| **Skip the cold open** | Fire button | Fire | *any key* | any | §1a only, and the one action that is not a mapped key. |
 
 The arcade's arrow controls are not mapped: the C64 has one horizontal
 cursor key and reaching left requires SHIFT, so an arrow mapping would be
 worse than `A`/`D`, not an alternative to it.
+
+The last row is the exception that proves the rule, and it is deliberately
+not an `input_state` bit. Everything else in this table is a *mapped*
+control: the fighter, the title screen and the stage select read the
+normalized byte and nothing else, and giving every key on the matrix a
+meaning in that byte would give it a meaning in all three. The cold open
+instead reads a signal derived beside `input_state` from the same three
+sources — any key down anywhere on the matrix, any code in `$CB`, or the
+joystick's fire button — and it reads the *edge* of it. So the cold open
+answers to `Q`, and the title screen still starts a game on `SPACE` and `X`
+and nothing else; the two claims do not overlap, because they are reading
+two different bytes.
 
 **The start keys are letters, not function keys.** `F1`/`F3` are the
 obvious mapping of the arcade's start buttons and they were the first
@@ -632,7 +678,7 @@ with the demo.
 
 | File | What it must prove |
 | :--- | :--- |
-| `cold-open.png` | The cold open (§1a) — a page of the English narration at 4x in the hires bitmap, with `PULSA ESPACIO PARA COMENZAR TU VIAJE` pinned beneath it. |
+| `cold-open.png` | The cold open (§1a) — a page of the English narration at 4x in the hires bitmap, corner-interpolated rather than block-scaled, with `COMIENZA TU VIAJE...` pinned beneath it. |
 | `title.png` | The attract/title screen, with `LA GALAXIA` on screen and the starfield running. Add `--border` so the bezel and border read correctly. |
 | `entrance.png` | An entrance wave mid-flight (§6.2) — a group of 8 tracing its LUT trajectory before it reaches the grid. |
 | `formation.png` | The 40-enemy grid fully assembled: 4 Flagships, 16 Sentinels, 20 Drones. Pair it with a `c64 screen --codes` dump showing the settled enemies really live in character RAM (§3.1). |

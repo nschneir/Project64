@@ -32,12 +32,20 @@ timeout: 120
 
 steps:
   # ---- the cold open and the attract screen ------------------------------
-  # SPACE leaves the cold open for the title (§1a). The KERNAL keyboard scan
-  # is off in this game, so $CB keeps whatever was poked into it — every hold
-  # is followed by writing 64 back, or the key stays down for ever.
+  # ANY key leaves the cold open for the title (§1a), not only the keys §2
+  # maps. `Q` (matrix code 62) is chosen precisely because this game maps it
+  # to nothing: it sets no bit in input_state, so a skip on it can only have
+  # come from the derived any-key signal, and asserting input_state is 0
+  # while the screen goes is what makes that a test rather than a story.
+  # The KERNAL keyboard scan is off in this game, so $CB keeps whatever was
+  # poked into it — every hold is followed by writing 64 back, or the key
+  # stays down for ever.
   - until:  { ref: tick, count: 30 }
-  - poke:   { addr: "$CB", values: [60] }
+  - assert: { mem: "gstate", equals: 8 }
+  - poke:   { addr: "$CB", values: [62] }
   - until:  { ref: tick, count: 4 }
+  - assert: { mem: "input_state", equals: 0 }
+  - assert: { mem: "anykey", equals: 1 }
   - poke:   { addr: "$CB", values: [64] }
   - until:  { ref: tick, count: 40 }
 
@@ -82,9 +90,16 @@ steps:
   # ---- an ordinary stage: the formation lands in character RAM -----------
   # The wait rides out the rest of the idle game: the challenge ends, stage 4
   # eats the remaining lives, and the game over returns through the COLD OPEN
-  # (§1a) — four narration pages, ~1,310 ticks — before parking at the title,
-  # which has no timeout. 600 ticks was enough when the attract loop returned
-  # straight to the title; the cold open in the path is why it is 5000 now.
+  # (§1a) — now five narration pages, and ~1,320 ticks rather than the four
+  # pages' ~1,040: 17 ticks of clear, colour and pinned line, then per page a
+  # 240-frame hold, a 10-tick wipe and a draw phase that lays down two
+  # smoothed glyphs a tick instead of three block-scaled ones. 600 ticks was
+  # enough when the attract loop returned straight to the title; the cold
+  # open in the path is why it is 5000. Measured on the machine: the cold
+  # open alone reaches the title at tick 1,324 from a cold boot, and this run
+  # re-enters it by tick 2,324 and is parked at the title again by tick
+  # 3,674 — so 5,000 still clears it by some 1,326 ticks and the count does
+  # not need raising for the fifth page.
   - until:  { ref: tick, count: 5000 }
   - poke:   { addr: "$CB", values: [56] }
   - until:  { ref: tick, count: 4 }
