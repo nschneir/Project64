@@ -94,6 +94,14 @@ Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
 file registered from `--disk`/`--cart`, or `null`. Machine left running.
 
+When sessions are already running, `start` first prints
+`note: N other session(s) already running (c64 session list)` on **stderr**
+— every one of them is an emulator process holding a CPU core, and the ones
+that outlive the work that started them are invisible until something counts
+them. It is a notice, not a failure: the exit code is unchanged, and because
+it goes to stderr the `--json` payload on stdout is unchanged too.
+`c64 session stop --all` clears the lot.
+
 Starting a session also starts its monitor daemon — the process that owns
 the VICE monitor connection and holds run/stop state between commands.
 Daemon output goes to `<sessions-dir>/<name>.daemon.log`; a crashed daemon
@@ -125,8 +133,21 @@ Stop a session and remove its registry record.
 - `NAME` (optional) — the session to stop; defaults to the current one.
 - `-s, --name NAME` — the same, as an option (the spelling every command
   understands). Giving both forms with different names is an error.
+- `--all` — stop **every** session in the registry: the one-command cleanup
+  at the end of a run, and the way out of "multiple sessions running (pick
+  one with --session)". Naming a session as well is an error, in any
+  spelling — positional, `--name`, or a global `c64 -s NAME` — because
+  `--all` is the opposite of picking one. A session whose emulator is
+  already gone is reaped (record, socket and daemon bookkeeping removed),
+  not reported as a failure: cleaning up after a dead run is the point.
 
-JSON: `{"stopped": NAME}`.
+JSON: `{"stopped": NAME}`; with `--all`, `{"stopped": ["a", "b"]}` — a list
+of the names stopped, empty when nothing was running (still exit 0).
+
+If `--all` cannot stop one of them it still stops the rest, then exits 1 with
+a message naming both halves — what it stopped, and what is still registered:
+`stopped 'a'; could not stop 'b': <reason> — still registered, check
+c64 session list`. Re-running it is safe.
 
 ### `c64 session reset`
 

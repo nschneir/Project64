@@ -143,6 +143,27 @@ def test_profile_documents_samples_and_why_one_arrival_lies():
         "the docs never pin that `cycles` survives at --samples 1"
 
 
+def test_session_stop_documents_all_and_start_documents_the_notice():
+    """Four x64sc processes ran at once during the la-galaxia dogfood, two
+    orphaned from an earlier conversation. The one-command cleanup and the
+    "N already up" warning only exist for a reader if they are written down —
+    including that the notice is on stderr, so `--json` stays parseable."""
+    text = DOC.read_text()
+    stop = text[text.index("### `c64 session stop`"):
+                text.index("### `c64 session reset`")]
+    assert "--all" in stop, "the --all flag is undocumented"
+    assert '"stopped": [' in stop, \
+        "the --all JSON payload (a list, not a name) is undocumented"
+    assert "already gone" in stop, \
+        "the docs never say --all reaps a session whose emulator has died"
+    start = text[text.index("### `c64 session start`"):
+                 text.index("### `c64 session ensure`")]
+    assert "note: N other session(s) already running" in start, \
+        "the already-running notice is undocumented"
+    assert "stderr" in start, \
+        "the docs never say the notice bypasses --json (it is on stderr)"
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

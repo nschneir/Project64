@@ -273,7 +273,18 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     Leaves the machine running; reports the new session's name, model, pid,
     and monitor port. A cartridge is mapped at power-on, so `--cart` boots
     straight into it — there is nothing to load afterwards.
+
+    Says on stderr how many sessions are already up, if any: each one is a
+    warped emulator holding a CPU core, and the ones that outlive the work
+    are invisible until something counts them.
     """
+    already = Session.list_all()
+    if already:
+        # stderr, never the payload: `--json` is a script contract, and this
+        # is advice for whoever is watching — a start that had to be told
+        # about the other three emulators is still a successful start.
+        click.echo(f"note: {len(already)} other session(s) already running "
+                   f"(c64 session list)", err=True)
     try:
         s = Session.launch(model=model, name=name, headless=headless, warp=warp,
                            disk8=disk8, cart=cart)
@@ -339,17 +350,43 @@ def session_list(ctx):
 @click.argument("name", required=False)
 @click.option("--name", "-s", "name_opt", default=None,
               help="Session to stop (same as the positional NAME).")
+@click.option("--all", "all_", is_flag=True,
+              help="Stop every session in the registry, including any whose "
+                   "emulator is already gone.")
 @click.pass_context
-def session_stop(ctx, name, name_opt):
+def session_stop(ctx, name, name_opt, all_):
     """Stop a session, kill its daemon, and remove its registry record.
 
-    NAME defaults to the current (or only) running session.
+    NAME defaults to the current (or only) running session. `--all` stops
+    every session instead — the one-command cleanup after a run that left
+    emulators behind. A session whose process is already gone is reaped
+    rather than reported as a failure; `stopped` is then a list of names.
     """
+    # Every spelling of "this one session" counts, including the global
+    # `c64 -s NAME session stop --all`: --all is the opposite of picking one,
+    # and guessing which the caller meant would either spare the sessions
+    # they asked to clear or kill the ones they did not.
+    target = name or name_opt or ctx.obj["session"]
+    if all_ and target:
+        fail(ctx, f"--all stops every session; drop the name {target!r}")
+        return
+    if all_:
+        try:
+            names = Session.stop_all()
+        except SessionError as e:
+            # Partial cleanup: the message names what stopped and what is
+            # still registered, so the next step is a re-run, not a guess.
+            fail(ctx, str(e))
+            return
+        emit(ctx, {"stopped": names},
+             ("stopped " + ", ".join(repr(n) for n in names)) if names
+             else "no sessions running")
+        return
     if name and name_opt and name != name_opt:
         fail(ctx, f"conflicting session names: positional {name!r} vs --name {name_opt!r}")
         return
     try:
-        s = Session.attach(name or name_opt or ctx.obj["session"])
+        s = Session.attach(target)
     except SessionError as e:
         fail(ctx, str(e))
         return

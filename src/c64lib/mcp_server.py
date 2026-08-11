@@ -143,8 +143,20 @@ def c64_session_ensure(model: str = "c64", name: str | None = None) -> dict:
 
 
 @srv.tool()
-def c64_session_stop(name: str | None = None) -> dict:
-    """Stop a running C64 session (the only one if name is omitted)."""
+def c64_session_stop(name: str | None = None, all: bool = False) -> dict:
+    """Stop a running C64 session (the only one if name is omitted), or every
+    session at once with all=true — the cleanup for a run that left emulators
+    behind, including any whose process is already gone. `stopped` is the
+    session name, or the list of names for all=true. Naming a session and
+    asking for all is an error."""
+    # `all` shadows the builtin, deliberately: the parameter is this tool's
+    # public API and CLI/MCP lockstep is worth more here than the name — it
+    # is `c64 session stop --all`. The builtin is unused in this function.
+    if all:
+        if name is not None:
+            raise SessionError(
+                f"all=true stops every session; drop name={name!r}")
+        return {"stopped": Session.stop_all()}
     s = Session.attach(name)
     s.stop()
     return {"stopped": s.name}

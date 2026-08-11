@@ -60,10 +60,10 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
 
 | Tool | CLI | Divergence |
 |------|-----|------------|
-| `c64_session_start` | `c64 session start` | headless and warp are always on, not flags; `--disk` is `disk` |
+| `c64_session_start` | `c64 session start` | headless and warp are always on, not flags; `--disk` is `disk`; the CLI's stderr `note: N other session(s) already running` has no MCP counterpart (the payload is the CLI's `--json`, which the notice deliberately stays out of) — call `c64_session_list` to see what is up |
 | `c64_session_ensure` | `c64 session ensure` | same: headless and warp are always on when it boots |
 | `c64_session_list` | `c64 session list` | — |
-| `c64_session_stop` | `c64 session stop` | — |
+| `c64_session_stop` | `c64 session stop` | `--all` is `all`; with `all=true`, `stopped` is a list of names instead of one name |
 | `c64_session_reset` | `c64 session reset` | — |
 | `c64_status` | `c64 status` | — |
 

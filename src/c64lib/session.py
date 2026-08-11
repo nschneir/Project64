@@ -246,16 +246,21 @@ class Session:
             )
 
     @staticmethod
+    def _from_record(path: Path) -> Session:
+        """One session record, whether or not its process is still alive."""
+        r = json.loads(path.read_text())
+        return Session(name=r["name"], pid=r["pid"], port=r["port"],
+                       model=r["model"], labels=r.get("labels"),
+                       daemon_pid=r.get("daemon_pid"), socket=r.get("socket"),
+                       loaded_prg=r.get("loaded_prg"),
+                       loaded_at=r.get("loaded_at", 0.0),
+                       loaded_deps=r.get("loaded_deps"))
+
+    @staticmethod
     def _load_all() -> list[Session]:
         out = []
         for f in sorted(sessions_dir().glob("*.json")):
-            r = json.loads(f.read_text())
-            s = Session(name=r["name"], pid=r["pid"], port=r["port"],
-                        model=r["model"], labels=r.get("labels"),
-                        daemon_pid=r.get("daemon_pid"), socket=r.get("socket"),
-                        loaded_prg=r.get("loaded_prg"),
-                        loaded_at=r.get("loaded_at", 0.0),
-                        loaded_deps=r.get("loaded_deps"))
+            s = Session._from_record(f)
             if s.is_alive():
                 out.append(s)
             else:
@@ -467,3 +472,38 @@ class Session:
         self._respawns_path().unlink(missing_ok=True)
         audio_pin_path(self.name).unlink(missing_ok=True)
         self._record_path().unlink(missing_ok=True)
+
+    @classmethod
+    def stop_all(cls) -> list[str]:
+        """Stop every session in the registry; return the names stopped.
+
+        Records are read straight off disk rather than through `_load_all()`,
+        which drops a dead one as it goes: a session whose emulator is already
+        gone is exactly what this is for — the la-galaxia dogfood (2026-08-08)
+        found two x64sc processes orphaned by a *previous* conversation — and
+        pruning it there would leave its socket and respawn counter behind
+        instead of letting `stop()` (already safe on a dead pid) clear them.
+        So a dead session is reaped and counted as stopped, never an error.
+
+        A failure does not abandon the rest: one session that refuses to die
+        must not strand the others, so the errors are collected and raised
+        once, naming both halves of the state left behind — what went down,
+        and what is still registered.
+        """
+        stopped: list[str] = []
+        failures: list[str] = []
+        for f in sorted(sessions_dir().glob("*.json")):
+            s = cls._from_record(f)
+            try:
+                s.stop()
+            except (SessionError, OSError) as e:
+                failures.append(f"{s.name!r}: {e}")
+            else:
+                stopped.append(s.name)
+        if failures:
+            raise SessionError(
+                f"stopped {', '.join(repr(n) for n in stopped) or 'nothing'}; "
+                f"could not stop {'; '.join(failures)} — still registered, "
+                f"check `c64 session list`"
+            )
+        return stopped

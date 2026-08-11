@@ -80,7 +80,10 @@ Write → run → observe → fix:
 5. Fix and repeat.
 
 Start a machine with `c64 session start` before anything else, and
-`c64 session stop` when done.
+`c64 session stop` when done — `c64 session stop --all` if you started
+several, or if `start` told you others were already running. Every session
+left behind is an emulator holding a CPU core, and sessions outlive the
+conversation that started them.
 
 ## Sessions and models
 
@@ -460,6 +463,11 @@ hand. The fixes are simple:
   (or pick a different `--name`), then start fresh.
 - **Commands say "no C64 session running."** You have no session, or you're
   not naming it — start one, or pass `--session <name>`.
+- **"multiple sessions running (pick one with --session)", or `start` said
+  `note: N other session(s) already running`.** Something — often an earlier
+  conversation — left emulators behind. `c64 session list` to see them and
+  `c64 session stop --all` to clear the lot, including any whose process has
+  already died.
 - **A session seems wedged.** `c64 session stop <name>` and start a new one;
   a fresh session is cheap.
 - **A capture died mid-window** — `audio capture: no response to EXIT`. The

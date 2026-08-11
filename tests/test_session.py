@@ -20,11 +20,12 @@ def home(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _write_record(name, pid, port=6502, model="c64"):
+def _write_record(name, pid, port=6502, model="c64", **extra):
     d = sessions_dir()
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.json").write_text(
-        json.dumps({"name": name, "pid": pid, "port": port, "model": model, "created": 0})
+        json.dumps({"name": name, "pid": pid, "port": port, "model": model,
+                    "created": 0, **extra})
     )
 
 
@@ -32,6 +33,18 @@ def _live_pid():
     # a real process we control, standing in for x64sc
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     return proc
+
+
+def _dead_pid() -> int:
+    """A pid whose process has exited *and* been reaped.
+
+    The wait() is load-bearing: an unreaped child lingers as a zombie, and
+    `os.kill(zombie, 0)` succeeds — `_pid_alive` would call it alive and
+    `stop()` would sit out its whole 3s SIGTERM wait.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", ""])
+    proc.wait()
+    return proc.pid
 
 
 def test_attach_by_name(home):
@@ -279,6 +292,80 @@ def test_stop_cleans_up_dead_session(home):
     s.stop()                              # must not raise
     assert not s._record_path().exists()
     assert not sock.exists()
+
+
+class _QuitMon:
+    """A monitor whose quit() really ends — and reaps — the process, so
+    `stop()` takes its live path in milliseconds instead of waiting out the
+    3s SIGTERM fallback on a zombie that still answers `kill(pid, 0)`."""
+
+    def __init__(self, proc):
+        self._proc = proc
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def quit(self):
+        self._proc.terminate()
+        self._proc.wait(timeout=10)
+
+
+def test_stop_all_stops_every_live_session(home, monkeypatch):
+    procs = {"a": _live_pid(), "b": _live_pid()}
+    try:
+        for name, proc in procs.items():
+            _write_record(name, proc.pid)
+        monkeypatch.setattr(Session, "monitor",
+                            lambda self: _QuitMon(procs[self.name]))
+        assert Session.stop_all() == ["a", "b"]
+        assert not list(sessions_dir().glob("*.json"))
+        assert not any(_pid_alive(p.pid) for p in procs.values())
+    finally:
+        for proc in procs.values():
+            proc.kill()
+
+
+def test_stop_all_reaps_a_session_whose_process_is_already_gone(home):
+    """The case this exists for: the la-galaxia dogfood found two x64sc
+    processes orphaned by a *previous* conversation. A record whose emulator
+    is gone is reaped — record and socket both — never reported as a failure,
+    because cleaning up after a dead run is the whole point."""
+    sock = sessions_dir() / "ghost.sock"
+    sock.write_text("")
+    _write_record("ghost", _dead_pid(), socket=str(sock))
+    assert Session.stop_all() == ["ghost"]
+    assert not (sessions_dir() / "ghost.json").exists()
+    assert not sock.exists()
+
+
+def test_stop_all_with_nothing_running_is_not_an_error(home):
+    assert Session.stop_all() == []
+
+
+def test_stop_all_reports_both_what_stopped_and_what_did_not(home, monkeypatch):
+    """A stop that fails halfway still takes what it can, and the message has
+    to name both halves: the caller's registry is now part-cleared."""
+    _write_record("a", _dead_pid())
+    _write_record("b", _dead_pid())
+    real_stop = Session.stop
+
+    def flaky(self):
+        if self.name == "b":
+            raise OSError("Operation not permitted")
+        real_stop(self)
+
+    monkeypatch.setattr(Session, "stop", flaky)
+    with pytest.raises(SessionError) as e:
+        Session.stop_all()
+    msg = str(e.value)
+    assert "'b'" in msg and "Operation not permitted" in msg
+    assert "'a'" in msg, "the message never says what it DID stop"
+    assert "c64 session list" in msg, "no command to see what is left"
+    assert not (sessions_dir() / "a.json").exists()
+    assert (sessions_dir() / "b.json").exists()   # left behind, still listed
 
 
 def test_launch_passes_cartcrt(home, monkeypatch, tmp_path):
