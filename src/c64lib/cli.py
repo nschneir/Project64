@@ -281,11 +281,14 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     try:
         # Inside the try, not above it: reading the registry is exactly as
         # failure-prone as launching from it — a truncated or older-format
-        # record raises KeyError out of `_load_all()` — and `Session.launch`
-        # reads it too, so before this call that KeyError already exited 1
-        # through `fail()`. Hoisting the read out of the try would have turned
-        # one caller's corrupt record into an unhandled traceback with
-        # unparseable `--json` stdout.
+        # record fails `_from_record` out of `_load_all()` — and
+        # `Session.launch` reads it too, so before this call that failure
+        # already exited 1 through `fail()`. Hoisting the read out of the try
+        # would have turned one caller's corrupt record into an unhandled
+        # traceback with unparseable `--json` stdout. (`_from_record` raises
+        # `SessionError` now, and raised `KeyError` when this was written;
+        # the `except` below names both, so the move is what matters, not
+        # which type arrives.)
         already = Session.list_all()
         if already:
             # stderr, never the payload: `--json` is a script contract, and

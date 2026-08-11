@@ -1272,14 +1272,22 @@ def report_timing_from(log_path, model: str | None = None) -> dict:
     a hand-edited header must not be able to invent one.
 
     A log this cannot READ is not this function's error to raise, and the
-    breadth of the catch below is the whole point. It runs at a front end's
-    very first step, OUTSIDE the `try` that turns a failure into `fail()`'s
-    exit-1 JSON — so anything escaping here is a bare traceback with an empty
-    `--json` payload, on an input as ordinary as passing `capture.wav` where
-    the log goes. `Path.read_text` on a binary file raises `UnicodeDecodeError`,
-    which is a ValueError and NOT an OSError, and that is exactly how it got
-    out once. An unreadable log has no knowable clock either way; hand back the
-    default and let `sid_report`, inside the try, report the real problem.
+    breadth of the catch below is the whole point. `Path.read_text` on a
+    binary file raises `UnicodeDecodeError`, which is a ValueError and NOT an
+    OSError, and that is exactly how it once escaped as a bare traceback with
+    an empty `--json` payload — on an input as ordinary as passing
+    `capture.wav` where the log goes. The CLI calls this INSIDE the `try`
+    that turns a failure into `fail()`'s exit-1 JSON now, and MCP hands any
+    raise back as a structured tool error, so an escape is no longer
+    unparseable on either side; the breadth stays because it is still the
+    right answer, not a containment measure. An unreadable log has no knowable
+    clock either way; hand back the default and let `sid_report`, in the same
+    try, report the real problem — which it can describe and this cannot.
+
+    The named-model branch below is deliberately outside that reasoning: a
+    caller who names a session means it, so a machine this build has no
+    profile for raises rather than quietly becoming PAL. That raise is what
+    the callers' `try` is now sized for.
     """
     if model:
         return report_timing_for(model)

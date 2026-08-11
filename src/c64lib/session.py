@@ -257,10 +257,17 @@ class Session:
 
         The type is the larger one. Every registry read goes through here —
         `attach`, `list_all` and `launch`'s duplicate-name check all do — and
-        those callers already handle `SessionError` by reporting it, so one
-        truncated or older-format record now exits 1 with a message wherever
-        it is met instead of escaping as a traceback from whichever command
-        happened to read the registry first.
+        MOST of their callers already handle `SessionError` by reporting it,
+        so one truncated or older-format record now exits 1 with a message
+        from them instead of escaping as a traceback.
+
+        Not all of them: `cli.py`'s `session list` calls `Session.list_all()`
+        bare, outside any try, so there this still escapes — a `SessionError`
+        now rather than a `KeyError`, but an unhandled one either way, with
+        `--json` stdout empty. Widening the type does not reach it and
+        neither should a per-command patch; it is the case for the
+        last-chance handler on `JsonAwareGroup` (the `fail()`-boundary guard
+        in the follow-up plan), which catches what no command thought to.
         """
         try:
             r = json.loads(path.read_text())
