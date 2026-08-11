@@ -36,6 +36,7 @@ from .disk import (
     block_write_file,
     build_disk,
     cbm_lookup_name,
+    check_block_write,
     create_image,
     delete_file,
     get_file,
@@ -1723,15 +1724,14 @@ def disk_block_write(ctx, image, track, sector, values, src, offset):
     silently accepts a poke running off the end of the sector, so both are
     checked here first.
     """
-    if bool(src) == bool(values):
-        fail(ctx, "give exactly one of --from FILE or VALUES (bytes to poke)")
-        return
-    if src is not None and ctx.get_parameter_source(
-            "offset") is not click.core.ParameterSource.DEFAULT:
-        fail(ctx, "--offset applies to a VALUES poke; --from replaces the "
-                  "whole sector, so there is nothing for it to offset")
-        return
+    # The offset the user actually typed, or None — click's parameter source is
+    # the only thing that tells an explicit `--offset 0` from an unset one, and
+    # refusing `--from --offset 0` needs exactly that. The rule reads only
+    # whether it was given; the poke below still uses the value.
+    given_offset = (offset if ctx.get_parameter_source("offset")
+                    is not click.core.ParameterSource.DEFAULT else None)
     try:
+        check_block_write(src, values, given_offset)
         if src is not None:
             block_write_file(image, track, sector, src)
             written, where = BLOCK_SIZE, "whole sector"
@@ -2286,32 +2286,17 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
     `encode`. Needs no session; pairs with `c64 sprite from-png` (image
     input instead of ASCII art) and `c64 sprite show` (the inverse).
     """
-    from .sprites import encode_sheet_blocks, render_sheet
+    from .sprites import encode_sheet_file, render_sheet
+    # Deliberately NOT shared with the MCP twin, unlike the sheet checks below:
+    # each front end spells its own flags (--start-line/--format here,
+    # start_line/fmt there), so the message IS the rule and moving it into the
+    # library would have to pick one spelling and mislead the other's caller.
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
     try:
-        text_in = file.read_text()
-    except (OSError, ValueError) as e:
-        # UnicodeDecodeError is a ValueError and NOT an OSError, and handing
-        # the encoder a .prg or a .png where the sheet goes is an ordinary
-        # slip — the same shape `audio report` was fixed for. Outside a try
-        # it was a traceback over an empty `--json` stdout.
-        fail(ctx, f"cannot read sprite sheet {file}: {e}")
-        return
-    if not text_in.strip():
-        fail(ctx, f"no sprite art found in {file}")
-        return
-    try:
-        blocks = encode_sheet_blocks(text_in, multicolor=not hires,
-                                     background=background)
-    except ValueError as e:
-        fail(ctx, str(e))
-        return
-    if not blocks:
-        fail(ctx, f"no sprite art found in {file}")
-        return
-    try:
+        blocks = encode_sheet_file(file, multicolor=not hires,
+                                   background=background)
         text = render_sheet(blocks, fmt, multicolor=not hires,
                             start_line=start_line, line_step=line_step)
     except ValueError as e:
@@ -2569,6 +2554,11 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     rests its emulated-time alignment on.
     """
     name = ctx.obj["session"]
+    # Deliberately NOT shared with the MCP twin, unlike the measurement itself:
+    # each front end names its own flags (--peak-hz/--wav here, peak_hz/wav
+    # there), so the message IS the rule and one shared spelling would mislead
+    # the other's caller. Refused before the analysis runs, so a bad call costs
+    # nothing.
     if peak_hz and not wav_path:
         fail(ctx, "audio report --peak-hz needs --wav: a dominant partial is "
                   "a property of the recording, not of the register log")
@@ -2582,12 +2572,7 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
         # an empty `--json` stdout while this line sat outside the handler.
         timing = report_timing_from(log, attach(ctx).model if name else None)
         out = sid_report(log, outdir, wav_path=wav_path, ref_path=ref_path,
-                         timing=timing)
-        if peak_hz:
-            # Imported here for the reason sid_report imports it here: numpy
-            # and Pillow double the startup of every `c64` command.
-            from .sid_analysis import dominant_partial_hz
-            out["peak"] = dominant_partial_hz(wav_path)
+                         timing=timing, peak_hz=peak_hz)
     except (RuntimeError, OSError, ValueError, KeyError) as e:
         fail(ctx, f"audio report: {e}")
         return

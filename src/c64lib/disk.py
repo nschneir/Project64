@@ -423,6 +423,29 @@ def block_read(image: str | Path, track: int, sector: int) -> bytes:
     return data
 
 
+def check_block_write(src: str | Path | None, values,
+                      offset: int | None) -> None:
+    """Exactly one source, and an offset only for a poke — the rule, once.
+
+    Both front ends (`c64 disk block write` and the c64_disk_block_write
+    tool) enforce it and both say it in the CLI's flag names, which is the
+    parity convention for wording. Living here rather than in each of them
+    is what stops the two from drifting apart on a rule they must share.
+
+    `values` is tested for emptiness, not against None: the CLI's VALUES is
+    a click nargs=-1 tuple, so "not given" arrives as `()` and an empty list
+    has to mean no source on both sides. `offset` is the offset the caller
+    was *given*, or None when it was not given at all — the CLI reads
+    click's parameter source to tell an explicit `--offset 0` from an unset
+    one, and only that distinction makes an explicit 0 refusable.
+    """
+    if (src is None) == (not values):
+        raise ValueError("give exactly one of --from FILE or VALUES (bytes to poke)")
+    if src is not None and offset is not None:
+        raise ValueError("--offset applies to a VALUES poke; --from replaces the "
+                         "whole sector, so there is nothing for it to offset")
+
+
 def block_write_file(image: str | Path, track: int, sector: int,
                      src: str | Path) -> None:
     """Overwrite a whole sector from a host file.

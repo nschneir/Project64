@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import NamedTuple
 
 from .basic_tokens import MAX_LINE_NUMBER
@@ -267,6 +268,38 @@ def encode_sheet_blocks(text: str, multicolor: bool = True,
             raise ValueError(f"{where}: {e}") from None
         out.append(EncodedSprite(shape.name, shape.multicolor, data))
     return out
+
+
+def encode_sheet_file(path: str | Path, *, multicolor: bool,
+                      background: str = DEFAULT_BACKGROUND
+                      ) -> list[EncodedSprite]:
+    """Read an authored sheet from disk and encode every block in it.
+
+    The read and both emptiness checks, once: `c64 sprite encode` and the
+    c64_sprite_encode tool had all three each, worded identically, and only
+    the rendering of a failure is the front ends' own half.
+
+    There are two ways to hold no art and one message for both. Whitespace
+    never reaches the parser; a file of nothing but comments reaches it and
+    parses to no blocks at all, which the first check cannot see.
+
+    Everything raises ValueError naming `path`. `read_text` on a .prg or a
+    .png raises UnicodeDecodeError — which IS a ValueError and is NOT an
+    OSError, exactly the trap both front ends once leaked a traceback
+    through — and whose own message is a byte offset and a codec: true, and
+    no help in saying which of the paths in the call was the wrong one.
+    """
+    try:
+        text = Path(path).read_text()
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read sprite sheet {path}: {e}") from None
+    if not text.strip():
+        raise ValueError(f"no sprite art found in {path}")
+    blocks = encode_sheet_blocks(text, multicolor=multicolor,
+                                 background=background)
+    if not blocks:
+        raise ValueError(f"no sprite art found in {path}")
+    return blocks
 
 
 def encode_sheet(text: str, multicolor: bool = True,

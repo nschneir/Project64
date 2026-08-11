@@ -28,12 +28,14 @@ from .cart_build import build_easyflash
 from .cartridge import CartError, cart_dump, cart_info, cart_verify, run_cartconv
 from .disasm import disassemble
 from .disk import (
+    BLOCK_SIZE,
     block_bytes,
     block_poke,
     block_read,
     block_write_file,
     build_disk,
     cbm_lookup_name,
+    check_block_write,
     create_image,
     delete_file,
     get_file,
@@ -1014,19 +1016,13 @@ def c64_disk_block_write(image: str, track: int, sector: int,
     Wrong-sized whole-sector writes and pokes running off the end of a sector
     are rejected — c1541 accepts both silently. `offset` defaults to 0.
     Needs no session."""
-    # `not values` (not `values is None`) mirrors the CLI's bool(values) on a
-    # click nargs=-1 tuple: an empty VALUES list is no source at all, so
-    # values=[] alone is refused and src + values=[] is a plain --from write.
-    if (src is None) == (not values):
-        raise ValueError("give exactly one of --from FILE or VALUES (bytes to poke)")
-    if src is not None and offset is not None:
-        # None (not 0) is what tells an explicit --offset 0 from an unset one,
-        # the way the CLI's parameter source does.
-        raise ValueError("--offset applies to a VALUES poke; --from replaces the "
-                         "whole sector, so there is nothing for it to offset")
+    # Shared with the CLI, which is where the two messages get their flag
+    # names: `offset=None` means "not given", the way the CLI's click
+    # parameter source does, and an empty `values` list is no source at all.
+    check_block_write(src, values, offset)
     if src is not None:
         block_write_file(Path(image), track, sector, Path(src))
-        written, at = 256, 0
+        written, at = BLOCK_SIZE, 0
     else:
         at = offset or 0
         # Size the write from the coerced bytes, not from `values`: the guard
@@ -1262,16 +1258,16 @@ def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
     Returns each block's bytes and name plus a paste-ready rendering (fmt
     "asm" ca65 .byte rows, or "basic" data lines that start_line
     numbers)."""
-    from .sprites import encode_sheet_blocks, render_sheet
+    from .sprites import encode_sheet_file, render_sheet
+    # Deliberately NOT shared with the CLI twin, unlike the sheet checks below:
+    # each front end spells its own flags (start_line/fmt here,
+    # --start-line/--format there), so the message IS the rule and moving it
+    # into the library would have to pick one spelling and mislead the other's
+    # caller.
     if start_line is not None and fmt != "basic":
         raise ValueError("start_line only applies to fmt='basic'")
-    text_in = _read_sheet(file, "sprite sheet")
-    if not text_in.strip():
-        raise ValueError(f"no sprite art found in {file}")
-    blocks = encode_sheet_blocks(text_in, multicolor=not hires,
-                                 background=background)
-    if not blocks:
-        raise ValueError(f"no sprite art found in {file}")
+    blocks = encode_sheet_file(file, multicolor=not hires,
+                               background=background)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it fmt/start_line would be no-ops here. The CLI omits
     # it from --json only because it prints the same text itself.
@@ -1401,19 +1397,17 @@ def c64_sid_report(log: str, outdir: str, wav: str | None = None,
     whole file with DC excluded, so it is a bin centre and `resolution_cents`
     names how precise that answer is.
     """
+    # Deliberately NOT shared with the CLI twin, unlike the measurement itself:
+    # each front end names its own flags (peak_hz/wav here, --peak-hz/--wav
+    # there), so the message IS the rule and one shared spelling would mislead
+    # the other's caller. Refused before the analysis runs, so a bad call costs
+    # nothing.
     if peak_hz and not wav:
         raise ValueError("peak_hz needs wav: a dominant partial is a property "
                          "of the recording, not of the register log")
     timing = report_timing_from(log, _attach(session).model if session else None)
-    out = sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing)
-    # `and wav` re-states what the guard above already refused, and narrows
-    # `wav` to str for the call that needs a path.
-    if peak_hz and wav:
-        # Imported here for the reason c64_audio_score imports it here: the
-        # module brings numpy and Pillow.
-        from .sid_analysis import dominant_partial_hz
-        out["peak"] = dominant_partial_hz(wav)
-    return out
+    return sid_report(log, outdir, wav_path=wav, ref_path=ref, timing=timing,
+                      peak_hz=peak_hz)
 
 
 @srv.tool()
