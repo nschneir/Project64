@@ -65,6 +65,7 @@ from .ops import (
     profile_routine_samples,
     reboot_with_cart,
     run_until,
+    runnable_ext,
     session_labels,
     session_ref,
     split_mem_condition,
@@ -1012,7 +1013,14 @@ def run_cmd(ctx, source, areas):
     unexpected.
     """
     src = source.resolve()
-    ext = src.suffix.lower()
+    # The extension first: a source nothing here can run is the caller's real
+    # problem, and reporting the flag rule below instead invites dropping the
+    # flag and trying the same unrunnable file again.
+    try:
+        ext = runnable_ext(src)
+    except ValueError as e:
+        fail(ctx, str(e))
+        return
     # Before the session is touched: --area rewrites the linker config that
     # only an assembled .s goes through, and a cartridge brings its own memory
     # map. Rejected rather than ignored, in `c64 package`'s words. It stays in
@@ -2040,6 +2048,9 @@ def _emit_test_results(ctx, results) -> None:
     for r in results:
         lines.append(f"{'PASS' if r.passed else 'FAIL'}  {r.name}  "
                      f"({r.machine}, {r.elapsed}s)")
+        # Above the steps, where they happened: a waived staleness guard is
+        # about the artifact the whole run used, not about any one step.
+        lines.extend(f"  warning: {w}" for w in r.warnings)
         for st in r.steps:
             lines.append(f"  {'ok  ' if st.ok else 'FAIL'} step {st.index} "
                          f"{st.kind}: {st.detail}")
@@ -2054,16 +2065,24 @@ def _emit_test_results(ctx, results) -> None:
 
 @test_.command("run")
 @click.argument("yaml_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--allow-stale", is_flag=True,
+              help="Run even when the artifact is older than the .lbl it takes "
+                   "symbols from, warning instead of stopping.")
 @click.pass_context
-def test_run(ctx, yaml_file):
+def test_run(ctx, yaml_file, allow_stale):
     """Run one YAML test file (format documented in docs/cli.md).
 
     Boots its own fresh headless+warp session, loads the program, then runs
     the wait/key/poke/until/call/assert steps fail-fast. Exit 1 if it fails.
+
+    `--allow-stale` waives the staleness stop (a `disk:` image older than its
+    sibling `.lbl`, a `program:` `.prg` newer than its own) and reports what it
+    let through as a warning — for the case the mtimes are lying, which a
+    `cp -r` without `-p` is enough to arrange.
     """
     try:
         spec = load_test(yaml_file)
-        result = run_test(spec)
+        result = run_test(spec, allow_stale=allow_stale)
     except (TestError, KeyError, BasicError, BuildError, SessionError) as e:
         fail(ctx, str(e), extra={"passed": False, "tests": []})
         return

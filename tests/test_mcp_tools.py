@@ -381,8 +381,24 @@ def test_run_areas_outside_assembly_is_an_error(tmp_path):
         S.attach.return_value = s
         err, out = call_tool("c64_run", {"source": str(prg),
                                          "areas": ["ENGINE=$4000:$6000"]})
-    # same wording as the CLI's: both front ends say it one way
-    assert err is True and "--area applies to assembly sources only" in out["raw"]
+    # the CLI's wording with the CLI's flag name swapped for this front end's
+    # parameter: an MCP caller cannot type `--area` and has nothing to drop.
+    assert err is True and "areas applies to assembly sources only" in out["raw"]
+    assert "--area" not in out["raw"]
+    mon.autostart.assert_not_called()
+
+
+def test_run_reports_the_unsupported_extension_before_the_areas_rule(tmp_path):
+    """The CLI's ordering: the file it cannot run, not the flag it cannot
+    apply — which would invite dropping `areas` and trying the same file again."""
+    s, mon = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_run", {"source": str(tmp_path / "x.txt"),
+                                         "areas": ["ENGINE=$4000:$6000"]})
+    assert err is True and "don't know how to run '.txt'" in out["raw"]
+    assert "areas applies" not in out["raw"]
+    S.attach.assert_not_called()
     mon.autostart.assert_not_called()
 
 
@@ -546,9 +562,10 @@ def test_test_run_and_programs(tmp_path):
     result.passed = True
     result.to_dict.return_value = {"passed": True}
     with patch("c64lib.mcp_server.load_test", return_value={"name": "t"}), \
-         patch("c64lib.mcp_server.run_test", return_value=result):
+         patch("c64lib.mcp_server.run_test", return_value=result) as rt:
         err, out = call_tool("c64_test_run", {"yaml_file": "t.yaml"})
     assert err is False and out == {"passed": True}
+    rt.assert_called_once_with({"name": "t"}, allow_stale=False)
 
     d = tmp_path / "prog1"
     d.mkdir()
@@ -558,6 +575,22 @@ def test_test_run_and_programs(tmp_path):
         err, out = call_tool("c64_test_programs", {"directory": str(tmp_path)})
     assert err is False and out["passed"] is True and len(out["tests"]) == 1
     pt.assert_called_once_with(d)
+
+
+def test_test_run_forwards_allow_stale(tmp_path):
+    """The CLI's `--allow-stale` as a tool parameter — lockstep, and the only
+    way past a false-positive staleness stop from this front end."""
+    result = Mock()
+    result.to_dict.return_value = {"passed": True,
+                                  "warnings": ["staleness allowed: …"]}
+    with patch("c64lib.mcp_server.load_test", return_value={"name": "t"}), \
+         patch("c64lib.mcp_server.run_test", return_value=result) as rt:
+        err, out = call_tool("c64_test_run", {"yaml_file": "t.yaml",
+                                             "allow_stale": True})
+    assert err is False
+    rt.assert_called_once_with({"name": "t"}, allow_stale=True)
+    # the waiver is reported, not swallowed: same key the CLI's --json carries
+    assert out["warnings"] == ["staleness allowed: …"]
 
 
 def test_basic_check_returns_the_cli_payload(tmp_path):

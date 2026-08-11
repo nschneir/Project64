@@ -940,6 +940,12 @@ an area rewrites, and a cartridge brings its own memory map. A malformed area
 is rejected before ca65 runs, naming the flag you typed. See `c64 build` for
 what an area costs in file size.
 
+An extension nothing here can run is reported *first*, ahead of that rule:
+`c64 run notes.txt --area 'FOO=$4000:$100'` answers `don't know how to run
+'.txt' files`, because the file is the problem and dropping the flag would not
+help. `c64_run` says the same, with `areas` in place of `--area` — the
+parameter name that front end actually takes.
+
 ```sh
 c64 run game.s --area 'ENGINE=$4000:$6000'
 ```
@@ -1943,6 +1949,9 @@ Run one declarative YAML test. The runner boots its own fresh session
 reports pass/fail per step — capturing the screen at the point of failure.
 
 - `YAML_FILE` — the test file.
+- `--allow-stale` — run even when the artifact and the label file it takes
+  symbols from disagree by timestamp (see **A disk older than its labels**
+  below), warning instead of stopping.
 
 The format:
 
@@ -2088,7 +2097,11 @@ test run (byte-identical while the sources have not changed, so the working
 tree stays clean, but it is rewritten), and the fresh `<stem>.lbl` is then
 newer than any sibling `<stem>.d64`, so a `disk:` spec pointed at that image
 afterwards stops with the staleness error below until the image is
-repackaged.
+repackaged. That is still true of `demos/la-galaxia` after
+`tools/build.sh --build-only`, and the demo's own spec is unaffected only
+because it builds from `la-galaxia.s` rather than loading the shipped
+`la-galaxia.d64`; for a spec that does load such an image, repackage it or
+pass `--allow-stale`.
 
 `areas:` is `c64 build --area` as a spec key: a list of `NAME=START:SIZE`
 strings that link segments at fixed addresses, for a program that needs one to
@@ -2104,14 +2117,30 @@ areas:
 ```
 
 **A disk older than its labels.** When a `disk:` spec's symbols come from a
-sibling `<image>.lbl` written *after* the image, the run stops before the
-first step: the image predates the symbols, so every address the spec names
-would be resolved against a program the image does not contain, and the
+sibling `<image>.lbl` written *after* the image, the run stops **before the
+emulator starts**: the image predates the symbols, so every address the spec
+names would be resolved against a program the image does not contain, and the
 failure would otherwise arrive as a plausible wrong byte (`mem $414b = 4a !=
 00`). Rebuild the image — `c64 package` or `c64 disk build` — and run again.
 The label copies `c64 disk build` keeps for the image's own entries are never
 judged this way: they are written by the command that wrote the image, so they
 cannot go stale on their own.
+
+A ready-made `.prg` `program:` is judged the same way and in the opposite
+direction: `p.prg is newer than its symbols` when the program was written more
+than two seconds after the `p.lbl` beside it, because a build writes the two
+together (`ld65` finishes the label file microseconds *after* the program, so
+"labels newer" is what success looks like there and says nothing). Rebuild the
+pair, or delete the `.lbl` to run without symbols. A `.bas`/`.s` `program:` is
+built by the run itself and is never judged.
+
+**`--allow-stale`.** Both stops read mtimes, and an mtime is evidence rather
+than proof: `cp -r` without `-p` restamps a whole working tree, so an ordinary
+copy of a consistent pair can be refused with nothing wrong in it. The flag
+runs the spec anyway and reports what it let through — a `warning:` line in the
+text output and a `warnings` list in `--json` (always present, empty when
+nothing was waived). It is on `c64 test run` only, not on `c64 test programs`:
+those specs are the repo's own, where a staleness stop is a real signal.
 
 **Cartridge tests.** A spec sets `cart:` **or** `program:`, never both —
 setting both is an error, because a cartridge boots itself and there is

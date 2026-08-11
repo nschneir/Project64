@@ -1,3 +1,4 @@
+import time
 from itertools import chain, repeat
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -1157,25 +1158,86 @@ def test_areas_without_a_program_names_the_conflict(tmp_path):
     launch.assert_not_called()
 
 
-def test_a_disk_older_than_its_labels_says_the_image_predates_them(tmp_path):
-    """S3: rebuilding the program without repackaging the image leaves the
-    runner resolving fresh symbols against stale bytes, which used to surface
-    as `mem $414b = 4a != 00` — a plausible wrong value with no hint that the
-    artifact, not the program, was at fault."""
+def _stale_disk(tmp_path: Path, img_at: int, lbl_at: int) -> Path:
+    """A `disk:` image and its sibling `.lbl`, stamped to order."""
     import os
 
     img = _d64(tmp_path / "game.d64")
     lbl = tmp_path / "game.lbl"
     lbl.write_text("al 00C000 .entry\n")
-    os.utime(img, (1_700_000_000, 1_700_000_000))
-    os.utime(lbl, (1_700_000_060, 1_700_000_060))
-    s, _ = _fake_session()
+    os.utime(img, (img_at, img_at))
+    os.utime(lbl, (lbl_at, lbl_at))
+    return img
+
+
+def test_stale_disk_labels_are_refused_before_the_emulator_starts(tmp_path):
+    """S3: rebuilding the program without repackaging the image leaves the
+    runner resolving fresh symbols against stale bytes, which used to surface
+    as `mem $414b = 4a != 00` — a plausible wrong value with no hint that the
+    artifact, not the program, was at fault.
+
+    Two mtimes and a path are all the comparison reads, so the refusal owes the
+    caller no emulator boot and no 45-second READY. gate to say no."""
+    img = _stale_disk(tmp_path, 1_700_000_000, 1_700_000_060)
+    launch = Mock()
+    spec = _spec(disk=str(img), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with pytest.raises(TestError, match="predates"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+
+
+def test_allow_stale_runs_the_spec_and_warns(tmp_path):
+    """mtimes are not always the truth: `cp -r` without `-p` restamps a whole
+    working tree, so an ordinary copy can look stale with nothing wrong in it.
+    The override runs the spec and names what it let through — a guard waived in
+    silence is one nobody notices they waived."""
+    img = _stale_disk(tmp_path, 1_700_000_000, 1_700_000_060)
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
     spec = _spec(disk=str(img), dir=str(tmp_path),
                  steps=[{"assert": {"mem": "entry", "equals": 7}}])
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
-         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")), \
-         pytest.raises(TestError, match="predates"):
-        run_test(spec, launch=Mock(return_value=s))
+         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")):
+        result = run_test(spec, launch=Mock(return_value=s), allow_stale=True)
+    assert result.passed is True
+    assert len(result.warnings) == 1
+    assert "game.d64" in result.warnings[0] and "game.lbl" in result.warnings[0]
+    # the same warning a --json/MCP caller reads, not a CLI-only console line
+    assert result.to_dict()["warnings"] == result.warnings
+
+
+def test_equal_mtimes_are_not_stale(tmp_path):
+    """The `lbl_at <= img_at` boundary: `c64 package` writes the image and
+    copies the label file beside it in the same breath, so equal timestamps are
+    the ordinary successful build, not a stale artifact."""
+    img = _stale_disk(tmp_path, 1_700_000_000, 1_700_000_000)
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(disk=str(img), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing._wait_screen", return_value=(True, "READY.")):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True and result.warnings == []
+
+
+def test_stale_message_names_both_timestamps_and_the_remedy(tmp_path):
+    """The actionable half of the message. `predates` alone satisfies every
+    other staleness test here, so without this an edit can drop the timestamps
+    that show which artifact is behind and the command that rebuilds it."""
+    img = _stale_disk(tmp_path, 1_700_000_000, 1_700_000_060)
+    spec = _spec(disk=str(img), dir=str(tmp_path))
+    with pytest.raises(TestError) as exc:
+        run_test(spec, launch=Mock())
+    msg = str(exc.value)
+    when = "%Y-%m-%d %H:%M:%S"
+    assert time.strftime(when, time.localtime(1_700_000_000)) in msg
+    assert time.strftime(when, time.localtime(1_700_000_060)) in msg
+    assert "c64 package <source> -o game.d64" in msg
+    assert "c64 disk build" in msg
+    # and the override, or the only way past a false positive is guesswork
+    assert "--allow-stale" in msg and "allow_stale" in msg
 
 
 def test_a_disk_build_label_copy_is_never_called_stale(tmp_path):
@@ -1200,6 +1262,103 @@ def test_a_disk_build_label_copy_is_never_called_stale(tmp_path):
         result = run_test(spec, launch=Mock(return_value=s))
     assert result.passed is True
     assert mon.memory_read.call_args.args[0] == 0xC000
+
+
+def _prg_pair(tmp_path: Path, prg_at: float, lbl_at: float) -> Path:
+    """A ready-made `program:` `.prg` and its sibling `.lbl`, stamped to order."""
+    import os
+
+    prg = tmp_path / "p.prg"
+    prg.write_bytes(b"\x01\x08")
+    lbl = tmp_path / "p.lbl"
+    lbl.write_text("al C:c000 .entry\n")
+    os.utime(prg, (prg_at, prg_at))
+    os.utime(lbl, (lbl_at, lbl_at))
+    return prg
+
+
+def test_prg_program_newer_than_its_labels_is_refused(tmp_path):
+    """The disk guard's failure one artifact down: a `.prg` copied in or rebuilt
+    beside a `.lbl` nobody regenerated resolves every symbol against the program
+    the label file used to describe, and used to do it silently.
+
+    The comparison is the reverse of the disk one because the expected write
+    order is the reverse (see `_reject_stale_prg_labels`), and it is pre-launch
+    for the same reason: it reads two mtimes."""
+    prg = _prg_pair(tmp_path, 1_700_000_060, 1_700_000_000)
+    launch = Mock()
+    spec = _spec(program=str(prg),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with pytest.raises(TestError, match="newer than its symbols"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize("prg_at, lbl_at", [
+    (1_700_000_000.0, 1_700_000_000.0002),   # ld65 -Ln: labels land last
+    (1_700_000_000.0002, 1_700_000_000.0),   # `cp p.lbl p.prg dest/`: reversed
+    (1_700_000_001.5, 1_700_000_000.0),      # inside the same act of writing
+])
+def test_a_prg_and_its_labels_written_together_are_not_stale(
+        tmp_path, prg_at, lbl_at):
+    """The direction's justification and its resolution, pinned. `ld65 -Ln`
+    emits the `.lbl` microseconds *after* the `.prg` it describes, so judging
+    "labels newer than the program" (the `disk:` guard's direction, where the
+    image is what gets written last) would refuse every built program in the
+    repo — and sub-second order the other way is just as meaningless, because
+    one command wrote both files whichever landed first."""
+    prg = _prg_pair(tmp_path, prg_at, lbl_at)
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(program=str(prg),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True and result.warnings == []
+    assert mon.memory_read.call_args.args[0] == 0xC000
+
+
+def test_allow_stale_covers_the_prg_guard_too(tmp_path):
+    """One override for both artifacts: a caller who has decided the mtimes are
+    lying should not have to discover which of the two guards spoke."""
+    prg = _prg_pair(tmp_path, 1_700_000_060, 1_700_000_000)
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(program=str(prg),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s), allow_stale=True)
+    assert result.passed is True
+    assert "p.prg" in result.warnings[0] and "p.lbl" in result.warnings[0]
+
+
+def test_a_built_program_is_never_judged_stale(tmp_path):
+    """A `.bas`/`.s` `program:` is built by the run itself, so its label file is
+    always the newer of the pair and there is nothing to compare — the guard
+    stays off that path rather than tolerating it with a fudge factor."""
+    import os
+
+    from c64lib.build import BuildResult
+
+    src = tmp_path / "g.s"
+    src.write_text("; x\n")
+    prg = tmp_path / "g.prg"
+    prg.write_bytes(b"\x01\x08")
+    lbl = tmp_path / "g.lbl"
+    lbl.write_text("al C:c000 .entry\n")
+    # source newest of the three: the spec is asking for a rebuild
+    os.utime(prg, (1_700_000_000, 1_700_000_000))
+    os.utime(lbl, (1_700_000_060, 1_700_000_060))
+    os.utime(src, (1_700_000_120, 1_700_000_120))
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(program=str(src),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.build_asm",
+               return_value=BuildResult(prg=prg, labels=lbl)):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True and result.warnings == []
 
 
 def test_load_test_keeps_an_areas_list(tmp_path):

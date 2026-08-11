@@ -172,7 +172,7 @@ place the prose can live.
 | Tool | CLI | Divergence |
 |------|-----|------------|
 | `c64_load` | `c64 load` | `--run/--no-run` is the boolean `run` (default true, as on the CLI) |
-| `c64_run` | `c64 run` | — |
+| `c64_run` | `c64 run` | `--area` is `areas` (a list), and the rejection for a non-assembly source names `areas` too — there is no flag here to drop |
 
 ### Disk images
 
@@ -249,7 +249,7 @@ message says as much, and says which of the two things it is reporting.
 
 | Tool | CLI | Divergence |
 |------|-----|------------|
-| `c64_test_run` | `c64 test run` | — |
+| `c64_test_run` | `c64 test run` | `--allow-stale` is the boolean `allow_stale`; what it waives comes back in `warnings` |
 | `c64_test_programs` | `c64 test programs` | — |
 
 ## What the CLI has and the tools do not

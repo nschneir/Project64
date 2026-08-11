@@ -240,6 +240,25 @@ def test_run_rejects_area_where_it_cannot_apply(tmp_path):
     mon.autostart.assert_not_called()
 
 
+def test_run_reports_the_unsupported_extension_before_the_area_rule(tmp_path):
+    """Two things are wrong with `c64 run notes.txt --area FOO=$4000:$100`, and
+    only one of them can be fixed: reporting the flag invites dropping it and
+    trying again on a file that will never run either way."""
+    txt = tmp_path / "notes.txt"
+    txt.write_text("not a program\n")
+    fake, mon = _fake_attached()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "run", str(txt),
+                                      "--area", "FOO=$4000:$100"])
+    assert r.exit_code == 1
+    err = json.loads(r.output)["error"]
+    assert "don't know how to run '.txt'" in err
+    assert "--area" not in err
+    S.attach.assert_not_called()        # and before the session, like --area
+    mon.autostart.assert_not_called()
+
+
 def test_run_bad_area_exits_one_before_assembling(tmp_path):
     src = tmp_path / "g.s"
     src.write_text("; x\n")

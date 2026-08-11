@@ -151,6 +151,18 @@ def test_test_run_documents_where_an_s_program_builds():
         "the docs never connect a source build to the disk staleness stop"
 
 
+def test_test_run_documents_the_staleness_override():
+    """A guard with no documented escape gets worked around instead of used:
+    `cp -r` without `-p` restamps a tree, and the stop is mtime-based."""
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert "--allow-stale" in section, "the staleness override is undocumented"
+    assert "warns" in section or "warning" in section, \
+        "the docs never say the override reports what it let through"
+    assert "newer than its symbols" in section, \
+        "the `.prg` half of the staleness stop is undocumented"
+
+
 def test_profile_documents_samples_and_why_one_arrival_lies():
     """`--samples` is only worth reaching for if the docs say what a single
     arrival gets wrong: a per-frame cost that spikes on a repaint every few
