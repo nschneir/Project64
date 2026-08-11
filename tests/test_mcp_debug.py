@@ -136,12 +136,51 @@ def test_wait_break_fires():
 def test_wait_text_timeout_not_error():
     s, mon = _fake()
     with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="running"), \
          patch("c64lib.ops.read_screen_text", return_value="STUCK"), \
          patch("c64lib.ops.time.sleep"):
         S.attach.return_value = s
         err, out = call_tool("c64_wait_text", {"text": "NEVER", "timeout": 0.3})
     assert err is False
     assert out["fired"] is None and "STUCK" in out["screen"]
+    # A machine that ran the whole window genuinely never printed the text;
+    # pointing the client at c64_continue there would be a wrong answer.
+    assert out["machine"] == "running" and "diagnosis" not in out
+
+
+def test_wait_text_timeout_says_the_machine_was_stopped():
+    """CLI/MCP lockstep on the same footgun `c64_wait_mem` already reports: a
+    wait polls the screen and never resumes the CPU, so a machine halted for
+    the whole window could print nothing. The timeout is data here, so the
+    `diagnosis` key is the only place that prose can live."""
+    s, _ = _fake()
+    timed_out = {"fired": None, "timeout": 0.3, "screen": "READY."}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="stopped"), \
+         patch("c64lib.mcp_server.wait_for_text", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_text", {"text": "NEVER", "timeout": 0.3})
+    assert err is False, out
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["diagnosis"]
+    assert "c64_continue" in out["diagnosis"], "no way out is named"
+
+
+def test_wait_idle_timeout_says_the_machine_was_stopped():
+    """The other half of the lockstep. A stopped machine cannot reach direct
+    mode and is not wedged, so "running" here would point the client at the
+    wedge hunt (disassemble the loop, step it) on a PC that cannot move."""
+    s, _ = _fake()
+    timed_out = {"fired": None, "timeout": 0.3, "last_pcs": [0x033C, 0x033C]}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="stopped"), \
+         patch("c64lib.mcp_server.wait_for_idle", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_idle", {"timeout": 0.3})
+    assert err is False, out
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["diagnosis"]
+    assert "c64_continue" in out["diagnosis"], "no way out is named"
 
 
 def test_wait_text_since_forwarded():

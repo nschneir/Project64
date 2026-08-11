@@ -508,17 +508,53 @@ def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
     return {**_stopped_regs(s, out["registers"]), "count": count}
 
 
+def _wait_verdict(s, before: str, out: dict, effect: str, polls: str) -> dict:
+    """Stamp a timed-out wait with where the machine was, and what that means.
+
+    Sampled either side of the wait — `before` from ahead of the call, the
+    second sample taken here: one sample cannot support "stopped the whole
+    time", and a machine stopped only at the end was running for part of the
+    window. machine_state never raises and answers from the daemon's own
+    bookkeeping, so the second sample costs no emulator traffic.
+
+    Shared by the three polling wait tools so they cannot drift: only the
+    effect ("the byte could not change") and what the wait polls differ.
+    """
+    if out.get("fired"):
+        return out
+    stopped = before == "stopped" == machine_state(s)
+    out["machine"] = "stopped" if stopped else "running"
+    if stopped:
+        out["diagnosis"] = (
+            f"the machine was STOPPED for the whole wait, so {effect}: a wait "
+            f"polls {polls}, it never resumes the CPU. Something before this "
+            "stopped it (c64_until, c64_step, c64_finish, or a checkpoint "
+            "hit). Call c64_continue first, or c64_wait_break if you meant to "
+            "run to a checkpoint.")
+    return out
+
+
 @srv.tool()
 def c64_wait_text(text: str, timeout: float = 30.0, since: bool = False,
                   session: str | None = None) -> dict:
     """Block until TEXT appears on the screen. A timeout returns
-    {"fired": null, "screen": ...} (not an error) so you can inspect what
-    the program actually displayed.
+    {"fired": null, "screen": ..., "machine": ...} (not an error) so you can
+    inspect what the program actually displayed.
+
+    The timeout says where the machine was: "machine": "stopped" plus a
+    `diagnosis` string means it was halted for the whole window, so nothing
+    could be printed — a wait polls the screen, it never resumes the CPU, so
+    call c64_continue first. "machine": "running" means the text genuinely
+    never appeared.
+
     since=True fires only on an occurrence appearing after the call starts —
     use it when a real gap separates the trigger from the appearance; an
     instant reply can print before the call samples its baseline, so for
     turn-by-turn prompts anchor a cell with c64_wait_mem instead."""
-    return wait_for_text(_attach(session), text, timeout, since=since)
+    s = _attach(session)
+    before = machine_state(s)
+    out = wait_for_text(s, text, timeout, since=since)
+    return _wait_verdict(s, before, out, "nothing could be printed", "the screen")
 
 
 @srv.tool()
@@ -539,22 +575,9 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     arrived.
     """
     s = _attach(session)
-    # Sampled either side of the wait: one sample cannot support "stopped the
-    # whole time", and a machine stopped only at the end was running for part
-    # of the window. Same reasoning, and same wording, as `c64 wait --mem`.
     before = machine_state(s)
     out = wait_for_mem(s, session_ref(s, addr), parse_number(equals), timeout, op=op)
-    if not out.get("fired"):
-        stopped = before == "stopped" == machine_state(s)
-        out["machine"] = "stopped" if stopped else "running"
-        if stopped:
-            out["diagnosis"] = (
-                "the machine was STOPPED for the whole wait, so the byte "
-                "could not change: a wait polls memory, it never resumes the "
-                "CPU. Something before this stopped it (c64_until, c64_step, "
-                "c64_finish, or a checkpoint hit). Call c64_continue first, "
-                "or c64_wait_break if you meant to run to a checkpoint.")
-    return out
+    return _wait_verdict(s, before, out, "the byte could not change", "memory")
 
 
 @srv.tool()
@@ -568,14 +591,18 @@ def c64_wait_idle(timeout: float = 30.0, session: str | None = None) -> dict:
     this: the reset banner already says READY and matches instantly.
 
     A timeout is data, not an error: {"fired": null, "machine": "running",
-    "last_pcs": [...]} means the machine never reached direct mode in the
-    whole window — still running, or wedged, with the PCs naming the loop
-    (feed one to c64_rom_disasm). Caveat: a program blocked on INPUT/GET
-    sits in the same KERNAL routine and reads as idle."""
-    out = wait_for_idle(_attach(session), timeout)
-    if not out.get("fired"):
-        out["machine"] = "running"
-    return out
+    "last_pcs": [...]} means the machine ran the whole window without ever
+    reaching direct mode — still running, or wedged, with the PCs naming the
+    loop (feed one to c64_rom_disasm). "machine": "stopped" plus a
+    `diagnosis` string means the opposite: it was halted the whole time, so it
+    could not reach direct mode and is not wedged — call c64_continue rather
+    than hunting the loop. Caveat: a program blocked on INPUT/GET sits in the
+    same KERNAL routine and reads as idle."""
+    s = _attach(session)
+    before = machine_state(s)
+    out = wait_for_idle(s, timeout)
+    return _wait_verdict(s, before, out,
+                         "the program could not reach direct mode", "the PC")
 
 
 @srv.tool()
@@ -653,6 +680,10 @@ def c64_wait_break(timeout: float = 30.0, session: str | None = None,
     if out.get("fired"):
         out["pc_symbol"] = pc_symbol(session_labels(s), out.pop("registers"))
     else:
+        # Deliberately not _wait_verdict: this is the one wait that RESUMES
+        # the machine (and resumes it again on the timeout path), so "running"
+        # is a true claim and no window exists that "stopped the whole time"
+        # could describe.
         out["machine"] = "running"
     return out
 

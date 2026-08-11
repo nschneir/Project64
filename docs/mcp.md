@@ -46,9 +46,9 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
   is the text the command would have printed on its way to exit 1. A wait that
   times out is the case where the two sides genuinely differ: the CLI exits 1,
   while all four `c64_wait_*` tools return `{"fired": null, ...}` as data —
-  carrying the last screen, the last PCs, or `"machine": "running"` where
-  those apply — so a client can inspect what the program actually did instead
-  of parsing an error string.
+  carrying the last screen or the last PCs where those apply, and always
+  `"machine"`, where the machine was — so a client can inspect what the
+  program actually did instead of parsing an error string.
 - **The stopped-state rule is identical.** `c64_step`, `c64_finish`,
   `c64_until`, and a fired `c64_wait_break` leave the machine halted until
   `c64_continue` or an explicitly-resuming tool, across as many calls as you
@@ -127,20 +127,29 @@ One command with four mutually exclusive condition flags becomes four tools,
 each taking its own condition. On all four, a timeout returns
 `{"fired": null, ...}` rather than exiting 1.
 
-`c64_wait_mem` says **where the machine was** when it timed out, the way the
-CLI's `--mem` timeout does: `"machine": "stopped"` plus a `diagnosis` string
-means it was halted for the whole window — after a `c64_until`, `c64_step`,
-`c64_finish` or a checkpoint hit — so the byte could not change and
-`c64_continue` is the way out. `"machine": "running"` means the value
-genuinely never arrived. It is sampled either side of the wait, because one
-sample cannot support "stopped the whole time".
+`c64_wait_text`, `c64_wait_mem` and `c64_wait_idle` say **where the machine
+was** when they timed out, the way the CLI's timeouts do: `"machine":
+"stopped"` plus a `diagnosis` string means it was halted for the whole window
+— after a `c64_until`, `c64_step`, `c64_finish` or a checkpoint hit — so
+nothing could print, no byte could change and no program could reach direct
+mode, and `c64_continue` is the way out. `"machine": "running"` means the
+condition genuinely never fired. It is sampled either side of the wait,
+because one sample cannot support "stopped the whole time". `c64_wait_break`
+always reports `"running"`: it is the one wait that resumes the machine
+itself, so there is no such window to describe.
 
 | Tool | CLI | Divergence |
 |------|-----|------------|
-| `c64_wait_text` | `c64 wait --text` | — |
-| `c64_wait_mem` | `c64 wait --mem` | the `ADDR<op>VALUE` string is split into `addr`, `op`, and `equals` |
+| `c64_wait_text` | `c64 wait --text` | `diagnosis` is MCP-only (see below) |
+| `c64_wait_mem` | `c64 wait --mem` | the `ADDR<op>VALUE` string is split into `addr`, `op`, and `equals`; `diagnosis` is MCP-only (see below) |
 | `c64_wait_break` | `c64 wait --break` | `--break ID` is `checkpoint_id` |
-| `c64_wait_idle` | `c64 wait --idle` | — |
+| `c64_wait_idle` | `c64 wait --idle` | `diagnosis` is MCP-only (see below) |
+
+`diagnosis` has no CLI `--json` counterpart by design, not by omission. The
+CLI reports a timeout through its error path, and that `error` string already
+carries the same prose, so a separate key would print the sentence twice in
+one payload. These tools return a timeout as data, where the key is the only
+place the prose can live.
 
 ### Building and packaging
 

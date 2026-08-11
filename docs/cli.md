@@ -657,24 +657,30 @@ Exactly one of `--text`/`--mem`/`--break`/`--idle` is required. JSON on fire:
 "checkpoint", "pc", "pc_symbol", "elapsed"}`. Exit 1 on timeout (the error
 carries the last screen for `--text`).
 
-On timeout `c64 wait` exits 1 and the machine is **left running**;
-checkpoints you set remain set (JSON gains `"machine": "running"`).
+On timeout `c64 wait` exits 1 and checkpoints you set remain set; the JSON
+says **where the machine was** (`"machine": "running"` or `"stopped"`).
+`--break` always reports `"running"`, because it resumes the machine itself.
 
-One timeout is not that. A `--mem` wait issued on a machine that is
-**stopped** — after a `c64 until`, a `step`, a `finish`, or a checkpoint hit
-— polls a byte no running CPU is writing, so it can only burn the full
-timeout and report the value it started with. `c64 wait --mem` therefore
-samples the machine's state either side of the wait, and when it was stopped
-for the whole window the error says so and points at `c64 continue`
-(JSON gains `"machine": "stopped"` instead). This is the repo's
-most-repeated footgun; the message is what stops it costing two minutes and
-a false "the program is stuck" diagnosis.
+The other three only poll, and that is the footgun. A `--text`, `--mem` or
+`--idle` wait issued on a machine that is **stopped** — after a `c64 until`,
+a `step`, a `finish`, or a checkpoint hit — polls a screen, a byte or a PC no
+running CPU is changing, so it can only burn the full timeout and report what
+it started with. All three therefore sample the machine's state either side of
+the wait, and when it was stopped for the whole window the error says so and
+points at `c64 continue` (JSON gains `"machine": "stopped"` instead). This is
+the repo's most-repeated footgun; the message is what stops it costing two
+minutes and a false "the program is stuck" diagnosis. Two samples, because a
+machine stopped only at the end was running for part of the window and the
+condition genuinely never fired.
 
-A `--idle` timeout is the **wedge detector**: the machine ran the whole
-window without ever reaching direct mode, so it is still running or stuck in
-a loop. The error says so and carries the PCs it last saw — feed one to
-`c64 disasm` — and points at the wedged-machine playbook in the
-`6502-debugging` skill, which takes it apart in three steps.
+A `--idle` timeout on a machine that was **running** is the **wedge
+detector**: it ran the whole window without ever reaching direct mode, so it
+is still working or stuck in a loop. The error says so and carries the PCs it
+last saw — feed one to `c64 disasm` — and points at the wedged-machine
+playbook in the `6502-debugging` skill, which takes it apart in three steps.
+On a machine that was stopped throughout, that playbook is the wrong advice
+(its recipe watches a PC that cannot move), so the stopped diagnosis replaces
+it rather than joining it.
 
 ---
 

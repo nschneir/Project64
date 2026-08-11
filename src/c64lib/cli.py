@@ -1367,6 +1367,18 @@ def profile_cmd(ctx, ref, samples, with_irq, timeout):
     emit(ctx, payload, human)
 
 
+def _stopped_wait_detail(effect: str, polls: str) -> str:
+    """The `wait` timeout clause for a machine that was halted the whole
+    window. Shared by --text/--mem/--idle so the three cannot drift: only the
+    effect ("the byte could not change") and what the wait polls differ, and
+    the remedy is the same one in every case."""
+    return (f" — the machine was STOPPED for the whole wait, so {effect}: a "
+            f"wait polls {polls}, it never resumes the CPU. Something before "
+            "this stopped it (`c64 until`, `step`, `finish`, or a checkpoint "
+            "hit). Run `c64 continue` first, or use `c64 wait --break` if you "
+            "meant to run to a checkpoint.")
+
+
 @main.command("wait")
 @click.option("--text", "text_cond", default=None, help="Wait for screen text.")
 @click.option("--mem", "mem_cond", default=None,
@@ -1409,19 +1421,29 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
     labels = session_labels(s)
 
     if idle_cond:
+        # Sampled either side of the wait, for the reason spelled out at
+        # --mem below: one sample cannot support "stopped the whole time".
+        before = machine_state(s)
         out = wait_for_idle(s, timeout)
         if out["fired"]:
             emit(ctx, {"fired": "idle", "elapsed": out["elapsed"]},
                  "machine idle: the program has finished or errored")
             return
         pcs = " ".join(f"${pc:04x}" for pc in out["last_pcs"])
+        stopped = before == "stopped" == machine_state(s)
+        # A stopped machine is not a wedge, so here the diagnosis REPLACES the
+        # playbook instead of joining it: the playbook has the reader sample
+        # `reg` a second apart and then `step`, on a PC that cannot move.
+        detail = (_stopped_wait_detail("the program could not reach direct mode",
+                                       "the PC") if stopped else
+                  " — it never reached direct mode, and may be wedged. Take it "
+                  "apart with the wedged-machine playbook in the "
+                  "`6502-debugging` skill: sample `c64 reg` a second apart, "
+                  "`c64 disasm <PC-8> 24` the loop body, then `c64 step` "
+                  "watching for the register that never changes.")
         fail(ctx, f"timeout after {timeout}s waiting for the machine to go "
-                  f"idle — it never reached direct mode, and may be wedged "
-                  f"(PC last seen at {pcs}). Take it apart with the wedged-machine "
-                  "playbook in the `6502-debugging` skill: sample `c64 reg` "
-                  "a second apart, `c64 disasm <PC-8> 24` the loop body, then "
-                  "`c64 step` watching for the register that never changes.",
-             extra={"machine": "running"})
+                  f"idle (PC last seen at {pcs}){detail}",
+             extra={"machine": "stopped" if stopped else "running"})
         return
 
     if break_cond:
@@ -1432,6 +1454,10 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
             return
         out = wait_for_break(s, timeout, number=number)
         if not out.get("fired"):
+            # Deliberately keeps the unconditional claim: this is the one wait
+            # that RESUMES the machine (and resumes it again on the timeout
+            # path), so "running" is true and there is no window a "stopped
+            # the whole time" diagnosis could describe.
             fail(ctx, f"timeout: no checkpoint hit within {timeout}s — machine "
                       "left running; your checkpoints remain set.",
                  extra={"machine": "running"})
@@ -1443,13 +1469,21 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         return
 
     if text_cond:
+        # Sampled either side of the wait, for the reason spelled out at
+        # --mem below: one sample cannot support "stopped the whole time".
+        before = machine_state(s)
         out = wait_for_text(s, text_cond, timeout, since=since)
         if out["fired"]:
             emit(ctx, {"fired": "text", "elapsed": out["elapsed"]}, "text condition met")
             return
+        stopped = before == "stopped" == machine_state(s)
+        # Ahead of the screen dump: the diagnosis is why the timeout happened,
+        # and 25 lines of screen between it and the reader buries it.
+        detail = ("" if not stopped else
+                  _stopped_wait_detail("nothing could be printed", "the screen"))
         fail(ctx, f"timeout after {timeout}s waiting for --text {text_cond}"
-                  f"; last screen:\n{out['screen']}",
-             extra={"machine": "running"})
+                  f"{detail}\nlast screen:\n{out['screen']}",
+             extra={"machine": "stopped" if stopped else "running"})
         return
 
     try:
@@ -1476,11 +1510,7 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         return
     stopped = before == "stopped" == machine_state(s)
     detail = ("" if not stopped else
-              " — the machine was STOPPED for the whole wait, so the byte "
-              "could not change: a wait polls memory, it never resumes the "
-              "CPU. Something before this stopped it (`c64 until`, `step`, "
-              "`finish`, or a checkpoint hit). Run `c64 continue` first, or "
-              "use `c64 wait --break` if you meant to run to a checkpoint.")
+              _stopped_wait_detail("the byte could not change", "memory"))
     fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}"
               f" (last value {out['last_value']}){detail}",
          extra={"machine": "stopped" if stopped else "running"})

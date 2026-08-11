@@ -332,11 +332,13 @@ Three of those four halting commands *also resume first*: `until`, `step` and
 arrival is passive. That is why an extra `c64 continue` before one of them
 costs you a hit.
 
-**`c64 wait --text` and `c64 wait --mem` poll; they do not resume.** They are
-the two that are purely passive, which makes them the trap: issue one after
+**`c64 wait --text`, `--mem` and `--idle` poll; they do not resume.** They are
+the three that are purely passive, which makes them the trap: issue one after
 `until`, `step`, `finish` or a `wait --break` that fired and it polls a
-machine that is not executing, so the value it is waiting for can never
-arrive and the only outcome is the timeout. Resume first with `c64 continue`,
+machine that is not executing, so the condition it is waiting for can never
+fire and the only outcome is the timeout — one that says the machine was
+stopped throughout and points at `c64 continue`, rather than leaving you to
+diagnose a program that never ran. Resume first with `c64 continue`,
 or — better, when you want the frame count to stay deterministic — step the
 state out on the frame anchor with `c64 until <label> --count N`, which
 resumes and re-parks in one command. **The same is true inside a spec:** in
