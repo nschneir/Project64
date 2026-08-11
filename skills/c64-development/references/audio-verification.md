@@ -275,6 +275,23 @@ is exempt, but an extra *sounding* note is a diff by design — so a score that
 stops eight notes into a window holding twelve fails on the last four. Count
 what the window holds and list exactly that many events.
 
+**And the window's contents have to be under your control.** Counting what
+the window holds only helps if you decide what it holds — a score is a claim
+about *every voice for every frame*, not about the music, so anything else in
+the program that can gate a voice is in the score whether you meant it or
+not. La Galaxia's first play score was captured over ordinary gameplay, so
+alongside the melody it scored the enemies' dive whines and the collisions
+the game raised on its own. It passed on the run it was written from and
+failed on the next one, when an edit to the wave tables moved the enemies:
+the same effects fired on different frames, and nothing about the music had
+changed. **The fix is to take the other sounds out of the window, not into
+the score** — clear the enemy state (and anything else that can seize a
+voice) immediately before the capture opens, so the only thing gating a voice
+during the window is the thing you are claiming about. Stage the window the
+way you stage a screenshot; a score over a window you do not control is a
+test that fails on the next unrelated change, and a re-scored one just moves
+the failure to the change after that.
+
 Both edges are where a first fully-durationed attempt fails, and neither is a
 reason to do what the next paragraph forbids. In the Project64 repo,
 `tests/data/arpeggio-score.yaml` is this shape in miniature: an undurationed
@@ -353,6 +370,62 @@ making on purpose:
 
 Both are correct players. The choice belongs in the player, and the score
 follows it — so decide which one you are writing before you write either.
+
+#### Generate the score: model the player one frame at a time
+
+Hand-counting is fine for the four rows above. For a whole tune it is not,
+and the arithmetic that looks obvious — rows × frames-per-row, one entry per
+notated note — is wrong for the reason the worked example just gave: what the
+player does at a note boundary happens inside the frame grid, and the score
+describes that grid, not the sheet. The rule is constructive, and it is two
+steps:
+
+1. **Model the player one frame at a time.** Walk your own sequencer data and
+   emit one entry per frame — the note name a once-per-frame sampler would
+   read on that frame, or `rest` — *including* the frames the player spends
+   with the gate down.
+2. **Run-length encode that list.** Collapse consecutive equal entries into
+   one `{note, frames}`, and that is the score.
+
+It works because it is the same algorithm the transcriber runs from the other
+side: it also reads one sample per frame and merges equal neighbours (see
+*What divides one entry from the next*, above). Two models of the same grid
+agree by construction. This is **not** the forbidden move of pasting a
+transcription back in as the score — the input is your note table, not the
+capture, so a player that gates the wrong voice, drops a row, or indexes the
+wrong note still fails the diff.
+
+Skipping the model costs a capture to rediscover. La Galaxia's first
+generator walked rows and multiplied: every note came out one frame too long and no
+leading rest was listed anywhere, because the gate-down frame a retrigger
+costs exists in the frame grid and not in the row data.
+
+`demos/la-galaxia/tools/genmusic.py` is the worked example. `per_frame()` is
+the model — rows in, one entry per frame out:
+
+```python
+for entry in part:                    # one entry per row
+    if entry == NOTE_OFF:
+        gate = False
+    elif entry != NOTE_HOLD:          # a new note: this row retriggers
+        cur, gate, trig = entry, True, True
+    for _ in range(ROWTICKS):         # the row's frames, one at a time
+        if cur is None or not gate:
+            out.append("rest")
+        elif trig:
+            trig = False
+            out.append("rest")        # the gate-down frame the retrigger costs
+        else:
+            out.append(cur)
+```
+
+and `events()` is the run-length encoder over its output — six lines that
+turn the pattern tables into the YAML. Two details there are worth copying.
+The model takes the voice's **state on entry to the window** (the note it is
+already holding, and whether that note is gated), which is what makes a score
+starting mid-phrase come out right; and it takes an **overlay** of the frames
+where a sound effect owns the voice, so the score says what the chip did
+rather than what the music alone would have done.
 
 To check that the table entry behind `E4` really is E4, run the register
 through the frequency formula — `hz = reg16 * clock / 2**24` — with *your

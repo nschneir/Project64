@@ -218,3 +218,48 @@ def test_every_demo_directory_is_listed():
     listed = set(_md_roster(DEMOS_README.read_text()))
     assert listed == dirs, \
         f"demos/README.md lists {sorted(listed)}; demos/ holds {sorted(dirs)}"
+
+
+# --- generated art stays generated ----------------------------------------
+
+LG = DEMOS_DIR / "la-galaxia"
+#: The one invocation `tools/genart.sh` makes for the sprite sheet. Kept here
+#: as data so a change to the script's flags fails this test rather than
+#: silently re-encoding the demo's art with a different legend.
+LG_SPRITE_BACKGROUND = "."
+
+
+def _inc_bytes(path: Path) -> list[int]:
+    """The `%01010101` payload of a generated `.inc`, labels and comments off."""
+    text = re.sub(r";[^\n]*", "", path.read_text())
+    return [int(b, 2) for b in re.findall(r"%([01]{8})", text)]
+
+
+def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
+    """`sprites.inc` is generated from `tools/sprites.txt`, and nothing pinned
+    that until now: the committed include had drifted a whole block out of
+    date — block 5 held a *hires* sixth fighter where `sprites.s`'s manifest
+    (`SPR_CAPTIVE = SPRBLK + 5`, "multicolour from here down") and the sheet
+    both say the multicolour captive belongs, so the game drew the wrong art
+    through the multicolour bit. A generated file with no regeneration test is
+    a file that can disagree with its source forever; this is that test."""
+    from c64lib.sprites import encode_sheet_blocks
+
+    sheet = (LG / "tools" / "sprites.txt").read_text()
+    blocks = encode_sheet_blocks(sheet, multicolor=True,
+                                 background=LG_SPRITE_BACKGROUND)
+    expected = [b for block in blocks for b in block.data]
+    got = _inc_bytes(LG / "sprites.inc")
+    assert got == expected, (
+        "demos/la-galaxia/sprites.inc no longer matches tools/sprites.txt — "
+        "re-run `sh demos/la-galaxia/tools/genart.sh` (and rebuild "
+        "la-galaxia.prg / la-galaxia.d64, which carry the art)"
+    )
+    # The drift was a *mode* drift as much as a byte drift, and the split is
+    # what sprites.s promises: five hires shapes, then multicolour all the way
+    # down, because `installsprites` sets $D01C once and never per band.
+    manifest = (LG / "sprites.s").read_text()
+    assert "SPR_CAPTIVE = SPRBLK + 5" in manifest, \
+        "sprites.s no longer puts the captive at block 5"
+    assert [b.multicolor for b in blocks] == [False] * 5 + [True] * 16, \
+        "the sheet's hires/multicolour split moved away from sprites.s's"

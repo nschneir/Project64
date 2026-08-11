@@ -39,8 +39,12 @@ c64 package demos/la-galaxia/la-galaxia.s -o demos/la-galaxia/la-galaxia.d64 \
 
 The `--area` is not optional: the engine is linked at `$4000` so the whole of
 `$2000-$3FFF` can be sprite shapes and character set, and the fill below it is
-what blanks that region before startup writes the art into it. `c64 run` does
-not accept the flag, which is why `tools/build.sh` exists.
+what blanks that region before startup writes the art into it. `c64 run` and
+a `test.yaml` both take it now — `c64 run demos/la-galaxia/la-galaxia.s
+--area 'ENGINE=$4000:$6000'` builds and runs the game in one command, and the
+regression spec assembles the same way through its `areas:` key — so
+`tools/build.sh` is the debugging cycle (load with symbols, nothing running
+yet) rather than the only way in.
 
 **Controls.** `A` and `D` move, `SPACE` fires. `SPACE` also starts a
 one-player game and `X` starts two. Input is read three ways and folded into
@@ -89,8 +93,8 @@ them, and does.
 | `title.s` | the attract screen and the hidden stage-select keys |
 | `sound.s` | three SID voices, priority-claimed, every write shadowed |
 | `text.inc` | every string, as screen codes |
-| `test.yaml` | the deterministic regression spec: `c64 test run demos/la-galaxia/test.yaml` |
-| `tools/build.sh` | build with `--area` and load with symbols — the cycle `c64 run` cannot do |
+| `test.yaml` | the deterministic regression spec: `c64 test run demos/la-galaxia/test.yaml` — assembled from source on every run through its `areas:` key |
+| `tools/build.sh` | build with `--area` and load with symbols: the debugging cycle, where nothing is running yet |
 | `tools/charset.txt` `punct.txt` `glyphs.txt` | ASCII-art glyph sheets → `chars.inc` |
 | `tools/enemies.txt` + `genblocks.py` | 16×16 enemy pictures split into the 8×8 quadrants the screen matrix needs |
 | `tools/sprites.txt` | every sprite shape, named and commented, read as authored by `c64 sprite encode --background .` |

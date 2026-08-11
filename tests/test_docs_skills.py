@@ -141,6 +141,52 @@ def test_audio_says_durations_drift():
     assert "jiffy" in text and "omitting `frames` is a legitimate score" in text
 
 
+#: The generator the reference cites as its worked example. Named here so a
+#: rename has to fix the reference too, instead of leaving it pointing at a
+#: file that no longer exists.
+GENMUSIC = Path("demos/la-galaxia/tools/genmusic.py")
+
+
+def test_audio_gives_the_constructive_rule_for_a_generated_score():
+    """The reference had the retrigger *fact* (a gate dropped across a frame
+    boundary costs a 1-frame rest the score has to list) and no recipe, so
+    this demo's generator walked its rows and multiplied: every note a frame
+    too long, no leading rests. The rule is model the player one frame at a
+    time and run-length encode that — the transcriber's own algorithm."""
+    text = AUDIO_REF.read_text()
+    section = text[text.index("#### Generate the score"):
+                   text.index("To check that the table entry behind")]
+    assert "one frame at a time" in section
+    assert "Run-length encode" in section
+    assert "not the forbidden move" in section or "not** the forbidden" in section, \
+        "generating from the note table must be distinguished from " \
+        "pasting the transcription back in as the score"
+    # The worked example has to be a real function in a file that ships.
+    assert str(GENMUSIC.as_posix()) in section, "the worked example is unnamed"
+    assert GENMUSIC.exists(), f"{GENMUSIC} is cited and does not exist"
+    src = GENMUSIC.read_text()
+    for func in ("per_frame", "events"):
+        assert f"def {func}(" in src, \
+            f"the reference cites {func}(), which {GENMUSIC} no longer defines"
+
+
+def test_audio_warns_a_score_is_hostage_to_its_window():
+    """"Score the window, not the phrase" reads as advice about counting. It
+    is also a warning: this demo's first play score included the dive whines
+    and collisions the game raised on its own, passed once, and failed when
+    unrelated edits moved the enemies. The fix was clearing that state before
+    the window, not re-scoring it."""
+    text = AUDIO_REF.read_text()
+    section = text[text.index("**Score the window, not the phrase.**"):
+                   text.index("Both edges are where a first")]
+    assert "under your control" in section
+    assert "every voice for every frame" in section, \
+        "the reason is that a score claims the whole window, not the music"
+    assert "clear the enemy state" in section, \
+        "the fix — take the other sounds out of the window — is unstated"
+    assert "fails on the next unrelated change" in section
+
+
 def test_skill_says_call_ends_the_run():
     """docs/cli.md states plainly that `c64 call` replaces the running
     program's control flow; the skill that recommends `c64 call` did not, and

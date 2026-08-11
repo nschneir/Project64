@@ -8,6 +8,106 @@ commit).
 
 ## [Unreleased]
 
+`c64 key hold` releases the key. `$CB` goes back to 64 after the last held
+frame, `--no-release` (`release=false` over MCP) keeps the old behaviour, and
+the payload says which happened. What makes that a bug rather than a nicety
+is a game that switches the KERNAL keyboard scan off: nothing else ever
+writes 64 back, so an unreleased hold pins the key down for the rest of the
+run, and every hold in La Galaxia's evidence script and its regression spec
+had to be chased with a poke of 64. The release is a plain monitor write with
+no resume, so a completed hold still ends stopped on its anchor exactly as
+before. A *timed-out* hold releases too — that is where it matters most,
+since the usual cause is a mistyped anchor on a perfectly healthy running
+game — and there it pokes and then resumes, which is what keeps the "machine
+left RUNNING" promise honest; the failure message either says `key released
+($CB=64)` or names the byte still held along with the write that clears it.
+
+`c64 profile --samples N` (MCP `c64_profile(samples=N)`) prices N consecutive
+arrivals at a routine and reports min, max and mean. One measurement of a
+routine whose cost depends on its data — a multiplexer band, a collision pass
+over however many objects are alive — is a sample of a distribution reported
+as a fact, and the spread is the answer. At `N = 1` the payload still carries
+`cycles`, so nothing that read the single-shot form breaks, and the
+impossible-measurement guard (a raw count of 0, which no routine can cost)
+still aborts the whole run rather than averaging a fiction. `profile_routine`
+itself is gone, with its tests moved onto the sampling form rather than
+deleted: both front ends call the one entry point now.
+
+`c64 session stop --all` (MCP `c64_session_stop(all=true)`) stops every
+session in the registry and returns the names it stopped — the one command
+for the emulators an interrupted run leaves behind, which until now had to be
+hunted with `pgrep` and killed by hand. It reads the registry records
+directly rather than through the loader that prunes them, because the pruning
+loader drops a session whose process is already gone *before* anything can
+clean up after it, and reaping means the socket file, the respawn counter and
+the audio pin as well as the record. One stubborn session does not strand the
+rest: the errors are collected and raised once, naming what was stopped and
+what was not. `c64 session start` also says on stderr how many sessions were
+already up, printed before the launch attempt so it explains the failure in
+the very case where the name is already taken.
+
+Three operational failures that escaped as tracebacks now exit 1 through
+`fail()` with a parseable `--json` error object, which is the same bug three
+times and worth naming as a class: an operational failure is exactly as
+likely as the operation, so every path that can raise has to be inside the
+handler. `c64 profile` let a daemon-side `ValueError` through, because the
+narrowed old-daemon fallback made that a second exception type the command
+had never caught; `c64 session start` read the registry for its new count
+*above* the `try`, so a truncated or older-format record — which `launch`
+itself has always reported cleanly — escaped instead; and `c64 audio report`
+turned an undecodable log into a traceback.
+
+The sheet encoders went a step further than the per-block modes below. A
+**sprite** sheet takes `name:` headers carrying their own mode
+(`fighter:hires`, `captured:multicolor`), `#` comment lines, and
+`--background CHAR`: a visible character for the transparent pair, so a
+shape's edges can be counted instead of being trailing spaces an editor may
+or may not have kept. Because `.` is pair 01 by default, the multicolour
+legend also gained `1`/`2`/`3` for pairs 01/10/11 — the digit is the pair
+value, exactly how `charset` already spells it — so `--background .` turns a
+sprite sheet's legend into a charset sheet's and every pair stays spellable.
+A header with no art rows is rejected where it used to be dropped in silence,
+errors name the block, and `--json` carries a `blocks` array of names and
+modes. `c64 charset encode --label NAME` names the emitted block, which is
+the other half of the same job; both reach MCP with the same spellings, and
+one header parser now serves both encoders. La Galaxia's own converter,
+`tools/gensprites.py`, is deleted: its 21 shapes took two invocations over
+two generated intermediate files and take one over the authored sheet now,
+byte-identical across the change.
+
+La Galaxia's regression spec builds from source. It named the packaged `.d64`
+because that was the only route to symbols for a program that needs `--area`
+to link at all; with `areas:` on a spec it assembles `la-galaxia.s` on every
+run, which also takes the ~13 s of serial load out of the gate — 35 s end to
+end, and nothing that can go stale between the symbols and the bytes they are
+read against. Regenerating the demo's art closed the other half of that:
+`sprites.inc` had drifted a whole block out of date, holding a sixth *hires*
+fighter at block 5 where the sheet and `sprites.s`'s own manifest
+(`SPR_CAPTIVE = SPRBLK + 5`, "multicolour from here down") both say the
+multicolour captive belongs — so the game drew a hires bitmap through the
+multicolour bit. Regenerated, rebuilt, repackaged, and pinned: a test
+re-encodes `tools/sprites.txt` and compares it against the committed include,
+because a generated file with no regeneration test can disagree with its
+source forever.
+
+And `audio-verification.md` gains the two things this demo's score work cost
+most. **Generating a score is constructive**: model the player one frame at a
+time — one entry per frame, including the gate-down frame a retrigger costs —
+and run-length encode that. It is the transcriber's own algorithm, so the two
+agree by construction, and it is not the forbidden move of pasting a
+transcription back in as the score, because the input is the note table;
+`demos/la-galaxia/tools/genmusic.py`'s `per_frame()` is the worked example.
+The reference had the retrigger *fact* and no recipe, and this demo's first
+generator walked its rows and multiplied: every note a frame too long, no
+leading rests, one whole capture to find out. **A reference score is hostage
+to its window**: it claims every voice for every frame, so the dive whines
+and the collisions the game raised on its own were in the score too; it
+passed on the run it was written from and failed on the next one, when an
+unrelated edit moved the enemies and the same effects landed on different
+frames. The fix is to take the other sounds out of the window — clear the
+state that can seize a voice before the capture opens — rather than to
+re-score them.
+
 A `--mem` wait that times out now says **where the machine was**. Issued after
 a `c64 until` — or a `step`, a `finish`, a fired checkpoint — a wait polls a
 byte no running CPU is writing, so it can only burn its whole timeout and hand
