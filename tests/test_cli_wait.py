@@ -248,6 +248,10 @@ def test_wait_text_timeout_says_the_machine_was_stopped():
     assert out["machine"] == "stopped"
     assert "STOPPED for the whole wait" in out["error"]
     assert "c64 continue" in out["error"]
+    # `docs/mcp.md` documents `diagnosis` as MCP-only by design: the CLI's
+    # timeout is an error, so the prose lives in `error` and a second key
+    # carrying it would be the divergence going quietly away.
+    assert "diagnosis" not in out
 
 
 def test_wait_idle_timeout_says_the_machine_was_stopped():
@@ -270,6 +274,8 @@ def test_wait_idle_timeout_says_the_machine_was_stopped():
     assert "c64 continue" in out["error"]
     assert "6502-debugging" not in out["error"], \
         "a stopped machine is not a wedge; the playbook is the wrong advice"
+    assert "diagnosis" not in out, \
+        "`docs/mcp.md` documents `diagnosis` as MCP-only: here it is the error"
 
 
 @pytest.mark.parametrize("states", [["running", "stopped"], ["stopped", "running"]])

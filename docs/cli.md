@@ -659,7 +659,11 @@ carries the last screen for `--text`).
 
 On timeout `c64 wait` exits 1 and checkpoints you set remain set; the JSON
 says **where the machine was** (`"machine": "running"` or `"stopped"`).
-`--break` always reports `"running"`, because it resumes the machine itself.
+`"stopped"` is the claim that carries weight — it takes two samples, both
+stopped — so read `"running"` as *not provably stopped for the whole window*:
+a session with no daemon socket cannot be asked, and that unknown reads as
+`"running"` too. `--break` always reports `"running"`, because it resumes the
+machine itself.
 
 The other three only poll, and that is the footgun. A `--text`, `--mem` or
 `--idle` wait issued on a machine that is **stopped** — after a `c64 until`,

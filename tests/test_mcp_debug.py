@@ -365,9 +365,13 @@ def test_wait_idle_timeout_is_data_not_an_error():
     s, mon = _fake()
     mon.registers.return_value = {"PC": 0x033C}
     with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="running"), \
          patch("c64lib.ops.time.sleep"):
         S.attach.return_value = s
         err, out = call_tool("c64_wait_idle", {"timeout": 0.3})
     assert err is False
     assert out["fired"] is None and 0x033C in out["last_pcs"]
-    assert out["machine"] == "running"
+    # Patched, because an unpatched Mock session makes `machine_state` return a
+    # Mock: it compares unequal to "stopped" and "running" falls out however
+    # the arm is wired. Same pin as `test_wait_text_timeout_not_error`.
+    assert out["machine"] == "running" and "diagnosis" not in out

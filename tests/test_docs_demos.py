@@ -220,9 +220,14 @@ def test_graphics_policy_requires_program_side_high_water_marks():
 def test_every_audio_evidence_script_captures_strictly():
     """`docs/cli.md` names these scripts as the callers `c64 audio capture
     --strict` exists for, and an evidence run reads its success from an exit
-    code: a window that recorded nothing scores PASS by default, so without the
-    flag reports proving nothing come back green under `set -e`. Every
-    invocation, not every script — one un-adopted branch is a green run."""
+    code. The flag is the second line of defence here, not the first: all ten
+    capture calls the two scripts make pass `--ref` today and every score lists
+    sounding notes, so a silent window already diffs each scored entry as
+    "heard nothing", FAILs and exits 1 without the flag. What it covers is the
+    day that stops holding — a score regenerated to nothing, or a window that
+    loses its `--ref`, where the reference-free reading of an empty capture is
+    PASS and exit 0. Every invocation, not every script: a single capture that
+    drops the flag is the one that can come back green proving nothing."""
     for demo in ("la-galaxia", "ms-muncher"):
         script = DEMOS_DIR / demo / "tools" / "audio-evidence.sh"
         # Logical lines, not physical ones: a capture whose flags moved onto a
