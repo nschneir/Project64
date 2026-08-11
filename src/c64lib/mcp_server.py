@@ -44,9 +44,12 @@ from .disk import (
 )
 from .machines import get_profile
 from .ops import (
+    all_labels,
+    attach_boot_labels,
     call_routine,
     clear_checkpoints,
     disk_labels_path,
+    easyflash_state,
     find_bytes,
     key_hold,
     key_type,
@@ -70,7 +73,7 @@ from .ops import (
 )
 from .packaging import package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
-from .romdoc import identify, rom_labels
+from .romdoc import identify
 from .screen import (
     number_screen_text,
     read_screen_codes,
@@ -127,14 +130,7 @@ def c64_session_start(model: str = "c64", name: str | None = None,
     # client is an automation, not someone watching a window.
     s = Session.launch(model=model, name=name, headless=True, warp=True,
                        disk8=disk, cart=cart)
-    lbl = None
-    if cart:
-        c = Path(cart).with_suffix(".lbl")
-        lbl = c if c.exists() else None       # a cartridge owns the boot
-    elif disk:
-        lbl = disk_labels_path(disk)
-    if lbl is not None:
-        s.set_labels_path(str(lbl))
+    lbl = attach_boot_labels(s, cart=cart, disk=disk)
     return {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
             "symbols": str(lbl) if lbl else None}
 
@@ -315,7 +311,7 @@ def c64_reg_get(session: str | None = None) -> dict:
             regs = mon.registers()
         finally:
             mon.release()
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     return {"registers": regs, "pc_symbol": pc_symbol(labels, regs),
             "pc_region": pc_region(regs.get("PC")), "state": machine_state(s)}
 
@@ -784,7 +780,8 @@ def c64_run(source: str, session: str | None = None,
 def c64_load(prg: str, run: bool = True, symbols: str | None = None,
              session: str | None = None) -> dict:
     """Load a .prg via autostart (optionally without RUN); optionally
-    register a VICE label file for symbolic debugging."""
+    register a VICE label file for symbolic debugging. Both paths are echoed
+    back resolved — the absolute path the session is actually holding."""
     s = _attach(session)
     p = Path(prg).resolve()
     with s.monitor() as mon:
@@ -792,10 +789,12 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
             mon.autostart(p, run=run)
         finally:
             mon.resume()
-    if symbols:
-        s.set_labels_path(str(Path(symbols).resolve()))
+    lbl = Path(symbols).resolve() if symbols else None
+    if lbl:
+        s.set_labels_path(str(lbl))
     s.record_loaded(p, [p])
-    return {"loaded": str(p), "run": run, "symbols": symbols}
+    return {"loaded": str(p), "run": run,
+            "symbols": str(lbl) if lbl else None}
 
 
 @srv.tool()
@@ -929,10 +928,11 @@ def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
 
 
 @srv.tool()
-def c64_disk_get(image: str, name: str, dest: str) -> dict:
-    """Copy a file off a disk image to the host."""
+def c64_disk_get(image: str, name: str, dest: str | None = None) -> dict:
+    """Copy a file off a disk image to the host. dest defaults to NAME.prg in
+    the working directory, the same file `c64 disk get` writes."""
     return {"image": str(Path(image)), "name": name,
-            "dest": str(get_file(Path(image), name, Path(dest)))}
+            "dest": str(get_file(Path(image), name, dest))}
 
 
 @srv.tool()
@@ -1115,18 +1115,7 @@ def c64_cart_bank(session: str | None = None) -> dict:
     bank register ($DE00), the mode register ($DE02), and the decoded memory
     mode. Combine with a store watchpoint on $DE00 to trace paging. VICE lets
     these write-only registers be read back; treat it as a debugging aid."""
-    s = _attach(session)
-    with s.monitor() as mon:
-        try:
-            regs = mon.memory_read(0xDE00, 3)
-        finally:
-            mon.release()          # an inspection command: never resume a halt
-    bank_reg, mode_reg = regs[0], regs[2]
-    return {"bank": bank_reg, "de00": f"${bank_reg:02X}",
-            "de02": f"${mode_reg:02X}",
-            "mode": {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}.get(
-                mode_reg, "unknown"),
-            "led": bool(mode_reg & 0x80)}
+    return easyflash_state(_attach(session))
 
 
 @srv.tool()
@@ -1160,7 +1149,7 @@ def c64_rom_disasm(start: str, length: int = 32,
     """Disassemble live memory with ROM + session symbol annotations.
     start accepts $hex/0xhex/decimal or a symbol (e.g. CHROUT)."""
     s = _attach(session)
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     addr = session_ref(s, start, labels)
     with s.monitor() as mon:
         try:

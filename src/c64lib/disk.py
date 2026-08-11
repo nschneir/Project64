@@ -268,8 +268,14 @@ def put_file(image: str | Path, src: str | Path, name: str | None = None) -> str
     return cbm_name
 
 
-def get_file(image: str | Path, name: str, dest: str | Path) -> Path:
-    """Read NAME off IMAGE into DEST. Returns DEST.
+def get_file(image: str | Path, name: str, dest: str | Path | None = None) -> Path:
+    """Read NAME off IMAGE into DEST, defaulting to `NAME.prg`. Returns DEST.
+
+    The default lives here rather than in a front end so `c64 disk get` and
+    c64_disk_get cannot drift over where a file lands. It is built from NAME
+    as GIVEN — before cbm_lookup_name cases it for the lookup — so a caller
+    asking for `ALPHA` still gets `ALPHA.prg` on the host, spelled the way
+    they typed it.
 
     NAME goes through cbm_lookup_name for the same reason the write paths do.
     Measured: `c1541 img -read 'zed,alpha' out` exits 0 and returns *zed* — the
@@ -284,8 +290,8 @@ def get_file(image: str | Path, name: str, dest: str | Path) -> Path:
     `-read '*'` fetches the first directory entry (measured), which is how a
     disk's autostart program is pulled back off an image.
     """
+    dest = Path(dest) if dest is not None else Path(f"{name}.prg")
     name = cbm_lookup_name(name)
-    dest = Path(dest)
     _run([str(image), "-read", name, str(dest)])
     if not dest.exists():
         raise DiskError(f"c1541 reported success but {dest} was not written")

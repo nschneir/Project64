@@ -172,7 +172,7 @@ sample cannot support "stopped the whole time".
 | `c64_disk_create` | `c64 disk create` | `--id` is `disk_id` |
 | `c64_disk_ls` | `c64 disk ls` | — |
 | `c64_disk_put` | `c64 disk put` | — |
-| `c64_disk_get` | `c64 disk get` | `dest` is required; the CLI's `DEST` is optional, defaulting to `NAME.prg` |
+| `c64_disk_get` | `c64 disk get` | — |
 | `c64_disk_boot` | `c64 disk boot` | — |
 | `c64_disk_rename` | `c64 disk rename` | — |
 | `c64_disk_rm` | `c64 disk rm` | also covers the alias `c64 disk delete` |

@@ -120,6 +120,35 @@ def test_cart_bank_reads_the_registers_and_releases():
     mon.resume.assert_not_called()
 
 
+def test_cart_bank_payload_matches_the_cli():
+    """A regression pin, not a reproduction: the two front ends already agree.
+
+    Both decoded $DE00/$DE02 with their own copy of the same literal mode
+    table, so agreement was a coincidence maintained by hand. It is one
+    library function now (`ops.easyflash_state`), and this holds the payloads
+    together if either front end starts embellishing again.
+    """
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+    regs = bytes([0x07, 0x00, 0x86])          # 8k mode, LED on
+    cli_s, cli_mon = _fake_session()
+    cli_mon.memory_read.return_value = regs
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = cli_s
+        r = CliRunner().invoke(main, ["--json", "cart", "bank"])
+    assert r.exit_code == 0, r.output
+    cli_payload = json.loads(r.output)
+    mcp_s, mcp_mon = _fake_session()
+    mcp_mon.memory_read.return_value = regs
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = mcp_s
+        mcp_payload = mcp_server.c64_cart_bank()
+    assert mcp_payload == {"bank": 7, "de00": "$07", "de02": "$86",
+                           "mode": "8k", "led": True}
+    assert mcp_payload == cli_payload
+
+
 # --- run a .crt -------------------------------------------------------------
 
 def test_run_a_crt_reboots_the_session_with_it_attached(crt):

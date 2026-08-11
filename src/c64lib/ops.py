@@ -14,8 +14,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .build import RESERVED_AREA_NAMES, Area
+from .cartridge import EF_MODES
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
+from .romdoc import rom_labels
 from .screen import read_screen_text, screen_base
 from .sprites import SpriteState, read_sprite_block, read_sprite_states
 from .symbols import load_labels, nearest, resolve
@@ -270,6 +272,19 @@ def session_labels(s) -> dict[str, int]:
     return {}
 
 
+def all_labels(session) -> dict[str, int]:
+    """The full symbol table for a session: ROM labels first, session labels
+    on top.
+
+    The order is the contract. A PC parked in the KERNAL is named even with no
+    label file, which is the case you are in when a run has fallen off the
+    rails; and a program's own label for an address it shares with the ROM
+    wins, because that is the name its author is reading. This is the lookup
+    `reg`/`c64_reg_get` and `rom disasm`/`c64_rom_disasm` build.
+    """
+    return {**rom_labels(session.profile.basic_version), **session_labels(session)}
+
+
 def session_ref(session, ref, labels: dict[str, int] | None = None) -> int:
     """parse_ref with the session's screen geometry so @row,col works —
     against the LIVE screen base (relocation-aware). `labels=None` reads
@@ -309,6 +324,26 @@ def disk_labels_path(image) -> Path | None:
         if cand.exists():
             return cand
     return None
+
+
+def attach_boot_labels(session, cart=None, disk=None) -> Path | None:
+    """Register the labels a freshly booted session implies, and return them.
+
+    A cartridge's sibling `.lbl` wins outright, and a cartridge with no label
+    file registers nothing: a cartridge owns the boot, so the disk in the
+    drive is not what the machine is running. Otherwise the disk image's
+    implied labels (see disk_labels_path). None means "no symbols" — nothing
+    was registered, and the session keeps whatever it had.
+    """
+    lbl = None
+    if cart:
+        c = Path(cart).with_suffix(".lbl")
+        lbl = c if c.exists() else None       # a cartridge owns the boot
+    elif disk:
+        lbl = disk_labels_path(disk)
+    if lbl is not None:
+        session.set_labels_path(str(lbl))
+    return lbl
 
 
 def pc_symbol(labels: dict[str, int], regs: dict[str, int]) -> str | None:
@@ -996,6 +1031,25 @@ def sprite_shape(session, index: int, block: str | None = None
         finally:
             mon.release()
     return data, st, shared, addr
+
+
+def easyflash_state(session) -> dict:
+    """The live EasyFlash paging state: bank register ($DE00), mode register
+    ($DE02) and the decoded memory mode, plus the LED bit.
+
+    VICE lets these registers be read back; on real EasyFlash hardware they
+    are write-only, so this is a debugging aid, not a program interface.
+    """
+    with session.monitor() as mon:
+        try:
+            regs = mon.memory_read(0xDE00, 3)
+        finally:
+            mon.release()          # an inspection read: never resume a halt
+    bank_reg, mode_reg = regs[0], regs[2]
+    return {"bank": bank_reg, "de00": f"${bank_reg:02X}",
+            "de02": f"${mode_reg:02X}",
+            "mode": EF_MODES.get(mode_reg, "unknown"),
+            "led": bool(mode_reg & 0x80)}
 
 
 def machine_state(session) -> str:

@@ -47,9 +47,12 @@ from .disk import (
 from .machines import get_profile
 from .monitor import MonitorError
 from .ops import (
+    all_labels,
+    attach_boot_labels,
     call_routine,
     clear_checkpoints,
     disk_labels_path,
+    easyflash_state,
     find_bytes,
     machine_state,
     parse_areas,
@@ -80,7 +83,7 @@ from .ops import (
 )
 from .packaging import PackageError, package_program
 from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
-from .romdoc import identify, rom_labels
+from .romdoc import identify
 from .screen import (
     TEXT_ENCODINGS,
     number_screen_text,
@@ -294,14 +297,7 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     except (SessionError, DiskError, KeyError) as e:
         fail(ctx, str(e))
         return
-    lbl = None
-    if cart:
-        c = Path(cart).with_suffix(".lbl")
-        lbl = c if c.exists() else None       # a cartridge owns the boot
-    elif disk8:
-        lbl = disk_labels_path(disk8)
-    if lbl is not None:
-        s.set_labels_path(str(lbl))
+    lbl = attach_boot_labels(s, cart=cart, disk=disk8)
     emit(ctx, {"name": s.name, "model": s.model, "pid": s.pid, "port": s.port,
                "symbols": str(lbl) if lbl else None},
          f"started {s.model} session {s.name!r} (pid {s.pid}, monitor port {s.port})")
@@ -693,10 +689,7 @@ def reg(ctx) -> None:
             regs = mon.registers()
         finally:
             mon.release()
-    # ROM labels first, session labels on top: a PC parked in the KERNAL is
-    # named even with no label file, which is the case you are in when a run
-    # has fallen off the rails. Same lookup `rom disasm` builds.
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     sym = _pc_symbol(labels, regs)
     region = pc_region(regs.get("PC"))
     human = "  ".join(f"{k}={v:04x}" for k, v in sorted(regs.items()))
@@ -1590,9 +1583,8 @@ def disk_get(ctx, image, name, dest):
 
     Offline; no session.
     """
-    dest = dest or Path(f"{name}.prg")
     try:
-        out = get_file(image, name, dest)
+        out = get_file(image, name, dest)   # get_file defaults DEST to NAME.prg
     except DiskError as e:
         fail(ctx, str(e))
         return
@@ -1912,19 +1904,10 @@ def cart_bank(ctx):
     VICE lets these registers be read back; on real EasyFlash hardware they
     are write-only, so treat this as a debugging aid, not a program interface.
     """
-    s = attach(ctx)
-    with s.monitor() as mon:
-        try:
-            regs = mon.memory_read(0xDE00, 3)
-        finally:
-            mon.release()          # an inspection command: never resume a halt
-    bank_reg, mode_reg = regs[0], regs[2]
-    mode = {0x87: "16k", 0x86: "8k", 0x84: "ultimax"}.get(mode_reg, "unknown")
-    emit(ctx, {"bank": bank_reg, "de00": f"${bank_reg:02X}",
-               "de02": f"${mode_reg:02X}", "mode": mode,
-               "led": bool(mode_reg & 0x80)},
-         f"bank {bank_reg}  $DE00=${bank_reg:02X}  $DE02=${mode_reg:02X}  "
-         f"mode {mode}")
+    state = easyflash_state(attach(ctx))
+    emit(ctx, state,
+         f"bank {state['bank']}  $DE00={state['de00']}  "
+         f"$DE02={state['de02']}  mode {state['mode']}")
 
 
 @cart.command("convert")
@@ -1989,7 +1972,7 @@ def rom_disasm(ctx, start, length):
     file. Does not disturb run/stop state.
     """
     s = attach(ctx)
-    labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
+    labels = all_labels(s)
     addr = resolve_ref(ctx, labels, start, session=s)
     n = parse_count(ctx, length, "LENGTH")
     with s.monitor() as mon:
