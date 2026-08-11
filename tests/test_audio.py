@@ -2234,6 +2234,26 @@ def test_cli_audio_report_reports_a_log_it_cannot_decode(tmp_path):
     assert error.startswith("audio report:") and "decode" in error
 
 
+def test_cli_audio_report_reports_a_machine_it_does_not_have(tmp_path):
+    """The other half of the clock lookup. An unreadable log falls back to
+    the default clock, but a NAMED model is an override and must not — and
+    `get_profile` raises KeyError on a machine this build has no profile
+    for, which an older or hand-edited session record is enough to produce.
+    With the lookup outside the command's try that was a traceback over an
+    empty `--json` stdout, on the same `-s NAME` a working report uses."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 4)
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = Mock(model="c65")
+        r = CliRunner().invoke(main, ["--json", "-s", "bogus", "audio",
+                                      "report", str(log),
+                                      str(tmp_path / "out")])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.output)["error"]
+    assert error.startswith("audio report:") and "c65" in error, \
+        "the error never names the machine profile it could not find"
+
+
 def test_cli_audio_report_reads_the_clock_the_log_was_stamped_with(tmp_path):
     """The re-score path: no session left to name, and the log's own stamp
     is what keeps it from being read as PAL."""

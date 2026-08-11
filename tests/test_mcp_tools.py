@@ -731,3 +731,18 @@ def test_audio_score_reports_a_voice_the_sid_does_not_have(tmp_path):
     err, out = call_tool("c64_audio_score", {"file": str(path)})
     assert err is True
     assert "voice 4" in str(out)
+
+
+@pytest.mark.parametrize("tool,what", [("c64_sprite_encode", "sprite sheet"),
+                                       ("c64_charset_encode", "charset sheet")])
+def test_encoders_report_a_file_they_cannot_decode(tmp_path, tool, what):
+    """CLI/MCP lockstep on the message. FastMCP already turns any raise into
+    a tool error, so this side never had the CLI's traceback — but a raw
+    `UnicodeDecodeError` says only which byte offset failed, and a caller
+    that handed a .prg to an ASCII-art encoder needs to be told which of the
+    paths it passed was the wrong one."""
+    binary = tmp_path / "blob.bin"
+    binary.write_bytes(bytes(range(256)))
+    err, out = call_tool(tool, {"file": str(binary)})
+    assert err is True
+    assert f"cannot read {what} {binary}" in str(out)

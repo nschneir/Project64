@@ -375,3 +375,16 @@ def test_sprite_encode_unknown_mode_is_a_clean_error(tmp_path):
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
     assert r.exit_code == 1, r.output
     assert "unknown mode 'mono'" in json.loads(r.output)["error"]
+
+
+def test_sprite_encode_reports_a_file_it_cannot_decode(tmp_path):
+    """The sprite twin of the charset case: `read_text` sat outside any try,
+    so a binary file where the sheet goes was a traceback over an empty
+    `--json` stdout instead of an exit-1 error object."""
+    binary = tmp_path / "sprites.bin"
+    binary.write_bytes(bytes(range(256)))
+    r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(binary)])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.stdout)["error"]
+    assert str(binary) in error and "decode" in error, \
+        "the error never names the file it could not read"

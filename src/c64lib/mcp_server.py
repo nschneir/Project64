@@ -89,6 +89,22 @@ def _attach(session: str | None = None) -> Session:
     return Session.attach(session)
 
 
+def _read_sheet(file: str, what: str) -> str:
+    """An authored ASCII-art sheet, read with the file named in any failure.
+
+    Lockstep with the CLI's encoders, which name the file for the same
+    reason: `read_text` on a .prg or a .png raises `UnicodeDecodeError`,
+    whose own message is a byte offset and a codec — true, and no help in
+    saying which of the paths in the call was the wrong one.
+    """
+    try:
+        return Path(file).read_text()
+    except (OSError, ValueError) as e:
+        # UnicodeDecodeError is a ValueError and NOT an OSError; catching
+        # only OSError here is exactly how the CLI twin leaked a traceback.
+        raise ValueError(f"cannot read {what} {file}: {e}") from None
+
+
 def _ref(s, ref, labels=None):
     """parse_ref with the session's screen geometry so @row,col works —
     against the LIVE screen base (relocation-aware)."""
@@ -147,8 +163,9 @@ def c64_session_stop(name: str | None = None, all: bool = False) -> dict:
     """Stop a running C64 session (the only one if name is omitted), or every
     session at once with all=true — the cleanup for a run that left emulators
     behind, including any whose process is already gone. `stopped` is the
-    session name, or the list of names for all=true. Naming a session and
-    asking for all is an error."""
+    session name, or the list of names for all=true. A registry record too
+    corrupt to read is discarded and reported as an error, since nothing can
+    be stopped for it. Naming a session and asking for all is an error."""
     # `all` shadows the builtin, deliberately: the parameter is this tool's
     # public API and CLI/MCP lockstep is worth more here than the name — it
     # is `c64 session stop --all`. The builtin is unused in this function.
@@ -1293,7 +1310,7 @@ def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
     from .sprites import encode_sheet_blocks, render_sheet
     if start_line is not None and fmt != "basic":
         raise ValueError("start_line only applies to fmt='basic'")
-    text_in = Path(file).read_text()
+    text_in = _read_sheet(file, "sprite sheet")
     if not text_in.strip():
         raise ValueError(f"no sprite art found in {file}")
     blocks = encode_sheet_blocks(text_in, multicolor=not hires,
@@ -1332,7 +1349,8 @@ def c64_charset_encode(file: str, hires: bool = False,
         raise ValueError(
             f"label {label!r} is not an assembler identifier (letters, digits "
             f"and underscore, not starting with a digit)")
-    glyphs = parse_charset(Path(file).read_text(), multicolor=not hires)
+    glyphs = parse_charset(_read_sheet(file, "charset sheet"),
+                           multicolor=not hires)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it first_code would be a no-op here. The CLI omits
     # it from --json only because it prints the same text itself.

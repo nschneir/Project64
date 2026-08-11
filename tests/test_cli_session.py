@@ -340,7 +340,7 @@ def test_session_start_notice_leaves_json_stdout_alone():
 def test_session_start_reports_a_corrupt_registry_record_as_a_json_error(
         tmp_path, monkeypatch):
     """Counting the running sessions reads the registry, and reading it can
-    fail: a truncated or older-format record raises KeyError out of
+    fail: a truncated or older-format record fails `_from_record` out of
     `_load_all()`. That has always exited 1 through `fail()` (via
     `Session.launch`, which reads the registry too), and adding the notice
     must not move it out of reach — an unhandled traceback would leave
@@ -354,8 +354,38 @@ def test_session_start_reports_a_corrupt_registry_record_as_a_json_error(
     (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
     r = CliRunner().invoke(main, ["--json", "session", "start"])
     assert r.exit_code == 1, r.output
-    assert "port" in json.loads(r.stdout)["error"], \
+    error = json.loads(r.stdout)["error"]
+    assert "port" in error, \
         "the error never names the key the record is missing"
+    assert "truncated.json" in error, \
+        "the error never names the record on disk that is wrong"
+
+
+def test_session_stop_all_reports_a_corrupt_registry_record_as_a_json_error(
+        tmp_path, monkeypatch):
+    """`stop --all` is the RECOVERY command, and reading a record is as
+    failure-prone as stopping what it describes: with the read above the try
+    a truncated record escaped as a traceback over an empty `--json` stdout,
+    from the one command that could have cleared it.
+
+    So: exit 1 with a parseable payload naming the file, and the record gone
+    — a second run has nothing left to trip over. Unmocked on purpose: the
+    real registry is what raises.
+    """
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    r = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.stdout)["error"]
+    assert "truncated.json" in error and "port" in error, \
+        "the error never says which record on disk is wrong, or how"
+    assert not (sessions / "truncated.json").exists(), \
+        "the record that broke the only command for removing it is still there"
+    again = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
+    assert again.exit_code == 0, again.output
+    assert json.loads(again.stdout) == {"stopped": []}
 
 
 def test_session_start_says_nothing_when_no_other_session_is_running():

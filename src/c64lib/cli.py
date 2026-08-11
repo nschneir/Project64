@@ -367,7 +367,10 @@ def session_stop(ctx, name, name_opt, all_):
     NAME defaults to the current (or only) running session. `--all` stops
     every session instead — the one-command cleanup after a run that left
     emulators behind. A session whose process is already gone is reaped
-    rather than reported as a failure; `stopped` is then a list of names.
+    rather than reported as a failure; `stopped` is then a list of names. A
+    record too corrupt to read is discarded and reported as a failure, since
+    nothing can be stopped for it and it would otherwise break every command
+    that reads the registry, this one included.
     """
     # Every spelling of "this one session" counts, including the global
     # `c64 -s NAME session stop --all`: --all is the opposite of picking one,
@@ -2342,7 +2345,15 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
     if start_line is not None and fmt != "basic":
         fail(ctx, "--start-line only applies to --format basic")
         return
-    text_in = file.read_text()
+    try:
+        text_in = file.read_text()
+    except (OSError, ValueError) as e:
+        # UnicodeDecodeError is a ValueError and NOT an OSError, and handing
+        # the encoder a .prg or a .png where the sheet goes is an ordinary
+        # slip — the same shape `audio report` was fixed for. Outside a try
+        # it was a traceback over an empty `--json` stdout.
+        fail(ctx, f"cannot read sprite sheet {file}: {e}")
+        return
     if not text_in.strip():
         fail(ctx, f"no sprite art found in {file}")
         return
@@ -2415,7 +2426,17 @@ def charset_encode(ctx, file, hires, first_code, label, out_path):
                   f"(letters, digits and underscore, not starting with a digit)")
         return
     try:
-        glyphs = parse_charset(file.read_text(), multicolor=not hires)
+        text_in = file.read_text()
+    except (OSError, ValueError) as e:
+        # The read was already inside the try below, but `CharsetError` does
+        # not catch it: both it and `UnicodeDecodeError` subclass ValueError
+        # and neither subclasses the other, so a binary file handed to the
+        # encoder escaped as a traceback. Its own try, so the message can
+        # name the file rather than quote a codec.
+        fail(ctx, f"cannot read charset sheet {file}: {e}")
+        return
+    try:
+        glyphs = parse_charset(text_in, multicolor=not hires)
     except CharsetError as e:
         fail(ctx, str(e))
         return
@@ -2603,12 +2624,18 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
     rests its emulated-time alignment on.
     """
     name = ctx.obj["session"]
-    timing = report_timing_from(log, attach(ctx).model if name else None)
     if peak_hz and not wav_path:
         fail(ctx, "audio report --peak-hz needs --wav: a dominant partial is "
                   "a property of the recording, not of the register log")
         return
     try:
+        # Inside the try, not above it. An unreadable log already falls back
+        # to the default clock here, but a NAMED model is an override and
+        # must not: `get_profile` raises KeyError on a machine this build
+        # does not have, and a session record carrying one — an older or
+        # hand-edited record is all it takes — escaped as a traceback over
+        # an empty `--json` stdout while this line sat outside the handler.
+        timing = report_timing_from(log, attach(ctx).model if name else None)
         out = sid_report(log, outdir, wav_path=wav_path, ref_path=ref_path,
                          timing=timing)
         if peak_hz:
@@ -2616,7 +2643,7 @@ def audio_report(ctx, log, outdir, wav_path, ref_path, peak_hz):
             # and Pillow double the startup of every `c64` command.
             from .sid_analysis import dominant_partial_hz
             out["peak"] = dominant_partial_hz(wav_path)
-    except (RuntimeError, OSError, ValueError) as e:
+    except (RuntimeError, OSError, ValueError, KeyError) as e:
         fail(ctx, f"audio report: {e}")
         return
     notes = f"{out['notes']} note" + ("" if out["notes"] == 1 else "s")

@@ -46,8 +46,8 @@ what was not. `c64 session start` also says on stderr how many sessions were
 already up, printed before the launch attempt so it explains the failure in
 the very case where the name is already taken.
 
-Three operational failures that escaped as tracebacks now exit 1 through
-`fail()` with a parseable `--json` error object, which is the same bug three
+Seven operational failures that escaped as tracebacks now exit 1 through
+`fail()` with a parseable `--json` error object, which is the same bug seven
 times and worth naming as a class: an operational failure is exactly as
 likely as the operation, so every path that can raise has to be inside the
 handler. `c64 profile` let a daemon-side `ValueError` through, because the
@@ -56,6 +56,28 @@ had never caught; `c64 session start` read the registry for its new count
 *above* the `try`, so a truncated or older-format record — which `launch`
 itself has always reported cleanly — escaped instead; and `c64 audio report`
 turned an undecodable log into a traceback.
+
+`c64 session stop --all` was the worst of them, because the state that broke
+it is the state it exists to clear: it read each record *outside* its
+per-session `try`, so one unreadable record crashed the only command that
+could have removed it — and every other registry read goes through the same
+reader, so `session list`, `session stop NAME` and `session start` were
+broken by it too. The record is now discarded and reported: discarded because
+a record that will not parse is a record nothing can be stopped for, with no
+pid to signal and no socket to close, and reported rather than reaped like a
+dead session because a dead session is *known* dead while an unparseable
+record is exactly where an orphaned emulator hides. A second run comes back
+clean. The message names the file and what is wrong with it wherever a record
+is read, in place of the bare `'port'` that `str(KeyError)` produces.
+
+`c64 audio report` also tracebacked on a session whose model this build has
+no profile for — the clock lookup's named-model branch sat above the `try` —
+and `c64 charset encode` and `c64 sprite encode` tracebacked on a binary
+file, `read_text`'s `UnicodeDecodeError` being a `ValueError` that neither
+`except CharsetError` nor the bare read caught. Both encoders now name the
+file they could not read, over MCP as well: FastMCP already returned those
+raises as structured tool errors, so what the MCP twins were missing was the
+message, not the exit code.
 
 The sheet encoders went a step further than the per-block modes below. A
 **sprite** sheet takes `name:` headers carrying their own mode

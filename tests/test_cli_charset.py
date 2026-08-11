@@ -79,3 +79,19 @@ def test_charset_encode_label_must_be_an_identifier(tmp_path):
                                   "--label", "font gly"])
     assert r.exit_code == 1, r.output
     assert "identifier" in json.loads(r.output)["error"]
+
+
+def test_charset_encode_reports_a_file_it_cannot_decode(tmp_path):
+    """A .prg or a .png handed to the encoder is an ordinary slip, and it has
+    to come back as this command's exit-1 `--json` payload. `read_text` on
+    binary raises UnicodeDecodeError, which `except CharsetError` does not
+    catch — both subclass ValueError and neither subclasses the other — so
+    it escaped as a traceback over an empty stdout, the same shape `audio
+    report` was fixed for."""
+    binary = tmp_path / "charset.bin"
+    binary.write_bytes(bytes(range(256)))
+    r = CliRunner().invoke(main, ["--json", "charset", "encode", str(binary)])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.stdout)["error"]
+    assert str(binary) in error and "decode" in error, \
+        "the error never names the file it could not read"

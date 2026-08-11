@@ -345,6 +345,33 @@ def test_stop_all_with_nothing_running_is_not_an_error(home):
     assert Session.stop_all() == []
 
 
+def test_stop_all_discards_a_record_it_cannot_read_and_says_so(home):
+    """The other half of the reaping above, and deliberately not the same
+    answer. A dead session is KNOWN dead, so it is reaped and counted as
+    stopped; a record that will not parse is a record nothing can be stopped
+    FOR — no pid to signal, no socket to close — and it is exactly where an
+    orphaned emulator hides, which is what this command exists to find.
+
+    So it is discarded (every registry read goes through `_from_record`, so
+    leaving it would keep `session list`, `session stop NAME` and `session
+    start` broken too, with this command the only one left to try) and still
+    reported, naming the file. The live session next to it must go down
+    either way.
+    """
+    sessions_dir().mkdir(parents=True, exist_ok=True)
+    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+    _write_record("ghost", _dead_pid())
+    with pytest.raises(SessionError) as e:
+        Session.stop_all()
+    msg = str(e.value)
+    assert "'ghost'" in msg, "the message never says what it DID stop"
+    assert "truncated.json" in msg and "port" in msg, \
+        "the message never says which record is unreadable, or how"
+    assert not (sessions_dir() / "truncated.json").exists(), \
+        "the unreadable record survived the command that exists to clear it"
+    assert not (sessions_dir() / "ghost.json").exists()
+
+
 def test_stop_all_reports_both_what_stopped_and_what_did_not(home, monkeypatch):
     """A stop that fails halfway still takes what it can, and the message has
     to name both halves: the caller's registry is now part-cleared."""
