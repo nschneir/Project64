@@ -2066,8 +2066,8 @@ def _emit_test_results(ctx, results) -> None:
 @test_.command("run")
 @click.argument("yaml_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--allow-stale", is_flag=True,
-              help="Run even when the artifact is older than the .lbl it takes "
-                   "symbols from, warning instead of stopping.")
+              help="Run even when the artifact disagrees by timestamp with the "
+                   ".lbl it takes symbols from, warning instead of stopping.")
 @click.pass_context
 def test_run(ctx, yaml_file, allow_stale):
     """Run one YAML test file (format documented in docs/cli.md).
@@ -2076,9 +2076,10 @@ def test_run(ctx, yaml_file, allow_stale):
     the wait/key/poke/until/call/assert steps fail-fast. Exit 1 if it fails.
 
     `--allow-stale` waives the staleness stop (a `disk:` image older than its
-    sibling `.lbl`, a `program:` `.prg` newer than its own) and reports what it
-    let through as a warning — for the case the mtimes are lying, which a
-    `cp -r` without `-p` is enough to arrange.
+    sibling `.lbl`; a `program:` `.prg` stamped a minute or more from its own,
+    either way round) and reports what it let through as a warning — for the
+    case the mtimes are lying, which a `cp -r` without `-p` is enough to
+    arrange.
     """
     try:
         spec = load_test(yaml_file)

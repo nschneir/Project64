@@ -1277,36 +1277,55 @@ def _prg_pair(tmp_path: Path, prg_at: float, lbl_at: float) -> Path:
     return prg
 
 
-def test_prg_program_newer_than_its_labels_is_refused(tmp_path):
-    """The disk guard's failure one artifact down: a `.prg` copied in or rebuilt
-    beside a `.lbl` nobody regenerated resolves every symbol against the program
-    the label file used to describe, and used to do it silently.
+#: The largest gap the `.prg` guard tolerates and the smallest it refuses, as
+#: literals rather than as `_PRG_LABELS_GRACE ± ε`: the point of the pair is
+#: that editing the constant has to turn the suite red.
+_WITHIN_GRACE, _BEYOND_GRACE = 59.5, 60.5
 
-    The comparison is the reverse of the disk one because the expected write
-    order is the reverse (see `_reject_stale_prg_labels`), and it is pre-launch
-    for the same reason: it reads two mtimes."""
-    prg = _prg_pair(tmp_path, 1_700_000_060, 1_700_000_000)
+
+@pytest.mark.parametrize("gap", [600.0, _BEYOND_GRACE])
+def test_prg_program_newer_than_its_labels_is_refused(tmp_path, gap):
+    """A `.prg` copied in or rebuilt beside a `.lbl` nobody regenerated resolves
+    every symbol against the program the label file used to describe, and used
+    to do it silently. Pre-launch, like the disk guard: it reads two mtimes."""
+    prg = _prg_pair(tmp_path, 1_700_000_000.0 + gap, 1_700_000_000.0)
     launch = Mock()
     spec = _spec(program=str(prg),
                  steps=[{"assert": {"mem": "entry", "equals": 7}}])
-    with pytest.raises(TestError, match="newer than its symbols"):
+    with pytest.raises(TestError, match="p.prg is newer than its symbols"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize("gap", [600.0, _BEYOND_GRACE])
+def test_prg_program_older_than_its_labels_is_refused(tmp_path, gap):
+    """The mirror, and the same failure: a `.lbl` regenerated or copied in on
+    its own — from a build in a scratch directory, or over a committed `.prg` —
+    describes a program this spec is not about to load. Judged on the same
+    evidence as the other direction, a gap no single command could produce."""
+    prg = _prg_pair(tmp_path, 1_700_000_000.0, 1_700_000_000.0 + gap)
+    launch = Mock()
+    spec = _spec(program=str(prg),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with pytest.raises(TestError, match="p.prg predates its symbols"):
         run_test(spec, launch=launch)
     launch.assert_not_called()
 
 
 @pytest.mark.parametrize("prg_at, lbl_at", [
-    (1_700_000_000.0, 1_700_000_000.0002),   # ld65 -Ln: labels land last
-    (1_700_000_000.0002, 1_700_000_000.0),   # `cp p.lbl p.prg dest/`: reversed
-    (1_700_000_001.5, 1_700_000_000.0),      # inside the same act of writing
+    (1_700_000_000.0, 1_700_000_000.00006),      # ld65 -Ln: labels land last
+    (1_700_000_000.00006, 1_700_000_000.0),      # `cp p.lbl p.prg dest/`
+    (1_700_000_000.0 + _WITHIN_GRACE, 1_700_000_000.0),   # a slow tree copy…
+    (1_700_000_000.0, 1_700_000_000.0 + _WITHIN_GRACE),   # …either way round
 ])
 def test_a_prg_and_its_labels_written_together_are_not_stale(
         tmp_path, prg_at, lbl_at):
-    """The direction's justification and its resolution, pinned. `ld65 -Ln`
-    emits the `.lbl` microseconds *after* the `.prg` it describes, so judging
-    "labels newer than the program" (the `disk:` guard's direction, where the
-    image is what gets written last) would refuse every built program in the
-    repo — and sub-second order the other way is just as meaningless, because
-    one command wrote both files whichever landed first."""
+    """Why the guard needs a window at all: `ld65 -Ln` emits the `.lbl` ~60 µs
+    *after* the `.prg` it describes, so judging bare order would refuse every
+    built program in the repo — and order the other way is just as meaningless,
+    because one command wrote both files whichever landed first. Only a gap no
+    single command could produce is evidence, which is what makes the
+    comparison safe to run in both directions."""
     prg = _prg_pair(tmp_path, prg_at, lbl_at)
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])
@@ -1321,7 +1340,7 @@ def test_a_prg_and_its_labels_written_together_are_not_stale(
 def test_allow_stale_covers_the_prg_guard_too(tmp_path):
     """One override for both artifacts: a caller who has decided the mtimes are
     lying should not have to discover which of the two guards spoke."""
-    prg = _prg_pair(tmp_path, 1_700_000_060, 1_700_000_000)
+    prg = _prg_pair(tmp_path, 1_700_000_600, 1_700_000_000)
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])
     spec = _spec(program=str(prg),
@@ -1346,10 +1365,11 @@ def test_a_built_program_is_never_judged_stale(tmp_path):
     prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "g.lbl"
     lbl.write_text("al C:c000 .entry\n")
-    # source newest of the three: the spec is asking for a rebuild
+    # stamps the `.prg` guard would refuse outright, and the source newest of
+    # the three: the spec is asking for a rebuild
     os.utime(prg, (1_700_000_000, 1_700_000_000))
-    os.utime(lbl, (1_700_000_060, 1_700_000_060))
-    os.utime(src, (1_700_000_120, 1_700_000_120))
+    os.utime(lbl, (1_700_000_600, 1_700_000_600))
+    os.utime(src, (1_700_001_200, 1_700_001_200))
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])
     spec = _spec(program=str(src),

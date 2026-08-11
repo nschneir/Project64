@@ -2126,13 +2126,19 @@ The label copies `c64 disk build` keeps for the image's own entries are never
 judged this way: they are written by the command that wrote the image, so they
 cannot go stale on their own.
 
-A ready-made `.prg` `program:` is judged the same way and in the opposite
-direction: `p.prg is newer than its symbols` when the program was written more
-than two seconds after the `p.lbl` beside it, because a build writes the two
-together (`ld65` finishes the label file microseconds *after* the program, so
-"labels newer" is what success looks like there and says nothing). Rebuild the
-pair, or delete the `.lbl` to run without symbols. A `.bas`/`.s` `program:` is
-built by the run itself and is never judged.
+A ready-made `.prg` `program:` is judged the same way, in **both** directions
+and on the size of the gap rather than on the order.
+`p.prg is newer than its symbols` when the program was written a minute or more
+after the `p.lbl` beside it (a `.prg` copied in over labels nobody regenerated);
+`p.prg predates its symbols` when the label file is the one that arrived alone
+(a build in a scratch directory whose `.lbl` was copied over the local one).
+Rebuild the pair, or
+delete the `.lbl` to run without symbols. What the order alone cannot say is
+anything about a pair written *together*: one command writes both (`ld65`
+finishes the label file microseconds after the program), so only a gap no single
+command could produce — a minute, against the minutes-to-days a real mismatch
+takes — counts as evidence. A `.bas`/`.s` `program:` is built by the run itself
+and is never judged.
 
 **`--allow-stale`.** Both stops read mtimes, and an mtime is evidence rather
 than proof: `cp -r` without `-p` restamps a whole working tree, so an ordinary

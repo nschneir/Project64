@@ -159,8 +159,11 @@ def test_test_run_documents_the_staleness_override():
     assert "--allow-stale" in section, "the staleness override is undocumented"
     assert "warns" in section or "warning" in section, \
         "the docs never say the override reports what it let through"
-    assert "newer than its symbols" in section, \
-        "the `.prg` half of the staleness stop is undocumented"
+    # both nouns: the `.prg` comparison is symmetric, and documenting one
+    # direction is how a caller learns to distrust the other one's silence
+    for direction in ("newer than its symbols", "predates its symbols"):
+        assert direction in section, \
+            f"the docs never mention `{direction}`"
 
 
 def test_profile_documents_samples_and_why_one_arrival_lies():

@@ -394,13 +394,16 @@ def _gate_stale(note: str, remedy: str, allow_stale: bool,
     perfectly consistent pair can trip either guard with no way past it. It
     warns rather than going quiet — a guard that can be waived in silence is
     one nobody notices they waived.
+
+    `remedy` is a whole sentence, ending in its own full stop: a `.prg`'s ends
+    in an alternative ("or delete p.lbl…"), and continuing that sentence here
+    would attach the continuation to the wrong clause.
     """
     if allow_stale:
         warnings.append(f"staleness allowed: {note}")
         return
-    raise TestError(f"{note} {remedy} and run the test again, or allow the "
-                    "staleness explicitly (--allow-stale, allow_stale: true) "
-                    "to test the artifact as it is.")
+    raise TestError(f"{note} {remedy} To test the artifact as it is, allow the "
+                    "staleness explicitly (--allow-stale, allow_stale: true).")
 
 
 def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
@@ -431,44 +434,59 @@ def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
         f"this spec names would resolve against a program the image does not "
         f"contain.",
         f"Rebuild the image (c64 package <source> -o {image.name}, or "
-        "c64 disk build)", allow_stale, warnings)
+        "c64 disk build) and run the test again.", allow_stale, warnings)
 
 
-#: How far apart a `.prg` and its `.lbl` may be stamped and still count as one
-#: act of writing — a build, a copy, a checkout — in whichever order the two
-#: files happened to land. Only a program written well after its labels is
-#: evidence that they came from different builds. (`ld65 -Ln` finishes the two
-#: microseconds apart, and `cp a.lbl a.prg` reverses that order for nothing.)
-_PRG_LABELS_GRACE = 2.0
+#: How far apart a `.prg` and its sibling `.lbl` may be stamped and still count
+#: as one act of writing — a build, a copy, a checkout, an unpacked archive — in
+#: whichever order the two files happened to land. `ld65 -Ln` finishes the two
+#: ~60 µs apart, `cp p.lbl p.prg` reverses that order for nothing, and a slow
+#: copy of a big tree can space them by seconds. The failures worth refusing
+#: separate the pair by minutes to days, three orders of magnitude clear of
+#: this, so the window buys its false-positive immunity for no signal.
+_PRG_LABELS_GRACE = 60.0
 
 
 def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
                              warnings: list[str]) -> None:
-    """Refuse a ready-made `.prg` written well *after* the `.lbl` beside it.
+    """Refuse a ready-made `.prg` and a sibling `.lbl` written far apart.
 
     The disk guard's failure one artifact down — symbols that do not describe
-    the bytes — but the comparison runs the other way, because the expected
-    write order does: `ld65 -Ln` emits the `.lbl` just after the `.prg` it
-    describes, so "labels newer than the program" is what every successful
-    build looks like and cannot be judged at all (the same reason
-    `_reject_stale_disk_labels` skips `disk build`'s label copies). A program
-    written a good while after its labels is the case that carries signal: the
-    `.prg` was rebuilt or copied in from elsewhere, and the `.lbl` beside it
-    still describes the previous one.
+    the bytes — but symmetric, because for a program pair either file can be
+    the one that was replaced alone: a `.prg` copied in over labels nobody
+    regenerated, or a `.lbl` copied in from a build whose `.prg` went somewhere
+    else. Both resolve every `ref:` this spec names against a program that is
+    not the one loaded, and both used to do it in silence.
+
+    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`: one
+    command writes both files there (`ld65 -Ln` emits the `.lbl` microseconds
+    after the `.prg` it describes, so "labels newer" is what every successful
+    build looks like), and which landed first is an accident of the tool. Only
+    a real gap is evidence — in either direction. Nothing in this toolset
+    writes a `.prg`'s sibling `.lbl` on its own: `build_asm` writes the pair,
+    `build_disk` writes `<stem>.<cbm-name>.lbl` copies instead, and
+    `c64 package` writes no labels at all.
 
     Only a `.prg` `program:` reaches this. A `.bas`/`.s` is built by the run
     itself, which writes both files.
     """
     prg_at, lbl_at = prg.stat().st_mtime, labels.stat().st_mtime
-    if prg_at - lbl_at <= _PRG_LABELS_GRACE:
+    if abs(prg_at - lbl_at) <= _PRG_LABELS_GRACE:
         return
+    dated = (f"the program is dated {_stamp(prg_at)} and {labels.name} "
+             f"{_stamp(lbl_at)}")
+    if prg_at > lbl_at:
+        note = (f"{prg.name} is newer than its symbols: {dated}, so every "
+                f"symbol this spec names would resolve against the program "
+                f"{labels.name} describes, which is not this one.")
+    else:
+        note = (f"{prg.name} predates its symbols: {dated}, so every symbol "
+                f"this spec names would resolve against a later program than "
+                f"the one this spec loads.")
     _gate_stale(
-        f"{prg.name} is newer than its symbols: the program is dated "
-        f"{_stamp(prg_at)} and {labels.name} {_stamp(lbl_at)}, so every symbol "
-        f"this spec names would resolve against the program {labels.name} "
-        f"describes, which is not this one.",
-        "Rebuild the pair together (c64 build <source>), or delete "
-        f"{labels.name} to run without symbols", allow_stale, warnings)
+        note, "Rebuild the pair together (c64 build <source>) and run the test "
+        f"again, or delete {labels.name} to run without symbols.",
+        allow_stale, warnings)
 
 
 def prepare_cart(spec_dir: str | Path, cart: str | Path,
