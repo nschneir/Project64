@@ -337,6 +337,27 @@ def test_session_start_notice_leaves_json_stdout_alone():
     assert "note: 1 other session(s) already running" in r.stderr
 
 
+def test_session_start_reports_a_corrupt_registry_record_as_a_json_error(
+        tmp_path, monkeypatch):
+    """Counting the running sessions reads the registry, and reading it can
+    fail: a truncated or older-format record raises KeyError out of
+    `_load_all()`. That has always exited 1 through `fail()` (via
+    `Session.launch`, which reads the registry too), and adding the notice
+    must not move it out of reach — an unhandled traceback would leave
+    `--json` stdout unparseable for the script reading it.
+
+    Unmocked on purpose: the real registry is what raises.
+    """
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    r = CliRunner().invoke(main, ["--json", "session", "start"])
+    assert r.exit_code == 1, r.output
+    assert "port" in json.loads(r.stdout)["error"], \
+        "the error never names the key the record is missing"
+
+
 def test_session_start_says_nothing_when_no_other_session_is_running():
     with patch("c64lib.cli.Session") as S:
         S.list_all.return_value = []

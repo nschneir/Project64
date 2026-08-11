@@ -278,14 +278,21 @@ def session_start(ctx, model, name, headless, warp, disk8, cart):
     warped emulator holding a CPU core, and the ones that outlive the work
     are invisible until something counts them.
     """
-    already = Session.list_all()
-    if already:
-        # stderr, never the payload: `--json` is a script contract, and this
-        # is advice for whoever is watching — a start that had to be told
-        # about the other three emulators is still a successful start.
-        click.echo(f"note: {len(already)} other session(s) already running "
-                   f"(c64 session list)", err=True)
     try:
+        # Inside the try, not above it: reading the registry is exactly as
+        # failure-prone as launching from it — a truncated or older-format
+        # record raises KeyError out of `_load_all()` — and `Session.launch`
+        # reads it too, so before this call that KeyError already exited 1
+        # through `fail()`. Hoisting the read out of the try would have turned
+        # one caller's corrupt record into an unhandled traceback with
+        # unparseable `--json` stdout.
+        already = Session.list_all()
+        if already:
+            # stderr, never the payload: `--json` is a script contract, and
+            # this is advice for whoever is watching — a start that had to be
+            # told about the other three emulators is still a successful start.
+            click.echo(f"note: {len(already)} other session(s) already running "
+                       f"(c64 session list)", err=True)
         s = Session.launch(model=model, name=name, headless=headless, warp=warp,
                            disk8=disk8, cart=cart)
     except (SessionError, DiskError, KeyError) as e:
