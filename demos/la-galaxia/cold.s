@@ -734,9 +734,13 @@ bmhi:   .repeat 25, i
 
 ; The narration, wrapped at 10 characters and paged where the story pauses.
 ; Each line's column centres it ((40 - 4*len) / 2); a three-line page sits on
-; cell rows 2/7/12 and the one four-line page on 0/5/10/15, which puts the
+; cell rows 2/7/12 and the one four-line page on 1/6/11/16, which puts the
 ; block above the vertical centre and stops clear of the pinned line, per
-; §1a.  pagefirst has COLDPAGES+1 entries: page p owns lines pagefirst[p] up
+; §1a.  The four-line page starts at 1 rather than 0 because a 4x glyph draws
+; ink on its top row: at row 0 the capitals touched the border.  Row 16 is
+; still inside the band CPH_WIPE clears (rows 0-19) and the band CPH_COL
+; paints white, so the extra row costs nothing but the gap above the pinned
+; line.  pagefirst has COLDPAGES+1 entries: page p owns lines pagefirst[p] up
 ; to pagefirst[p+1], so a page is whatever length the wrap made it.
 ;
 ;   1  IN THE / BACK OF A / LONG / SHUTTERED    (four: "IN THE BACK" is 11
@@ -754,7 +758,7 @@ linhi:  .byte   >t_cold1, >t_cold2, >t_cold3, >t_cold4
         .byte   >t_cold5, >t_cold6, >t_cold7, >t_cold8
         .byte   >t_cold9, >t_cold10, >t_cold11, >t_cold12
         .byte   >t_cold13, >t_cold14
-linrow: .byte   0, 5, 10, 15,  2, 7, 12,  2, 7,  2, 7,  2, 7, 12
+linrow: .byte   1, 6, 11, 16,  2, 7, 12,  2, 7,  2, 7,  2, 7, 12
 lincol: .byte   8, 2, 12, 2,   8, 12, 6,  0, 8,   6, 2,  8, 2, 4
 
 ; The pinned Spanish line: one 2x row, the same place on every page.
