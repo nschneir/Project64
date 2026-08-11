@@ -201,6 +201,21 @@ def test_session_stop_documents_all_and_start_documents_the_notice():
         "the docs never say the notice bypasses --json (it is on stderr)"
 
 
+def test_headless_documents_the_null_sound_sink():
+    """A headless session is silent by construction — its sound goes to a
+    file-backed null sink so the emulation loop never waits on a host consumer
+    that may not exist. Undocumented, that silence reads as a broken audio path
+    and invites someone to "fix" the one thing keeping headless sessions from
+    wedging."""
+    text = DOC.read_text()
+    start = text[text.index("### `c64 session start`"):
+                 text.index("### `c64 session ensure`")]
+    section = " ".join(start.split())          # the claim is a sentence, not a line
+    assert "null sink" in section, "the headless sound sink is undocumented"
+    assert "makes no noise" in section, \
+        "the docs never say the sink is why a headless session is silent"
+
+
 #: The three areas the la-galaxia dogfood measured the fill against, and the
 #: only thing about them that matters here: the two below `ENGINE` are filled
 #: to their declared size, `ENGINE` is not.

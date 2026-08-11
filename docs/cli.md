@@ -79,7 +79,12 @@ Boot a fresh emulated C64.
   README's Supported machines table).
 - `-s, --name NAME` — session name (defaults to the model name).
 - `--headless` — no window on SDL builds; on GTK builds (the installed
-  `x64sc`) it starts minimized and never takes focus.
+  `x64sc`) it starts minimized and never takes focus. On builds offering
+  VICE's `dump` sound device its audio is routed to a null sink, which is why
+  a headless session makes no noise — nobody is listening, and VICE's sound
+  device paces the emulation loop at real time, so a session waiting on a
+  host output device that isn't there would hang instead. Recording is
+  unaffected (`c64 audio record`).
 - `--warp` — run at maximum speed (recommended for automation).
 - `--disk PATH` — attach a `.d64`/`.d71`/`.d81` image to drive 8 at boot.
   Attaching only fills the drive — the machine still boots to BASIC;
