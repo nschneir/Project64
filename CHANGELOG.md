@@ -8,6 +8,57 @@ commit).
 
 ## [Unreleased]
 
+A `--mem` wait that times out now says **where the machine was**. Issued after
+a `c64 until` — or a `step`, a `finish`, a fired checkpoint — a wait polls a
+byte no running CPU is writing, so it can only burn its whole timeout and hand
+back the value it started with; the la-galaxia dogfood spent two minutes that
+way and filed a false "the game is stuck". `c64 wait --mem` and
+`c64_wait_mem` now sample the machine's state on **both** sides of the wait —
+one sample cannot support "stopped the whole time", since a machine stopped
+only at the end really was running for part of the window — and when both read
+stopped, the CLI's error names the cause and points at `c64 continue` while
+the JSON carries `"machine": "stopped"` in place of the `"running"` that path
+used to assert unconditionally. The MCP tool, which had carried no `machine`
+key at all where its three siblings all did, gains the same field plus a
+`diagnosis` string, so the surface agents actually drive stops being the one
+that fails silently.
+
+`skills/6502-assembly/references/fix-branch-range.py` makes the branch-range
+trap mechanical. Growing a routine pushes its branches past ±127 bytes, and
+the skill's advice — prefer a `jmp` trampoline from the start — is right and
+nearly impossible to apply pre-emptively: La Galaxia hit 25 "Range error"
+failures across six files in a single build. Pipe the failed build in and the
+script inverts each reported branch over a `jmp`, bottom-up so the reported
+line numbers stay valid. It **reports rather than touches** two cases and
+exits 1 so a human sees them: a branch whose target is an anonymous label, and
+any rewrite whose new `:` would land between another `:+` and the label that
+reference resolves to. An anonymous label has no name, only a position, so
+either edit still assembles and quietly branches somewhere else — the one
+failure a green build cannot catch.
+
+Five documentation gaps the same dogfood walked into, each now carrying the
+test that would have caught it. The **character ROM image is 4 KB**, which
+`hardware.md` and `memory-maps.md` both described correctly and neither sized:
+it covers *two* of the eight 2 KB charset bases, so a reader who obeys the
+cookbook's stated rule ("in the VIC's bank") can still pick `$1800` and get
+the ROM's lowercase half — silent, because lowercase glyphs look like text
+rather than like a fault. A live test settles it on the machine, patching the
+same glyph into RAM at `$1800` and `$3800` and drawing each. `--area`'s fill
+rule gains the half that decides file size — every area below the last is
+filled to its declared size, the last is not, so only the top area's unused
+tail is free, and a `.res` inside any area is `type = ro` content that ships
+as zeros wherever it sits. La Galaxia's three areas cost a flat 14,337 bytes;
+the test extracts that number from `docs/cli.md` and rebuilds it, because the
+unverified copy of this same figure in the demo's plan had already drifted by
+five bytes. `docs/graphics-and-sprites.md` §1 stops forbidding a technique the
+repo ships: mid-frame register changes and raster-IRQ multiplexing are in
+scope **when the demo exposes counters a test can assert on** — warp makes the
+moment a test observes unpredictable, not the state it observes — and only
+effects whose sole evidence is a photograph stay out. And §4 gains the rule
+that a **per-frame budget is max-tracked by the program**, with the harness
+reading the mark: sampled every tenth tick, La Galaxia's redraw counter read 4
+against a ceiling of 64 while the program's own mark read 88.
+
 `--area` reaches the two places that could not use it. `c64 run --area
 NAME=START:SIZE` (MCP `c64_run(areas=[…])`) links a fixed-address segment on
 the way to the machine, and a test spec takes the same strings as an `areas:`

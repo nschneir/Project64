@@ -127,6 +127,14 @@ One command with four mutually exclusive condition flags becomes four tools,
 each taking its own condition. On all four, a timeout returns
 `{"fired": null, ...}` rather than exiting 1.
 
+`c64_wait_mem` says **where the machine was** when it timed out, the way the
+CLI's `--mem` timeout does: `"machine": "stopped"` plus a `diagnosis` string
+means it was halted for the whole window — after a `c64_until`, `c64_step`,
+`c64_finish` or a checkpoint hit — so the byte could not change and
+`c64_continue` is the way out. `"machine": "running"` means the value
+genuinely never arrived. It is sampled either side of the wait, because one
+sample cannot support "stopped the whole time".
+
 | Tool | CLI | Divergence |
 |------|-----|------------|
 | `c64_wait_text` | `c64 wait --text` | — |

@@ -281,10 +281,11 @@ Areas are declared `define = yes`, so `__HIGH_LOAD__`/`__HIGH_SIZE__` are
 available for the same kind of `.assert` as `__BSS_*` above. Repeat the flag
 for more areas; they must be contiguous, since a hole between two of them
 would shift the upper one. With several, every area *below* the last is
-filled to its declared size and the last is not — so the padding is a
-constant (`SPRITES=$2000:$1800 CHARS=$3800:$0800 ENGINE=$4000:$5000` is a
-flat 14,337 bytes before `ENGINE`'s own contents), and only the topmost area
-can hold `.res` storage without paying for it in file bytes.
+filled to its declared size and the last is not, so the padding below the top
+area is a constant and only the top area's **unused tail** is free — mind that
+an area's segment is `type = ro`, so a `.res` inside one ships as zeros
+wherever it sits. `docs/cli.md`'s `c64 build` entry has the measured number
+for La Galaxia's three areas.
 
 The cost is file size: that padding is real bytes, so `--area 'HIGH=$4000:…'`
 makes every build at least 14 KB. **For data the VIC never reads** — sprite

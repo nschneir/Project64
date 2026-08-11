@@ -124,6 +124,21 @@ def test_mcp_md_names_every_tool():
     assert not missing, f"docs/mcp.md never names: {missing}"
 
 
+def test_mcp_md_documents_the_stopped_machine_wait():
+    """`c64_wait_mem` was the one wait tool carrying no `machine` key, on the
+    surface agents actually drive — and the page already promised the four
+    tools report where the machine was left. The promise and the tool now
+    agree; this pins the half that is prose."""
+    text = MCP_DOC.read_text()
+    section = " ".join(text[text.index("### Waiting"):
+                            text.index("### Building")].split())
+    assert '"machine": "stopped"' in section, \
+        "docs/mcp.md never says c64_wait_mem reports a stopped machine"
+    assert "c64_continue" in section, "the docs never give the way out"
+    assert "either side of the wait" in section, \
+        "the docs never say the state is sampled twice"
+
+
 def _invocable_paths() -> set[str]:
     """Everything a table row may point at. `_leaf_command_paths()` is the
     inventory index.html's command count uses (leaves only);

@@ -521,10 +521,32 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     `op` is one of = != > >= < <= and decides how `equals` (the right-hand
     value, named for the equality case) is compared. Use an inequality for
     a counter the machine can race past between polls.
+
+    A timeout is data, not an error, and it says where the machine was:
+    {"fired": null, "last_value": N, "machine": "stopped", "diagnosis": ...}
+    means the machine was halted for the whole window, so the byte could not
+    change — a wait polls memory, it never resumes the CPU. Call
+    c64_continue first (or c64_wait_break, if a checkpoint is what you meant
+    to wait for). "machine": "running" means the value genuinely never
+    arrived.
     """
     s = _attach(session)
-    return wait_for_mem(s, _ref(s, addr),
-                        parse_number(equals), timeout, op=op)
+    # Sampled either side of the wait: one sample cannot support "stopped the
+    # whole time", and a machine stopped only at the end was running for part
+    # of the window. Same reasoning, and same wording, as `c64 wait --mem`.
+    before = machine_state(s)
+    out = wait_for_mem(s, _ref(s, addr), parse_number(equals), timeout, op=op)
+    if not out.get("fired"):
+        stopped = before == "stopped" == machine_state(s)
+        out["machine"] = "stopped" if stopped else "running"
+        if stopped:
+            out["diagnosis"] = (
+                "the machine was STOPPED for the whole wait, so the byte "
+                "could not change: a wait polls memory, it never resumes the "
+                "CPU. Something before this stopped it (c64_until, c64_step, "
+                "c64_finish, or a checkpoint hit). Call c64_continue first, "
+                "or c64_wait_break if you meant to run to a checkpoint.")
+    return out
 
 
 @srv.tool()

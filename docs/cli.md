@@ -713,9 +713,13 @@ is capped at `area.start - load_address` and filled, so the gap between the
 end of your code and the area is written out as zero bytes.
 
 **Every area below the last one is filled to its declared size; the last one
-is not** — nothing above it needs placing, so its `.res` storage and its
-unused tail never become file bytes, and only the areas underneath pay for
-their whole declared span. That makes the padding a constant you can compute:
+is not** — nothing above it needs placing, so the file simply ends at the last
+byte the topmost area holds and its *unused tail* costs nothing, while every
+area underneath pays for its whole declared span whatever it contains. One
+trap in that: an area's segment is linked `type = ro`, so a `.res` inside one
+is **content, not a hole** — reserved bytes ship as zeros even in the last
+area, and only the span beyond what the segment holds is free. That makes the
+padding a constant you can compute:
 La Galaxia's `--area 'SPRITES=$2000:$1800' --area 'CHARS=$3800:$0800'
 --area 'ENGINE=$4000:$5000'` costs a flat **14,337 bytes** — the 2-byte load
 header plus every address from `$0801` to `$3FFF` — whatever the three areas

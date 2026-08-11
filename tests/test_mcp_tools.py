@@ -279,6 +279,54 @@ def test_wait_mem_passes_the_comparison_through():
     w.assert_called_once_with(s, 0xFB, 20, 30.0, op=">=")
 
 
+def test_wait_mem_timeout_says_the_machine_was_stopped_throughout():
+    """The CLI's `--mem` timeout names this; the tool has to say it too, and
+    on the surface agents actually drive. A wait polls memory — it never
+    resumes the CPU — so on a machine halted by an earlier c64_until the byte
+    cannot change and the full timeout is burned for nothing."""
+    s, _ = _fake_session()
+    timed_out = {"fired": None, "timeout": 5.0, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="stopped"), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem", {"addr": "$0400", "equals": "42"})
+    assert err is False, out
+    assert out["machine"] == "stopped"
+    assert "STOPPED for the whole wait" in out["diagnosis"]
+    assert "c64_continue" in out["diagnosis"], "no way out is named"
+
+
+def test_wait_mem_timeout_on_a_running_machine_carries_no_diagnosis():
+    """A machine that ran the whole window genuinely never reached the value;
+    pointing the client at c64_continue there would be a wrong answer."""
+    s, _ = _fake_session()
+    timed_out = {"fired": None, "timeout": 5.0, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="running"), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem", {"addr": "$0400", "equals": "42"})
+    assert err is False and out["machine"] == "running"
+    assert "diagnosis" not in out
+
+
+def test_wait_mem_timeout_needs_both_samples_stopped():
+    """One sample cannot support "stopped for the whole wait" — the same rule
+    the CLI applies, so the two surfaces cannot disagree about the same run."""
+    s, _ = _fake_session()
+    states = iter(["running", "stopped"])
+    timed_out = {"fired": None, "timeout": 5.0, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state",
+               side_effect=lambda _s: next(states)), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem", {"addr": "$0400", "equals": "42"})
+    assert err is False and out["machine"] == "running"
+    assert "diagnosis" not in out
+
+
 # --- program running ----------------------------------------------------------
 
 def test_run_prg_autostarts(tmp_path):

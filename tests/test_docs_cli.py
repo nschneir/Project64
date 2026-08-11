@@ -178,14 +178,16 @@ _AREA_TRIO = [("SPRITES", 0x2000, 0x1800), ("CHARS", 0x3800, 0x0800),
 
 def test_build_documents_which_areas_are_filled():
     """`--area` said "fill" and "contiguous" and never said *which* areas get
-    filled — which is what decides whether `.res` storage ships as real bytes
-    and how big the file is."""
+    filled — which is what decides how big the file is, and (the trap) that a
+    `.res` in an area is content rather than a hole."""
     # Prose wraps; the claim is a sentence, not a line.
     section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
     assert "Every area below the last one is filled to its declared size" in section, \
         "the docs never say every area but the last is filled to its size"
     assert "the last one is not" in section, \
         "the docs never say the topmost area is left at its real length"
+    assert "content, not a hole" in section, \
+        "the docs never warn that a `.res` inside an area ships as zeros"
 
 
 @pytest.mark.skipif(
@@ -193,29 +195,49 @@ def test_build_documents_which_areas_are_filled():
     reason="cc65 not installed",
 )
 def test_the_documented_area_padding_is_the_measured_one(tmp_path):
-    """The number in the docs, built. A figure nobody can reproduce is the
-    kind that drifts by five bytes and stays wrong for a release."""
+    """The number in the docs, built — a figure nobody can reproduce is the
+    kind that drifts by five bytes and reaches a task brief.
+
+    The fixture is deliberately an *uninitialized* `.res` behind one real
+    byte, because that is where the tempting version of the claim ("the last
+    area's `.res` costs nothing") is false: the area's segment is `type = ro`,
+    so 4,096 reserved bytes ship as zeros. What the last area really saves is
+    the tail beyond what it holds — declared `$5000`, and nothing padded out
+    to it.
+    """
     from c64lib.build import Area, build_asm
     section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
     m = re.search(r"flat \*\*([\d,]+) bytes\*\*", section)
     assert m, "docs/cli.md no longer states the flat padding cost"
     claimed = int(m.group(1).replace(",", ""))
+    # The skill repeats the figure; an unverified second copy is how 14,342
+    # survived in demos/la-galaxia/PLAN.md and reached this task's brief.
+    skill = Path("skills/6502-assembly/SKILL.md").read_text()
+    for stray in re.findall(r"flat ([\d,]{6,}) bytes", skill):
+        assert int(stray.replace(",", "")) == claimed, \
+            f"SKILL.md says {stray} where docs/cli.md says {m.group(1)}"
 
     src = tmp_path / "trio.s"
     src.write_text('        .segment "LOADADDR"\n        .word $0801\n'
                    '        .segment "CODE"\nstart:  rts\n'
                    '        .segment "SPRITES"\n        .byte $01\n'
                    '        .segment "CHARS"\n        .byte $02\n'
-                   '        .segment "ENGINE"\n        .res 16, $03\n')
+                   '        .segment "ENGINE"\n        .byte $03\n'
+                   '        .res 4096\n')
     res = build_asm(src, areas=[Area(*a) for a in _AREA_TRIO])
     data = res.prg.read_bytes()
-    assert len(data) == claimed + 16, (
-        f"docs claim {claimed} flat bytes; a build of the same three areas "
-        f"with 16 bytes in ENGINE is {len(data)}")
-    # ...and the shape behind the number: filled below, unfilled on top.
+    engine_off = 2 + (0x4000 - 0x0801)
+    assert engine_off == claimed, (
+        f"docs claim {claimed} flat bytes below the last area; the build puts "
+        f"ENGINE at file offset {engine_off}")
+    # Filled below: CHARS is at its declared address, not packed after CODE.
     assert data[2 + (0x3800 - 0x0801)] == 0x02, "CHARS did not land at $3800"
-    assert data[2 + (0x4000 - 0x0801):] == bytes([0x03] * 16), \
+    # Not filled on top: the declared $5000 tail never ships...
+    assert len(data) < claimed + 0x5000, \
         "the last area was padded to its declared size after all"
+    # ...but `.res` inside it is content, and does.
+    assert data[engine_off:] == bytes([0x03]) + bytes(4096), \
+        "an uninitialized .res in the last area did not ship as zero bytes"
 
 
 def test_wait_documents_the_stopped_machine_timeout():
