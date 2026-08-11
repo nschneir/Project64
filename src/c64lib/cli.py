@@ -51,16 +51,15 @@ from .ops import (
     clear_checkpoints,
     disk_labels_path,
     find_bytes,
-    live_screen_base,
     machine_state,
     parse_areas,
     parse_byte_values,
     parse_number,
-    parse_ref,
     pc_region,
     profile_routine_samples,
     run_until,
     session_labels,
+    session_ref,
     split_mem_condition,
     staleness,
     wait_for_break,
@@ -122,17 +121,10 @@ def attach(ctx: click.Context) -> Session:
 
 
 def resolve_ref(ctx: click.Context, labels: dict[str, int], ref: str,
-                session=None) -> int:
-    """parse_ref with CLI error reporting; pass the session so @row,col
-    resolves against the machine's LIVE screen base (relocation-aware)."""
-    kw = {}
-    if session is not None:
-        p = session.profile
-        base = (live_screen_base(session) if "@" in str(ref)
-                else p.screen_addr)
-        kw = {"screen_base": base, "screen_width": p.screen_cols}
+                session) -> int:
+    """ops.session_ref with CLI error reporting."""
     try:
-        return parse_ref(labels, ref, **kw)
+        return session_ref(session, ref, labels)
     except (KeyError, ValueError) as e:
         fail(ctx, str(e))
         raise AssertionError("unreachable") from None

@@ -341,7 +341,7 @@ def test_mem_get_color_cell_resolves_to_d800():
     fake, mon = _fake()
     mon.memory_read.return_value = bytes([0xFD])      # 13 + open-bus nybble
     with patch("c64lib.cli.Session") as S, \
-         patch("c64lib.cli.live_screen_base", return_value=0xC400):
+         patch("c64lib.ops.live_screen_base", return_value=0xC400):
         S.attach.return_value = fake
         r = CliRunner().invoke(main, ["mem", "get", "@@5,0"])
     assert r.exit_code == 0, r.output

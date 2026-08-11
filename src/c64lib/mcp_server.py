@@ -50,17 +50,16 @@ from .ops import (
     find_bytes,
     key_hold,
     key_type,
-    live_screen_base,
     machine_state,
     parse_areas,
     parse_byte_values,
     parse_number,
-    parse_ref,
     pc_region,
     pc_symbol,
     profile_routine_samples,
     run_until,
     session_labels,
+    session_ref,
     staleness,
     wait_for_break,
     wait_for_idle,
@@ -103,17 +102,6 @@ def _read_sheet(file: str, what: str) -> str:
         # UnicodeDecodeError is a ValueError and NOT an OSError; catching
         # only OSError here is exactly how the CLI twin leaked a traceback.
         raise ValueError(f"cannot read {what} {file}: {e}") from None
-
-
-def _ref(s, ref, labels=None):
-    """parse_ref with the session's screen geometry so @row,col works —
-    against the LIVE screen base (relocation-aware)."""
-    if labels is None:
-        labels = session_labels(s)
-    base = (live_screen_base(s) if "@" in str(ref)
-            else s.profile.screen_addr)
-    return parse_ref(labels, ref, screen_base=base,
-                     screen_width=s.profile.screen_cols)
 
 
 @srv.tool()
@@ -263,7 +251,7 @@ def c64_mem_read(addr: str, length: int = 256, session: str | None = None,
     (screen RAM holds screen codes, not ASCII) and "ascii" otherwise; pass
     "screen", "petscii", or "ascii" to say so yourself."""
     s = _attach(session)
-    a = _ref(s, addr)
+    a = session_ref(s, addr)
     with s.monitor() as mon:
         try:
             data = mon.memory_read(a, length)
@@ -285,7 +273,7 @@ def c64_mem_find(values: list[str], start: str = "$0000",
     clipped the list. Does not disturb run/stop state."""
     s = _attach(session)
     labels = session_labels(s)
-    begin = _ref(s, start, labels)
+    begin = session_ref(s, start, labels)
     # parse_byte_values, not a bare bytes(parse_number(...)) comprehension:
     # lockstep with the CLI's `c64 mem find` — it splits whitespace inside a
     # token, names the offending token, and range-checks 0-255.
@@ -304,7 +292,7 @@ def c64_mem_find(values: list[str], start: str = "$0000",
 def c64_mem_write(addr: str, values: list[int], session: str | None = None) -> dict:
     """Write bytes to emulated memory. addr accepts $hex/0xhex/decimal/symbol."""
     s = _attach(session)
-    a = _ref(s, addr)
+    a = session_ref(s, addr)
     with s.monitor() as mon:
         try:
             mon.memory_write(a, bytes(values))
@@ -350,7 +338,7 @@ def c64_break_add(ref: str, condition: str | None = None,
     use c64_wait_break to block until it fires."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, ref, labels)
+    addr = session_ref(s, ref, labels)
     with s.monitor() as mon:
         try:
             ck = mon.checkpoint_set(addr, op=CP_EXEC, temporary=temporary)
@@ -450,7 +438,7 @@ def c64_watch_add(ref: str, on_load: bool = False, on_store: bool = False,
     """Set a watchpoint on a memory range (default: both load and store)."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, ref, labels)
+    addr = session_ref(s, ref, labels)
     op = (CP_LOAD if on_load else 0) | (CP_STORE if on_store else 0)
     if not op:
         op = CP_LOAD | CP_STORE
@@ -504,7 +492,7 @@ def c64_until(ref: str, timeout: float = 30.0, count: int = 1,
     removed."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, ref, labels)
+    addr = session_ref(s, ref, labels)
     out = run_until(s, addr, timeout, count=count)
     if out["registers"] is None:
         where = format_addr(labels, addr)
@@ -552,7 +540,7 @@ def c64_wait_mem(addr: str, equals: str, timeout: float = 30.0,
     # whole time", and a machine stopped only at the end was running for part
     # of the window. Same reasoning, and same wording, as `c64 wait --mem`.
     before = machine_state(s)
-    out = wait_for_mem(s, _ref(s, addr), parse_number(equals), timeout, op=op)
+    out = wait_for_mem(s, session_ref(s, addr), parse_number(equals), timeout, op=op)
     if not out.get("fired"):
         stopped = before == "stopped" == machine_state(s)
         out["machine"] = "stopped" if stopped else "running"
@@ -596,7 +584,7 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
     primitive: poke inputs, call, then assert registers/memory. Machine
     ends STOPPED on success, RUNNING on timeout."""
     s = _attach(session)
-    addr = _ref(s, routine, session_labels(s))
+    addr = session_ref(s, routine, session_labels(s))
     out = call_routine(s, addr, a=a, x=x, y=y, timeout=timeout)
     if out.get("fired"):
         out["pc_symbol"] = pc_symbol(session_labels(s), dict(out["registers"]))
@@ -619,7 +607,7 @@ def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
     payload still carries `cycles`; above 1 it deliberately does not, because
     no single number is the answer. `timeout` covers the whole run."""
     s = _attach(session)
-    addr = _ref(s, routine, session_labels(s))
+    addr = session_ref(s, routine, session_labels(s))
     out = profile_routine_samples(s, addr, samples, timeout=timeout,
                                   with_irq=with_irq)
     if not out["fired"]:
@@ -893,7 +881,7 @@ def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
     is {"frames": 0, "requested": 0, "machine": "untouched"}."""
     s = _attach(session)
     labels = session_labels(s)
-    addr = _ref(s, at, labels)
+    addr = session_ref(s, at, labels)
     out = key_hold(s, key, addr, frames=frames, timeout=timeout,
                    release=release)
     if out["requested"] == 0:
@@ -1170,7 +1158,7 @@ def c64_rom_disasm(start: str, length: int = 32,
     start accepts $hex/0xhex/decimal or a symbol (e.g. CHROUT)."""
     s = _attach(session)
     labels = {**rom_labels(s.profile.basic_version), **session_labels(s)}
-    addr = _ref(s, start, labels)
+    addr = session_ref(s, start, labels)
     with s.monitor() as mon:
         try:
             data = mon.memory_read(addr, length)
@@ -1226,7 +1214,7 @@ def _sprite_shape(s, index: int, block: str | None):
         raise ValueError(f"sprite index {index} outside 0-7")
     states, shared = _sprite_states(s)
     st = states[index]
-    addr = _ref(s, block) if block else st.block_addr
+    addr = session_ref(s, block) if block else st.block_addr
     with s.monitor() as mon:
         try:
             data = read_sprite_block(mon, addr)

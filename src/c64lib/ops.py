@@ -269,6 +269,21 @@ def session_labels(s) -> dict[str, int]:
     return {}
 
 
+def session_ref(session, ref, labels: dict[str, int] | None = None) -> int:
+    """parse_ref with the session's screen geometry so @row,col works —
+    against the LIVE screen base (relocation-aware). `labels=None` reads
+    the session's own label file.
+
+    The live base costs a monitor round trip, so it is read only when the
+    ref actually names a cell. Raises KeyError/ValueError exactly as
+    parse_ref does: presentation belongs to the front ends."""
+    if labels is None:
+        labels = session_labels(session)
+    p = session.profile
+    base = live_screen_base(session) if "@" in str(ref) else p.screen_addr
+    return parse_ref(labels, ref, screen_base=base, screen_width=p.screen_cols)
+
+
 def disk_labels_path(image) -> Path | None:
     """The label file a disk image implies, or None (silently).
 

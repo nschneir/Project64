@@ -110,6 +110,24 @@ def test_parse_ref_color_rowcol_shares_the_guards():
         parse_ref({}, "@@nonsense", screen_base=0x0400, screen_width=40)
 
 
+def test_session_ref_reads_the_live_screen_base_only_for_at_refs():
+    """The live base costs a monitor round trip, so session_ref reads it
+    only for a screen cell — the policy the CLI and the MCP server each
+    used to carry a copy of."""
+    s, _ = _fake_session()
+    s.profile.screen_addr = 0x0400
+    with patch("c64lib.ops.live_screen_base",
+               side_effect=AssertionError("read the live base for a $hex ref")):
+        assert ops.session_ref(s, "$1000", {}) == 0x1000
+        assert ops.session_ref(s, "sprite", {"sprite": 0x2000}) == 0x2000
+    with patch("c64lib.ops.live_screen_base", return_value=0xC400) as live:
+        # a relocated screen: @row,col follows it, @@row,col stays at $D800
+        assert ops.session_ref(s, "@0,0", {}) == 0xC400
+        assert ops.session_ref(s, "@1,2", {}) == 0xC400 + 42
+        assert ops.session_ref(s, "@@1,2", {}) == 0xD800 + 42
+    assert live.call_count == 3
+
+
 def test_wait_for_text_fires_and_times_out():
     s, mon = _fake_session()
     with patch("c64lib.ops.read_screen_text", side_effect=["A", "B READY."]):
