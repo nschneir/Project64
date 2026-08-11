@@ -85,10 +85,17 @@ read against. Regenerating the demo's art closed the other half of that:
 fighter at block 5 where the sheet and `sprites.s`'s own manifest
 (`SPR_CAPTIVE = SPRBLK + 5`, "multicolour from here down") both say the
 multicolour captive belongs — so the game drew a hires bitmap through the
-multicolour bit. Regenerated, rebuilt, repackaged, and pinned: a test
-re-encodes `tools/sprites.txt` and compares it against the committed include,
-because a generated file with no regeneration test can disagree with its
-source forever.
+multicolour bit. Regenerated, rebuilt and repackaged, and two of those three
+are pinned, because a generated file with no regeneration test can disagree
+with its source forever: one test re-encodes `tools/sprites.txt` and compares
+it with the committed include, another assembles `la-galaxia.s` and compares
+it with the committed `.prg`. The `.d64` is not pinned — packaging shells out
+to `c1541` and costs seconds where the assembler pass costs a fraction of
+one, and the image carries that same `.prg`. `docs/cli.md` also now says
+where a `.s` `program:` builds: beside its source, overwriting `<stem>.prg`
+and `<stem>.lbl` every run, which republishes a committed artifact and leaves
+the label file newer than any sibling image — the state the disk staleness
+stop refuses.
 
 And `audio-verification.md` gains the two things this demo's score work cost
 most. **Generating a score is constructive**: model the player one frame at a

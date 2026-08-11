@@ -6,8 +6,12 @@ the same story: same demos, same tiers, a description on every row, and no
 demo directory left unlisted anywhere.
 """
 
+import os
 import re
+import shutil
 from pathlib import Path
+
+import pytest
 
 README = Path("README.md")
 DEMOS_README = Path("demos/README.md")
@@ -223,16 +227,31 @@ def test_every_demo_directory_is_listed():
 # --- generated art stays generated ----------------------------------------
 
 LG = DEMOS_DIR / "la-galaxia"
-#: The one invocation `tools/genart.sh` makes for the sprite sheet. Kept here
-#: as data so a change to the script's flags fails this test rather than
-#: silently re-encoding the demo's art with a different legend.
-LG_SPRITE_BACKGROUND = "."
 
 
 def _inc_bytes(path: Path) -> list[int]:
     """The `%01010101` payload of a generated `.inc`, labels and comments off."""
     text = re.sub(r";[^\n]*", "", path.read_text())
     return [int(b, 2) for b in re.findall(r"%([01]{8})", text)]
+
+
+def _genart_sprite_flags() -> tuple[bool, str]:
+    """(file-level multicolor, background char) read out of `genart.sh`.
+
+    Mirroring the script's flags here instead would make this test model an
+    invocation it does not read: a `--hires` or a different `--background`
+    added there would leave the test re-encoding the sheet its own way and
+    then blaming the include for the difference.
+    """
+    script = (LG / "tools" / "genart.sh").read_text()
+    # Command lines only: the header comment discusses `sprite encode` too.
+    calls = [ln for ln in script.splitlines()
+             if "sprite encode" in ln and not ln.lstrip().startswith("#")]
+    assert len(calls) == 1, \
+        f"expected one sprite encode invocation in genart.sh, found {calls}"
+    background = re.search(r"--background (\S+)", calls[0])
+    assert background, "genart.sh's sprite encode passes no --background"
+    return "--hires" not in calls[0], background.group(1)
 
 
 def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
@@ -246,8 +265,9 @@ def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
     from c64lib.sprites import encode_sheet_blocks
 
     sheet = (LG / "tools" / "sprites.txt").read_text()
-    blocks = encode_sheet_blocks(sheet, multicolor=True,
-                                 background=LG_SPRITE_BACKGROUND)
+    multicolor, background = _genart_sprite_flags()
+    blocks = encode_sheet_blocks(sheet, multicolor=multicolor,
+                                 background=background)
     expected = [b for block in blocks for b in block.data]
     got = _inc_bytes(LG / "sprites.inc")
     assert got == expected, (
@@ -263,3 +283,45 @@ def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
         "sprites.s no longer puts the captive at block 5"
     assert [b.multicolor for b in blocks] == [False] * 5 + [True] * 16, \
         "the sheet's hires/multicolour split moved away from sprites.s's"
+    # Every block must spell its own mode. `genart.sh` passes no --hires, so
+    # the file-level default is whatever the CLI's is; a bare `name:` header
+    # would take that default, and this test's model of the invocation would
+    # start deciding the answer instead of checking it.
+    headers = re.findall(r"^([A-Za-z_]\w*):(\w*)\s*$", sheet, re.M)
+    assert len(headers) == len(blocks), \
+        f"{len(blocks)} blocks but {len(headers)} `name:mode` headers"
+    bare = [name for name, mode in headers if not mode]
+    assert not bare, \
+        f"blocks {bare} name no mode, so they inherit the sheet default — " \
+        "spell hires/multicolor on every block, the way sprites.s does"
+
+
+@pytest.mark.skipif(
+    shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
+    reason="cc65 not installed",
+)
+def test_la_galaxia_prg_is_a_build_of_the_committed_sources(tmp_path):
+    """The include above is pinned to its sheet; this pins the shipped binary
+    to the sources that carry it. `la-galaxia.prg` is tracked, and a stale one
+    contradicts every `.s` and `.inc` beside it — the same "generated file
+    with no regeneration test" failure, one level down. It costs one ca65 and
+    one ld65 pass over a single translation unit (~0.2 s) and is
+    byte-reproducible. The `.d64` is deliberately not pinned: packaging shells
+    out to c1541 and costs seconds, and it carries this exact `.prg`.
+
+    The areas come from `test.yaml`, so the spec stays the one place the
+    program's link layout is written down."""
+    import yaml
+
+    from c64lib.build import build_asm
+    from c64lib.ops import parse_areas
+
+    spec = yaml.safe_load((LG / "test.yaml").read_text())
+    assert spec.get("areas"), "test.yaml no longer declares the ENGINE area"
+    built = build_asm(LG / "la-galaxia.s", out_prg=tmp_path / "la-galaxia.prg",
+                      areas=parse_areas(spec["areas"], 0x0801)).prg
+    assert built.read_bytes() == (LG / "la-galaxia.prg").read_bytes(), (
+        "demos/la-galaxia/la-galaxia.prg is not a build of the committed "
+        "sources — re-run `c64 build demos/la-galaxia/la-galaxia.s --area "
+        "'ENGINE=$4000:$6000'` (and `c64 package` the .d64, which carries it)"
+    )

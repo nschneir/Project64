@@ -134,6 +134,23 @@ def test_test_run_documents_areas_and_the_prg_label_rule():
         "the sibling label file a `.prg` program: picks up is undocumented"
 
 
+def test_test_run_documents_where_an_s_program_builds():
+    """`build_asm` writes beside the source, so a spec that names a `.s`
+    rewrites `<stem>.prg` and `<stem>.lbl` in the demo's own directory every
+    run — which republishes a *tracked* binary (la-galaxia's `.prg` is one)
+    and leaves the label file newer than any sibling image, which is exactly
+    the state the staleness stop two paragraphs later refuses."""
+    text = DOC.read_text()
+    section = text[text.index("**Program tests.**"):
+                   text.index("**Cartridge tests.**")]
+    assert "beside the source" in section, \
+        "the docs never say where a `.s` program:'s build output lands"
+    assert "overwriting both" in section, \
+        "the docs never say the build overwrites what is there"
+    assert "newer than any sibling" in section, \
+        "the docs never connect a source build to the disk staleness stop"
+
+
 def test_profile_documents_samples_and_why_one_arrival_lies():
     """`--samples` is only worth reaching for if the docs say what a single
     arrival gets wrong: a per-frame cost that spikes on a repaint every few

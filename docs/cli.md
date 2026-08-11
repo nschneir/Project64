@@ -2043,6 +2043,16 @@ label file, and for a ready-made `.prg` a sibling `.lbl` of the same stem is
 picked up if it is there, and silently skipped if it is not — so `until:
 {ref: mainloop}` works against a `.prg` that was built elsewhere.
 
+**The build lands beside the source, not in a temp directory.** A `.s`
+`program:` is assembled to `<stem>.prg` and `<stem>.lbl` in the spec's own
+directory, overwriting both, on every run — the same files `c64 build` writes
+there. Two consequences: a *committed* build artifact is republished by a
+test run (byte-identical while the sources have not changed, so the working
+tree stays clean, but it is rewritten), and the fresh `<stem>.lbl` is then
+newer than any sibling `<stem>.d64`, so a `disk:` spec pointed at that image
+afterwards stops with the staleness error below until the image is
+repackaged.
+
 `areas:` is `c64 build --area` as a spec key: a list of `NAME=START:SIZE`
 strings that link segments at fixed addresses, for a program that needs one to
 link at all. It applies to a `.s` `program:` only — beside a `.bas`, a `.prg`,
