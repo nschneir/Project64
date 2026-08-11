@@ -104,6 +104,10 @@ from .text import GUTTER_LABELS, gutter_text
 
 
 def emit(ctx: click.Context, data: dict, human: str) -> None:
+    # Indexes `ctx.obj` where `fail()` goes through `_json_mode()`: `emit` is
+    # only ever reached from a command body, which cannot run before the group
+    # callback has filled `ctx.obj`. A KeyError here would be that invariant
+    # breaking, and worth the traceback.
     if ctx.obj["json"]:
         click.echo(_json.dumps(data))
     else:
@@ -234,17 +238,44 @@ class JsonAwareGroup(click.Group):
         not the ceiling — a command that wants an actionable sentence still
         calls `fail()` itself, and the traceback goes to stderr either way.
 
-        Only input-shaped types are caught, so a genuine bug still surfaces as
-        a traceback. `SessionError` is named because it subclasses none of them.
-        `click.ClickException`, `click.Abort` and `SystemExit` are deliberately
-        absent: `fail()` and `ctx.exit()` work *by* raising `SystemExit`, so
-        catching it would double-report every ordinary error.
+        The tuple is narrower than "every input error", and in both
+        directions. A bug that is *not* input-shaped still surfaces as a
+        traceback — but a `KeyError` on one of our own dicts, or an `OSError`
+        from the daemon socket, is a bug and is caught here, dressed as user
+        error. `SessionError` is named because it subclasses none of the three.
+
+        Deliberately outside the tuple: every other domain exception in
+        `src/c64lib/` — `BasicError`, `BuildError`, `CartError`, `DiskError`,
+        `MonitorError`, `PackageError`, `ProtocolError` and `TestError`, all
+        direct `Exception` subclasses, plus `AudioError` (and its
+        `PinnedStopError`) under `RuntimeError`. `CharsetError` is the only one
+        that arrives here by inheritance, being a `ValueError`. All of them are
+        input-shaped by construction, so the omission is scope rather than
+        judgement: the change that added this guard specified this tuple, and
+        widening it to those nine is its own change with its own tests. Until
+        that happens they still escape wherever no local `try` covers them,
+        which is why the per-site `except DiskError`/`except BuildError`
+        handlers below — two dozen of them — stay load-bearing, not redundant.
+
+        `click.ClickException`, `click.Abort` and `SystemExit` are absent for
+        two *separate* mechanisms. `fail()` exits by raising `SystemExit`, so
+        catching that would double-report every ordinary error. `ctx.exit()`
+        does not: it raises `click.exceptions.Exit`, which is a `RuntimeError`
+        subclass (so is `click.Abort`) — **which is why `RuntimeError` must
+        never enter the tuple**. `ops.py` and the MCP server raise it liberally
+        for timeouts, so widening to it reads as reasonable, and it would
+        swallow `_verdict_report`'s `ctx.exit(1)` below and report
+        `{"error": "1"}` for a FAIL or `--strict` verdict.
         """
         try:
             return super().invoke(ctx)
         except (ValueError, KeyError, OSError, SessionError) as e:
             traceback.print_exc()
-            fail(ctx, str(e))
+            # The class name as a floor: `str(ValueError())` is '' and an
+            # `{"error": ""}` payload tells a --json caller nothing (and is
+            # what `assert_json_error` rejects). No argless raise reaches here
+            # today; this costs one `or` to keep it that way.
+            fail(ctx, str(e) or type(e).__name__)
 
 
 @click.group(cls=JsonAwareGroup)

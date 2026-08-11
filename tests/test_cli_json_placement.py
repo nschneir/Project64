@@ -169,6 +169,9 @@ def _boom_cli(exc: BaseException) -> click.Group:
     (OSError("registry unreadable"), "registry unreadable"),
     # SessionError subclasses none of the three, so the tuple names it:
     (SessionError("session record is unreadable"), "session record is unreadable"),
+    # An argless raise: `str(ValueError())` is '', and `{"error": ""}` is a
+    # payload that parses and says nothing. The class name is the floor.
+    (ValueError(), "ValueError"),
 ])
 def test_an_escaped_input_error_still_lands_in_the_json_contract(exc, fragment):
     r = CliRunner().invoke(_boom_cli(exc), ["boom", "--json"])
@@ -227,8 +230,11 @@ def test_a_failure_before_the_group_callback_is_still_reported():
 
 
 def test_a_genuine_bug_is_not_dressed_up_as_an_input_error():
-    """The tuple is input-shaped types only, never bare `Exception`: a defect in
-    our own code must stay a traceback rather than pose as user error."""
+    """The tuple never widens to bare `Exception`, so a defect that is not
+    input-shaped stays a traceback instead of posing as user error. `RuntimeError`
+    specifically must stay out for a second reason: `ctx.exit()` raises
+    `click.exceptions.Exit`, which subclasses it, so catching `RuntimeError`
+    would turn every `ctx.exit(1)` into `{"error": "1"}`."""
     r = CliRunner().invoke(_boom_cli(RuntimeError("monitor client is confused")),
                            ["boom", "--json"])
     assert isinstance(r.exception, RuntimeError)
