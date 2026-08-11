@@ -1,7 +1,8 @@
 """Shared high-level operations used by both the CLI and the MCP server.
 
-One implementation of the wait/until primitives and symbol plumbing so the
-two front ends cannot drift.
+One implementation of the wait/until primitives, symbol and ref plumbing,
+keyboard typing, sprite and EasyFlash state reads, cart reboot and build
+dispatch, so the two front ends cannot drift.
 """
 
 from __future__ import annotations
@@ -991,12 +992,17 @@ def _decode_type_escapes(text: str) -> str:
     return "".join(out)
 
 
-def key_type(session, text: str) -> dict:
+def key_type(session, text: str, decode_escapes: bool = True) -> dict:
     """Type TEXT into the keyboard buffer. A literal `\\n` in TEXT is
     decoded to RETURN (as a real newline already is) and `\\\\` to one
     backslash; no other escape is interpreted. ValueError from unmappable
-    characters propagates to the caller."""
-    petscii = ascii_to_petscii(_decode_type_escapes(text))
+    characters propagates to the caller.
+
+    decode_escapes=False types TEXT exactly as given — for callers whose
+    text is a file's contents rather than a hand-typed argument."""
+    if decode_escapes:
+        text = _decode_type_escapes(text)
+    petscii = ascii_to_petscii(text)
     with session.monitor() as mon:
         try:
             mon.keyboard_feed(petscii)
@@ -1010,15 +1016,17 @@ def type_basic(session, text: str, run: bool = False) -> dict:
     A trailing newline is added when TEXT lacks one (the last line has to be
     entered, not just displayed) and `run\\n` follows it when run=True.
 
-    Typing goes through key_type, so its `\\n`/`\\\\` escape decoding applies
-    to program text as well — a lone backslash in BASIC source types the £
-    PETSCII character either way, so nothing readable changes meaning.
+    Typing shares key_type's keyboard feed but NOT its escape decoding
+    (decode_escapes=False): program text is typed literally. A .bas file
+    already carries real newlines, so a `\\n` in it is program text — two
+    characters the C64 types as £N — not an escape, and decoding it would
+    take a RETURN mid-line and split the program in two.
     ValueError from unmappable characters propagates to the caller."""
     if not text.endswith("\n"):
         text += "\n"
     if run:
         text += "run\n"
-    return {**key_type(session, text), "run": run}
+    return {**key_type(session, text, decode_escapes=False), "run": run}
 
 
 def key_hold(session, key: str, at_addr: int, frames: int = 1,

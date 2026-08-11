@@ -449,6 +449,26 @@ def test_type_basic_keeps_an_existing_trailing_newline():
     assert out == {"typed_chars": 7, "run": False}
 
 
+def test_type_basic_types_backslashes_literally():
+    """BASIC source is program text, not a shell argument: a `.bas` file
+    already carries real newlines, so `\\n` in it is two characters PRINT
+    should type (£N, E, W) and `\\\\` is two £. type_basic shares key_type's
+    keyboard feed but must NOT inherit its escape decoding, or a line like
+    `10 print "\\new"` would take a RETURN mid-line and split the program."""
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    out = type_basic(s, '10 print "\\new"')
+    mon.keyboard_feed.assert_called_once_with(b'10 PRINT "\\NEW"\r')
+    assert out == {"typed_chars": 16, "run": False}
+
+
+def test_type_basic_keeps_a_doubled_backslash_doubled():
+    from c64lib.ops import type_basic
+    s, mon = _fake_session()
+    type_basic(s, "10 a$=\\\\\n")
+    mon.keyboard_feed.assert_called_once_with(b"10 A$=\\\\\r")
+
+
 def test_matrix_codes_cover_game_keys():
     from c64lib.ops import MATRIX_CODES
     # spot checks against the published keyboard-matrix table ($CB values)

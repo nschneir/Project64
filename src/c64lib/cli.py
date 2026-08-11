@@ -2225,7 +2225,8 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
     input instead of ASCII art) and `c64 sprite show` (the inverse).
     """
     from .sprites import encode_sheet_file, render_sheet
-    # Deliberately NOT shared with the MCP twin, unlike the sheet checks below:
+    # Deliberately NOT shared with the MCP twin, unlike the sheet checks that
+    # live in sprites.encode_sheet_file:
     # each front end spells its own flags (--start-line/--format here,
     # start_line/fmt there), so the message IS the rule and moving it into the
     # library would have to pick one spelling and mislead the other's caller.

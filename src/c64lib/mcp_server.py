@@ -988,10 +988,10 @@ def c64_disk_block_write(image: str, track: int, sector: int,
         written, at = BLOCK_SIZE, 0
     else:
         at = offset or 0
-        # Size the write from the coerced bytes, not from `values`: the guard
-        # above already proves `values` is a non-empty list here (it rejects a
-        # None `src` with a falsy `values`), but it says so through
-        # `(src is None) == (not values)`, which narrows nothing. block_bytes
+        # Size the write from the coerced bytes, not from `values`:
+        # disk.check_block_write above already proves `values` is a non-empty
+        # list here (it rejects a None `src` with a falsy `values`), but it
+        # proves it inside another function, which narrows nothing. block_bytes
         # is 1:1 — one appended byte per element, or it raises — so the count
         # is the same one, taken from a value that cannot be None.
         poke = block_bytes(values)
@@ -1222,7 +1222,8 @@ def c64_sprite_encode(file: str, hires: bool = False, fmt: str = "asm",
     "asm" ca65 .byte rows, or "basic" data lines that start_line
     numbers)."""
     from .sprites import encode_sheet_file, render_sheet
-    # Deliberately NOT shared with the CLI twin, unlike the sheet checks below:
+    # Deliberately NOT shared with the CLI twin, unlike the sheet checks that
+    # live in sprites.encode_sheet_file:
     # each front end spells its own flags (start_line/fmt here,
     # --start-line/--format there), so the message IS the rule and moving it
     # into the library would have to pick one spelling and mislead the other's

@@ -26,10 +26,9 @@ from .ops import (
     MEM_OPS,
     call_routine,
     disk_labels_path,
-    live_screen_base,
     parse_areas,
-    parse_ref,
     run_until,
+    session_ref,
     wait_for_idle,
 )
 from .screen import read_screen_text
@@ -482,11 +481,10 @@ def _do_step(session, kind: str, arg, default_timeout: float,
 
     def _addr(v) -> int:
         # symbols, symbol+offset, and @row,col all work in step addresses;
-        # @row,col follows the machine's live screen base
-        base = (live_screen_base(session) if "@" in str(v)
-                else session.profile.screen_addr)
-        return parse_ref(labels, v, screen_base=base,
-                         screen_width=session.profile.screen_cols)
+        # @row,col follows the machine's live screen base. One resolver
+        # (ops.session_ref) serves this runner and both front ends.
+        # `labels` is never None here, so no label file is re-read.
+        return session_ref(session, v, labels)
 
     if kind == "sample":
         addr = _addr(arg["mem"])

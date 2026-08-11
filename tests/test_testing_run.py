@@ -243,7 +243,7 @@ def test_wait_mem_screen_cell_reresolves_each_poll():
     spec = _spec(steps=[{"wait": {"mem": "@5,0", "equals": 96, "timeout": 2}}])
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
          patch("c64lib.testing.time.sleep"), \
-         patch("c64lib.testing.live_screen_base",
+         patch("c64lib.ops.live_screen_base",
                side_effect=chain([0], repeat(0x0400))):
         result = run_test(spec, launch=launch)
     assert result.passed is True
@@ -269,7 +269,7 @@ def test_assert_mem_color_cell_reads_color_ram():
     spec = _spec(steps=[{"assert": {"mem": "@@5,0",
                                     "mask": {"and": "$0f", "equals": [13]}}}])
     with patch("c64lib.testing.read_screen_text", return_value="READY."), \
-         patch("c64lib.testing.live_screen_base", return_value=0xC400):
+         patch("c64lib.ops.live_screen_base", return_value=0xC400):
         result = run_test(spec, launch=launch)
     assert result.passed is True
     assert 0xD800 + 5 * 40 in seen
