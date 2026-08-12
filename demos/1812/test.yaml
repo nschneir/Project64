@@ -68,9 +68,13 @@ steps:
   - assert: { mem: "sidshadow+11", mask: { and: "$41", equals: ["$40"] } }  # v2 pulse, silent
   - assert: { mem: "sidshadow+18", mask: { and: "$11", equals: ["$10"] } }  # v3 triangle, silent
   # The gate bit only says "not sounding now"; the frequency bytes say "has
-  # never sounded".  gateon is their only writer (music.s:353-370), loadinstr
-  # never reaches +0/+1 (instrdst is 4,5,6,2,3 — music.s:507-509) and a rest
-  # calls gateoff alone, so 0,0 is exact.
+  # never sounded".  THREE routines write a voice's +0/+1 and nothing else
+  # does: sndinit zeroes $00-$18 at startup and on restart (music.s:68-75),
+  # gateon writes a pitch (music.s:353-370), and cannonfire writes voice 3's
+  # pair directly, from section 3 only (music.s:415-420).  loadinstr never
+  # reaches +0/+1 (instrdst is 4,5,6,2,3 — music.s:507-509) and a rest calls
+  # gateoff alone.  Here in section 0 the cannon cannot have run and the only
+  # other non-gateon writer writes zeros, so 0,0 is exact.
   - assert: { mem: "sidshadow+7",  equals: [0, 0] }   # the left hand, still to come
   - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3, silent by design
 
@@ -90,10 +94,12 @@ steps:
   # ...and the arc has gained its second hand but not a third voice.  The
   # first read is the frequency HIGH byte alone, and that byte alone settles
   # it: notefreqh's entries run $02..$7e (tables.inc:152-161), so NO legal
-  # pitch has a zero high byte, and gateon is the only writer of +0/+1.  So
-  # non-zero means the left hand has gated a note, and a zero would have
-  # meant it never had.  The second read takes voice 3's whole pair, which
-  # is the form the file's other two reads of that silence use.
+  # pitch has a zero high byte, and of the three writers of a +0/+1 pair
+  # listed above only gateon can put a non-zero there — sndinit writes zeros
+  # and cannonfire is voice 3's and cannot run before section 3.  So non-zero
+  # means the left hand has gated a note, and a zero would have meant it
+  # never had.  The second read takes voice 3's whole pair, which is the form
+  # the file's other two reads of that silence use.
   - assert: { mem: "sidshadow+8",  not_equals: 0 }    # the left hand has played
   - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3 never does
 
@@ -107,9 +113,11 @@ steps:
   # The hymn is over and section 1 has not been loaded yet — `secchange` sits
   # before `inc section`, so `section` still reads 0 and this is section 0's
   # shadow.  Voice 3's frequency bytes are STILL 0,0, which is the whole
-  # 2399-tick hymn and not merely the first 901 frames of it: gateon is their
-  # only writer and nothing ever clears them, so this is the strongest form
-  # the "voice 3 is silent for the whole hymn" claim has.
+  # 2399-tick hymn and not merely the first 901 frames of it: of the three
+  # writers of a +0/+1 pair listed above, sndinit has run once, at startup,
+  # and wrote zeros; gateon has never been called for voice 3; and cannonfire
+  # is three sections away.  So this is the strongest form the "voice 3 is
+  # silent for the whole hymn" claim has.
   - assert: { mem: section, equals: 0 }
   - assert: { mem: "sidshadow+14", equals: [0, 0] }
   - until:  { ref: secchange, count: 1 }

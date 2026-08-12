@@ -145,16 +145,24 @@ secinstr:
                                           ; the anacrusis is 16-frame notes
                                           ; and a four-frame attack blunts it.
                                           ; Decay 8 (300 ms), not the trumpet
-                                          ; row's 0 (6 ms): with sustain 10 a
-                                          ; decay only times the fall from the
-                                          ; attack peak to the held level, so
-                                          ; it shapes the note's front and,
-                                          ; unlike a sustain-0 row's, cannot
-                                          ; end the note early.  300 ms also
-                                          ; outlasts the 13 frames an s1v1
-                                          ; 16-duration event stays gated, so
-                                          ; the short notes never settle onto
-                                          ; that level and the long ones do.
+                                          ; row's 0 (6 ms).  Sustain is a
+                                          ; LEVEL and not a time, so with
+                                          ; sustain 10 the envelope floors at
+                                          ; the held level and this decay
+                                          ; cannot end a note early the way a
+                                          ; sustain-0 row's does.  And the
+                                          ; 300 ms is the rate column's
+                                          ; full-scale time — decay and
+                                          ; release share that column — so
+                                          ; the fall from peak to 10 of 15
+                                          ; costs a third of it, well inside
+                                          ; even the 13 frames an s1v1
+                                          ; 16-duration event stays gated.
+                                          ; EVERY note here reaches the held
+                                          ; level, the short ones included;
+                                          ; what 8 buys over 6 ms is an
+                                          ; audible fall into that level
+                                          ; rather than a snap to it.
                                           ; Sustain 10 — a wind holds its
                                           ; level, and that is exactly the
                                           ; contrast that makes the piano
