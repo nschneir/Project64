@@ -94,8 +94,12 @@ def _sample_width(arg: dict) -> int:
     never went through `load_test`.
     """
     raw = arg.get("width", 1)
+    # `bool` is an `int` in Python, so `width: true` would otherwise pass
+    # `isinstance(True, int)`, satisfy `True in (1, 2)`, and read ONE byte with
+    # no width note — a typo silently downgraded to the default instead of
+    # refused, which is the one outcome this validator exists to prevent.
     try:
-        width = _num(raw)
+        width = -1 if isinstance(raw, bool) else _num(raw)
     except ValueError:
         width = -1
     if width not in (1, 2):
