@@ -173,6 +173,16 @@ def test_until_cost_notes_conclusions_follow_from_its_own_table():
     stated_rate = stated(r"~(\d+) emulated frames per second", "a frame-stepping rate")
     assert abs(rate - stated_rate) < 15, \
         f"the stated ~{stated_rate}/s is not what the table gives ({rate:.1f})"
+
+    # The sparse anchor covers the SAME span, so its rate comes off the same
+    # table — and it is the faster one. Quoting it as "the same throughput"
+    # understated it by the very ratio the paragraph below states.
+    sparse_rate = arrivals[dense] / means[sparse]
+    stated_sparse = stated(r"~(\d+) frames a second", "the sparse reference's rate")
+    assert abs(sparse_rate - stated_sparse) < 15, \
+        f"the stated ~{stated_sparse}/s is not what the table gives ({sparse_rate:.1f})"
+    assert stated_sparse > stated_rate, \
+        "the sparse reference is documented as no faster than the dense one"
     # …and the rate is NOT the reciprocal of the per-arrival cost. If a future
     # edit ever makes it so, the two quantities have been collapsed into one.
     assert abs(rate - 1000 / stated_ms) > 100, \

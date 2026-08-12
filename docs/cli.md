@@ -531,8 +531,9 @@ across subsequent commands — until you `c64 continue`.
   **~370 emulated frames per second** of wall clock, not one per half-second.
   Read that as a rate of *program covered* — it is set by how fast the
   emulator runs the program, and a sparse reference covering the same span
-  gets the same throughput off far fewer stops. What a stop itself adds is in
-  the cost note below. Same quantity as `c64 profile --samples`, under the
+  covers it faster still, at **~446 frames a second**, off five stops instead
+  of ten thousand. What a stop itself adds is in the cost note below. Same
+  quantity as `c64 profile --samples`, under the
   other name: this one *stops at* the Nth arrival, `profile` *prices all N* —
   see that flag for why neither is renamed.
 - `--timeout SECS` (default `30`).

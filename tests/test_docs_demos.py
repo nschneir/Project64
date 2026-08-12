@@ -547,3 +547,58 @@ def test_la_galaxia_prg_is_a_build_of_the_committed_sources(tmp_path):
         f"sources — re-run `c64 build demos/la-galaxia/la-galaxia.s {flags}` "
         "(and `c64 package` the .d64, which nothing pins to it)"
     )
+
+
+AUDIT_1812 = Path("demos/1812/AUDIT.md")
+#: `rnd`'s two code paths, and the PAL badline DMA steal, in cycles. The A13
+#: passage's whole claim is that its inflated readings are these three numbers
+#: added, so they are named once here and the guard below does the arithmetic.
+_RND_PATHS = (29, 38)
+_BADLINE_STEAL = 43
+
+
+def test_audit_a13_rnd_table_is_its_own_arithmetic():
+    """A13's `rnd` figure was a bare `72` that nobody could reproduce, and what
+    made it reproducible was not a better number but an *explanation*: 72 is the
+    29-cycle path plus one badline's DMA, and whether any arrival is inflated at
+    all is set by the raster line the anchor parked on, not by the screen being
+    on. The passage proves that with a seven-anchor table.
+
+    A published table with no guard is what this branch exists to fix, so this
+    one checks the claim rather than the wording. Every inflated value the table
+    admits must be a path plus exactly one steal; the anchors that report no
+    inflation must show only the bare paths; and the ordering claim — that a
+    stop in the lower border sees none and one inside the display window sees
+    several — has to survive too, since the whole point is that the anchor is
+    what governs it.
+    """
+    text = AUDIT_1812.read_text()
+    rows = re.findall(
+        r"\| `until drawshape --count (\d+)` \| (\d+) \| (\d+) / 96 \| ([\d, ]+?) \|", text)
+    assert len(rows) >= 5, \
+        f"A13's rnd anchor table is gone or reshaped (found {len(rows)} rows)"
+
+    allowed = set(_RND_PATHS) | {p + _BADLINE_STEAL for p in _RND_PATHS}
+    clean, dirty = [], []
+    for count, line, inflated, values in rows:
+        seen = {int(v) for v in values.split(",")}
+        assert seen <= allowed, (
+            f"--count {count} reports {sorted(seen - allowed)}, which is neither "
+            f"a path {_RND_PATHS} nor a path plus one {_BADLINE_STEAL}-cycle steal")
+        n = int(inflated)
+        assert (n == 0) == (seen <= set(_RND_PATHS)), (
+            f"--count {count} says {n}/96 inflated but lists {sorted(seen)} — the "
+            "count and the values disagree")
+        (clean if n == 0 else dirty).append((int(line), n))
+
+    assert clean and dirty, \
+        "the table no longer shows both a clean anchor and an inflated one, which is the claim"
+    # Badlines live in raster $30-$F7. The clean anchors are the ones parked
+    # outside it; if that ever inverts, the table is no longer evidence for
+    # "the anchor governs it" and is just a list of numbers.
+    assert max(n for _, n in clean) < min(n for _, n in dirty), \
+        "an anchor reported as clean now shows more inflation than one reported as dirty"
+    assert any(not (0x30 <= line <= 0xF7) for line, _ in clean), \
+        "no clean anchor is parked outside the badline range, so the table does not explain itself"
+    assert any(0x30 <= line <= 0xF7 for line, _ in dirty), \
+        "no inflated anchor is parked inside the badline range"
