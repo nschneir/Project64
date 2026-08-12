@@ -166,27 +166,3 @@ method in `docs/cli.md`, not only in this demo's audit.
 **How to verify.** Three measurements of one change agree inside their stated
 bands — or the gap is reported with a mechanism that has been tested rather
 than proposed.
-
-## Two stale headroom comments, and one loose duration
-
-**Anchor:** `demos/1812/vars.s:81-82`, `demos/1812/raster.s:272`,
-`demos/1812/sections.s:147`.
-
-**Status:** open, all three pre-existing.
-
-**What's wrong now.** `vars.s:81-82` and `raster.s:272` both say "under 100
-bytes of headroom"; the real figure was 252 before iteration 3, 184 after the
-arrangement work, **167** after the band-pass fix spent 17 on `seccut` and its
-write, and is **120** now — the performance pass spent 47 more on the
-two-crossing case. (`$2000 − (__BSS_LOAD__ $1F2E + __BSS_SIZE__ $5A)`.)
-Both comments are still wrong, but by 20 bytes rather than by 150, and the
-figure has now moved three times in one iteration — so whoever fixes them
-should consider saying "see `1812.lbl`" instead of quoting a number at all.
-`sections.s:147` says "the anacrusis is 16-frame notes" — naive
-duration; an event owns `duration + 1`, so it is 17 frames. The last one was
-reviewed and judged harmless (nothing depends on the number; the sentence
-exists to justify attack 1 over attack 6), but it is the same family as the
-onset-count error that *was* load-bearing and got fixed.
-
-**How to verify.** Re-derive free-below-`$2000` from `1812.lbl` and confirm the
-comments match; for `sections.s:147`, confirm against `voicetick`'s countdown.

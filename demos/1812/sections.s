@@ -144,8 +144,10 @@ secinstr:
         .byte   $20, $18, $a2, $00, $00   ; v1 sawtooth reed, the anthem.
                                           ; Attack 1 (8 ms), not the trumpet
                                           ; row's 6 (68 ms = four frames):
-                                          ; the anacrusis is 16-frame notes
-                                          ; and a four-frame attack blunts it.
+                                          ; the anacrusis is 17-frame notes
+                                          ; (duration 16, and an event owns
+                                          ; duration + 1) and a four-frame
+                                          ; attack blunts it.
                                           ; Decay 8 (300 ms), not the trumpet
                                           ; row's 0 (6 ms).  Sustain is a
                                           ; LEVEL and not a time, so with

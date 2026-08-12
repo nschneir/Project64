@@ -78,8 +78,10 @@ oldvec: .word   0               ; the CINV value we chained from
 ; ==========================================================================
 ; Rasteriser working storage — at $C200, NOT in BSS.
 ;
-; With the bitmap at $2000 the program has under a hundred bytes of headroom
-; below it, and these arrays are about 370.  $C000-$CFFF is the 4 KB BASIC
+; With the bitmap at $2000 the program has about 120 bytes of headroom below
+; it — re-derive that from `1812.lbl` rather than trusting the number here,
+; which has moved every iteration: $2000 - (__BSS_LOAD__ + __BSS_SIZE__).
+; These arrays are about 370.  $C000-$CFFF is the 4 KB BASIC
 ; never touches: $C000-$C1FF holds the quarter-square multiply tables that
 ; `qsgen` builds, and $C200-$C3FF holds this.  Neither is in the .prg and
 ; neither needs to be visible to the VIC-II, which cannot see $C000 anyway.

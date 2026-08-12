@@ -269,8 +269,10 @@ sfcadv: lda     cpar
 ;
 ; The tables are GENERATED AT STARTUP into $C000-$C1FF (qsgen), the 4 KB
 ; BASIC never touches.  They are not in the .prg: with the bitmap at $2000
-; the program has under 100 bytes of headroom, and 512 bytes of table would
-; not fit.  The VIC-II cannot see $C000, which does not matter — nothing but
+; the program has about 120 bytes of headroom (re-derive it from `1812.lbl`,
+; as vars.s says: $2000 - (__BSS_LOAD__ + __BSS_SIZE__)), and 1 KB of table —
+; 512 entries of low bytes and 512 of high — comes nowhere near fitting.
+; The VIC-II cannot see $C000, which does not matter — nothing but
 ; the CPU reads them.
 ;
 ; Operand magnitudes are at most 127 (the sin table's amplitude, and every
