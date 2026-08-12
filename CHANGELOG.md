@@ -218,11 +218,11 @@ refusals share one reason: a branch whose target is an anonymous label, and
 any rewrite whose new `:` would land between another `:+` and the label that
 reference resolves to. An anonymous label has no name, only a position, so
 either edit still assembles and quietly branches somewhere else — the one
-failure a green build cannot catch. The third is the file's encoding: a CRLF
-or CR line is refused with the line endings named, because the trampoline's
-three lines would go in with LF and leave the file mixed, and without the
-check the report would blame the instruction ("not a conditional branch") for
-what is really the file's encoding. Line endings now survive a rewrite byte
+failure a green build cannot catch. Another is new here, and is about the file
+rather than the branch: a CRLF or CR line is refused with the line endings
+named, because the trampoline's three lines would go in with LF and leave the
+file mixed, and without the check the report would blame the instruction
+("not a conditional branch") for what is really the file's encoding. Line endings now survive a rewrite byte
 for byte — read and written with `newline=""` — where a CRLF source used to
 arrive through universal newlines as LF, match on every reported branch, and
 go back reformatted end to end for a three-line fix.

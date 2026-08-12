@@ -237,20 +237,35 @@ def test_build_documents_which_areas_are_filled():
         "the docs never warn that a `.res` inside an area ships as zeros"
 
 
-#: Every file that repeats `docs/cli.md`'s flat-padding figure, and so has to
-#: agree with it. `demos/la-galaxia/PLAN.md` is deliberately NOT here: it is a
-#: dated lab record that quotes its own wrong 14,342 beside the correction,
-#: and a guard forbidding the wrong number would forbid saying it was wrong.
+#: Files that DO repeat `docs/cli.md`'s flat-padding figure, and so have to
+#: agree with it — as against `_FIGURE_WATCHED` below, where a copy is what is
+#: being watched *for*. Every entry here must still hold one (see the per-file
+#: assert), so a copy that goes away shows up as a failure and not as silence.
+#: `demos/la-galaxia/PLAN.md` is deliberately in neither list: it is a dated
+#: lab record that quotes its own wrong 14,342 beside the correction, and a
+#: guard over it would forbid saying the number had been wrong.
 _FIGURE_ECHOES = ["CHANGELOG.md"]
 
+#: Files that deliberately DON'T repeat the figure — they point at
+#: `docs/cli.md` instead — watched in case one comes back. Zero matches is the
+#: passing state here, so this list is the one shape the per-file rule above
+#: must not be applied to.
+#:
+#: `skills/6502-assembly/SKILL.md` is the whole reason the mechanism exists.
+#: It carried the figure at `8d5b5d3:.../SKILL.md:286` ("flat 14,337 bytes
+#: before `ENGINE`'s own contents"); `d99c561` replaced it with a pointer to
+#: `docs/cli.md` and, in the same commit, started reading the file here — an
+#: unverified second copy of this exact number is how 14,342 drifted into
+#: `demos/la-galaxia/PLAN.md` and reached a task brief. The read was never an
+#: echo comparison that had gone stale, and anyone treating it as dead weight
+#: because it matches nothing is deleting the watch: that is exactly what
+#: happened once already, and this comment is the fix for it.
+_FIGURE_WATCHED = ["skills/6502-assembly/SKILL.md"]
+
 #: Matches the figure bolded (`docs/cli.md`) or bare (`CHANGELOG.md`) — one
-#: pattern where the source and the echo used to have a regex each. Neither of
-#: those failed to match anything: the bold one found `docs/cli.md`'s copy and
-#: the bare one would have found any echo's. What made the guard vacuous was
-#: the file it read — only `skills/6502-assembly/SKILL.md`, which has never
-#: carried the figure in any spelling, so the loop ran zero comparisons while
-#: reading as if it checked something. The per-file assert below is what stops
-#: that recurring in silence.
+#: pattern where the source and the echoes used to have a regex each. Neither
+#: of those failed to match: the bold one found `docs/cli.md`'s copy and the
+#: bare one found `SKILL.md`'s until `d99c561` removed it.
 _FLAT_FIGURE = re.compile(r"flat \*{0,2}([\d,]{6,}) bytes")
 
 
@@ -277,11 +292,35 @@ def test_every_copy_of_the_flat_padding_figure_agrees_with_the_docs():
         # exact state this started in.
         assert strays, (
             f"{name} no longer spells the flat-padding figure this guard "
-            f"matches. If it really dropped its copy, drop it from "
-            f"_FIGURE_ECHOES too rather than leaving a dead entry behind")
+            f"matches. If it really dropped its copy, move it to "
+            f"_FIGURE_WATCHED rather than leaving a dead entry here")
         for stray in strays:
             assert int(stray.replace(",", "")) == claimed, \
                 f"{name} says {stray} where docs/cli.md says {spelled}"
+
+
+def test_the_figure_stays_gone_from_the_files_it_was_removed_from():
+    """The other half of "one figure, one source": a file that was made to
+    point at `docs/cli.md` must not quietly grow its own copy again.
+
+    Deliberately NOT the per-file rule above. Zero matches is the passing
+    state, so this cannot assert that it found something — which is precisely
+    why the watch reads as dead weight to anyone who checks whether it matches
+    anything today, and why `_FIGURE_WATCHED` carries the history instead.
+
+    A copy that agrees passes, as it did under `d99c561`: once the file is on
+    this list every run compares it, so the copy is verified rather than
+    unverified, and it is the *unverified* second copy that drifts. Only a
+    disagreeing one fails.
+    """
+    claimed, spelled = _documented_flat_padding()
+    for name in _FIGURE_WATCHED:
+        for stray in _FLAT_FIGURE.findall(Path(name).read_text()):
+            assert int(stray.replace(",", "")) == claimed, (
+                f"{name} states the flat-padding figure as {stray} where "
+                f"docs/cli.md says {spelled}. This file was made to point at "
+                f"docs/cli.md rather than restate the number (d99c561); a copy "
+                f"here is only allowed while it agrees")
 
 
 @pytest.mark.skipif(
