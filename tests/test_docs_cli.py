@@ -125,6 +125,60 @@ def test_until_count_documents_its_measured_per_arrival_cost():
             f"the refuted claim {lie!r} is back in the `until` cost note"
 
 
+def test_until_cost_notes_conclusions_follow_from_its_own_table():
+    """Naming the measurement is not enough on its own: an edit could swap the
+    timings, or restate the conclusions, and leave the guard above green while
+    the paragraph stopped following from the table under it. So this one does
+    the arithmetic. It recomputes the marginal per-arrival cost, the ratio and
+    the frame-stepping rate from the six timings the table publishes, and
+    requires the prose's stated figures to match.
+
+    It is also the guard against the two quantities being conflated again:
+    0.44 ms per arrival and ~370 frames per second are not reciprocals — one is
+    what a stop costs, the other is how fast the emulator covers the program —
+    and a reader who reads them as one is out by a factor of six.
+    """
+    section = " ".join(_section(DOC.read_text(), "### `c64 until`").split())
+    rows = re.findall(r"\| `c64 until (\w+) --count (\d+)\`[^|]*\|[^|]*\|"
+                      r"([^|]*)\|([^|]*)\|([^|]*)\|", section)
+    assert len(rows) == 2, f"the cost note's measurement table is gone or reshaped: {rows}"
+    means, arrivals = {}, {}
+    for ref, count, *cells in rows:
+        runs = [float(m) for c in cells for m in re.findall(r"([\d.]+) s", c)]
+        assert len(runs) == 3, f"`{ref}` no longer publishes three runs: {cells}"
+        means[ref] = sum(runs) / len(runs)
+        arrivals[ref] = int(count)
+
+    def stated(pattern: str, what: str) -> float:
+        """The figure the prose claims — and a readable failure when the prose
+        has stopped claiming it at all, which is the other way this guard can
+        need to fire."""
+        m = re.search(pattern, section)
+        assert m is not None, f"the cost note no longer states {what}"
+        return float(m.group(1))
+
+    dense, sparse = "seqtick", "secchange"
+    # marginal cost of one arrival, from the two anchors' shared span
+    ms = (means[dense] - means[sparse]) * 1000 / (arrivals[dense] - arrivals[sparse])
+    stated_ms = stated(r"marginal cost is ~([\d.]+) ms", "a per-arrival cost")
+    assert abs(ms - stated_ms) < 0.05, \
+        f"the stated ~{stated_ms} ms per arrival is not what the table gives ({ms:.3f})"
+
+    ratio = means[dense] / means[sparse]
+    stated_ratio = stated(r"\*\*([\d.]+)×\*\* five stops", "the dense/sparse ratio")
+    assert abs(ratio - stated_ratio) < 0.02, \
+        f"the stated {stated_ratio}x is not what the table gives ({ratio:.3f})"
+
+    rate = arrivals[dense] / means[dense]
+    stated_rate = stated(r"~(\d+) emulated frames per second", "a frame-stepping rate")
+    assert abs(rate - stated_rate) < 15, \
+        f"the stated ~{stated_rate}/s is not what the table gives ({rate:.1f})"
+    # …and the rate is NOT the reciprocal of the per-arrival cost. If a future
+    # edit ever makes it so, the two quantities have been collapsed into one.
+    assert abs(rate - 1000 / stated_ms) > 100, \
+        "the frame rate now reads as 1/(per-arrival cost) — two different things"
+
+
 def test_test_run_documents_the_always_present_tests_envelope():
     """A spec-level error emits `{"error", "passed": false, "tests": []}` rather
     than dropping `tests` — 1812's harness crashed on the missing key. A promise
@@ -291,6 +345,13 @@ def test_profile_documents_blanking_and_the_differential_distinction():
         "the badline arithmetic states a quotient it does not compute"
     assert "0.0629" in section, \
         "the docs never show the step from a stolen fraction to a multiplier"
+    # The overclaim this paragraph was corrected for. gapB measured a different
+    # shape configuration and four of the six legs moved with it; only the
+    # subtraction came back identical. Negative, like the `until` guard's, since
+    # the failure mode here is a compression pass restoring a tidier sentence.
+    for lie in ("All six blanked legs", "all six blanked legs"):
+        assert lie not in section, \
+            f"the refuted claim {lie!r} is back in the blanking passage"
 
 
 def test_session_stop_documents_all_and_start_documents_the_notice():
@@ -327,6 +388,27 @@ def test_headless_documents_the_null_sound_sink():
     assert "null sink" in section, "the headless sound sink is undocumented"
     assert "makes no noise" in section, \
         "the docs never say the sink is why a headless session is silent"
+
+
+def test_session_start_documents_the_macos_idle_throttling_hazard():
+    """The second way a headless session presents as broken, and the one that
+    costs a debugging session rather than a puzzled minute: macOS idle-throttles
+    a minimized background emulator until every binary-monitor call times out,
+    while the process is alive and its ports still answer. It reads as a wedge.
+    The A/B that attributed it lives in `CHANGELOG.md`, which is not where a
+    reader looks for operating guidance — hence the pointer here."""
+    text = DOC.read_text()
+    start = text[text.index("### `c64 session start`"):
+                 text.index("### `c64 session ensure`")]
+    section = " ".join(start.split())
+    assert "caffeinate -dimsu" in section, \
+        "the remedy for macOS idle throttling is undocumented"
+    assert "idle-throttles" in section, \
+        "the docs never name what slows an unattended headless session"
+    assert "wedged emulator" in section, \
+        "the docs never say the symptom is indistinguishable from a wedge"
+    assert "CHANGELOG.md" in section, \
+        "the docs never point at the A/B that attributed the hazard"
 
 
 #: The three areas the la-galaxia dogfood measured the fill against, and the

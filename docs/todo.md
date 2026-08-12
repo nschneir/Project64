@@ -96,24 +96,39 @@ triangle, and the Marseillaise's is a sawtooth reed, not a pulse.
 
 ## `AUDIT.md`'s A13 cycle row is not reproducible as written
 
-**Anchor:** `demos/1812/AUDIT.md` A13; `smul`, `rnd` in `demos/1812/raster.s`.
+**Anchor:** `demos/1812/AUDIT.md` A13 — now only its last four figures:
+`pickshape`, `xform`, `spanfill`, worst-case `drawshape`.
 
-**Status:** open, and it needs a **measurement** pass rather than a prose one.
-Both routines are leaves whose cost is set by operands their caller writes, so
-`c64 profile --samples` re-enters them with the inputs already in memory and
-reports one case N times (`docs/cli.md`, `c64 profile`) — the numbers only exist
-if someone pokes each case by hand and re-profiles it. Its landing site is then
-the A13 row, whose surrounding prose the evidence-and-prose plan owns (see the
-item above). A documentation pass alone would be restating a guess, which is how
-the row got here.
+**Status:** open, and **narrowed to the half that was not measured**. `smul` and
+`rnd`, the two figures the item was filed about, are **closed**: re-measured
+blanked at `until drawshape --count 40`, `smul` is 111–151 over nine poked
+operand cases (and `141` belongs to `−5, +7`, not to the both-negative case
+previously recorded) and `rnd` is 29 or 38 and nothing between over 96 arrivals.
+Both, with their command lines and the `--samples`-eats-its-own-inputs trap on
+`smul`, are written into `AUDIT.md` under *A13's first two figures*. What is
+struck from this item is that half.
 
-**What's wrong now.** "`smul` 141" is reproducible only with both operands
-negative and the smaller magnitude first. "`rnd` 72" needs a badline inside a
-35-cycle window — `rnd`'s real paths are 29 and 38 cycles. A reader who
-re-measures gets different numbers and cannot tell whether something regressed.
+**What's wrong now.** The four remaining figures are still bare single-arrival
+numbers with **no recorded anchor**, which is the same defect one step less
+obvious: `spanfill` in particular is the worked example in `docs/cli.md` of a
+routine whose cost is set by span endpoints its caller writes and that
+`--samples` never varies, so `4,384` is a reading of whichever span the program
+happened to be holding — it moves when the anchor moves and reads as a
+regression that nothing caused. `pickshape` and `xform` are the same shape of
+claim. `483,327` is quoted as a *worst case*, which is a search result and not a
+measurement: nothing records what was searched or how the worst case was
+established.
 
-**Fix direction (ruled).** Iteration 3's audit entry records min/max/mean with
-a sample count and the anchor each figure was taken at, not a bare number.
+**Fix direction (ruled, unchanged).** Every A13 figure records min/max/mean with
+a sample count and the anchor it was taken at, never a bare number — and where
+the routine's inputs come from its caller, the poked cases as well, the way the
+`smul` half now does.
+
+**Why not here.** Three of the four need their inputs constructed before they
+mean anything, and `drawshape`'s needs a worst case re-established rather than
+re-read — a search, with its own criterion to agree first. That is a measurement
+pass of its own, and it lands in a row whose surrounding prose the
+evidence-and-prose plan owns (see the item above).
 
 **How to verify.** Re-profile from the recorded command line and land inside
 the recorded range.
@@ -133,10 +148,12 @@ counter the program does not keep.
 **What's wrong now.** The step reads "voice 1 sounded in this section" off a
 non-zero `noteidx`. `s2v1` fires 300 pitched events, so it reads 44 and passes —
 but a stream whose section event count were an exact multiple of 256 would read
-0 and fail the step *while sounding*. The comment already says so; the
-assertion still cannot tell the two cases apart, and it is the only one of the
-section's three voice witnesses that can't (v2 uses `differs` against a sampled
-pitch, v3 a range on `vnote+2`).
+0 and fail the step *while sounding*. The comment already says so; the assertion
+still cannot tell the two cases apart. The v2 witness (`differs` against a
+sampled pitch) has a latent false failure of the same family — the comment says
+so too — but it is a coincidence between two bytes, checked by hand against the
+data (`$12` there, `$1f` here) and settled. `noteidx`'s recurs every 256 events,
+so any edit that lengthens voice 1's section-2 stream walks toward it.
 
 **Fix direction (two, unranked).** Either widen `noteidx` to a `.word` in
 `vars.s`, carry the high byte at the `inc` in `music.s`, and sample it at

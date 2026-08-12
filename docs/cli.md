@@ -96,6 +96,17 @@ Boot a fresh emulated C64.
   straight into it; there is nothing to load afterwards. A sibling `.lbl` of
   the cartridge's stem is registered as the session's symbols if it is there.
 
+**Unattended `--headless` work on macOS belongs under `caffeinate -dimsu`.**
+A headless session is a minimized background process, and macOS idle-throttles
+one once the machine sits without user activity: the emulation loop slows until
+binary-monitor calls time out, while `x64sc` is still alive at ~2% CPU with its
+ports still answering — so it presents as a wedged emulator rather than a slow
+one. The A/B that attributed it (three smokes wedging identically under the
+throttle, the same code clean the moment it was wrapped) is in `CHANGELOG.md`
+under the audio-pin work. Put the wrapper outside the whole detached run —
+`nohup caffeinate -dimsu /bin/zsh driver.sh &` — so it covers every child, and
+on each `c64` call as well if the command lines are being recorded as evidence.
+
 Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
 file registered from `--disk`/`--cart`, or `null`. Machine left running.
@@ -515,12 +526,15 @@ across subsequent commands — until you `c64 continue`.
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
   the session daemon, so the client pays one IPC round-trip for the whole
-  loop instead of one per arrival, and large counts are fast: **measured at
-  ~370 arrivals per second** of wall clock, not one per half-second (see the
-  cost note below for the measurement). Same quantity as
-  `c64 profile --samples`, under the other name: this one *stops at* the Nth
-  arrival, `profile` *prices all N* — see that flag for why neither is
-  renamed.
+  loop instead of one per arrival, and frame stepping is fast: stepping
+  `demos/1812` through 10,200 frames on its per-frame reference ran at
+  **~370 emulated frames per second** of wall clock, not one per half-second.
+  Read that as a rate of *program covered* — it is set by how fast the
+  emulator runs the program, and a sparse reference covering the same span
+  gets the same throughput off far fewer stops. What a stop itself adds is in
+  the cost note below. Same quantity as `c64 profile --samples`, under the
+  other name: this one *stops at* the Nth arrival, `profile` *prices all N* —
+  see that flag for why neither is renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on
@@ -547,13 +561,21 @@ every call under `caffeinate -dimsu`, three runs each:
 | `c64 until secchange --count 5` (per-section ref) | 5 | 22.45 s | 23.69 s | 22.54 s |
 
 Both stop at `frames = $27D8` = 10,200 — the *same* emulated span — so the
-4.4 s between the means is 10,195 extra arrivals: **~0.44 ms each, ~370
-arrivals per second.** Ten thousand stops cost 1.19× five stops over that span,
-not many times it. So a sparse reference (a section change, a level load) is
-still the cheaper one and worth preferring, but the saving is the overhead, not
-the run. Do **raise `--timeout` once N is four figures**: 27 s is inside the
-30 s default on this machine with nothing to spare, and a slower host or a
-busier one will not be.
+4.4 s between the two means is the 10,195 extra arrivals, and **an arrival's
+marginal cost is ~0.44 ms**. The remaining 22.9 s is the emulator running the
+program, and that is what sets the throughput either way: 10,200 frames in
+27.3 s through the per-frame reference, the same 10,200 frames in 22.9 s
+through the sparse one. So the per-arrival cost and the ~370-frames-a-second
+rate quoted under `--count` are different quantities and not reciprocals of one
+another: 0.44 ms is what a *stop* costs, not what a frame costs, and reading one
+off the other is out by about six times.
+
+So ten thousand stops cost **1.19×** five stops over that span, not many times
+it. A sparse reference (a section change, a level load) is still the cheaper
+one and worth preferring, but what it saves is the overhead, not the run. Do
+**raise `--timeout` once N is four figures**: 27 s is inside the 30 s default on
+this machine with nothing to spare, and a slower host or a busier one will not
+be.
 
 ### `c64 call`
 
@@ -612,8 +634,9 @@ byte is `$3B`, that is `c64 mem write '$d011' '$2b'`. What it buys is not a
 smaller number but a *reproducible* one. In a two-build profiling matrix over
 1812's `scanfill`, the two blanked legs that ran the same unmoved code in
 different builds came back as **98,909 cycles each — the same integer, not the
-same within a band**, where those same two legs measured with the screen on
-drifted −59…+88 cycles run to run.
+same within a band**. Those same two legs measured with the screen on drifted
++48 and −38 cycles between runs of the identical command line, and across all
+six legs of the matrix the run-to-run drift spanned −59…+88.
 
 What reproduces across *workloads* is the difference, not the leg. Re-running
 that matrix at a different shape configuration moved every absolute leg — the
@@ -707,9 +730,11 @@ the ±90 two single arrivals carry — was filed as the differential
 under-reporting by 6.2%. It was not under-reporting. Re-measured blanked, the
 sort is −11,214 and the routine is −11,870, and the −656 between them is the
 *untouched* row body getting cheaper: the 47-byte shift moved the four tables
-behind five absolute-indexed reads (`dither`, read twice as `dither` and
-`dither+1`; `rowaddrl`; `rowaddrh`; `attrcoll`) relative to the unmoved code
-that indexes them, worth −480 counted off the addresses, and took
+behind the five absolute-indexed reads whose crossing status it changed
+(`dither`, read twice as `dither` and `dither+1`; `rowaddrl`; `rowaddrh`;
+`attrcoll`) relative to the unmoved code that indexes them, worth −480 counted
+off the addresses — the routine's other indexed reads moved as well and were
+worth nothing, which is the point — and took
 the one taken branch per row off the `$1100` boundary, worth −179. Predicted
 −659 against −656 measured, and −480 against −479 out of sample on a second
 shape. Both numbers were right about different quantities: the differential is

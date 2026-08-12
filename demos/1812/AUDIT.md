@@ -133,7 +133,7 @@ Full protocol re-run (`tools/evidence.sh`). Every criterion PASS:
 | A10 | `dropped = 0`, reproduced across two independent full runs |
 | A11 | `typeseen = $03FF`, `patseen = $FF` |
 | A12 | `shapes` unchanged over 120 frames of hold; a key resets `shapes` to 0, clears the bitmap and mixes the jiffy clock into `seed` |
-| A13 | `smul` 141 · `rnd` 72 · `pickshape` 1,477 · `xform` 14,961 · `spanfill` 4,384 · worst-case `drawshape` 483,327 (28 frames) |
+| A13 | `smul` **111–151** over 9 poked operand cases · `rnd` **29 or 38, nothing between** (96 arrivals, mean 32.9) · `pickshape` 1,477 · `xform` 14,961 · `spanfill` 4,384 · worst-case `drawshape` 483,327 (28 frames) — see *A13's first two figures*, below |
 | A14 | `1812.d64` built; `x64sc -ntsc demos/1812/1812.d64` |
 
 **A9 needed its anchor corrected.** Two passes with seed `$9977` compared at
@@ -143,6 +143,54 @@ shape, so the two passes were being compared at different points of the same
 sequence. Re-anchored on `until shapedone --count 400`, the two passes agree
 on `rng`, all last-shape bytes, the lit count, the checksum **and** the frame
 number. `SPEC.md` A9 was amended to name the shape boundary and say why.
+
+**A13's first two figures were single numbers for routines that do not have
+one.** `smul 141` and `rnd 72` were quoted bare, and a reader who re-measured
+got something else and could not tell whether anything had regressed.
+Re-measured on the tracked build with the screen blanked, so the counts are CPU
+work with no badline steal:
+
+```
+c64 session start --headless --warp -s a13off ; c64 load 1812.prg --symbols 1812.lbl
+c64 until drawshape --count 40        # qsgen's $C000-$C3FF tables are built by here
+c64 mem write '$d011' '$2b'           # DEN clear; $D011 is written once, at 1812.s:126
+c64 until drawshape --count 2         # so DEN is already 0 at the next raster $30
+c64 profile rnd --samples 64
+c64 mem write MULA '$fb' ; c64 mem write MULB '$07' ; c64 profile smul --samples 1
+```
+
+**`rnd` has exactly two paths and no third: 29 and 38 cycles.** It is a Galois
+LFSR that advances `rng` itself (`spawn.s:19-27`), so it is the one routine here
+that `--samples` sweeps honestly — 64 arrivals are 64 different states.
+Measured: min **29**, max **38**, mean **32.9** (and 33.2 over a separate 32),
+with the samples alternating between the two values and never landing between
+them. `72` is neither path. It is a wall-cycle reading that caught a badline
+inside the routine's ~35-cycle window; with the screen on, 96 arrivals here
+still returned min 29 / max 38, so that case is rare enough that quoting it as
+*the* cost is what made the row irreproducible.
+
+**`smul` is 111–151, driven by the operand signs and by whether `|a−b|` needs a
+negate** — not by magnitude. Nine poked cases, one arrival each, blanked:
+
+| MULA, MULB | cycles | | MULA, MULB | cycles |
+|---|---:|---|---|---:|
+| `+7, +5` | 111 | | `−7, −5` | 137 |
+| `0, 0` | 111 | | `−128, −128` | 139 |
+| `+127, +127` | 111 | | `−5, +7` | **141** |
+| `+5, +7` | 116 | | `−5, −7` | 142 |
+| | | | `+5, −7` | **151** |
+
+So `141` *is* reproducible — but not under the condition previously recorded.
+It is **A negative and B positive**; both-negative-with-the-smaller-magnitude-
+first is 142. The two figures had been transposed onto the wrong case.
+
+**And `--samples` must not be used on `smul` at all.** It overwrites `MULA` and
+`MULB` with their magnitudes (`raster.s:330`, `:336`, `:341` — the source says
+so in a comment), so every arrival after the first is handed a case nobody
+asked for. From a poked `−5, −7`, `c64 profile smul --samples 4` returns
+**`[142, 116, 116, 116]`**: one real measurement, then three of `+5, +7`. That
+is a spread with a min, a max and a mean, and all of it after the first entry is
+an artefact of the routine having eaten its own inputs.
 
 ### Review — as a viewer
 
@@ -313,9 +361,12 @@ now takes one signed compare and at most one swap.
 Each patched leg is a single arrival at ~±45, so each differential carries ~±90.
 **The differential rows and the whole-routine rows are not two readings of one
 number, and the 737 between −11,990 and −12,727 is not error.** The 47 bytes
-shifted the four tables behind `spanfill`'s five absolute-indexed reads
-(`dither` is read twice, at `dither` and `dither+1`) and took the one taken
-`→ sfnext` branch
+shifted the four tables behind the five absolute-indexed reads whose
+page-crossing status it changed — `dither` (read twice, at `dither` and
+`dither+1`), `rowaddrl`, `rowaddrh`, `attrcoll`, which is where the −480 is
+counted; `spanfill`'s other absolute-indexed reads moved too and contributed
+nothing, their crossing status being the same either side — and took the one
+taken `→ sfnext` branch
 per row off the `$1100` boundary, which makes the *untouched* row body 656
 cycles cheaper — real work, collected by `scanfill` and `drawshape`, and
 cancelled by construction in the differential, whose two legs both delete that
