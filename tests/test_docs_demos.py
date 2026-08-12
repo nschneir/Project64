@@ -9,6 +9,7 @@ demo directory left unlisted anywhere.
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -246,6 +247,133 @@ def test_every_audio_evidence_script_captures_strictly():
         for line in calls:
             assert "--strict" in line, \
                 f"{script} captures without --strict: {line.strip()}"
+
+
+# --- the nine sounding scores and the one silent one ----------------------
+
+# The demos that ship an audio evidence run, found rather than listed: a third
+# one would join this pin the day it lands a script, not the day someone
+# remembers to add it here.
+AUDIO_EVIDENCE = sorted(DEMOS_DIR.glob("*/tools/audio-evidence.sh"))
+
+_ARGV_END = "--- end of call ---"
+
+# Records its argv and does nothing else. What is being read out of an
+# evidence script is the command line it builds, not what the tools do with it.
+_ARGV_STUB = f"""#!/bin/sh
+for arg in "$@"; do printf '%s\\n' "$arg" >>"$C64_ARGV_LOG"; done
+printf '%s\\n' '{_ARGV_END}' >>"$C64_ARGV_LOG"
+"""
+
+MS_MUNCHER_PLAY = "demos/ms-muncher/evidence/audio/play.score.yaml"
+
+_THREE_SITES = (
+    "Nine scored captures that sound and one that does not is load-bearing prose "
+    "in three places, and a score that gains or loses its last sounding note has "
+    "to change all three: this file's "
+    "test_every_audio_evidence_script_captures_strictly docstring, "
+    "demos/ms-muncher/tools/audio-evidence.sh's cap() comment, and CHANGELOG.md's "
+    "[Unreleased] --strict paragraph."
+)
+
+
+def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
+    """Every `c64 audio capture` argv an evidence script builds.
+
+    The script is *run*, in a throwaway tree where `.venv/bin/c64` and `python3`
+    are argv-recording stubs, rather than read. The two scripts reach `--ref`
+    differently — la-galaxia passes each score to its `cap` helper as an
+    argument, ms-muncher derives one from the capture name and only on the
+    branch where that file exists — and three of ms-muncher's five captures
+    come out of a `for` loop. Recovering those paths from the text would be a
+    small shell interpreter, and it would quietly stop covering whatever shape
+    the next capture is written in.
+    """
+    demo = script.parent.parent.name
+    scores = DEMOS_DIR / demo / "evidence" / "audio"
+    tools, audio = sandbox / script.parent, sandbox / scores
+    tools.mkdir(parents=True)
+    audio.mkdir(parents=True)
+    shutil.copy(script, tools / script.name)
+    # ms-muncher's helper passes --ref only for a capture that has a committed
+    # score beside it, so the scores have to be here for that branch to be taken.
+    for score in sorted(scores.glob("*.score.yaml")):
+        shutil.copy(score, audio / score.name)
+    log = sandbox / "argv.log"
+    log.touch()
+    stubs = sandbox / "stub"
+    # `python3` too, not just the CLI: la-galaxia regenerates two of its scores
+    # from genmusic.py before it captures anything, and `set -e` would take the
+    # run down at that line.
+    for exe in (sandbox / ".venv" / "bin" / "c64", stubs / "python3"):
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text(_ARGV_STUB)
+        exe.chmod(0o755)
+    env = dict(os.environ, C64_ARGV_LOG=str(log),
+               PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}")
+    run = subprocess.run(["sh", str(tools / script.name)], env=env,
+                         capture_output=True, text=True)
+    assert run.returncode == 0, (
+        f"{script} does not run against stubbed tools (exit {run.returncode}), so "
+        f"the captures it makes cannot be read off it: {run.stderr.strip()}")
+    calls = [c.splitlines() for c in log.read_text().split(_ARGV_END + "\n")]
+    return [c for c in calls if c[:2] == ["audio", "capture"]]
+
+
+def _refs(call: list[str]) -> list[str]:
+    """The reference scores of one capture argv, in either spelling of the flag."""
+    found = []
+    for index, arg in enumerate(call):
+        if arg.startswith("--ref="):
+            found.append(arg.split("=", 1)[1])
+        elif arg == "--ref" and index + 1 < len(call):
+            found.append(call[index + 1])
+    return found
+
+
+def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
+    """The pin under the docstring above, which nothing but prose held. That
+    docstring, ms-muncher's `cap()` comment and the CHANGELOG all rest on the
+    same split — ten scored captures, nine of whose scores list sounding notes
+    and one, ms-muncher's `play`, that lists none — and the same branch got the
+    claim wrong twice running. Adding a note to `play.score.yaml`, or emptying
+    one of the other nine, silently falsifies all three sentences.
+
+    "Sounding" and not "listed" is the property that matters: `diff_score`
+    compares positionally and an explicitly scored rest matches silence, so a
+    score of nothing but rests would diff a silent window clean exactly as an
+    empty list does. The scores come out of the scripts rather than a list
+    here, so an eleventh capture is in scope the moment it is written.
+    """
+    from c64lib.sid_analysis import REST, load_score
+
+    refs: list[str] = []
+    for script in AUDIO_EVIDENCE:
+        for call in _audio_capture_calls(script, tmp_path / script.parent.parent.name):
+            found = _refs(call)
+            assert len(found) == 1, (
+                f"{script} makes a capture with {len(found)} --ref scores: "
+                f"{' '.join(call)}\n{_THREE_SITES}")
+            refs.extend(found)
+    assert len(refs) == 10, (
+        f"the evidence scripts now make {len(refs)} scored captures, not ten: "
+        f"{refs}\n{_THREE_SITES}")
+
+    sounding = {}
+    for ref in refs:
+        path = Path(ref)
+        assert path.exists(), f"a capture passes --ref {ref}, which is not committed"
+        entries = [entry for _voice, voiced in load_score(path) for entry in voiced]
+        missing = [entry for entry in entries if "note" not in entry]
+        assert not missing, f"{ref} has entries with no 'note': {missing}"
+        sounding[ref] = sum(1 for e in entries if str(e["note"]).strip() != REST)
+
+    silent = sorted(ref for ref, notes in sounding.items() if not notes)
+    assert silent == [MS_MUNCHER_PLAY], (
+        f"the scores with no sounding note are {silent}, not [{MS_MUNCHER_PLAY!r}]. "
+        f"{_THREE_SITES} A score with no sounding note diffs clean against a silent "
+        "window and PASSes at exit 0, so `--strict` is the only guard that capture "
+        f"has. Sounding notes per score: {sounding}")
 
 
 def test_every_demo_directory_is_listed():
