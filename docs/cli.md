@@ -2118,11 +2118,16 @@ steps:
   - sample: { mem: "$D000", as: x0 }        # capture a byte under a name
   - assert: { mem: "$D000", differs: x0 }   # compare against a sample:
   - assert: { mem: "$D000", greater_than: x0 }   # differs / greater_than /
-  - assert: { mem: "ballx", less_than: x0 }      # less_than (plain bytes —
-                                            #   wraparound is yours to handle)
+  - assert: { mem: "ballx", less_than: x0 }      # less_than (one byte by
+                                            #   default — wraparound is
+                                            #   yours to handle)
   - assert: { mem: "$D000", unchanged: x0 } # equality against a sample:
                                             #   "this byte did NOT change"
                                             #   (holds, pauses, game over)
+  - sample: { mem: shapes, as: s0, width: 2 }   # capture a 16-bit lo/hi
+  - assert: { mem: shapes, greater_than: s0 }   #   counter — the comparison
+                                            #   reads two bytes because the
+                                            #   sample did
 ```
 
 Step kinds: `wait` (poll until true or timeout — fails the test on
@@ -2157,6 +2162,32 @@ Sample the byte first and compare against the name:
 
 A comparator given something that parses as a number says so, rather than
 reporting an unknown sample and leaving you to work out why.
+
+**A 16-bit counter needs `width: 2` on the sample.** A `sample:` captures one
+byte by default, so a `greater_than` against a two-byte counter compares low
+bytes only — and a low byte is not a small version of the counter, it is a
+number that falls every 256 counts. A rise of 32 across `$01f0 → $0210` reads
+as `240 → 16` one byte wide and *fails*; a move of exactly 256 leaves the low
+byte where it was and a `differs` witness reads it as unchanged. `width: 2`
+reads the 6502's lo/hi word at that address — the shape `.word` emits and
+`INC lo / BNE / INC hi` maintains:
+
+```yaml
+  - sample: { mem: shapes, as: s0, width: 2 }
+  - until:  { ref: seqtick, count: 600 }
+  - assert: { mem: shapes, greater_than: s0 }
+```
+
+The width is stated once, on the `sample:`. `differs`, `greater_than`,
+`less_than` and `unchanged` read back at the width of the sample they name, so
+a spec cannot compare a word against a byte; step details say which they did
+(`mem $c012 (16-bit) = 528 > sample s0=496`). `width:` is 1 or 2 and a spec
+naming anything else is refused before the emulator boots. There is no
+big-endian option: a hi/lo pair is not an idiom this machine has, and a
+program that stores one can be sampled a byte at a time. Only these four
+comparators take a width — `wait: { mem: … }` and the literal comparisons
+(`equals`, `between`, `mask`) are unchanged, and `equals: [lo, hi]` already
+compares two bytes against literals.
 
 The screen-substring check is spelled `text` in both `wait` and `assert`,
 and `screen` is accepted as an alias in both — so a copied step survives a

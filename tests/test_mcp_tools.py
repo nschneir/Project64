@@ -594,6 +594,43 @@ def test_test_run_forwards_allow_stale(tmp_path):
     assert out["warnings"] == ["staleness allowed: …"]
 
 
+def test_sixteen_bit_sample_spec_matches_the_cli(tmp_path):
+    """CLI/MCP lockstep for `sample: { width: 2 }`. The surface is the spec
+    file, and both front ends reach it through the same `load_test`/`run_test`
+    pair — so the proof is one spec, judged whole from both sides: same steps,
+    same two-byte read, same detail lines. Only the emulator launch is faked;
+    the width validation and the lo/hi read are the real ones."""
+    from c64lib.testing import run_test as real_run_test
+
+    spec_file = tmp_path / "w.yaml"
+    spec_file.write_text('steps:\n'
+                         '  - sample: { mem: "$1000", as: s0, width: 2 }\n'
+                         '  - assert: { mem: "$1000", greater_than: s0 }\n')
+
+    def _run_against_a_fake_machine(spec, allow_stale=False):
+        s, mon = _fake_session()
+        # $01f0 -> $0210: the counter rises 32 while its low byte falls
+        mon.memory_read.side_effect = [b"\xf0\x01", b"\x10\x02"]
+        with patch("c64lib.testing.read_screen_text", return_value="READY."):
+            return real_run_test(spec, launch=Mock(return_value=s),
+                                 allow_stale=allow_stale)
+
+    with patch("c64lib.mcp_server.run_test", _run_against_a_fake_machine):
+        err, mcp_payload = call_tool("c64_test_run", {"yaml_file": str(spec_file)})
+    with patch("c64lib.cli.run_test", _run_against_a_fake_machine):
+        cli_payload = cli_json(["test", "run", str(spec_file)])["tests"][0]
+
+    assert err is False, mcp_payload
+    assert mcp_payload["passed"] is True, mcp_payload["steps"]
+    # `elapsed` is wall clock and is the one key that cannot match
+    for payload in (mcp_payload, cli_payload):
+        payload.pop("elapsed")
+    assert mcp_payload == cli_payload
+    assert [st["detail"] for st in mcp_payload["steps"]] == [
+        "sampled mem $1000 (16-bit) = 496 as 's0'",
+        "mem $1000 (16-bit) = 528 > sample s0=496"]
+
+
 def test_basic_check_returns_the_cli_payload(tmp_path):
     src = tmp_path / "bad.bas"
     src.write_text("10 goto 999\n")

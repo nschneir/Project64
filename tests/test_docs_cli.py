@@ -134,6 +134,19 @@ def test_test_run_documents_areas_and_the_prg_label_rule():
         "the sibling label file a `.prg` program: picks up is undocumented"
 
 
+def test_test_run_documents_the_sample_width_option():
+    """A one-byte sample against a 16-bit counter passes on margin rather than
+    on logic, and the spec that hit it (1812's `shapes greater_than s0`) had no
+    way to say otherwise. Undocumented, `width:` would go on being unavailable
+    to everyone who did not read the runner."""
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert "width: 2" in section, "the two-byte sample option is undocumented"
+    assert "lo/hi" in section, "the docs never say which byte order a width-2 read is"
+    assert "the width of the sample they name" in section, \
+        "the docs never say the comparison inherits the sample's width"
+
+
 def test_test_run_documents_where_an_s_program_builds():
     """`build_asm` writes beside the source, so a spec that names a `.s`
     rewrites `<stem>.prg` and `<stem>.lbl` in the demo's own directory every

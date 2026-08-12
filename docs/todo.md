@@ -43,31 +43,6 @@ sibling's workspace, never the caller's.
 **How to verify.** Before any `rm -rf` of an SDD workspace, list what the plan
 owed and confirm each artifact exists somewhere the deletion cannot reach.
 
-## `c64 test run`'s `sample`/comparison ops read one byte
-
-**Anchor:** `testing.py` `sample`/`greater_than` handling (`testing.py:842`);
-`demos/1812/test.yaml`'s `shapes greater_than s0` step.
-
-**Status:** unfixed, and currently passing on margin rather than on logic.
-
-**What's wrong now.** `sample` captures a single byte, so a `greater_than`
-against a 16-bit counter compares low bytes only. In `demos/1812/test.yaml` the
-sampled `shapes` low byte runs 179 → 224 — a rise of 45 against a wrap at 77.
-It passes, and it would keep passing if the counter's high byte moved instead;
-it would spuriously *fail* if the true rise crossed a multiple of 256.
-
-The same class bit twice more in the 1812 pass: `noteidx` is one byte and wraps
-at 256 (section 2 runs 300 events → 44), and a `differs` witness had to be
-hand-checked against the possibility of two instants coinciding.
-
-**Fix direction (not ruled).** A two-byte sample and comparison in the test
-runner. **CLI/MCP lockstep is the cardinal rule** — it has both front ends or
-it is not a proposal.
-
-**How to verify.** A spec that samples a 16-bit counter across a boundary where
-the low byte falls while the value rises; it must pass with a two-byte
-comparator and fail with today's.
-
 ## `demos/1812`'s evidence PNGs no longer depict the shipped build
 
 **Anchor:** `demos/1812/evidence/sec0.png`…`sec4.png`, `final.png`,
