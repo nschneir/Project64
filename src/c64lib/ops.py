@@ -17,7 +17,7 @@ import operator
 import re
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from .basic import BasicError, tokenize
@@ -335,7 +335,8 @@ def disk_labels_path(image) -> Path | None:
     return None
 
 
-def attach_boot_labels(session, cart=None, disk=None) -> Path | None:
+def attach_boot_labels(session, cart: str | Path | None = None,
+                       disk: str | Path | None = None) -> Path | None:
     """Register the labels a freshly booted session implies, and return them.
 
     A cartridge's sibling `.lbl` wins outright, and a cartridge with no label
@@ -355,8 +356,8 @@ def attach_boot_labels(session, cart=None, disk=None) -> Path | None:
     return lbl
 
 
-def reboot_with_cart(session_name: str | None, crt, *, headless: bool,
-                     warp: bool) -> dict:
+def reboot_with_cart(session_name: str | None, crt: str | Path, *,
+                     headless: bool, warp: bool) -> dict:
     """Boot a fresh session with `crt` attached, replacing the running one.
 
     A cartridge is mapped at power-on, so "running" one means rebooting
@@ -446,7 +447,7 @@ def runnable_ext(src: Path | str) -> str:
     return ext
 
 
-def build_for_run(session, src, areas=()
+def build_for_run(session, src: str | Path, areas: Sequence[str] | None = ()
                   ) -> tuple[Path, Path | None, tuple[Path, ...]]:
     """Turn a `c64 run` source into a loadable `.prg`: `(prg, labels, deps)`.
 
@@ -487,11 +488,23 @@ def build_for_run(session, src, areas=()
             raise ValueError(_unrunnable(ext))
     except (BasicError, BuildError) as e:
         # Re-raised as its own class: a caller that tells a failed tokenize
-        # from a failed build still can.
+        # from a failed build still can. `type(e)(...)` holds because both are
+        # bare `Exception` subclasses taking one message and nothing else — an
+        # error class that grew a second constructor argument (the way
+        # `PinnedStopError` carries its two underlying exceptions) would have
+        # to be re-raised by name here instead, or it would lose that argument.
         raise type(e)(f"{e}{_previous_program_note(session)}") from e
     # `deps` is empty for everything but a `.s`, and `build._parse_deps` can
     # never hand back an empty tuple for one (it falls back to the top
     # source), so "no deps" and "nothing was built" are the same case.
+    #
+    # Resolved, which neither front end asked for: `MonitorClient.autostart`
+    # wants an absolute path (VICE mounts the file as a virtual drive, and a
+    # relative one is resolved against the EMULATOR's cwd — not necessarily
+    # this process's, since the daemon may have launched it elsewhere). The
+    # MCP server already resolved its source before calling; the CLI did not,
+    # so doing it here is what puts the two on one path. It is also the path
+    # both front ends then echo as `prg`.
     return Path(prg).resolve(), labels, deps or (src,)
 
 

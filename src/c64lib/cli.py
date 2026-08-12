@@ -103,6 +103,7 @@ from .screen import (
     save_screenshot_png,
 )
 from .session import Session, SessionError
+from .sprites import SpriteState
 from .symbols import format_addr
 from .testing import TestError, load_test, program_test, run_test
 from .text import GUTTER_LABELS, gutter_text
@@ -2210,7 +2211,8 @@ def sprite() -> None:
     """Inspect, render, and convert VIC-II sprites."""
 
 
-def _sprite_shape(ctx, s, n, block):
+def _sprite_shape(ctx: click.Context, s: Session, n: int, block: str | None
+                  ) -> tuple[bytes, SpriteState, dict, int]:
     """ops.sprite_shape with CLI error reporting: a bad index (ValueError) and
     an unresolvable --block ref (KeyError/ValueError) both exit 1."""
     try:

@@ -1336,10 +1336,18 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
     `peak_hz` adds a `"peak"` key measuring the recording's loudest
     frequency, and needs a `wav_path` — a dominant partial is a property of
     the recording, not of the register log. Off by default because it is one
-    rFFT over the whole file. Refusing the combination is the caller's, and
-    both front ends do refuse it, each naming its own flags; with no WAV
-    here there is nothing to measure, so no `"peak"` is attached.
+    rFFT over the whole file. Without a WAV it raises `ValueError` rather
+    than returning a report with no `"peak"` in it: `peak_hz=True` promises
+    the key, and the CLI renders it unconditionally. Both front ends refuse
+    the combination first in their own flag names, so this is a backstop for
+    a library caller and no user ever reads it.
     """
+    if peak_hz and wav_path is None:
+        # Before anything is parsed or written, like both front ends' own
+        # refusals: a call that cannot produce what it asked for costs nothing
+        # and leaves no half-written `outdir` behind.
+        raise ValueError("peak_hz needs a wav_path: a dominant partial is a "
+                         "property of the recording, not of the register log")
     import yaml
 
     # Imported here, not at module scope: this pulls in numpy and Pillow, and
@@ -1362,7 +1370,7 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
         # Neither an OSError nor a ValueError, so it would reach a front end
         # as a traceback; a hand-written score is exactly where a typo lands.
         raise AudioError(f"{ref_path} is not readable YAML ({e})") from e
-    metrics = spectrogram = None
+    metrics = spectrogram = peak = None
     if wav_path is not None:
         try:
             metrics = sid_analysis.wav_metrics(wav_path)
@@ -1372,6 +1380,16 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
             # Not an OSError and not a ValueError, so it would reach a front
             # end as a traceback: a truncated or non-RIFF file is a report.
             raise AudioError(f"{wav_path} is not a readable WAV ({e})") from e
+        if peak_hz:
+            # Measured HERE, inside the only block that knows there is a WAV,
+            # rather than beside the key it becomes: the guard at the top of
+            # this function makes "peak_hz was asked for" and "there is a
+            # recording to measure" one condition, and this is where a reader
+            # (and a type checker) can see that they are. Read through the
+            # module imported at the top of this function, for the startup
+            # reason stated there — the same reason both front ends used to
+            # import `dominant_partial_hz` by hand at their call sites.
+            peak = sid_analysis.dominant_partial_hz(wav_path)
     # After the metrics, not before: one of the anomaly checks reads a note the
     # log calls sounding against the levels the recording actually reached, so
     # the WAV has to have been measured first. Without one it is skipped and
@@ -1406,14 +1424,11 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
                     if metrics is not None else None),
         **timing,
     }
-    # `and wav_path is not None` re-states what both front ends already
-    # refused, so a library caller that skipped the refusal gets a report
-    # without a peak rather than a crash inside the FFT.
-    if peak_hz and wav_path is not None:
-        # Through the module already imported at the top of this function, for
-        # the startup reason stated there — which is the same reason both front
-        # ends used to import `dominant_partial_hz` by hand at the call site.
-        out["peak"] = sid_analysis.dominant_partial_hz(wav_path)
+    # No second `wav_path is not None` here: the guard at the top of this
+    # function is the whole rule, so `"peak"` is in the payload exactly when
+    # it was asked for, which is what lets a front end index it unconditionally.
+    if peak_hz:
+        out["peak"] = peak
     return out
 
 

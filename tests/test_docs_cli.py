@@ -318,6 +318,17 @@ def test_audio_documents_strict_and_that_the_default_is_unchanged():
         "the sibling verdict command carries the flag and the docs omit it"
 
 
+def test_break_list_documents_what_a_mask_with_no_known_bits_renders_as():
+    """The `op` paragraph said what the three bits spell and never what
+    *none* of them spells. `protocol.op_name` answers `""` there — a value a
+    `--json` caller can only find out by hitting it, and one that reads as a
+    missing field rather than as the documented answer."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 break list`").split())
+    assert 'the empty string `""`' in section, \
+        ("the docs never say that an op mask with none of the three bits set "
+         "renders as the empty string")
+
+
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
     text = DOC.read_text()

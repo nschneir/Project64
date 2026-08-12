@@ -128,6 +128,26 @@ def test_session_ref_reads_the_live_screen_base_only_for_at_refs():
     assert live.call_count == 3
 
 
+def test_session_ref_with_no_labels_reads_the_sessions_own_label_file(tmp_path):
+    """`labels=None` is the default, and every caller with no symbol table of
+    its own takes it — so the branch that reads the session's `.lbl` was only
+    ever exercised through them. Passing `{}` is not the same thing: an
+    explicit empty table stays empty, which is what makes the default a
+    decision rather than an accident."""
+    s, _ = _fake_session()
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al C:1000 .alien\n")
+    s.labels = str(lbl)
+    assert ops.session_ref(s, "alien") == 0x1000
+    assert ops.session_ref(s, "alien+2") == 0x1002
+    with pytest.raises(KeyError):
+        ops.session_ref(s, "alien", {})
+    # No label file at all is the same call with nothing to find.
+    s.labels = None
+    with pytest.raises(KeyError):
+        ops.session_ref(s, "alien")
+
+
 def test_wait_for_text_fires_and_times_out():
     s, mon = _fake_session()
     with patch("c64lib.ops.read_screen_text", side_effect=["A", "B READY."]):

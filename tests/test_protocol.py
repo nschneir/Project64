@@ -3,6 +3,9 @@ import struct
 import pytest
 
 from c64lib.protocol import (
+    CP_EXEC,
+    CP_LOAD,
+    CP_STORE,
     Command,
     ErrorCode,
     FrameDecoder,
@@ -11,6 +14,7 @@ from c64lib.protocol import (
     encode_command,
     memory_get_body,
     memory_set_body,
+    op_name,
     parse_display_get,
     parse_memory_get,
     resource_set_body,
@@ -133,3 +137,24 @@ def test_parse_memory_get():
 def test_error_code_names():
     assert ErrorCode(0).name == "OK"
     assert ErrorCode(0x8F).name == "GENERAL_FAILURE"
+
+
+def test_op_name_joins_the_known_bits_in_one_fixed_order():
+    """The spelling both front ends report as `op`, so it is pinned here
+    rather than in either of them: `exec`, `load`, `store`, in that order
+    whatever order the bits arrive in."""
+    assert op_name(CP_EXEC) == "exec"
+    assert op_name(CP_LOAD) == "load"
+    assert op_name(CP_STORE) == "store"
+    assert op_name(CP_STORE | CP_LOAD) == "load|store"
+    assert op_name(CP_EXEC | CP_LOAD | CP_STORE) == "exec|load|store"
+
+
+def test_op_name_drops_unknown_bits_and_renders_an_empty_mask_as_empty():
+    """The documented half VICE never exercises — which is why it is asserted
+    here and not against a live monitor. An empty mask is `""` and a bit
+    outside the three is dropped, rather than either becoming a placeholder
+    `op` value no real checkpoint can produce."""
+    assert op_name(0) == ""
+    assert op_name(0x80) == ""
+    assert op_name(CP_LOAD | 0x80) == "load"

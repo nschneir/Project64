@@ -10,6 +10,7 @@ import inspect
 import json
 import re
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -103,6 +104,28 @@ def test_disk_get_tool_defaults_dest_like_the_cli(image, tmp_path, monkeypatch):
     (tmp_path / "alpha.prg").unlink()
     cli_payload = cli_json(["disk", "get", str(image), "alpha"])
     assert mcp_payload == cli_payload
+
+
+@needs_c1541
+def test_disk_get_defaults_dest_from_the_name_as_the_caller_spelled_it(
+        image, tmp_path, monkeypatch):
+    """The default is built from NAME *before* cbm_lookup_name cases it for
+    the lookup, so `ALPHA` finds the disk's `alpha` and still lands in
+    `ALPHA.prg` on the host. The lowercase test above passes with those two
+    lines in either order, which is what left the docstring's own example
+    unpinned.
+
+    Asserted on the returned string, not on the file: this repo is developed
+    on a case-insensitive filesystem, where `ALPHA.prg`.exists() is true of a
+    file written as `alpha.prg`.
+    """
+    monkeypatch.chdir(tmp_path)
+    mcp_payload = mcp_server.c64_disk_get(str(image), "ALPHA")
+    assert mcp_payload["dest"] == "ALPHA.prg"
+    # The lookup really did case the name down — this is the file on the disk.
+    assert Path(mcp_payload["dest"]).read_bytes().startswith(b"\x01\x08")
+    Path(mcp_payload["dest"]).unlink()
+    assert mcp_payload == cli_json(["disk", "get", str(image), "ALPHA"])
 
 
 # --- rename / rm ------------------------------------------------------------

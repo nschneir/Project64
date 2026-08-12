@@ -784,7 +784,11 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
         finally:
             mon.resume()
     lbl = Path(symbols).resolve() if symbols else None
-    if lbl:
+    # `is not None`, the spelling `ops.attach_boot_labels` and c64_disk_boot
+    # use for the same `Path | None`. A `Path` is always truthy (`Path("")` is
+    # `PosixPath('.')`), so `if lbl:` tested exactly the same thing — and two
+    # spellings of one test in sibling paths invite reading a difference in.
+    if lbl is not None:
         s.set_labels_path(str(lbl))
     s.record_loaded(p, [p])
     return {"loaded": str(p), "run": run,
@@ -912,8 +916,11 @@ def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
 
 @srv.tool()
 def c64_disk_get(image: str, name: str, dest: str | None = None) -> dict:
-    """Copy a file off a disk image to the host. dest defaults to NAME.prg in
-    the working directory, the same file `c64 disk get` writes."""
+    """Copy a file off a disk image to the host. dest defaults to NAME.prg —
+    the same default `c64 disk get` applies, spelled the way you typed NAME —
+    and a relative dest lands in THIS SERVER PROCESS's working directory,
+    which is wherever the server was launched and not something a client can
+    see or change. Pass an absolute dest to choose where the file goes."""
     return {"image": str(Path(image)), "name": name,
             "dest": str(get_file(Path(image), name, dest))}
 

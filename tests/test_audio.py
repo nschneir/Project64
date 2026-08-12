@@ -1664,6 +1664,26 @@ def test_sid_report_attaches_the_peak_only_when_asked(tmp_path):
     assert "peak" not in plain
 
 
+def test_sid_report_refuses_a_peak_with_no_wav_rather_than_omitting_it(tmp_path):
+    """One invariant, one place. `peak_hz` without a WAV used to return a
+    report with no `peak` key while `c64 audio report` indexed `out["peak"]`
+    unconditionally — the CLI was only safe because it refused the
+    combination first, so the rule lived in three files and the library's
+    half was the one nothing enforced.
+
+    A backstop no user reaches: both front ends still refuse it in their own
+    flag names first. It fires before anything is written, so an outdir the
+    call would have created is not left behind either.
+    """
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 60)
+    outdir = tmp_path / "no-wav"
+    with pytest.raises(ValueError, match="peak_hz needs a wav_path"):
+        audio.sid_report(log, outdir, timing=audio.report_timing_for("c64"),
+                         peak_hz=True)
+    assert not outdir.exists()
+
+
 # --- capture ------------------------------------------------------------------
 
 def test_capture_pins_arms_samples_sinks_restores_then_disarms(vice_text,
