@@ -199,16 +199,21 @@ secinstr:
 ; EXCEPT 4->5.  That boundary takes a different path and is not an oversight
 ; in this comment: nextsec branches to `silence` and returns before nsplay
 ; (music.s:224-228), so loadinstr never runs for section 5 and this table's
-; [5] entries are never loaded at all.  What runs instead gates all three
-; voices off and zeroes $D418 — more thorough than a table load, not less —
-; but it does mean the hold inherits the finale's cutoff and routing, both of
-; which are already inert.
+; [5] entries are never loaded at all.  What runs instead is `silence`, which
+; writes FOUR registers — the three voice control bytes and $D418
+; (music.s:237-256) — where loadinstr would have written eighteen.  It is the
+; narrower path, not the more thorough one, and it is sufficient rather than
+; equivalent: it reaches the two things that decide whether anything is heard,
+; the gate bits and the volume, and it leaves $D415-$D417 exactly as the
+; finale set them.  So the hold inherits the finale's cutoff and routing, and
+; that is only harmless because both are already inert — see the corollary
+; near the end of this block, which says what that costs.
 ;
 ; A cannon shot rewrites all three as well, but by TWO routines on two
 ; schedules, and collapsing them into "the cannon" is a conflation this file
 ; has already had to correct once: cannonfire writes $D417 and $D418 once, at
-; the shot (music.s:424-429), while cantick writes $D416 once a frame for the
-; 24 frames after it (music.s:455-469).
+; the shot (music.s:428-433), while cantick writes $D416 once a frame for the
+; 24 frames after it (music.s:461-476).
 ;
 ; THE CUTOFF HAS TO BE A REAL VALUE, AND FOR THE WHOLE LIFE OF THIS DEMO IT
 ; WAS NOT.  A filter does nothing until secres routes a voice into it, and
@@ -235,10 +240,22 @@ secinstr:
 ; though not at the same harmonic in every case — near the fourth of the
 ; lowest notes, between the first and second of the highest.  It is NOT inside
 ; the second-to-fourth harmonic band of all of them, and no byte could be:
-; those [2f, 4f] windows intersect only across a pitch ratio of 2 or less and
-; this figure spans 2.12, so D#5 and E5 — three of its 32 events — sit above
-; where a cutoff satisfying the rest can reach.  That is a property of the
-; figure's range and not of this value.  With secres[2]'s resonance nybble $F
+; a cutoff inside [2f, 4f] for every note needs 2*f_hi <= 4*f_lo, so those
+; windows intersect only across a pitch ratio of 2 or less, and this figure
+; spans 2.12.
+;
+; E5 ALONE IS WHAT MAKES THAT IMPOSSIBLE, and the distinction matters because
+; a reader who checks the other candidate will find equality and think the
+; claim is wrong.  E5 wants the cutoff at or above 2*E5 = 1319 Hz while D#4
+; wants it at or below 4*D#4 = 1245 Hz; there is no such value.  D#5 is NOT a
+; second witness — it sits EXACTLY on the boundary, its notefreq word $27E0
+; being precisely twice D#4's $13F0, so 4*D#4 = 2*D#5 = 1245 Hz would satisfy
+; D#5 and the whole rest of the figure, by a hair and with E5 still outside.
+; Separately, at the 1.2 kHz actually chosen, three of the figure's 32 events
+; fall outside the window — D#5 twice and E5 once — but that is a fact about
+; this value, where E5's is a fact about every value.
+;
+; With secres[2]'s resonance nybble $F
 ; the result is a fixed formant the figure runs under, which is what a
 ; band-pass on an ostinato is for; it also leaves the bottom of the mix to
 ; voice 3's octave bass, which is not routed.  Centring the band ON the
@@ -295,11 +312,24 @@ secinstr:
 ; are settled: the piano is sold by its envelope alone (see the arc block
 ; above), and the filter is GLOBAL, so a band-pass placed for the reed would
 ; also sit on whichever piano voices secres routed alongside it and the two
-; would have to be re-judged together.  seccut[0], [1], [4] and [5] are
-; therefore $00 and inert — with secres $00 no voice reaches the filter at
-; all, so those sections cannot hear their cutoff whatever it holds.  Zero is
-; chosen over some other inert value only because it is what sndinit already
-; leaves there, so the table records the state rather than changing it.
+; would have to be re-judged together.  seccut[0], [1] and [4] are therefore
+; $00 and inert — with secres $00 no voice reaches the filter at all, so those
+; sections cannot hear their cutoff whatever it holds.  Zero is chosen over
+; some other inert value only because it is what sndinit already leaves there,
+; so the table records the state rather than changing it.  Both halves of that
+; are ASSERTED, not merely written down: test.yaml reads $D417 == 0 at a stop
+; inside section 0 and again at one inside section 1, because seccut turned
+; this carve-out from a fact about the chip into a judgement about the
+; instruments, and a judgement is one byte of secres from being reversed in
+; silence.  The two stops are the two sections this paragraph argues about.
+;
+; SECTION 5's ENTRY IS A DIFFERENT CASE and the sentence above does not cover
+; it: [5] is never read by anything, because loadinstr does not run at the
+; 4->5 boundary (see the head of this block).  What makes the hold inert is
+; therefore not this table at all — it is that $D417 still holds the finale's
+; $00 and `silence` has zeroed $D418.  The [5] entries exist to keep all three
+; tables the same shape as `section`'s range, which is how secres[5] and
+; secvol[5] have always been carried; they are documentation, not data.
 ;
 ; The writers of the cutoff pair, since a comment here is read as a contract:
 ;   sndinit   zeroes registers $00-$18 — its loop runs to `cpx #25` — once at

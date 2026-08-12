@@ -57,22 +57,22 @@ steps:
   # sidput mirrors every SID write into sidshadow at the register's own
   # offset (music.s:58-60) and is the chip's only writer, so this block is
   # the whole evidence that a voice did or did not sound.  Voice n sits at
-  # offset 7n (vbase, music.s:506): frequency at +0/+1, control at +4, SR
+  # offset 7n (vbase, music.s:512): frequency at +0/+1, control at +4, SR
   # at +6 (hardware.md:238-242).
   #
   # THE HYMN IS A SOLO PIANO.  Voice 1 is sounding; the left hand has not
   # entered yet and voice 3 never will, and both read ungated — bit 0 of the
   # control byte clear, which is how secinstr stores a waveform and how
-  # gateoff leaves it (sections.s:97, music.s:384-393).
+  # gateoff leaves it (sections.s:97, music.s:388-399).
   - assert: { mem: "sidshadow+4",  mask: { and: "$41", equals: ["$41"] } }  # v1 pulse, GATED
   - assert: { mem: "sidshadow+11", mask: { and: "$41", equals: ["$40"] } }  # v2 pulse, silent
   - assert: { mem: "sidshadow+18", mask: { and: "$11", equals: ["$10"] } }  # v3 triangle, silent
   # The gate bit only says "not sounding now"; the frequency bytes say "has
   # never sounded".  THREE routines write a voice's +0/+1 and nothing else
   # does: sndinit zeroes $00-$18 at startup and on restart (music.s:68-75),
-  # gateon writes a pitch (music.s:353-370), and cannonfire writes voice 3's
-  # pair directly, from section 3 only (music.s:415-420).  loadinstr never
-  # reaches +0/+1 (instrdst is 4,5,6,2,3 — music.s:507-509) and a rest calls
+  # gateon writes a pitch (music.s:357-386), and cannonfire writes voice 3's
+  # pair directly, from section 3 only (music.s:419-424).  loadinstr never
+  # reaches +0/+1 (instrdst is 4,5,6,2,3 — music.s:513-515) and a rest calls
   # gateoff alone.  Here in section 0 the cannon cannot have run and the only
   # other non-gateon writer writes zeros, so 0,0 is exact.
   - assert: { mem: "sidshadow+7",  equals: [0, 0] }   # the left hand, still to come
@@ -109,8 +109,13 @@ steps:
   # JUDGEMENT — the pianos were chosen and settled against an unfiltered path
   # — and a judgement with nothing reading it is one byte of secres away from
   # being silently reversed.  $D417 = 0 is what makes seccut[0] inert, so this
-  # is also what licenses the seccut block's claim that sections 0, 1, 4 and 5
-  # cannot hear their cutoff whatever it holds.
+  # is what licenses the seccut block's claim FOR SECTION 0 — and only for
+  # section 0.  Say exactly what is covered: section 1 has its own read at the
+  # Marseillaise stop below; section 4's is already here, in the finale group,
+  # where $D417 == 0 is asserted for a different reason (the cannon handing the
+  # voice back); and SECTION 5 IS NOT READ AT ALL, because there is nothing to
+  # read — loadinstr never runs at 4->5, so section 5 keeps section 4's byte
+  # and section 4's assertion is the only one there can be.
   - assert: { mem: "sidshadow+23", equals: [0] }      # $D417: the piano is dry
 
   # ======================================================================
@@ -133,6 +138,18 @@ steps:
   - until:  { ref: secchange, count: 1 }
   - assert: { mem: section, equals: 1 }
   - assert: { mem: frames, equals: [60, 15] }         # 3900
+  # ...and the REED is dry too, which is a separate claim from the hymn's and
+  # needs its own read.  The sections.s carve-out argues about sections 0 and 1
+  # together, but a guard at the section-0 stop only ever reads secres[0]: with
+  # secres[1] alone poked to $f1 the whole suite passed, so the reed was
+  # genuinely unguarded.  Measured, not supposed — and $f1 is the exact shape
+  # the mistake would take, because it is the byte sitting one row below in the
+  # table.  It would route the reed into a filter whose $D418 has every mode
+  # bit clear (secvol[1] = $0f), which is not a colour on the reed but a mute:
+  # no low-pass, no band-pass, no high-pass, so the routed voice reaches the
+  # output through nothing at all.  That failure is inaudible in a register
+  # dump and silent in every other assertion here.
+  - assert: { mem: "sidshadow+23", equals: [0] }      # $D417: the reed is dry
   # A witness for the battle, recorded here at its last silent moment: voice
   # 2's stream legitimately rests every other event (six frames on, six off),
   # so no instantaneous read can say whether it is playing in section 2.  What
@@ -151,9 +168,9 @@ steps:
   # ---- the arc at full width: three instruments in the battle ------------
   # The other end of the arc from the hymn's solo piano, and the last frame of
   # the battle: `secchange` is the label at the TOP of nextsec, before
-  # `inc section` (music.s:212-214), so section 2's state is still the state
+  # `inc section` (music.s:216-218), so section 2's state is still the state
   # here — including `noteidx`, which nextsec zeroes four lines further down
-  # (music.s:218).
+  # (music.s:222).
   #
   # THE BAR EACH READ HAS TO CLEAR is that it FAILS IF A BATTLE VOICE GOES
   # SILENT — if any of s2v1/s2v2/s2v3 became a rest-only stream.  Three reads
@@ -163,11 +180,11 @@ steps:
   # point since sndinit", and all three voices have by now — voices 1 and 2 in
   # the hymn and voice 3 in section 1's bass hand; and the gate bit is a coin
   # flip, since voicetick releases a note three frames before its event ends
-  # (music.s:264-277) and two of these three voices are in that gap right now.
+  # (music.s:268-281) and two of these three voices are in that gap right now.
   #
   # So each voice gets the witness that is exact FOR IT:
   # - v1: `noteidx` counts voice 1's PITCHED events only — vtrest branches
-  #   away before the `inc` (music.s:309-316) — and nextsec zeroed it at the
+  #   away before the `inc` (music.s:313-320) — and nextsec zeroed it at the
   #   3900 boundary, so a non-zero value here is voice 1 sounding in THIS
   #   section.  A rest-only s2v1 leaves it at 0.  The CONVERSE does not
   #   hold, and saying so is the point: `noteidx` is one byte (vars.s:20)
@@ -194,7 +211,7 @@ steps:
   # And the three instruments really are three, which is a guard on the
   # secinstr rows rather than on the voices sounding: vwave holds each voice's
   # waveform with the gate bit clear, written only by loadinstr and cannonfire
-  # (music.s:129, music.s:407-408).  Section 2 is a frozen keeper, so this
+  # (music.s:129, music.s:411-412).  Section 2 is a frozen keeper, so this
   # should never move.
   - assert: { mem: vwave, equals: ["$20", "$40", "$20"] }  # saw / pulse / saw
 
@@ -230,14 +247,14 @@ steps:
   # THIS STOP MUST BE THE FIRST cannonfire OF THE RUN, and that is the whole
   # reason it sits here rather than with the cannon group below.  The stop
   # above is `secchange` at frame 6000; nextsec falls through to sqrun in the
-  # SAME frame (music.s:212-231, and the seqtick that called it continues), so
+  # SAME frame (music.s:216-231, and the seqtick that called it continues), so
   # section 3's tick 1 — and shot 1 with it — happens before the next frame
   # begins.  Nothing is skipped and no frame is consumed: the `until seqtick`
   # steps after this land exactly where they did before it existed.
   #
   # At shot 1's entry nothing of that shot has been written yet, so $D416 is
   # still what the 2->3 boundary left, and that is seccut[3] = $10 —
-  # cantick's own ctfloor value (music.s:465-466), so the section starts where
+  # cantick's own ctfloor value (music.s:471-472), so the section starts where
   # the sweep ends.  Before seccut it would have read $00, because nothing
   # restored $D416 anywhere in the program.
   #
@@ -277,7 +294,7 @@ steps:
   # .lbl the run itself regenerates.  The terminator is never fetched
   # (sixteen events at 113 ticks apiece ask for 1808 of the section's 1800 —
   # see the note above s3v1), but it is what makes the block exactly 33
-  # bytes, and vtfetch reads a stream with no bound at all (music.s:289-296):
+  # bytes, and vtfetch reads a stream with no bound at all (music.s:293-300):
   # the LOOPS byte is what stops it, not the block's length.
   - assert:
       mem: s3v3
@@ -327,7 +344,7 @@ steps:
   #
   # THESE THREE READS MUST NOT MOVE BACK to the `secchange` stop above.
   # `secchange` sits before `inc section` and before nsplay calls loadinstr
-  # (music.s:212-227), so at that stop all three still hold section 3's
+  # (music.s:216-231), so at that stop all three still hold section 3's
   # values — $f4, $1f and $80.  A read moved back an anchor to tidy the file
   # fails in a way that looks like a bug in loadinstr and is not.
   - assert: { mem: "sidshadow+23", equals: [0] }        # $D417: nothing routed
