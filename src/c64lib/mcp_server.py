@@ -1156,8 +1156,9 @@ def c64_test_run(yaml_file: str, allow_stale: bool = False) -> dict:
 
     The run stops before booting anything when the artifact and the .lbl it
     takes symbols from disagree by mtime — a `disk:` image older than its
-    sibling .lbl, a `program:` .prg stamped more than a minute from its own in
-    either direction. `allow_stale` waives that (the timestamps can lie:
+    sibling .lbl, a ready-made `program:` .prg or `cart:` .crt stamped more than
+    a minute from its own in either direction. `allow_stale` waives that (the
+    timestamps can lie:
     `cp -r` without `-p` restamps a whole tree) and names what it let through
     in the returned `warnings`."""
     return run_test(load_test(Path(yaml_file)),

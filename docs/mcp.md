@@ -119,7 +119,7 @@ read [`docs/cli.md`](cli.md); it applies unchanged to the tools.
 | `c64_continue` | `c64 continue` | — |
 | `c64_until` | `c64 until` | — |
 | `c64_call` | `c64 call` | `REF` is `routine`; `--a`/`--x`/`--y` are `a`/`x`/`y` |
-| `c64_profile` | `c64 profile` | `REF` is `routine` |
+| `c64_profile` | `c64 profile` | `REF` is `routine`; `samples` is `c64_until`'s `count` under a second name — both count arrivals at the ref, and the names differ because `until` stops at the Nth while `profile` prices all N. Neither is being renamed |
 
 ### Waiting
 

@@ -9,6 +9,7 @@ demo directory left unlisted anywhere.
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -248,6 +249,187 @@ def test_every_audio_evidence_script_captures_strictly():
                 f"{script} captures without --strict: {line.strip()}"
 
 
+# --- the nine sounding scores and the one silent one ----------------------
+
+# The demos that ship an audio evidence run, found rather than listed: a third
+# one would join this pin the day it lands a script, not the day someone
+# remembers to add it here.
+AUDIO_EVIDENCE = sorted(DEMOS_DIR.glob("*/tools/audio-evidence.sh"))
+
+_ARGV_END = "--- end of call ---"
+
+# Records its argv and does nothing else. What is being read out of an
+# evidence script is the command line it builds, not what the tools do with it.
+_ARGV_STUB = f"""#!/bin/sh
+for arg in "$@"; do printf '%s\\n' "$arg" >>"$C64_ARGV_LOG"; done
+printf '%s\\n' '{_ARGV_END}' >>"$C64_ARGV_LOG"
+"""
+
+MS_MUNCHER_PLAY = "demos/ms-muncher/evidence/audio/play.score.yaml"
+
+_THREE_SITES = (
+    "Nine scored captures that sound and one that does not is load-bearing prose "
+    "in three places, and a score that gains or loses its last sounding note has "
+    "to change all three: this file's "
+    "test_every_audio_evidence_script_captures_strictly docstring, "
+    "demos/ms-muncher/tools/audio-evidence.sh's cap() comment, and CHANGELOG.md's "
+    "[Unreleased] --strict paragraph."
+)
+
+#: One sentence out of each site `_THREE_SITES` sends an editor to, so the
+#: message cannot quietly become a lie about where the claim lives. The
+#: docstring is read off the function rather than off this file: an anchor
+#: matched against the file that holds the anchor is satisfied by itself.
+_SITE_ANCHORS = [
+    ("demos/ms-muncher/tools/audio-evidence.sh", "the cap() comment",
+     "The other four scores list notes"),
+    ("CHANGELOG.md", "the [Unreleased] --strict paragraph",
+     "Nine of those ten calls pass a score listing sounding notes"),
+]
+
+
+def _prose(text: str) -> str:
+    """Wrapped text as one line, with comment markers dropped — the sentences
+    below are wrapped across lines and two of them are inside `#` comments."""
+    return " ".join(text.replace("#", " ").split())
+
+
+def test_the_three_sites_the_failure_message_names_still_say_it():
+    """`_THREE_SITES` tells a future editor which three sentences to update.
+    Nothing made those sentences exist, so the guidance could go stale while
+    every assert it is attached to still passed — a failure message that sends
+    someone to prose that has already moved is worse than none."""
+    doc = _prose(test_every_audio_evidence_script_captures_strictly.__doc__ or "")
+    assert "for nine of them the flag is a second line of defence" in doc, \
+        (f"this file's test_every_audio_evidence_script_captures_strictly "
+         f"docstring no longer states the nine/one split.\n{_THREE_SITES}")
+    for path, where, sentence in _SITE_ANCHORS:
+        assert sentence in _prose(Path(path).read_text()), \
+            f"{path}: {where} no longer says {sentence!r}.\n{_THREE_SITES}"
+
+
+def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
+    """Every `c64 audio capture` argv an evidence script builds.
+
+    The script is *run*, in a throwaway tree where `.venv/bin/c64` and `python3`
+    are argv-recording stubs, rather than read. The two scripts reach `--ref`
+    differently — la-galaxia passes each score to its `cap` helper as an
+    argument, ms-muncher derives one from the capture name and only on the
+    branch where that file exists — and three of ms-muncher's five captures
+    come out of a `for` loop. Recovering those paths from the text would be a
+    small shell interpreter, and it would quietly stop covering whatever shape
+    the next capture is written in.
+    """
+    demo = script.parent.parent.name
+    scores = DEMOS_DIR / demo / "evidence" / "audio"
+    tools, audio = sandbox / script.parent, sandbox / scores
+    tools.mkdir(parents=True)
+    audio.mkdir(parents=True)
+    shutil.copy(script, tools / script.name)
+    # ms-muncher's helper passes --ref only for a capture that has a committed
+    # score beside it, so the scores have to be here for that branch to be taken.
+    for score in sorted(scores.glob("*.score.yaml")):
+        shutil.copy(score, audio / score.name)
+    log = sandbox / "argv.log"
+    log.touch()
+    stubs = sandbox / "stub"
+    # `python3` too, not just the CLI: la-galaxia regenerates two of its scores
+    # from genmusic.py before it captures anything, and `set -e` would take the
+    # run down at that line. And `c64` twice over, at both spellings a script
+    # could reach it by: `.venv/bin/c64` is how both scripts invoke it today
+    # (after their `cd` to the repo root), `stub/c64` covers a bare `c64` off
+    # PATH. Neither placement covers the other.
+    for exe in (sandbox / ".venv" / "bin" / "c64", stubs / "c64", stubs / "python3"):
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text(_ARGV_STUB)
+        exe.chmod(0o755)
+    env = dict(os.environ, C64_ARGV_LOG=str(log),
+               PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}")
+    # `cwd` is the load-bearing one, not a tidiness flag. Both scripts open with
+    # `cd "$(dirname "$0")/../../.."`, so today `.venv/bin/c64` lands on the
+    # stub whatever this process's cwd is — but a script that ever drops that
+    # line resolves `.venv/bin/c64` against the inherited cwd, which is the real
+    # checkout with the real CLI in it, and a unit test boots a headless VICE.
+    # `timeout` and a closed stdin for the same reason from the other side: a
+    # script that blocks on input or on a tool that never returns must fail this
+    # test, not hang the suite.
+    run = subprocess.run(["sh", str(tools / script.name)], env=env, cwd=sandbox,
+                         capture_output=True, text=True,
+                         timeout=120, stdin=subprocess.DEVNULL)
+    assert run.returncode == 0, (
+        f"{script} does not run against stubbed tools (exit {run.returncode}), so "
+        f"the captures it makes cannot be read off it: {run.stderr.strip()}")
+    calls = [c.splitlines() for c in log.read_text().split(_ARGV_END + "\n")]
+    return [c for c in calls if c[:2] == ["audio", "capture"]]
+
+
+def _refs(call: list[str]) -> list[str]:
+    """The reference scores of one capture argv, in either spelling of the flag."""
+    found = []
+    for index, arg in enumerate(call):
+        if arg.startswith("--ref="):
+            found.append(arg.split("=", 1)[1])
+        elif arg == "--ref" and index + 1 < len(call):
+            found.append(call[index + 1])
+    return found
+
+
+def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
+    """The pin under the docstring above, which nothing but prose held. That
+    docstring, ms-muncher's `cap()` comment and the CHANGELOG all rest on the
+    same split — ten scored captures, nine of whose scores list sounding notes
+    and one, ms-muncher's `play`, that lists none — and the same branch got the
+    claim wrong twice running. Adding a note to `play.score.yaml`, or emptying
+    one of the other nine, silently falsifies all three sentences.
+
+    "Sounding" and not "listed" is the property counted, and it is deliberately
+    the wider of the two rather than a claim about what `diff_score` lets
+    through. What really does diff a silent window clean is an empty voice list
+    — a silent voice transcribes to one long rest, which
+    `_drop_unscored_leading_rest` drops where the score claims nothing — or a
+    single rest entry that omits `frames` or names the whole window. Two or more
+    rest entries FAIL it: a silent window transcribes to ONE long rest, so every
+    entry past the first diffs as "expected rest, heard nothing (log ended)" —
+    N entries, N−1 messages (measured: 2 → 1, 10 → 9).
+    So a rests-only score is flagged here because it claims nothing audible, not
+    because it would PASS; counting this way over-flags that shape and cannot
+    miss one that really does PASS at exit 0.
+
+    The scores come out of the scripts rather than a list here, so an eleventh
+    capture is in scope the moment it is written.
+    """
+    from c64lib.sid_analysis import REST, load_score
+
+    refs: list[str] = []
+    for script in AUDIO_EVIDENCE:
+        for call in _audio_capture_calls(script, tmp_path / script.parent.parent.name):
+            found = _refs(call)
+            assert len(found) == 1, (
+                f"{script} makes a capture with {len(found)} --ref scores: "
+                f"{' '.join(call)}\n{_THREE_SITES}")
+            refs.extend(found)
+    assert len(refs) == 10, (
+        f"the evidence scripts now make {len(refs)} scored captures, not ten: "
+        f"{refs}\n{_THREE_SITES}")
+
+    sounding = {}
+    for ref in refs:
+        path = Path(ref)
+        assert path.exists(), f"a capture passes --ref {ref}, which is not committed"
+        entries = [entry for _voice, voiced in load_score(path) for entry in voiced]
+        missing = [entry for entry in entries if "note" not in entry]
+        assert not missing, f"{ref} has entries with no 'note': {missing}"
+        sounding[ref] = sum(1 for e in entries if str(e["note"]).strip() != REST)
+
+    silent = sorted(ref for ref, notes in sounding.items() if not notes)
+    assert silent == [MS_MUNCHER_PLAY], (
+        f"the scores with no sounding note are {silent}, not [{MS_MUNCHER_PLAY!r}]. "
+        f"{_THREE_SITES} A score that lists no sounding note claims nothing audible, "
+        "and in the shape ms-muncher's `play` has — an empty voice list — it diffs a "
+        "silent window clean and PASSes at exit 0, leaving `--strict` that capture's "
+        f"only guard. Sounding notes per score: {sounding}")
+
+
 def test_every_demo_directory_is_listed():
     dirs = {p.name for p in DEMOS_DIR.iterdir() if p.is_dir()}
     listed = set(_md_roster(DEMOS_README.read_text()))
@@ -338,21 +520,30 @@ def test_la_galaxia_prg_is_a_build_of_the_committed_sources(tmp_path):
     with no regeneration test" failure, one level down. It costs one ca65 and
     one ld65 pass over a single translation unit (~0.2 s) and is
     byte-reproducible. The `.d64` is deliberately not pinned: packaging shells
-    out to c1541 and costs seconds, and it carries this exact `.prg`.
+    out to c1541 and costs seconds where this pass costs a fraction of one, so
+    nothing here checks that the shipped image carries the `.prg` this test
+    just rebuilt — re-package by hand after any rebuild.
 
-    The areas come from `test.yaml`, so the spec stays the one place the
-    program's link layout is written down."""
+    The areas and the load address both come from data — `test.yaml` and the
+    machine profile — so the spec stays the one place the program's link
+    layout is written down and no line here restates it."""
     import yaml
 
     from c64lib.build import build_asm
+    from c64lib.machines import get_profile
     from c64lib.ops import parse_areas
 
     spec = yaml.safe_load((LG / "test.yaml").read_text())
-    assert spec.get("areas"), "test.yaml no longer declares the ENGINE area"
+    areas = spec.get("areas")
+    assert areas, ("test.yaml no longer declares any `areas:` — la-galaxia "
+                   "cannot link without one")
+    basic_start = get_profile("c64").basic_start
     built = build_asm(LG / "la-galaxia.s", out_prg=tmp_path / "la-galaxia.prg",
-                      areas=parse_areas(spec["areas"], 0x0801)).prg
+                      basic_start=basic_start,
+                      areas=parse_areas(areas, basic_start)).prg
+    flags = " ".join(f"--area '{a}'" for a in areas)
     assert built.read_bytes() == (LG / "la-galaxia.prg").read_bytes(), (
         "demos/la-galaxia/la-galaxia.prg is not a build of the committed "
-        "sources — re-run `c64 build demos/la-galaxia/la-galaxia.s --area "
-        "'ENGINE=$4000:$6000'` (and `c64 package` the .d64, which carries it)"
+        f"sources — re-run `c64 build demos/la-galaxia/la-galaxia.s {flags}` "
+        "(and `c64 package` the .d64, which nothing pins to it)"
     )

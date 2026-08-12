@@ -82,19 +82,36 @@ message, not the exit code.
 Then a **floor** under that whole class, because patching it per site
 demonstrably was not closing it: six instances were fixed one at a time and
 two of those were found only by a later sweep, having survived review. The
-CLI's root group now catches `ValueError`, `KeyError`, `OSError` and
-`SessionError` escaping any command and funnels them into `fail()` — exit 1
-with a parseable `{"error": …}` on stdout, traceback still on stderr. What
-made the original defect worth this much is that its symptom is unreadable
-rather than merely ugly: a `--json` caller gets empty stdout, which it cannot
-tell apart from a crashed process, so the seventh instance would have cost the
-same debugging as the first. The guard is a floor and not a ceiling — a
-command that can say something actionable still calls `fail()` itself — and
-the domain exceptions (`BasicError`, `DiskError`, `BuildError` and their
-siblings) are deliberately still outside it, so their two dozen per-site
-handlers stay load-bearing; widening the tuple to them is its own change with
-its own tests, and the docstring on the guard says so rather than leaving the
-next reader to infer that every input error now lands in the contract.
+CLI's root group now catches thirteen exception types escaping any command —
+the module-level `INPUT_ERRORS` roster in `src/c64lib/cli.py` — and funnels
+them into `fail()`: exit 1 with a parseable `{"error": …}` on stdout,
+traceback still on stderr. What made the original defect worth this much is
+that its symptom is unreadable rather than merely ugly: a `--json` caller gets
+empty stdout, which it cannot tell apart from a crashed process, so the
+seventh instance would have cost the same debugging as the first. The roster
+is `ValueError` (carrying `CharsetError` by inheritance), `KeyError`,
+`OSError`, and every exception class this package defines: `AudioError`
+(with its `PinnedStopError` subclass), `BasicError`, `BuildError`,
+`CartError`, `DiskError`, `MonitorError`, `PackageError`, `ProtocolError`,
+`SessionError`, `TestError`. Not all thirteen are user-input-shaped, and that
+is deliberate — `ProtocolError` is a corrupt monitor frame and `MonitorError`
+is VICE rejecting a command, each as often a defect here as a user's mistake,
+and a `KeyError` on one of our own dicts is simply a bug — but a parseable
+`{"error": …}` beats a traceback over empty stdout whoever is at fault, so
+they are on the roster anyway, dressed as user error on purpose. The guard is
+a floor and not a ceiling: the dozens of per-site `except DiskError` /
+`except BuildError` handlers stay load-bearing rather than becoming
+redundant, because each says what the user should do next where the guard can
+only repeat what the exception happened to say. What stays *out* is as
+deliberate as what went in — bare `Exception`, so a defect off the roster
+stays a traceback instead of posing as user error; `click.ClickException`,
+`click.Abort` and `SystemExit`, the last because `fail()` exits by raising it
+and catching it would append the guard's payload to the one the command
+already wrote; and **`RuntimeError`, which may never join the tuple**, since
+`click.exceptions.Exit` subclasses it and a roster holding the base would
+swallow `ctx.exit(1)` and report `{"error": "1"}` for a test verdict. That
+last rule is why `AudioError` — itself a `RuntimeError` subclass — is named
+individually rather than covered by its base.
 
 The sheet encoders went a step further than the per-block modes below. A
 **sprite** sheet takes `name:` headers carrying their own mode
@@ -128,13 +145,14 @@ multicolour bit. Regenerated, rebuilt and repackaged, and two of those three
 are pinned, because a generated file with no regeneration test can disagree
 with its source forever: one test re-encodes `tools/sprites.txt` and compares
 it with the committed include, another assembles `la-galaxia.s` and compares
-it with the committed `.prg`. The `.d64` is not pinned — packaging shells out
-to `c1541` and costs seconds where the assembler pass costs a fraction of
-one, and the image carries that same `.prg`. `docs/cli.md` also now says
-where a `.s` `program:` builds: beside its source, overwriting `<stem>.prg`
-and `<stem>.lbl` every run, which republishes a committed artifact and leaves
-the label file newer than any sibling image — the state the disk staleness
-stop refuses.
+it with the committed `.prg`. The third, the `.d64`, stays unpinned —
+packaging shells out to `c1541` and costs seconds where the assembler pass
+costs a fraction of one — so nothing checks that the shipped image carries
+the `.prg` beside it, and a rebuild has to be re-packaged by hand.
+`docs/cli.md` also now says where a `.s` `program:` builds: beside its
+source, overwriting `<stem>.prg` and `<stem>.lbl` every run, which
+republishes a committed artifact and leaves the label file newer than any
+sibling image — the state the disk staleness stop refuses.
 
 And `audio-verification.md` gains the two things this demo's score work cost
 most. **Generating a score is constructive**: model the player one frame at a
@@ -190,14 +208,24 @@ window*, since a session with no daemon socket cannot be asked at all.
 trap mechanical. Growing a routine pushes its branches past ±127 bytes, and
 the skill's advice — prefer a `jmp` trampoline from the start — is right and
 nearly impossible to apply pre-emptively: La Galaxia hit 25 "Range error"
-failures across six files in a single build. Pipe the failed build in and the
-script inverts each reported branch over a `jmp`, bottom-up so the reported
-line numbers stay valid. It **reports rather than touches** two cases and
-exits 1 so a human sees them: a branch whose target is an anonymous label, and
+failures across six files in a single build. Pipe the failed build in —
+`c64 build game.s 2>&1 | python3 fix-branch-range.py`, the interpreter spelled
+out because the script ships non-executable like every other tracked `.py`
+here — and it inverts each reported branch over a `jmp`, bottom-up so the
+reported line numbers stay valid. Anything the mechanical fix would get wrong
+it **reports rather than touches**, exiting 1 so a human sees it. Two of those
+refusals share one reason: a branch whose target is an anonymous label, and
 any rewrite whose new `:` would land between another `:+` and the label that
 reference resolves to. An anonymous label has no name, only a position, so
 either edit still assembles and quietly branches somewhere else — the one
-failure a green build cannot catch.
+failure a green build cannot catch. Another is new here, and is about the file
+rather than the branch: a CRLF or CR line is refused with the line endings
+named, because the trampoline's three lines would go in with LF and leave the
+file mixed, and without the check the report would blame the instruction
+("not a conditional branch") for what is really the file's encoding. Line endings now survive a rewrite byte
+for byte — read and written with `newline=""` — where a CRLF source used to
+arrive through universal newlines as LF, match on every reported branch, and
+go back reformatted end to end for a three-line fix.
 
 Five documentation gaps the same dogfood walked into, each now carrying the
 test that would have caught it. The **character ROM image is 4 KB**, which
@@ -242,6 +270,27 @@ addresses against stale bytes and failing on a plausible wrong byte
 (`mem $414b = 4a != 00`). Only the sibling file is judged that way: the label
 copies `c64 disk build` keeps are written by the command that wrote the
 image, so they cannot go stale on their own.
+
+A ready-made `cart:` is judged too — it was the last route that picked up a
+sibling `.lbl` without ever asking whether the two agree. **This can stop a
+spec that ran before**: a `.crt` handed to a spec is now refused pre-launch
+when the `<stem>.lbl` beside it was written more than a minute away in
+*either* direction (`game.crt predates its symbols` /
+`game.crt is newer than its symbols`, both timestamps named), and the
+existing `--allow-stale` (`allow_stale=true` over MCP) runs it anyway with a
+warning. A `.crt` with no sibling `.lbl` is still silently fine, and a
+`.s`/`.ef.yaml` `cart:` is built by the run itself and never judged. The
+comparison is symmetric because the write order was measured rather than
+assumed, and carries no signal: `c64 package game.s -o game.crt` writes the
+`.lbl` and then the `.crt` about 3 ms later, once `cartconv` has run, while
+`c64 cart build game.ef.yaml` writes the `.crt` and then merges its
+per-window labels about 0.6 ms later. The two in-tree builders disagree about
+which file lands last, so the disk stop's bare "labels newer than the
+artifact" rule would refuse every EasyFlash cartridge built in place, by
+0.6 ms — only a gap no single command could produce is evidence, whichever
+side it falls on. No third copy of the rule: the `.prg` guard's comparison
+moved into a shared `_reject_far_apart_labels` that both ready-made routes
+call, with the same window and the same messages.
 
 A capture window can be **aimed** now, and it says what it cost to open.
 `c64 audio capture --at-frame N 'ADDR=VAL[,ADDR=VAL…]'` (repeatable;

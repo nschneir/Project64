@@ -107,7 +107,7 @@ The cookbook's "Time a routine and print the jiffies" recipe uses it.
   a `jmp` in place.
 
   ```sh
-  c64 build game.s 2>&1 | python skills/6502-assembly/references/fix-branch-range.py
+  c64 build game.s 2>&1 | python3 skills/6502-assembly/references/fix-branch-range.py
   ```
 
   It exits 1 and *reports rather than touches* any branch it must not

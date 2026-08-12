@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from c64lib.build import Area, BuildError, BuildResult, build_asm, linker_config
+from c64lib.machines import get_profile
 from c64lib.ops import parse_areas
+
+#: `parse_areas` takes the load address from its caller's profile instead
+#: of defaulting to a C64 literal, so these tests name the profile they are
+#: about — the same one every front end passes.
+_BASIC_START = get_profile("c64").basic_start
 
 
 def test_linker_config_contents():
@@ -92,40 +98,40 @@ def test_linker_config_two_areas_sorted():
 
 def test_parse_areas_accepts_hex_and_decimal():
     for spelling in ("HIGH=$4000:$2000", "HIGH=0x4000:0x2000", "HIGH=16384:8192"):
-        assert parse_areas([spelling]) == [Area("HIGH", 0x4000, 0x2000)]
+        assert parse_areas([spelling], _BASIC_START) == [Area("HIGH", 0x4000, 0x2000)]
 
 
 def test_parse_areas_rejects_malformed():
     with pytest.raises(ValueError,
                        match=r"^--area needs NAME=START:SIZE, got 'HIGH'$"):
-        parse_areas(["HIGH"])
+        parse_areas(["HIGH"], _BASIC_START)
 
 
 def test_parse_areas_rejects_reserved_name():
     with pytest.raises(ValueError, match=(
             r"^--area name 'MAIN' is reserved — ZP, HEADER, MAIN, ZEROPAGE, "
             r"LOADADDR, EXEHDR, CODE, RODATA, DATA and BSS cannot be reused$")):
-        parse_areas(["MAIN=$4000:$2000"])
+        parse_areas(["MAIN=$4000:$2000"], _BASIC_START)
 
 
 def test_parse_areas_rejects_area_at_or_below_the_load_address():
     with pytest.raises(ValueError, match=(
             r"^--area HIGH starts at \$0400, at or below the load address "
             r"\$0801 — an area must sit above the program$")):
-        parse_areas(["HIGH=$0400:$2000"])
+        parse_areas(["HIGH=$0400:$2000"], _BASIC_START)
 
 
 def test_parse_areas_rejects_zero_size():
     with pytest.raises(ValueError,
                        match=r"^--area HIGH=\$4000:\$0 has size 0$"):
-        parse_areas(["HIGH=$4000:$0"])
+        parse_areas(["HIGH=$4000:$0"], _BASIC_START)
 
 
 def test_parse_areas_rejects_overlap():
     with pytest.raises(ValueError, match=(
             r"^--area TOP starts at \$5000, inside --area HIGH=\$4000:\$2000 "
             r"which ends at \$6000$")):
-        parse_areas(["HIGH=$4000:$2000", "TOP=$5000:$1000"])
+        parse_areas(["HIGH=$4000:$2000", "TOP=$5000:$1000"], _BASIC_START)
 
 
 def test_parse_areas_rejects_gap_before_the_next_area():
@@ -133,7 +139,7 @@ def test_parse_areas_rejects_gap_before_the_next_area():
             r"^--area HIGH=\$4000:\$1000 leaves a \$1000-byte gap before "
             r"--area TOP at \$6000 — a \.prg is a flat file, so raise HIGH's "
             r"size to \$2000 or move TOP down$")):
-        parse_areas(["HIGH=$4000:$1000", "TOP=$6000:$1000"])
+        parse_areas(["HIGH=$4000:$1000", "TOP=$6000:$1000"], _BASIC_START)
 
 
 def _stub_tool(dir: Path, name: str, body: str) -> Path:

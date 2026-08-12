@@ -9,8 +9,17 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from c64lib.audio import AudioError, PinnedStopError
+from c64lib.basic import BasicError
+from c64lib.build import BuildError
+from c64lib.cartridge import CartError
 from c64lib.cli import JsonAwareGroup, fail, main
+from c64lib.disk import DiskError
+from c64lib.monitor import MonitorError
+from c64lib.packaging import PackageError
+from c64lib.protocol import Command, ErrorCode, ProtocolError
 from c64lib.session import SessionError
+from c64lib.testing import TestError
 from tests.conftest import assert_json_error
 
 
@@ -174,6 +183,34 @@ def _boom_cli(exc: BaseException) -> click.Group:
     (ValueError(), "ValueError"),
 ])
 def test_an_escaped_input_error_still_lands_in_the_json_contract(exc, fragment):
+    r = CliRunner().invoke(_boom_cli(exc), ["boom", "--json"])
+    assert fragment in assert_json_error(r)["error"]
+
+
+@pytest.mark.parametrize("exc, fragment", [
+    (BasicError("line 10: unterminated string"), "unterminated string"),
+    (BuildError("ca65 failed: unknown opcode 'LDZ'"), "unknown opcode 'LDZ'"),
+    (CartError("not a .crt: bad magic"), "not a .crt: bad magic"),
+    (DiskError("no such file 'BOOT' on the image"), "no such file 'BOOT'"),
+    (PackageError("manifest names no program"), "manifest names no program"),
+    (TestError("no test named 'boot' in the manifest"), "no test named 'boot'"),
+    # Not input-shaped, and covered anyway: a parseable payload beats empty
+    # stdout whether the fault is the user's or ours.
+    (MonitorError(Command.MEMORY_GET, ErrorCode.INVALID_LENGTH),
+     "VICE monitor error INVALID_LENGTH"),
+    (ProtocolError("bad frame start byte 0x00"), "bad frame start byte"),
+    # RuntimeError subclasses, named individually: catching their base would
+    # swallow click's own `Exit`/`Abort`.
+    (AudioError("the recorder would not arm"), "would not arm"),
+    (PinnedStopError(RuntimeError("warp still on"), wav_complete=True),
+     "the restore failed"),
+])
+def test_every_domain_exception_lands_in_the_json_contract(exc, fragment):
+    """The guard's roster is `INPUT_ERRORS`, and every domain exception this
+    tree raises is on it — a `--json` caller gets a parseable failure whichever
+    module the escape came from, not a traceback over empty stdout.
+    `PinnedStopError` rides in on `AudioError`; pinned so a future rehome of it
+    under some other base cannot silently drop it off the roster."""
     r = CliRunner().invoke(_boom_cli(exc), ["boom", "--json"])
     assert fragment in assert_json_error(r)["error"]
 

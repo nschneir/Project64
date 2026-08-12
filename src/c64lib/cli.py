@@ -15,6 +15,7 @@ import click
 
 from . import __version__
 from .audio import (
+    AudioError,
     capture,
     parse_frame_writes,
     pinned_record_start,
@@ -92,7 +93,7 @@ from .ops import (
     pc_symbol as _pc_symbol,
 )
 from .packaging import PackageError, package_program
-from .protocol import CP_EXEC, CP_LOAD, CP_STORE, op_name
+from .protocol import CP_EXEC, CP_LOAD, CP_STORE, ProtocolError, op_name
 from .romdoc import identify
 from .screen import (
     TEXT_ENCODINGS,
@@ -209,6 +210,55 @@ def _append_session_option(cmd: click.Command) -> None:
         help="Target session name. Accepted here or before the subcommand."))
 
 
+# The roster `JsonAwareGroup.invoke` funnels into the `fail()` contract: every
+# domain exception this tree defines, plus the three builtins our parsers, our
+# own dict lookups and our file I/O raise. Spelled once at module level rather
+# than inline in the `except`, so there is one roster to check a new exception
+# class against. Only the CLI consumes it: the MCP front end needs no funnel of
+# its own, because FastMCP turns any raised exception into a tool error with
+# its message intact — the very thing this guard has to reconstruct.
+#
+# WHY these, and not "every input error": *most* are raised for a bad user
+# file, manifest or spec, and their message is a sentence a `--json` caller can
+# act on. Two are not — `ProtocolError` is a corrupt monitor frame
+# (`protocol.py`'s bad start byte) and `MonitorError` is VICE rejecting a
+# command, each as often a defect here as a user's mistake — and they are on
+# the roster anyway, because a parseable `{"error": ...}` beats a traceback
+# over empty stdout whoever is at fault. Same for a `KeyError` on one of our
+# own dicts or an `OSError` from the daemon socket: a bug, caught here and
+# dressed as user error, deliberately. `CharsetError` needs no entry of its
+# own — it is a `ValueError`.
+#
+# WHY the `RuntimeError` subclass is named and its base is not: `ctx.exit()`
+# raises `click.exceptions.Exit`, a `RuntimeError` subclass (so is
+# `click.Abort`), so a roster holding `RuntimeError` would swallow
+# `_verdict_report`'s `ctx.exit(1)` — both the FAIL and the `--strict` exit
+# paths — and report `{"error": "1"}` for a verdict. `AudioError` is therefore
+# named individually, and brings its `PinnedStopError` subclass with it.
+# **`RuntimeError` must never enter this tuple.**
+#
+# Deliberately still absent: bare `Exception`, so a defect that is not on this
+# roster stays a traceback instead of posing as user error; and
+# `click.ClickException`, `click.Abort` and `SystemExit` — the last because
+# `fail()` exits by raising `SystemExit`, so catching it would append the
+# guard's payload to the one the command already wrote.
+INPUT_ERRORS: tuple[type[Exception], ...] = (
+    ValueError,          # CharsetError arrives by inheritance
+    KeyError,
+    OSError,
+    AudioError,          # a RuntimeError subclass; carries PinnedStopError
+    BasicError,
+    BuildError,
+    CartError,
+    DiskError,
+    MonitorError,
+    PackageError,
+    ProtocolError,
+    SessionError,
+    TestError,
+)
+
+
 class JsonAwareCommand(click.Command):
     """A command that also accepts the global --json in trailing position."""
 
@@ -232,7 +282,7 @@ class JsonAwareGroup(click.Group):
         _append_session_option(self)
 
     def invoke(self, ctx: click.Context) -> object:
-        """Last-chance funnel into the `fail()` contract: an input-shaped
+        """Last-chance funnel into the `fail()` contract: an `INPUT_ERRORS`
         exception no command thought to catch still exits 1 with a parseable
         `{"error": ...}` on stdout, rather than a traceback over stdout left
         empty — which no `--json` caller can read, and cannot be told apart
@@ -244,45 +294,16 @@ class JsonAwareGroup(click.Group):
         not the ceiling — a command that wants an actionable sentence still
         calls `fail()` itself, and the traceback goes to stderr either way.
 
-        The tuple is narrower than "every input error", and in both
-        directions. A bug that is *not* input-shaped still surfaces as a
-        traceback — but a `KeyError` on one of our own dicts, or an `OSError`
-        from the daemon socket, is a bug and is caught here, dressed as user
-        error. `SessionError` is named because it subclasses none of the three.
-
-        Deliberately outside the tuple: every other domain exception in
-        `src/c64lib/` — `BasicError`, `BuildError`, `CartError`, `DiskError`,
-        `MonitorError`, `PackageError`, `ProtocolError` and `TestError`, all
-        direct `Exception` subclasses, plus `AudioError` (and its
-        `PinnedStopError`) under `RuntimeError`. `CharsetError` is the only one
-        that arrives here by inheritance, being a `ValueError`. *Most* are
-        input-shaped by construction — raised for a bad user file, manifest or
-        spec — but not all, and a widening would have to sort them rather than
-        take the family wholesale: `ProtocolError` reports a corrupt monitor
-        frame (`protocol.py`'s bad start byte) and `MonitorError` is VICE
-        rejecting a command, each as often a defect here as a user's mistake.
-        Either way the omission is scope rather than judgement: the change that
-        added this guard specified this tuple, and widening it to those nine is
-        its own change with its own tests. Until that happens they still
-        escape wherever no local `try` covers them,
-        which is why the per-site `except DiskError`/`except BuildError`
-        handlers below — two dozen of them — stay load-bearing, not redundant.
-
-        `click.ClickException`, `click.Abort` and `SystemExit` are absent for
-        two *separate* mechanisms. `fail()` exits by raising `SystemExit`, so
-        catching that would double-report every ordinary error. `ctx.exit()`
-        does not: it raises `click.exceptions.Exit`, which is a `RuntimeError`
-        subclass (so is `click.Abort`) — **which is why `RuntimeError` must
-        never enter the tuple**. It is a deliberate error type in this tree
-        rather than a rare one — eight raise sites in `src/c64lib/`, including
-        `rpc.py` turning every daemon-side error into one and the MCP server's
-        routine-never-returned timeouts — so widening to it reads as
-        reasonable, and it would swallow `_verdict_report`'s `ctx.exit(1)`
-        below and report `{"error": "1"}` for a FAIL or `--strict` verdict.
+        `INPUT_ERRORS` above is the roster and carries its own WHY — including
+        why `RuntimeError` may never join it, a rule that outlives any one
+        spelling of the tuple. The per-site `except DiskError`/`except
+        BuildError` handlers below — dozens of them — stay load-bearing
+        rather than redundant: each says what the user should do next, where
+        this one can only repeat what the exception happened to say.
         """
         try:
             return super().invoke(ctx)
-        except (ValueError, KeyError, OSError, SessionError) as e:
+        except INPUT_ERRORS as e:
             traceback.print_exc()
             # The class name as a floor: `str(ValueError())` is '' and an
             # `{"error": ""}` payload tells a --json caller nothing (and is
@@ -2086,10 +2107,10 @@ def test_run(ctx, yaml_file, allow_stale):
     the wait/key/poke/until/call/assert steps fail-fast. Exit 1 if it fails.
 
     `--allow-stale` waives the staleness stop (a `disk:` image older than its
-    sibling `.lbl`; a `program:` `.prg` stamped more than a minute from its own,
-    either way round) and reports what it let through as a warning — for the
-    case the mtimes are lying, which a `cp -r` without `-p` is enough to
-    arrange.
+    sibling `.lbl`; a ready-made `program:` `.prg` or `cart:` `.crt` stamped
+    more than a minute from its own, either way round) and reports what it let
+    through as a warning — for the case the mtimes are lying, which a `cp -r`
+    without `-p` is enough to arrange.
     """
     try:
         spec = load_test(yaml_file)

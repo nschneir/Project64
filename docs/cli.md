@@ -493,7 +493,10 @@ across subsequent commands — until you `c64 continue`.
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
   the session daemon, so large counts are fast (hundreds of frames per
-  second of wall clock, not one per half-second).
+  second of wall clock, not one per half-second). Same quantity as
+  `c64 profile --samples`, under the other name: this one *stops at* the Nth
+  arrival, `profile` *prices all N* — see that flag for why neither is
+  renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on
@@ -542,7 +545,11 @@ instruction through its own RTS.
 
 - `REF` — address or symbol of a subroutine ending in RTS.
 - `--samples N` (default `1`) — price N consecutive arrivals and report the
-  spread instead of one number.
+  spread instead of one number. This is `c64 until --count`'s idea under a
+  second name — both count arrivals at `REF` — and the names differ because
+  the results do: `until` *stops at* the Nth arrival and reports that one,
+  `profile` *prices all N* and reports their spread. Neither flag will be
+  renamed; read `count` and `samples` as the same quantity.
 - `--with-irq` — leave interrupts live during the window (real-world cost;
   expect variance and rerun a few times). By default the I flag is set on
   entry so the KERNAL IRQ cannot land inside the measurement, and the
@@ -2152,7 +2159,20 @@ produce — a minute, against the minutes-to-days a real mismatch takes —
 counts as evidence. A `.bas`/`.s` `program:` is built by the run itself and is
 never judged.
 
-**`--allow-stale`.** Both stops read mtimes, and an mtime is evidence rather
+A ready-made `.crt` `cart:` is judged by the same symmetric rule against the
+`<stem>.lbl` beside it, and reports itself the same way (`game.crt predates its
+symbols` / `game.crt is newer than its symbols`). Rebuild the cartridge —
+`c64 cart build` for a manifest, `c64 package <source> -o game.crt` for a
+single-region one — or delete the `.lbl` to run without symbols. Order is
+worth even less here than for a program: the two builders disagree about which
+file they write last (`c64 package` of a `.s` writes the `.lbl` and then the
+`.crt` about 3 ms later, once `cartconv` has run; `c64 cart build` of an
+`.ef.yaml` writes the `.crt` and then merges its per-window labels about 0.6 ms
+later), so only the size of the gap can separate one command's two writes from
+a pair that drifted. A `.s`/`.ef.yaml` `cart:` is built by the run itself and
+is never judged.
+
+**`--allow-stale`.** All three stops read mtimes, and an mtime is evidence rather
 than proof: `cp -r` without `-p` restamps a whole working tree, so an ordinary
 copy of a consistent pair can be refused with nothing wrong in it. The flag
 runs the spec anyway and reports what it let through — a `warning:` line in the

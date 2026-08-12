@@ -82,6 +82,21 @@ def test_sprite_bad_index_is_error():
     assert "0-7" in out["raw"]
 
 
+def test_sprite_encode_rejects_a_multi_character_background(tmp_path):
+    """`background` is the one `c64_sprite_encode` argument with a length
+    rule, and only the CLI twin
+    (`test_sprite_encode_background_must_be_one_character`) pinned it. Both
+    front ends spell the same option and reach the same `_encode_legend`, so
+    without this the check could be lost on one side alone and the MCP caller
+    would get a legend with a two-character key that never matches a cell."""
+    src = tmp_path / "sprites.txt"
+    src.write_text(("." * 12 + "\n") * 21)
+    err, out = call_tool("c64_sprite_encode",
+                         {"file": str(src), "background": ".."})
+    assert err is True
+    assert "background must be one character" in out["raw"]
+
+
 def test_sprite_from_png_needs_no_session(tmp_path):
     from PIL import Image
     src = tmp_path / "in.png"
