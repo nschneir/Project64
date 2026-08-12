@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from click.testing import CliRunner
 
 from c64lib.cli import main
+from tests.conftest import cli_json
 
 
 def test_tokenize_default_output(tmp_path):
@@ -45,6 +46,26 @@ def test_type_feeds_keyboard_and_run(tmp_path):
     fed = b"".join(c.args[0] for c in mon.keyboard_feed.call_args_list)
     assert fed == b'10 PRINT "HI"\rRUN\r'
     mon.release.assert_called_once()
+
+
+def test_basic_type_json_payload_names_the_source_and_counts_the_run(tmp_path):
+    """The `--json` payload of `c64 basic type` was asserted nowhere on this
+    side, so `typed_chars` — the key it shares with c64_basic_type — held only
+    by the op's own test. `typed` is the half with no MCP twin: this command
+    takes a FILE where the tool takes the text inline, so the source path is
+    what is worth reporting here.
+
+    The count is of the PETSCII actually fed, RUN included: 13 characters of
+    program, the RETURN `type_basic` appends because the last line has to be
+    entered rather than displayed, then `RUN` and its own RETURN — 18.
+    """
+    src = tmp_path / "a.bas"
+    src.write_text('10 print "HI"\n')
+    fake, mon = _fake_attached()
+    out = cli_json(["basic", "type", str(src), "--run"], session=fake)
+    assert out == {"typed": str(src), "typed_chars": 18, "run": True}
+    fed = b"".join(c.args[0] for c in mon.keyboard_feed.call_args_list)
+    assert out["typed_chars"] == len(fed) == len(b'10 PRINT "HI"\rRUN\r')
 
 
 def test_key_type_feeds_text_directly():

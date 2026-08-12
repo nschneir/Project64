@@ -1,7 +1,9 @@
 import json
 
+import pytest
 from click.testing import CliRunner
 
+from c64lib.charset import CharsetError, check_label, parse_charset_file
 from c64lib.cli import main
 
 ART = "name: g\n.123\n" + "....\n" * 7
@@ -95,3 +97,46 @@ def test_charset_encode_reports_a_file_it_cannot_decode(tmp_path):
     error = json.loads(r.stdout)["error"]
     assert str(binary) in error and "decode" in error, \
         "the error never names the file it could not read"
+
+
+def test_check_label_is_one_validator_with_two_flag_spellings():
+    """`c64 charset encode --label` and `c64_charset_encode label=` reject the
+    same strings in the same words. Only the flag's own spelling differs, and
+    that is the one thing either front end passes in — the rule itself lives
+    beside `format_glyphs`, which is what the label names."""
+    check_label("fontgly", "--label")       # an identifier: no complaint
+    check_label("_end2", "label")
+    with pytest.raises(CharsetError) as e:
+        check_label("font gly", "--label")
+    assert str(e.value) == (
+        "--label 'font gly' is not an assembler identifier (letters, digits "
+        "and underscore, not starting with a digit)")
+    with pytest.raises(CharsetError) as e:
+        check_label("9lives", "label")
+    assert str(e.value).startswith(
+        "label '9lives' is not an assembler identifier (letters,")
+
+
+def test_parse_charset_file_names_the_sheet_it_cannot_read(tmp_path):
+    """The charset twin of `sprites.encode_sheet_file`: the read, and the
+    naming of the file in whatever it raises, happen once in the library, so
+    `c64 charset encode` and `c64_charset_encode` cannot drift apart.
+
+    `read_text` on a .prg or a .png raises `UnicodeDecodeError` — which IS a
+    ValueError and is NOT an OSError — whose own message is a byte offset and
+    a codec: true, and no help in saying which of the paths was wrong.
+    """
+    binary = tmp_path / "charset.bin"
+    binary.write_bytes(bytes(range(256)))
+    with pytest.raises(ValueError) as e:
+        parse_charset_file(binary)
+    assert str(e.value).startswith(f"cannot read charset sheet {binary}: ")
+
+    missing = tmp_path / "nope.txt"
+    with pytest.raises(ValueError) as e:
+        parse_charset_file(missing)
+    assert str(e.value).startswith(f"cannot read charset sheet {missing}: ")
+
+    src = tmp_path / "chars.txt"
+    src.write_text(ART)
+    assert [g.name for g in parse_charset_file(src)] == ["g"]

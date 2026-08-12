@@ -5,6 +5,7 @@ from click.testing import CliRunner
 
 from c64lib.cli import main
 from c64lib.monitor import StopInfo
+from c64lib.ops import RUNAWAY_ROUTINE, profile_hazard
 
 
 def _fake(labels=None):
@@ -351,3 +352,65 @@ def test_profile_daemon_side_valueerror_is_a_message_not_a_traceback():
     out = json.loads(r.output)
     assert "daemon said no" in out["error"]
     assert "machine" not in out
+
+
+def test_call_and_profile_timeouts_share_one_runaway_clause():
+    """The clause names no command of its own — unlike the `until` and
+    `key hold` timeout prose, each of which names a companion verb the other
+    front end spells differently — so the four messages that carry it (both
+    commands here, both tools over MCP) read it from one constant.
+    """
+    fake, _ = _fake()
+    never = {"fired": False, "registers": None, "trap": 0x0400}
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.call_routine", return_value=never), \
+         patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled([], fired=False)):
+        S.attach.return_value = fake
+        call_r = CliRunner().invoke(main, ["--json", "call", "$2000"])
+        profile_r = CliRunner().invoke(main, ["--json", "profile", "$C000"])
+    assert call_r.exit_code == 1 and profile_r.exit_code == 1
+    # Pinned literally as well as by reference: the point of the extraction is
+    # that the words do not change, so a reworded constant is a test failure.
+    assert RUNAWAY_ROUTINE == ("(runaway routine? check the address is a "
+                               "subroutine ending in RTS)")
+    for r in (call_r, profile_r):
+        assert RUNAWAY_ROUTINE in json.loads(r.output)["error"]
+
+
+def test_profile_hazard_is_one_sentence_with_a_per_front_end_remedy():
+    """What a timed-out profile leaves behind is a library fact — the CIA#2
+    timers still running, and the I flag still masked unless --with-irq — so
+    only the way out is each front end's own to spell."""
+    assert profile_hazard(True, "ignored") == "CIA#2 timers A/B are left RUNNING"
+    assert profile_hazard(False, "X is cleared") == (
+        "CIA#2 timers A/B are left RUNNING and the I flag is left masked — "
+        "the jiffy clock and keyboard stay dead until X is cleared")
+
+    fake, _ = _fake()
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.profile_routine_samples",
+               return_value=_profiled([], fired=False)):
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "profile", "$C000"])
+    assert r.exit_code == 1
+    assert json.loads(r.output)["error"].endswith(
+        profile_hazard(False, "`c64 reg set FL ...` clears it "
+                              "(or the session restarts)") + ".")
+
+
+def test_profile_sample_guard_answers_before_it_needs_a_session(tmp_path,
+                                                                monkeypatch):
+    """Why the CLI keeps a `--samples` guard that `ops.profile_routine_samples`
+    would also raise for: this one fires ahead of `attach`, so an unusable
+    argument is reported as an unusable argument instead of as "no session".
+    Delete it and the command answers `--samples 0` by demanding an emulator
+    first. The ops guard is not redundant either — it is the only one
+    `c64_profile` has (tests/test_mcp_tools.py pins that).
+    """
+    monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
+    r = CliRunner().invoke(main, ["--json", "profile", "$C000",
+                                  "--samples", "0"])
+    assert r.exit_code == 1
+    assert json.loads(r.output)["error"] == (
+        "profile: --samples must be at least 1 (got 0)")

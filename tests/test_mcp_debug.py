@@ -1,10 +1,11 @@
-import json
 from unittest.mock import Mock, patch
 
 import pytest
 
 from c64lib.monitor import StopInfo
+from c64lib.ops import RUNAWAY_ROUTINE, key_state_note, stopped_wait_diagnosis
 from c64lib.protocol import CP_EXEC, CP_LOAD, CP_STORE, Checkpoint
+from tests.conftest import cli_json
 from tests.test_mcp_scaffold import call_tool
 
 
@@ -54,18 +55,6 @@ def test_watch_add_store(tmp_path):
     mon.checkpoint_set.assert_called_once_with(0x0400, 0x0400 + 39, op=CP_STORE)
 
 
-def _cli(session, argv: list[str]) -> dict:
-    """Run one `--json` CLI command against `session`, returning its payload."""
-    from click.testing import CliRunner
-
-    from c64lib.cli import main
-    with patch("c64lib.cli.Session") as S:
-        S.attach.return_value = session
-        r = CliRunner().invoke(main, ["--json", *argv])
-    assert r.exit_code == 0, r.output
-    return json.loads(r.output)
-
-
 def test_break_list_tool_payload_matches_the_cli():
     """`c64_break_list` emitted the raw `op` bitmask where `c64 break list
     --json` emits the `exec|load|store` string — same key, same command, two
@@ -81,7 +70,7 @@ def test_break_list_tool_payload_matches_the_cli():
         S.attach.return_value = s
         err, mcp_payload = call_tool("c64_break_list", {})
     assert err is False
-    assert mcp_payload == _cli(s, ["break", "list"])
+    assert mcp_payload == cli_json(["break", "list"], session=s)
     assert [b["op"] for b in mcp_payload["breakpoints"]] == ["exec", "load|store"]
 
 
@@ -96,7 +85,8 @@ def test_watch_add_tool_payload_matches_the_cli():
         S.attach.return_value = s
         err, mcp_payload = call_tool("c64_watch_add", {"ref": "$0400", "length": 40})
     assert err is False
-    assert mcp_payload == _cli(s, ["watch", "add", "$0400", "--length", "40"])
+    assert mcp_payload == cli_json(["watch", "add", "$0400", "--length", "40"],
+                                   session=s)
     assert mcp_payload["op"] == "load|store"
 
 
@@ -375,3 +365,131 @@ def test_wait_idle_timeout_is_data_not_an_error():
     # Mock: it compares unequal to "stopped" and "running" falls out however
     # the arm is wired. Same pin as `test_wait_text_timeout_not_error`.
     assert out["machine"] == "running" and "diagnosis" not in out
+
+
+# --- one rule, two front ends spelling their own commands -------------------
+
+def test_stopped_wait_diagnosis_is_one_spine_both_front_ends_fill_in():
+    """The diagnosis exists once. Each front end passes the verbs it names
+    (`c64 until` here, c64_until there) and its own way out, because a caller
+    reading one front end's message must not be sent to the other's commands —
+    which is the wrinkle that kept this pair doubled until now."""
+    assert stopped_wait_diagnosis("nothing could be printed", "the screen",
+                                  stopped_by="A, B", remedy="Do C.") == (
+        "the machine was STOPPED for the whole wait, so nothing could be "
+        "printed: a wait polls the screen, it never resumes the CPU. Something "
+        "before this stopped it (A, B, or a checkpoint hit). Do C.")
+
+
+def test_wait_mem_diagnosis_matches_the_cli_bar_the_command_names():
+    """Lockstep pin for the pair: `c64_wait_mem`'s `diagnosis` and the clause
+    `c64 wait --mem` fails with are the same sentence out of one helper, and
+    they differ only where each names its own commands."""
+    s, _ = _fake()
+    timed_out = {"fired": None, "timeout": 0.1, "last_value": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.machine_state", return_value="stopped"), \
+         patch("c64lib.mcp_server.wait_for_mem", return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_wait_mem",
+                             {"addr": "$1000", "equals": "3", "timeout": 0.1})
+    assert err is False, out
+    with patch("c64lib.cli.machine_state", return_value="stopped"), \
+         patch("c64lib.cli.wait_for_mem", return_value=dict(timed_out)):
+        cli_error = cli_json(["wait", "--mem", "$1000=3", "--timeout", "0.1"],
+                             session=s, exit_code=1)["error"]
+
+    spine = ("the machine was STOPPED for the whole wait, so the byte could "
+             "not change: a wait polls memory, it never resumes the CPU. "
+             "Something before this stopped it (")
+    assert out["diagnosis"].startswith(spine)
+    assert spine in cli_error
+    assert "c64_continue" in out["diagnosis"] and "c64_wait_break" in out["diagnosis"]
+    assert "`c64 continue`" in cli_error and "`c64 wait --break`" in cli_error
+    # `stopped_by` is the other per-front-end half, and just as swappable as
+    # the remedy above unless each spelling is pinned to its own side.
+    assert "(`c64 until`, `step`, `finish`, or a checkpoint hit)" in cli_error
+    assert ("(c64_until, c64_step, c64_finish, or a checkpoint hit)"
+            in out["diagnosis"])
+
+
+def test_key_state_note_is_one_rule_with_each_front_ends_way_out():
+    """`$CB still holds …` is the same finding on both sides; the flag that
+    caused it and the poke that clears it are the only per-front-end parts."""
+    assert key_state_note("d", True, flag="--no-release",
+                          clear_with="anything") == "key released ($CB=64)"
+    assert key_state_note("d", False, flag="release=false",
+                          clear_with="c64_mem_write") == (
+        "$CB still holds 'd' (release=false) — clear it with c64_mem_write")
+
+
+def test_key_hold_timeout_key_state_matches_the_cli():
+    """Both front ends report the same key state in the same words, each
+    naming its own flag and its own poke. The timeout sentence around it stays
+    doubled on purpose (REF vs the anchor); the key state does not."""
+    s, _ = _fake()
+    held = {"frames": 0, "requested": 3, "released": False, "registers": None}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.key_hold", return_value=dict(held)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_key_hold", {"key": "d", "at": "$0819",
+                                              "frames": 3, "release": False})
+    assert err is True
+    with patch("c64lib.cli.ops_key_hold", return_value=dict(held)):
+        cli_error = cli_json(["key", "hold", "d", "--at", "$0819",
+                              "--frames", "3", "--no-release"],
+                             session=s, exit_code=1)["error"]
+    for msg in (out["raw"], cli_error):
+        assert "$CB still holds 'd' (" in msg and ") — clear it with " in msg
+    assert "(--no-release)" in cli_error and "(release=false)" in out["raw"]
+    # The way out has to be the reader's own front end, not the other's: pin
+    # the pokes themselves, or the two `clear_with` arguments swap unnoticed.
+    assert "clear it with `c64 mem write '$CB' 64`" in cli_error
+    assert "clear it with c64_mem_write addr='$CB' values=[64]" in out["raw"]
+
+
+def test_call_timeout_message_matches_the_cli():
+    """`c64_call` raises the words `c64 call` exits 1 with, byte for byte —
+    the runaway clause at the end of both now comes from one constant."""
+    s, _ = _fake()
+    never = {"fired": False, "registers": None, "trap": 0x2000}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.call_routine", return_value=dict(never)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_call", {"routine": "$2000", "timeout": 0.1})
+    assert err is True
+    with patch("c64lib.cli.call_routine", return_value=dict(never)):
+        cli_error = cli_json(["call", "$2000", "--timeout", "0.1"],
+                             session=s, exit_code=1)["error"]
+    assert RUNAWAY_ROUTINE in cli_error
+    assert out["raw"].endswith(cli_error)
+
+
+def test_profile_timeout_hazard_matches_the_cli_bar_the_remedy():
+    """The other message carrying the runaway clause, plus the profile hazard
+    sentence — which the shared-code branch's review found doubled with no
+    test holding the two equal. This is that test."""
+    s, _ = _fake()
+    timed_out = {"fired": False, "samples": [], "min": None, "max": None,
+                 "mean": None, "registers": None, "trap": 0x0400,
+                 "irq_masked": True, "reached": 0, "count": 1}
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.profile_routine_samples",
+               return_value=dict(timed_out)):
+        S.attach.return_value = s
+        err, out = call_tool("c64_profile", {"routine": "$c000",
+                                             "timeout": 0.1})
+    assert err is True
+    with patch("c64lib.cli.profile_routine_samples",
+               return_value=dict(timed_out)):
+        cli_error = cli_json(["profile", "$c000", "--timeout", "0.1"],
+                             session=s, exit_code=1)["error"]
+    shared = (f"never returned in 0.1s after 0/1 arrival(s) — machine left "
+              f"running {RUNAWAY_ROUTINE}. CIA#2 timers A/B are left RUNNING "
+              f"and the I flag is left masked — the jiffy clock and keyboard "
+              f"stay dead until ")
+    assert shared in out["raw"] and shared in cli_error
+    assert out["raw"].endswith("the I bit is cleared (c64_reg_set FL) or the "
+                               "session is restarted.")
+    assert cli_error.endswith("`c64 reg set FL ...` clears it "
+                              "(or the session restarts).")

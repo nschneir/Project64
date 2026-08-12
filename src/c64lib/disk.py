@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import yaml
@@ -423,7 +424,7 @@ def block_read(image: str | Path, track: int, sector: int) -> bytes:
     return data
 
 
-def check_block_write(src: str | Path | None, values,
+def check_block_write(src: str | Path | None, values: Sequence[int | str] | None,
                       offset: int | None) -> None:
     """Exactly one source, and an offset only for a poke — the rule, once.
 

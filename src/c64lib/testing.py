@@ -597,6 +597,17 @@ def _do_step(session, kind: str, arg, default_timeout: float,
         return True, f"sampled mem ${addr:04x} = {val} as {arg['as']!r}"
 
     if kind == "key":
+        # `ascii_to_petscii` directly, NOT `ops.key_type` — so a `\n` in a
+        # spec is decoded by YAML or not at all, and never a second time here.
+        # Deliberate: `key_type`'s escape decoding exists because a shell
+        # argument cannot carry a real newline, and a YAML scalar can. Measured
+        # with this build's pyyaml: `key: "run\n"` (the spelling docs/cli.md
+        # documents) already arrives as a real newline, which maps to RETURN,
+        # while `key: 'run\n'` arrives as a backslash and an n — which is what
+        # single quotes ASK for in YAML. Decoding again here would make the
+        # single-quoted form mean something YAML says it does not, and it would
+        # leave no way to type a literal backslash at all. It also matches the
+        # `program:` side, where `basic type` types its text literally.
         with session.monitor() as mon:
             try:
                 mon.keyboard_feed(ascii_to_petscii(str(arg)))

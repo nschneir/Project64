@@ -414,6 +414,8 @@ List all checkpoints with hit counts.
 JSON: `{"breakpoints": [{"id", "address", "end", "op", "enabled", "hits",
 "has_condition"}, ...]}`. `op` is the **string** `exec`, `load` or `store` —
 several joined by `|` in that order (`load|store`), never the raw bitmask.
+A checkpoint with none of the three bits set reports the empty string `""`
+rather than a placeholder word; VICE has never been seen to produce one.
 `c64_break_list` reports the same string.
 
 ### `c64 break remove` (alias: `c64 break rm`)

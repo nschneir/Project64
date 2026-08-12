@@ -15,6 +15,8 @@ order their colors differently anyway. Legend: '.123' multicolor,
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import NamedTuple
 
 _MC_LEGEND = {".": 0b00, "1": 0b01, "2": 0b10, "3": 0b11}
@@ -134,6 +136,46 @@ def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
     if not glyphs:
         raise CharsetError("no glyphs found")
     return glyphs
+
+
+def parse_charset_file(path: str | Path,
+                       multicolor: bool = True) -> list[Glyph]:
+    """Read an authored sheet from disk and split it into `Glyph` blocks.
+
+    The charset twin of `sprites.encode_sheet_file`: the read, and the naming
+    of the file in whatever it raises, happen once — `c64 charset encode` and
+    the c64_charset_encode tool had one each, worded identically, and only the
+    rendering of a failure is the front ends' own half.
+
+    `read_text` on a .prg or a .png raises UnicodeDecodeError — which IS a
+    ValueError and is NOT an OSError, exactly the trap the CLI twin once
+    leaked a traceback through — and whose own message is a byte offset and a
+    codec: true, and no help in saying which of the paths was the wrong one.
+    The emptiness check needs no line here; `parse_charset` already raises
+    "no glyphs found" for a sheet that holds none.
+    """
+    try:
+        text = Path(path).read_text()
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read charset sheet {path}: {e}") from None
+    return parse_charset(text, multicolor=multicolor)
+
+
+def check_label(label: str, flag: str) -> None:
+    """Reject a block label ca65 could not assemble, naming the caller's flag.
+
+    Beside `format_glyphs` because that is what emits the label — as `NAME:`
+    and `NAME_end:`, so anything the assembler will not take as an identifier
+    produces a file that cannot be included rather than an error here. `flag`
+    is the only thing either front end passes: the CLI says `--label`, the
+    tool says `label`, and each caller is told about the one it used. It has
+    no default on purpose — a default is one front end's spelling silently
+    lent to the other, which is the drift this helper exists to prevent.
+    """
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        raise CharsetError(
+            f"{flag} {label!r} is not an assembler identifier (letters, digits "
+            f"and underscore, not starting with a digit)")
 
 
 def encode_row(row: str, multicolor: bool = True) -> int:

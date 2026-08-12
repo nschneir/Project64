@@ -8,6 +8,7 @@ import pytest
 
 from c64lib.protocol import CP_EXEC, CP_LOAD, CP_STORE, Checkpoint
 from c64lib.text import ascii_to_petscii
+from tests.conftest import cli_json
 from tests.test_mcp_scaffold import call_tool
 
 
@@ -751,6 +752,36 @@ def test_charset_encode_label_reaches_mcp(tmp_path):
                          {"file": str(src), "label": "font gly"})
     assert err is True
     assert "not an assembler identifier" in str(out)
+
+
+def test_charset_label_rejection_matches_the_cli(tmp_path):
+    """One validator, two flag spellings. The tool's message is the CLI's with
+    `--label` spelled `label` — a caller reading either one is told about the
+    flag it actually passed, and nothing else differs."""
+    src = tmp_path / "chars.txt"
+    src.write_text(_MIXED_SHEET)
+    err, out = call_tool("c64_charset_encode",
+                         {"file": str(src), "label": "font gly"})
+    assert err is True
+    cli_error = cli_json(["charset", "encode", str(src), "--label", "font gly"],
+                         exit_code=1)["error"]
+    assert cli_error.startswith("--label ")
+    # FastMCP prefixes the raw text with "Error executing tool …: ".
+    assert out["raw"].endswith(cli_error.removeprefix("--"))
+
+
+def test_charset_unreadable_sheet_message_matches_the_cli(tmp_path):
+    """Both front ends name the file they could not read, in one sentence that
+    now exists once — `charset.parse_charset_file`, the twin of
+    `sprites.encode_sheet_file`."""
+    binary = tmp_path / "charset.bin"
+    binary.write_bytes(bytes(range(256)))
+    err, out = call_tool("c64_charset_encode", {"file": str(binary)})
+    assert err is True
+    cli_error = cli_json(["charset", "encode", str(binary)],
+                         exit_code=1)["error"]
+    assert cli_error.startswith(f"cannot read charset sheet {binary}: ")
+    assert out["raw"].endswith(cli_error)
 
 
 def test_charset_encode_bad_sheet_is_an_error(tmp_path):

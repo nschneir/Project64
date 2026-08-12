@@ -49,6 +49,7 @@ from .disk import (
 from .machines import get_profile
 from .monitor import MonitorError
 from .ops import (
+    RUNAWAY_ROUTINE,
     all_labels,
     attach_boot_labels,
     build_for_run,
@@ -57,11 +58,13 @@ from .ops import (
     disk_labels_path,
     easyflash_state,
     find_bytes,
+    key_state_note,
     machine_state,
     parse_areas,
     parse_byte_values,
     parse_number,
     pc_region,
+    profile_hazard,
     profile_routine_samples,
     reboot_with_cart,
     run_until,
@@ -72,6 +75,7 @@ from .ops import (
     sprite_shape,
     sprite_states,
     staleness,
+    stopped_wait_diagnosis,
     type_basic,
     wait_for_break,
     wait_for_idle,
@@ -99,6 +103,7 @@ from .screen import (
     save_screenshot_png,
 )
 from .session import Session, SessionError
+from .sprites import SpriteState
 from .symbols import format_addr
 from .testing import TestError, load_test, program_test, run_test
 from .text import GUTTER_LABELS, gutter_text
@@ -1326,8 +1331,7 @@ def call_cmd(ctx, ref, a_, x_, y_, timeout):
                        y=regs_in.get("y"), timeout=timeout)
     if not out["fired"]:
         fail(ctx, f"call {format_addr(labels, addr)}: never returned in "
-                  f"{timeout}s — machine left running (runaway routine? "
-                  "check the address is a subroutine ending in RTS)",
+                  f"{timeout}s — machine left running {RUNAWAY_ROUTINE}",
              extra={"machine": "running"})
         return
     _emit_stopped_regs(ctx, labels, out["registers"],
@@ -1363,6 +1367,10 @@ def profile_cmd(ctx, ref, samples, with_irq, timeout):
     arrival can be an honest number about an unrepresentative frame.
     """
     if samples < 1:
+        # Kept even though `profile_routine_samples` raises for n < 1 too: this
+        # one fires ahead of `attach`, so an unusable argument is answered as
+        # an unusable argument instead of as "no session". The ops guard is not
+        # redundant either — it is the only one c64_profile has.
         fail(ctx, f"profile: --samples must be at least 1 (got {samples})")
         return
     s = attach(ctx)
@@ -1387,14 +1395,11 @@ def profile_cmd(ctx, ref, samples, with_irq, timeout):
         # Name what the abandoned window left behind: the docs say it, but a
         # caller reading only this line still has to know the jiffy clock and
         # keyboard are dead until the I bit is cleared by hand.
-        left = ("CIA#2 timers A/B are left RUNNING" if with_irq else
-                "CIA#2 timers A/B are left RUNNING and the I flag is left "
-                "masked — the jiffy clock and keyboard stay dead until "
-                "`c64 reg set FL ...` clears it (or the session restarts)")
+        left = profile_hazard(with_irq, "`c64 reg set FL ...` clears it "
+                                        "(or the session restarts)")
         fail(ctx, f"profile {where}: never returned in {timeout}s after "
                   f"{out['reached']}/{samples} arrival(s) — machine left "
-                  "running (runaway routine? check the address is a "
-                  f"subroutine ending in RTS). {left}.",
+                  f"running {RUNAWAY_ROUTINE}. {left}.",
              extra={"machine": "running", "reached": out["reached"],
                     "count": samples, "samples": out["samples"],
                     "timers_running": True, "irq_masked": not with_irq})
@@ -1413,16 +1418,29 @@ def profile_cmd(ctx, ref, samples, with_irq, timeout):
     emit(ctx, payload, human)
 
 
-def _stopped_wait_detail(effect: str, polls: str) -> str:
-    """The `wait` timeout clause for a machine that was halted the whole
-    window. Shared by --text/--mem/--idle so the three cannot drift: only the
-    effect ("the byte could not change") and what the wait polls differ, and
-    the remedy is the same one in every case."""
-    return (f" — the machine was STOPPED for the whole wait, so {effect}: a "
-            f"wait polls {polls}, it never resumes the CPU. Something before "
-            "this stopped it (`c64 until`, `step`, `finish`, or a checkpoint "
-            "hit). Run `c64 continue` first, or use `c64 wait --break` if you "
-            "meant to run to a checkpoint.")
+def _wait_verdict(s, before: str, effect: str, polls: str) -> tuple[str, str]:
+    """Where the machine was for a timed-out wait, and the clause that says so.
+
+    Returns ("stopped"|"running", detail), with `detail` empty unless the
+    machine was halted for the WHOLE window. Sampled either side of the wait —
+    `before` from ahead of the call, the second sample taken here — because
+    "stopped the whole time" is the diagnosis and one sample cannot support
+    it: a machine stopped only at the end was running for part of the window
+    and the value genuinely never arrived. `machine_state` never raises and
+    answers from the daemon's own bookkeeping, so the second sample costs no
+    emulator traffic.
+
+    Shared by --text/--mem/--idle so the three cannot drift; named for its MCP
+    twin, `mcp_server._wait_verdict`, which answers the same question in the
+    same two samples but returns it as payload keys rather than as a clause.
+    """
+    stopped = before == "stopped" == machine_state(s)
+    if not stopped:
+        return "running", ""
+    return "stopped", " — " + stopped_wait_diagnosis(
+        effect, polls, stopped_by="`c64 until`, `step`, `finish`",
+        remedy="Run `c64 continue` first, or use `c64 wait --break` if you "
+               "meant to run to a checkpoint.")
 
 
 @main.command("wait")
@@ -1467,8 +1485,6 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
     labels = session_labels(s)
 
     if idle_cond:
-        # Sampled either side of the wait, for the reason spelled out at
-        # --mem below: one sample cannot support "stopped the whole time".
         before = machine_state(s)
         out = wait_for_idle(s, timeout)
         if out["fired"]:
@@ -1476,20 +1492,22 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
                  "machine idle: the program has finished or errored")
             return
         pcs = " ".join(f"${pc:04x}" for pc in out["last_pcs"])
-        stopped = before == "stopped" == machine_state(s)
-        # A stopped machine is not a wedge, so here the diagnosis REPLACES the
-        # playbook instead of joining it: the playbook has the reader sample
-        # `reg` a second apart and then `step`, on a PC that cannot move.
-        detail = (_stopped_wait_detail("the program could not reach direct mode",
-                                       "the PC") if stopped else
-                  " — it never reached direct mode, and may be wedged. Take it "
-                  "apart with the wedged-machine playbook in the "
-                  "`6502-debugging` skill: sample `c64 reg` a second apart, "
-                  "`c64 disasm <PC-8> 24` the loop body, then `c64 step` "
-                  "watching for the register that never changes.")
+        machine, detail = _wait_verdict(
+            s, before, "the program could not reach direct mode", "the PC")
+        if machine == "running":
+            # A stopped machine is not a wedge, so here the diagnosis REPLACES
+            # the playbook instead of joining it: the playbook has the reader
+            # sample `reg` a second apart and then `step`, on a PC that cannot
+            # move. This is the arm the other two leave empty.
+            detail = (" — it never reached direct mode, and may be wedged. "
+                      "Take it apart with the wedged-machine playbook in the "
+                      "`6502-debugging` skill: sample `c64 reg` a second "
+                      "apart, `c64 disasm <PC-8> 24` the loop body, then "
+                      "`c64 step` watching for the register that never "
+                      "changes.")
         fail(ctx, f"timeout after {timeout}s waiting for the machine to go "
                   f"idle (PC last seen at {pcs}){detail}",
-             extra={"machine": "stopped" if stopped else "running"})
+             extra={"machine": machine})
         return
 
     if break_cond:
@@ -1515,21 +1533,19 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         return
 
     if text_cond:
-        # Sampled either side of the wait, for the reason spelled out at
-        # --mem below: one sample cannot support "stopped the whole time".
         before = machine_state(s)
         out = wait_for_text(s, text_cond, timeout, since=since)
         if out["fired"]:
             emit(ctx, {"fired": "text", "elapsed": out["elapsed"]}, "text condition met")
             return
-        stopped = before == "stopped" == machine_state(s)
-        # Ahead of the screen dump: the diagnosis is why the timeout happened,
-        # and 25 lines of screen between it and the reader buries it.
-        detail = ("" if not stopped else
-                  _stopped_wait_detail("nothing could be printed", "the screen"))
+        machine, detail = _wait_verdict(s, before, "nothing could be printed",
+                                        "the screen")
+        # `detail` goes ahead of the screen dump: the diagnosis is why the
+        # timeout happened, and 25 lines of screen between it and the reader
+        # buries it.
         fail(ctx, f"timeout after {timeout}s waiting for --text {text_cond}"
                   f"{detail}\nlast screen:\n{out['screen']}",
-             extra={"machine": "stopped" if stopped else "running"})
+             extra={"machine": machine})
         return
 
     try:
@@ -1544,22 +1560,16 @@ def wait_cmd(ctx, text_cond, mem_cond, break_cond, idle_cond, since, timeout):
         fail(ctx, f"bad --mem value {val_s!r} in {mem_cond!r}; "
                   "use a decimal or $hex byte")
         return
-    # Sampled either side of the wait, because "stopped the whole time" is
-    # the diagnosis and one sample cannot support it: a machine stopped only
-    # at the end was running for part of the window and the value genuinely
-    # never arrived. machine_state never raises and answers from the daemon's
-    # own bookkeeping, so this costs no emulator traffic.
     before = machine_state(s)
     out = wait_for_mem(s, addr, want, timeout, op=op)
     if out["fired"]:
         emit(ctx, {"fired": "mem", "elapsed": out["elapsed"]}, "mem condition met")
         return
-    stopped = before == "stopped" == machine_state(s)
-    detail = ("" if not stopped else
-              _stopped_wait_detail("the byte could not change", "memory"))
+    machine, detail = _wait_verdict(s, before, "the byte could not change",
+                                    "memory")
     fail(ctx, f"timeout after {timeout}s waiting for --mem {mem_cond}"
               f" (last value {out['last_value']}){detail}",
-         extra={"machine": "stopped" if stopped else "running"})
+         extra={"machine": machine})
 
 
 @main.group()
@@ -2181,9 +2191,9 @@ def key_hold(ctx, keyname, at_ref, frames, timeout, release):
     if out["registers"] is None:
         # The machine is left RUNNING, so the caller cannot look at $CB —
         # say what happened to the key rather than making them guess.
-        key_state = ("key released ($CB=64)" if out["released"] else
-                     f"$CB still holds {keyname!r} (--no-release) — clear it "
-                     "with `c64 mem write '$CB' 64`")
+        key_state = key_state_note(
+            keyname, out["released"], flag="--no-release",
+            clear_with="`c64 mem write '$CB' 64`")
         fail(ctx, f"timeout: only {out['frames']}/{frames} frame(s) reached "
                   f"{format_addr(labels, addr)} — machine left RUNNING, "
                   f"checkpoint removed, {key_state}. "
@@ -2201,7 +2211,8 @@ def sprite() -> None:
     """Inspect, render, and convert VIC-II sprites."""
 
 
-def _sprite_shape(ctx, s, n, block):
+def _sprite_shape(ctx: click.Context, s: Session, n: int, block: str | None
+                  ) -> tuple[bytes, SpriteState, dict, int]:
     """ops.sprite_shape with CLI error reporting: a bad index (ValueError) and
     an unresolvable --block ref (KeyError/ValueError) both exit 1."""
     try:
@@ -2408,26 +2419,17 @@ def charset_encode(ctx, file, hires, first_code, label, out_path):
     8 `.byte` rows per glyph, each glyph introduced by a `; code N: name`
     comment. Needs no session; the charset twin of `c64 sprite encode`.
     """
-    import re
-
-    from .charset import CharsetError, encode_row, format_glyphs, parse_charset
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
-        fail(ctx, f"--label {label!r} is not an assembler identifier "
-                  f"(letters, digits and underscore, not starting with a digit)")
-        return
+    from .charset import check_label, encode_row, format_glyphs, parse_charset_file
     try:
-        text_in = file.read_text()
-    except (OSError, ValueError) as e:
-        # The read was already inside the try below, but `CharsetError` does
-        # not catch it: both it and `UnicodeDecodeError` subclass ValueError
-        # and neither subclasses the other, so a binary file handed to the
-        # encoder escaped as a traceback. Its own try, so the message can
-        # name the file rather than quote a codec.
-        fail(ctx, f"cannot read charset sheet {file}: {e}")
-        return
-    try:
-        glyphs = parse_charset(text_in, multicolor=not hires)
-    except CharsetError as e:
+        # `except ValueError`, not `except CharsetError`: the read raises a
+        # bare ValueError (and UnicodeDecodeError, which is one and is not an
+        # OSError — a binary file handed to the encoder once escaped as a
+        # traceback through a narrower catch), while the label check and the
+        # parser raise CharsetError, a ValueError of its own. One catch takes
+        # all three, and each already carries the message this prints.
+        check_label(label, "--label")
+        glyphs = parse_charset_file(file, multicolor=not hires)
+    except ValueError as e:
         fail(ctx, str(e))
         return
     text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires,

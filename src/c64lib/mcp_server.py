@@ -46,6 +46,7 @@ from .disk import (
 )
 from .machines import get_profile
 from .ops import (
+    RUNAWAY_ROUTINE,
     all_labels,
     attach_boot_labels,
     build_for_run,
@@ -55,6 +56,7 @@ from .ops import (
     easyflash_state,
     find_bytes,
     key_hold,
+    key_state_note,
     key_type,
     machine_state,
     parse_areas,
@@ -62,6 +64,7 @@ from .ops import (
     parse_number,
     pc_region,
     pc_symbol,
+    profile_hazard,
     profile_routine_samples,
     reboot_with_cart,
     run_until,
@@ -71,6 +74,7 @@ from .ops import (
     sprite_shape,
     sprite_states,
     staleness,
+    stopped_wait_diagnosis,
     type_basic,
     wait_for_break,
     wait_for_idle,
@@ -96,22 +100,6 @@ srv = FastMCP("c64-tools")
 
 def _attach(session: str | None = None) -> Session:
     return Session.attach(session)
-
-
-def _read_sheet(file: str, what: str) -> str:
-    """An authored ASCII-art sheet, read with the file named in any failure.
-
-    Lockstep with the CLI's encoders, which name the file for the same
-    reason: `read_text` on a .prg or a .png raises `UnicodeDecodeError`,
-    whose own message is a byte offset and a codec — true, and no help in
-    saying which of the paths in the call was the wrong one.
-    """
-    try:
-        return Path(file).read_text()
-    except (OSError, ValueError) as e:
-        # UnicodeDecodeError is a ValueError and NOT an OSError; catching
-        # only OSError here is exactly how the CLI twin leaked a traceback.
-        raise ValueError(f"cannot read {what} {file}: {e}") from None
 
 
 @srv.tool()
@@ -526,12 +514,10 @@ def _wait_verdict(s, before: str, out: dict, effect: str, polls: str) -> dict:
     stopped = before == "stopped" == machine_state(s)
     out["machine"] = "stopped" if stopped else "running"
     if stopped:
-        out["diagnosis"] = (
-            f"the machine was STOPPED for the whole wait, so {effect}: a wait "
-            f"polls {polls}, it never resumes the CPU. Something before this "
-            "stopped it (c64_until, c64_step, c64_finish, or a checkpoint "
-            "hit). Call c64_continue first, or c64_wait_break if you meant to "
-            "run to a checkpoint.")
+        out["diagnosis"] = stopped_wait_diagnosis(
+            effect, polls, stopped_by="c64_until, c64_step, c64_finish",
+            remedy="Call c64_continue first, or c64_wait_break if you meant "
+                   "to run to a checkpoint.")
     return out
 
 
@@ -625,9 +611,8 @@ def c64_call(routine: str, a: int | None = None, x: int | None = None,
         # a completed call. Same contract as c64_until/c64_profile, and the
         # wording `c64 call` exits 1 with.
         raise RuntimeError(f"call {format_addr(labels, addr)}: never returned "
-                           f"in {timeout}s — machine left running (runaway "
-                           "routine? check the address is a subroutine ending "
-                           "in RTS)")
+                           f"in {timeout}s — machine left running "
+                           f"{RUNAWAY_ROUTINE}")
     out["pc_symbol"] = pc_symbol(labels, dict(out["registers"]))
     return out
 
@@ -652,14 +637,11 @@ def c64_profile(routine: str, with_irq: bool = False, timeout: float = 30.0,
     out = profile_routine_samples(s, addr, samples, timeout=timeout,
                                   with_irq=with_irq)
     if not out["fired"]:
-        left = ("CIA#2 timers A/B are left RUNNING" if with_irq else
-                "CIA#2 timers A/B are left RUNNING and the I flag is left "
-                "masked — the jiffy clock and keyboard stay dead until the I "
-                "bit is cleared (c64_reg_set FL) or the session is restarted")
+        left = profile_hazard(with_irq, "the I bit is cleared (c64_reg_set FL) "
+                                        "or the session is restarted")
         raise RuntimeError(f"profile {routine}: never returned in {timeout}s "
                            f"after {out['reached']}/{samples} arrival(s) — "
-                           "machine left running (runaway routine? check the "
-                           f"address is a subroutine ending in RTS). {left}.")
+                           f"machine left running {RUNAWAY_ROUTINE}. {left}.")
     payload = {"called": routine, "samples": out["samples"], "min": out["min"],
                "max": out["max"], "mean": out["mean"],
                "irq_masked": not with_irq, "registers": out["registers"],
@@ -802,7 +784,11 @@ def c64_load(prg: str, run: bool = True, symbols: str | None = None,
         finally:
             mon.resume()
     lbl = Path(symbols).resolve() if symbols else None
-    if lbl:
+    # `is not None`, the spelling `ops.attach_boot_labels` and c64_disk_boot
+    # use for the same `Path | None`. A `Path` is always truthy (`Path("")` is
+    # `PosixPath('.')`), so `if lbl:` tested exactly the same thing — and two
+    # spellings of one test in sibling paths invite reading a difference in.
+    if lbl is not None:
         s.set_labels_path(str(lbl))
     s.record_loaded(p, [p])
     return {"loaded": str(p), "run": run,
@@ -895,9 +881,9 @@ def c64_key_hold(key: str, at: str, frames: int = 1, timeout: float = 30.0,
     if out["registers"] is None:
         # An MCP error is text only — there is no extras dict — so the key
         # state has to travel in the message the caller reads.
-        key_state = ("key released ($CB=64)" if out["released"] else
-                     f"$CB still holds {key!r} (release=false) — clear it "
-                     "with c64_mem_write addr='$CB' values=[64]")
+        key_state = key_state_note(
+            key, out["released"], flag="release=false",
+            clear_with="c64_mem_write addr='$CB' values=[64]")
         raise RuntimeError(
             f"timeout: only {out['frames']}/{frames} frame(s) reached "
             f"{format_addr(labels, addr)} — machine left RUNNING, checkpoint "
@@ -930,8 +916,11 @@ def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
 
 @srv.tool()
 def c64_disk_get(image: str, name: str, dest: str | None = None) -> dict:
-    """Copy a file off a disk image to the host. dest defaults to NAME.prg in
-    the working directory, the same file `c64 disk get` writes."""
+    """Copy a file off a disk image to the host. dest defaults to NAME.prg —
+    the same default `c64 disk get` applies, spelled the way you typed NAME —
+    and a relative dest lands in THIS SERVER PROCESS's working directory,
+    which is wherever the server was launched and not something a client can
+    see or change. Pass an absolute dest to choose where the file goes."""
     return {"image": str(Path(image)), "name": name,
             "dest": str(get_file(Path(image), name, dest))}
 
@@ -1301,15 +1290,9 @@ def c64_charset_encode(file: str, hires: bool = False,
     rendering under a `glyphs:`/`glyphs_end:` pair — `label` renames both
     ends, so several sheets concatenate into one include without being
     renamed on the way out. The charset twin of c64_sprite_encode."""
-    import re
-
-    from .charset import encode_row, format_glyphs, parse_charset
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
-        raise ValueError(
-            f"label {label!r} is not an assembler identifier (letters, digits "
-            f"and underscore, not starting with a digit)")
-    glyphs = parse_charset(_read_sheet(file, "charset sheet"),
-                           multicolor=not hires)
+    from .charset import check_label, encode_row, format_glyphs, parse_charset_file
+    check_label(label, "label")
+    glyphs = parse_charset_file(file, multicolor=not hires)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it first_code would be a no-op here. The CLI omits
     # it from --json only because it prints the same text itself.
