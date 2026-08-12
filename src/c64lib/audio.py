@@ -324,12 +324,19 @@ def _lead_in_frames(before: int | None, after: int | None,
                     fps: float) -> int | None:
     """Emulated frames between two jiffy readings, plus the loop's own resume.
 
-    None rather than a guess whenever the jiffy cannot answer. The frozen
-    case is the one that matters: the jiffy is incremented by the KERNAL's
-    IRQ handler, and a music player that takes the IRQ over — which is most
-    of them — stops it dead. A capture of such a program reports no lead-in;
-    it does not report a plausible zero, and it does not report the 15 frames
-    somebody else measured on some other program.
+    None rather than a guess whenever the jiffy cannot answer, which is three
+    distinct ways: either reading came back None (`_read_jiffy` turns every
+    way a monitor round trip can fail into one); the delta is zero; or the
+    delta is past `_MAX_LEAD_IN_JIFFIES`, where the number is not a clock
+    reading at all but the program's own zero-page data — garbage discarded,
+    not a lead-in judged too long to be valid.
+
+    The frozen case, the zero, is the one that matters: the jiffy is
+    incremented by the KERNAL's IRQ handler, and a music player that takes the
+    IRQ over — which is most of them — stops it dead. A capture of such a
+    program reports no lead-in; it does not report a plausible zero, and it
+    does not report the 15 frames somebody else measured on some other
+    program.
     """
     if before is None or after is None:
         return None
@@ -817,9 +824,11 @@ def sid_log_detail(session, frames: int, jsonl_path,
             f"when sampling began — `timeout` must be positive")
     # Spelled out rather than filtered from `report_timing_for`: this is a
     # FILE FORMAT, and it must not gain a field because the timing dict did.
-    # `sid_analysis.log_timing` reads exactly these three back, and
-    # `test_sid_log_stamp_does_not_disturb_the_frame_records` is the round
-    # trip that keeps the writer and the reader honest about it.
+    # `sid_analysis.log_timing` requires these three and hands back whatever
+    # line 1 holds — deliberately, so an older parser survives a fourth key —
+    # which puts the whole decision here: a field added on this line IS a
+    # format change. `test_sid_log_stamp_does_not_disturb_the_frame_records`
+    # is the round trip that keeps the writer and the reader honest.
     clock = report_timing_for(session.model)
     stamp = {"machine": clock["machine"], "clock_hz": clock["clock_hz"],
              "fps": clock["fps"]}

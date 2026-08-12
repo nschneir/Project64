@@ -237,20 +237,30 @@ def _register_byte(value) -> int:
     return value
 
 
-#: The keys a log's clock stamp carries, and the whole test for one. A first
-#: line holding exactly these is the header `c64lib.audio.sid_log_detail`
-#: writes; anything else on line 1 is still the malformed frame record it
-#: always was, so a truncated or foreign line cannot pass as a header.
+#: The keys a log's clock stamp carries, and the MINIMUM test for one: a first
+#: line holding at least these is the header `c64lib.audio.sid_log_detail`
+#: writes, extra keys and all. The test was equality once, and that made the
+#: format unextendable — the day a fourth key is stamped, every parser already
+#: shipped rejects line 1 of a new log, and rejects it as a malformed frame
+#: record, a hard error naming the wrong thing. Missing keys still fail, so a
+#: truncated or foreign line cannot pass as a header.
 LOG_STAMP_KEYS = ("machine", "clock_hz", "fps")
 
 
 def _log_stamp(line: str) -> dict | None:
-    """The clock stamp in a log's first line, or None if it is not one."""
+    """The clock stamp in a log's first line, or None if it is not one.
+
+    The one predicate both readers use: `log_timing` returns what this returns
+    and `parse_log` skips the line this accepts, so stamp-ness cannot mean two
+    things. What a superset costs is a line carrying all three stamp keys AND
+    a frame record's own — nothing writes such a hybrid, and a second notion
+    of stamp-ness in `parse_log` to exclude it would cost more than it saves.
+    """
     try:
         row = json.loads(line)
     except ValueError:
         return None
-    if not isinstance(row, dict) or set(row) != set(LOG_STAMP_KEYS):
+    if not isinstance(row, dict) or not set(LOG_STAMP_KEYS) <= set(row):
         return None
     return row
 

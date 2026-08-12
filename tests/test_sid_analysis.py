@@ -211,6 +211,30 @@ def test_parse_log_still_rejects_a_first_line_that_is_neither(tmp_path):
         parse_log(path)
 
 
+def test_log_stamp_accepts_a_future_extra_key(tmp_path):
+    """The stamp is a minimum, not an exact shape. Stamping a fourth key one
+    day must not make every parser already shipped reject line 1 of a new log
+    — and reject it as a malformed frame record, an error naming the wrong
+    thing entirely."""
+    future = {**STAMP, "sid_model": "8580"}
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text(json.dumps(future) + "\n"
+                    + json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    assert sid_analysis.log_timing(path) == future     # whole, extras and all
+    assert parse_log(path) == [FrameRecord(frame=0, regs=tuple([0] * 25))]
+
+
+def test_log_stamp_still_rejects_a_missing_key(tmp_path):
+    """The other half of "minimum": a line short of a required key cannot
+    answer what `log_timing` is asked, so it is not a header — it is the
+    truncated or foreign line it always was."""
+    path = tmp_path / "sid-log.jsonl"
+    path.write_text(json.dumps({"machine": "c64", "fps": 60}) + "\n")
+    assert sid_analysis.log_timing(path) is None
+    with pytest.raises(ValueError, match="line 1"):
+        parse_log(path)
+
+
 def test_parse_log_rejects_a_stamp_that_is_not_on_line_one(tmp_path):
     """One header, at the top. A stamp mid-file would silently swallow a
     frame's worth of evidence."""
