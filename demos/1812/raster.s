@@ -701,8 +701,20 @@ benext: inc     bei
 :                                ; fall through to the sort
 
 ; ---- sort edge indices by ytop, so the scanline loop admits in order -----
-; Bubble sort: nedge is at most 16, so this is a few hundred cycles once per
-; shape against a scanline loop measured in tens of thousands.
+; Bubble sort, nedge at most 16 — and MEASURED, because "a few hundred cycles
+; once per shape" stood here for the life of the demo and is wrong by ~50x.
+; At the very nedge 16 that bound names it costs 16,381 cycles worst case
+; (16-gon at size 90, angle 192, max of 8 samples; 14,369-14,628 at angle 0),
+; and 3,444 on the natural mid-run 8-edge shape.  Only a triangle comes near
+; the old claim, at 147.  The conclusion survives its number: against a
+; scanline loop measured in tens of thousands (78,688 on that same 8-edge
+; shape) this is 3.0% of a worst-case drawshape — but it is also 70% of
+; buildedges itself, which the old sentence did not say and which is the more
+; interesting fact.  Anchor: `c64 profile $0eb9 --samples 8` after
+; `call xform`, $0EB9 being the `ldx #0` below; the block falls through to
+; besorted, which IS buildedges' rts, and the index init makes re-entry
+; idempotent, so --samples is honest here.  The angle sweep behind those
+; figures is in AUDIT.md's iteration-3 performance section.
 
         ldx     #0
 beid:   txa
@@ -948,9 +960,14 @@ paCdone:
 ; naet 2, ncross 2).  That row leaves through the `bcc` below, not this case.
 ; 21,409 cycles of sorting per shape before this case existed, 9,419 after.
 ; The three concave types are the reason the general sort stays: some of their
-; rows carry four crossings, take it as before, and now also pay the
-; `jmp sfclip` at its exit — 3 cycles on those rows only.  Both legs of the
-; measurement, and the method, are in the commit that added this.
+; rows carry four crossings, take the same bubble sort as before, and now pay
+; 5 cycles more than they used to, on those rows only — the `beq cs2` below as
+; a not-taken branch (2) plus the `jmp sfclip` at the sort's exit (3), where it
+; used to fall through.  No measured figure moves and the bias runs against the
+; improvement.  Both legs of the measurement, and the method, are in AUDIT.md's
+; iteration-3 performance section — NOT in the commit body that added this
+; case, which predates the row histogram above and still carries the retracted
+; claim that every one of the 179 rows crosses twice.
         jmp     cssort
 sfjnext: jmp    sfnext          ; the second trampoline, for the tail half
 cssort: lda     ncross

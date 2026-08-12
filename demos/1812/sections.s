@@ -204,16 +204,22 @@ secinstr:
 ; (music.s:237-256) — where loadinstr would have written eighteen.  It is the
 ; narrower path, not the more thorough one, and it is sufficient rather than
 ; equivalent: it reaches the two things that decide whether anything is heard,
-; the gate bits and the volume, and it leaves $D415-$D417 exactly as the
-; finale set them.  So the hold inherits the finale's cutoff and routing, and
-; that is only harmless because both are already inert — see the corollary
-; near the end of this block, which says what that costs.
+; the gate bits and the volume, and it leaves $D415-$D417 exactly as they
+; stood at the end of the finale — $D416 and $D417 as loadinstr set them for
+; section 4, and $D415 still sndinit's zero, since sndinit is its only writer
+; (the writer list at the end of this block is the authority).  So the hold
+; inherits the finale's cutoff and routing, and that is only harmless because
+; both are already inert — see the corollary near the end of this block,
+; which says what that costs.
 ;
 ; A cannon shot rewrites all three as well, but by TWO routines on two
 ; schedules, and collapsing them into "the cannon" is a conflation this file
 ; has already had to correct once: cannonfire writes $D417 and $D418 once, at
-; the shot (music.s:428-433), while cantick writes $D416 once a frame for the
-; 24 frames after it (music.s:461-476).
+; the shot (music.s:428-433), while cantick writes $D416 once a frame for 24
+; frames (music.s:461-476) — the first of them in the shot's OWN frame, not
+; the frame after it: cannonfire runs inside voicetick (music.s:327) and
+; cantick runs after all three voicetick calls in the same seqtick
+; (music.s:201-208).
 ;
 ; THE CUTOFF HAS TO BE A REAL VALUE, AND FOR THE WHOLE LIFE OF THIS DEMO IT
 ; WAS NOT.  A filter does nothing until secres routes a voice into it, and
@@ -255,13 +261,12 @@ secinstr:
 ; fall outside the window — D#5 twice and E5 once — but that is a fact about
 ; this value, where E5's is a fact about every value.
 ;
-; With secres[2]'s resonance nybble $F
-; the result is a fixed formant the figure runs under, which is what a
-; band-pass on an ostinato is for; it also leaves the bottom of the mix to
-; voice 3's octave bass, which is not routed.  Centring the band ON the
-; fundamentals was the alternative and is rejected: passing the fundamental
-; and rejecting the harmonics turns a sawtooth into a sine and takes the
-; battle's bite away.
+; With secres[2]'s resonance nybble $F the result is a fixed formant the
+; figure runs under, which is what a band-pass on an ostinato is for; it also
+; leaves the bottom of the mix to voice 3's octave bass, which is not routed.
+; Centring the band ON the fundamentals was the alternative and is rejected:
+; passing the fundamental and rejecting the harmonics turns a sawtooth into a
+; sine and takes the battle's bite away.
 ;
 ; That 1.2 kHz is a NOMINAL twice over — once for the interpolation and once
 ; for the chip — and hardware.md:360-361 is the reason to say so out loud
@@ -318,10 +323,13 @@ secinstr:
 ; some other inert value only because it is what sndinit already leaves there,
 ; so the table records the state rather than changing it.  Both halves of that
 ; are ASSERTED, not merely written down: test.yaml reads $D417 == 0 at a stop
-; inside section 0 and again at one inside section 1, because seccut turned
-; this carve-out from a fact about the chip into a judgement about the
-; instruments, and a judgement is one byte of secres from being reversed in
-; silence.  The two stops are the two sections this paragraph argues about.
+; inside section 0, at one inside section 1 and at one inside section 4,
+; because seccut turned this carve-out from a fact about the chip into a
+; judgement about the instruments, and a judgement is one byte of secres from
+; being reversed in silence.  That is one stop for each of the three sections
+; this paragraph rules on.  Section 4's was written for a different reason —
+; it witnesses the cannon handing voice 3 back — but it pins the same byte,
+; and test.yaml says so where all three are enumerated.
 ;
 ; SECTION 5's ENTRY IS A DIFFERENT CASE and the sentence above does not cover
 ; it: [5] is never read by anything, because loadinstr does not run at the

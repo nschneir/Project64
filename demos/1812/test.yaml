@@ -114,8 +114,9 @@ steps:
   # Marseillaise stop below; section 4's is already here, in the finale group,
   # where $D417 == 0 is asserted for a different reason (the cannon handing the
   # voice back); and SECTION 5 IS NOT READ AT ALL, because there is nothing to
-  # read — loadinstr never runs at 4->5, so section 5 keeps section 4's byte
-  # and section 4's assertion is the only one there can be.
+  # read — loadinstr never runs at 4->5, so section 5 keeps section 4's byte.
+  # A section-5 read is perfectly expressible; it would simply witness nothing
+  # that section 4's assertion has not already pinned.
   - assert: { mem: "sidshadow+23", equals: [0] }      # $D417: the piano is dry
 
   # ======================================================================
