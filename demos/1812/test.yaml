@@ -102,6 +102,16 @@ steps:
   # the file's other two reads of that silence use.
   - assert: { mem: "sidshadow+8",  not_equals: 0 }    # the left hand has played
   - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3 never does
+  # ...and NOTHING is routed through the filter.  This read is new with seccut
+  # and it exists because seccut changed the standing of the carve-out it
+  # guards: while the cutoff was stuck at 0, "the hymn is unfiltered" was a
+  # fact about the chip that no edit to this table could undo.  It is now a
+  # JUDGEMENT — the pianos were chosen and settled against an unfiltered path
+  # — and a judgement with nothing reading it is one byte of secres away from
+  # being silently reversed.  $D417 = 0 is what makes seccut[0] inert, so this
+  # is also what licenses the seccut block's claim that sections 0, 1, 4 and 5
+  # cannot hear their cutoff whatever it holds.
+  - assert: { mem: "sidshadow+23", equals: [0] }      # $D417: the piano is dry
 
   # ======================================================================
   # 4. the sections progress on their frame budgets (SPEC.md 6.4)
@@ -197,9 +207,14 @@ steps:
   # it, and nothing noticed for two reasons worth stating: every OTHER byte
   # was already right, and $D416's absence of a writer is not something a
   # register read can see.  loadinstr now writes seccut[2] to $D416 at the
-  # section change, so the word is 8 * $19 = 200 of 2047, about 1.2 kHz —
-  # above every fundamental in s2v1's D#4-E5 figure and inside its second-to-
-  # fourth harmonic band.
+  # section change, so the word is 8 * $19 = 200 of 2047 — about 1.2 kHz if
+  # that range is interpolated linearly, which is an assumption and not
+  # something hardware.md licenses.  That puts it above every fundamental in
+  # s2v1's D#4-E5 figure and below the fifth harmonic of every note in it.  It
+  # is NOT inside the second-to-fourth harmonic band of all of them and no
+  # byte could be — those windows intersect only over a pitch ratio of 2 and
+  # this figure spans 2.12.  The seccut block in sections.s carries the whole
+  # argument and the capture that measured it.
   #
   # $D415 is asserted at 0 DELIBERATELY, not incidentally: it is the low three
   # bits of the word and it is left with sndinit as its only writer (the
@@ -210,6 +225,29 @@ steps:
   - assert: { mem: "sidshadow+22", equals: ["$19"] }    # $D416: the ~1.2 kHz centre
   - assert: { mem: "sidshadow+23", equals: ["$f1"] }    # $D417: resonance $F, route v1
   - assert: { mem: "sidshadow+24", equals: ["$2f"] }    # $D418: band-pass, volume 15
+
+  # ---- and the cannon's sweep has a floor to come back to -----------------
+  # THIS STOP MUST BE THE FIRST cannonfire OF THE RUN, and that is the whole
+  # reason it sits here rather than with the cannon group below.  The stop
+  # above is `secchange` at frame 6000; nextsec falls through to sqrun in the
+  # SAME frame (music.s:212-231, and the seqtick that called it continues), so
+  # section 3's tick 1 — and shot 1 with it — happens before the next frame
+  # begins.  Nothing is skipped and no frame is consumed: the `until seqtick`
+  # steps after this land exactly where they did before it existed.
+  #
+  # At shot 1's entry nothing of that shot has been written yet, so $D416 is
+  # still what the 2->3 boundary left, and that is seccut[3] = $10 —
+  # cantick's own ctfloor value (music.s:465-466), so the section starts where
+  # the sweep ends.  Before seccut it would have read $00, because nothing
+  # restored $D416 anywhere in the program.
+  #
+  # AT ANY LATER SHOT THIS READ IS A TAUTOLOGY and must not be moved there.
+  # The previous shot's cantick has already floored $D416 at $10, so shots
+  # 2..16 read $10 whatever seccut[3] holds — measured, not assumed: with
+  # seccut[3] poked to $00 the cannon group's own stop below (which lands on
+  # shot 7) still reads $10 and passes, and only this stop fails.
+  - until:  { ref: cannonfire, count: 1 }
+  - assert: { mem: "sidshadow+22", equals: ["$10"] }    # $D416: seccut[3], pre-sweep
 
   # ---- shapes only ever accumulate ---------------------------------------
   # `greater_than` against a sample, never an equality: the counter climbs and

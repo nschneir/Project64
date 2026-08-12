@@ -195,8 +195,20 @@ secinstr:
 
 ; ---- filter setup per section -------------------------------------------
 ; $D416 (cutoff high), $D417 (resonance + routing) and $D418 (mode + volume),
-; all three written by loadinstr at every section change.  The cannon
-; rewrites all three while a shot is sounding.
+; all three written by loadinstr — at seqreset, and at every section change
+; EXCEPT 4->5.  That boundary takes a different path and is not an oversight
+; in this comment: nextsec branches to `silence` and returns before nsplay
+; (music.s:224-228), so loadinstr never runs for section 5 and this table's
+; [5] entries are never loaded at all.  What runs instead gates all three
+; voices off and zeroes $D418 — more thorough than a table load, not less —
+; but it does mean the hold inherits the finale's cutoff and routing, both of
+; which are already inert.
+;
+; A cannon shot rewrites all three as well, but by TWO routines on two
+; schedules, and collapsing them into "the cannon" is a conflation this file
+; has already had to correct once: cannonfire writes $D417 and $D418 once, at
+; the shot (music.s:424-429), while cantick writes $D416 once a frame for the
+; 24 frames after it (music.s:455-469).
 ;
 ; THE CUTOFF HAS TO BE A REAL VALUE, AND FOR THE WHOLE LIFE OF THIS DEMO IT
 ; WAS NOT.  A filter does nothing until secres routes a voice into it, and
@@ -209,27 +221,44 @@ secinstr:
 ; band-pass was SUBTRACTING voice 1, not shaping it.  seccut is the fix.
 ;
 ; seccut[2] = $19, and here is where that number comes from.  $D415 stays 0
-; (below), so the word is 8 * $19 = 200 of 2047, which on hardware.md:253's
-; range reads as 30 + (12000-30)*200/2047 = about 1.2 kHz.  s2v1's running
-; figure spans D#4 to E5 — 311 to 659 Hz — so 1.2 kHz sits ABOVE every
-; fundamental in it and inside the second-to-fourth harmonic band of all of
-; them.  With secres[2]'s resonance nybble $F that is a fixed formant the
-; figure runs under, which is what a band-pass on an ostinato is for; it also
-; leaves the bottom of the mix to voice 3's octave bass, which is not routed.
-; Centring the band ON the fundamentals was the alternative and is rejected:
-; passing the fundamental and rejecting the harmonics turns a sawtooth into a
-; sine and takes the battle's bite away.
+; (below), so the word is 8 * $19 = 200 of 2047.  hardware.md:253 gives that
+; pair's ENDPOINTS — about 30 Hz to 12 kHz — and no curve between them, so any
+; frequency put on 200 is interpolated, and interpolating LINEARLY is an
+; assumption of this comment rather than something the reference licenses:
+; 30 + (12000-30)*200/2047 = about 1.2 kHz.  Read that as a label for the byte,
+; not as a measurement of it — the NOMINAL paragraph below says what was
+; actually measured, and it does not agree.
 ;
-; That 1.2 kHz is a NOMINAL, and hardware.md:360-361 is the reason to say so
-; out loud rather than quote it as a fact.  x64sc emulates a reSID MOS6581
-; here (VICE says so in its own log), and a three-second capture inside the
-; battle, against the identical capture taken before seccut existed, gained
-; +4.5 dB in the 1.0-1.6 kHz band and +7.5 dB in 1.6-2.5 kHz — so this chip's
-; resonant peak sits somewhat ABOVE the datasheet-linear figure.  That is the
-; 6581's analog curve deviating exactly as the caveat warns, and it does not
-; move the choice: the band is still above every fundamental in the figure and
-; still inside its harmonics.  Another chip will put it somewhere else again,
-; which is why the argument above is made in harmonics and not in hertz.
+; s2v1's running figure spans D#4 to E5 — 311 to 659 Hz — so 1.2 kHz sits
+; ABOVE every fundamental in it and BELOW the fifth harmonic of every note in
+; it: in the harmonically dense part of a sawtooth's spectrum in every case,
+; though not at the same harmonic in every case — near the fourth of the
+; lowest notes, between the first and second of the highest.  It is NOT inside
+; the second-to-fourth harmonic band of all of them, and no byte could be:
+; those [2f, 4f] windows intersect only across a pitch ratio of 2 or less and
+; this figure spans 2.12, so D#5 and E5 — three of its 32 events — sit above
+; where a cutoff satisfying the rest can reach.  That is a property of the
+; figure's range and not of this value.  With secres[2]'s resonance nybble $F
+; the result is a fixed formant the figure runs under, which is what a
+; band-pass on an ostinato is for; it also leaves the bottom of the mix to
+; voice 3's octave bass, which is not routed.  Centring the band ON the
+; fundamentals was the alternative and is rejected: passing the fundamental
+; and rejecting the harmonics turns a sawtooth into a sine and takes the
+; battle's bite away.
+;
+; That 1.2 kHz is a NOMINAL twice over — once for the interpolation and once
+; for the chip — and hardware.md:360-361 is the reason to say so out loud
+; rather than quote it as a fact.  x64sc emulates a reSID MOS6581 here (VICE
+; says so in its own log), and a three-second capture inside the battle,
+; against the identical capture taken before seccut existed, gained +4.5 dB in
+; the 1.0-1.6 kHz band and +7.5 dB in 1.6-2.5 kHz — so the real resonant peak
+; sits somewhat ABOVE 1.2 kHz.  Two things could put it there and one capture
+; cannot separate them: the linear interpolation being wrong about where 200
+; lands, and the 6581's analog curve varying as the caveat warns.  The first
+; is the likelier.  Neither moves the choice, because the choice is argued in
+; harmonics and not in hertz: the band is still above every fundamental and
+; still below the fifth harmonic of every note.  Another chip would place it
+; differently again, which is the whole reason for arguing it that way.
 ; (The same capture pair: whole mix +1.5 dB, no clipped samples, so the voice
 ; came back without costing the headroom.)
 ;
@@ -275,8 +304,9 @@ secinstr:
 ; The writers of the cutoff pair, since a comment here is read as a contract:
 ;   sndinit   zeroes registers $00-$18 — its loop runs to `cpx #25` — once at
 ;             startup and once per restart.  Still the ONLY writer of $D415.
-;   loadinstr writes $D416 from seccut, at every section change and at
-;             seqreset, so section 0 has its value from the first frame.
+;   loadinstr writes $D416 from seccut at seqreset and at every section change
+;             but 4->5 (see the head of this block), so section 0 has its
+;             value from the first frame and section 5 inherits the finale's.
 ;   cantick   writes $D416 too, but only while csweep is counting down from a
 ;             cannon shot, which cannot happen before section 3.
 ; sndinit's zeroing is load-bearing, not incidental: SID registers survive a
