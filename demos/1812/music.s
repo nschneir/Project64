@@ -624,9 +624,16 @@ s0v3:   .byte   REST,    239
 ; and a marching bass.  Two instruments over three voices, which is what makes
 ; the arc read as gaining an instrument rather than swapping one.
 ;
-; Voices 1 and 2 keep their notes; only their instrument rows change.  Both
-; already move in 16-32 frame events, and the piano's decay here is 300 ms =
-; 18 frames, so neither has the dead-air problem the hymn had.  Leaving them
+; Voices 1 and 2 keep their notes; only their instrument rows change, and
+; neither inherits the hymn's dead-air problem — for two different reasons.
+; The reed's immunity is its ENVELOPE and not its note lengths: sustain 10
+; holds the level for as long as the gate is on, so an event sounds for the
+; whole of its duration whatever that duration is, which is what lets s1v1
+; keep its 48- and 64-frame events beside the 16s and 32s.  The piano on
+; voice 2 does still fall silent when its decay completes, but that decay is
+; 300 ms = 18 frames against the 33 real frames of a duration-32 event, so
+; what is left is the gap between two chords and not the up-to-2.5-seconds
+; the hymn's 90-frame decay left under its 120-240 frame notes.  Leaving them
 ; alone also leaves the picture alone: secspawn[1] is %011, voices 1 and 2.
 
 s1v1:   .byte   OC4+N_D,  16,  OC4+N_D,  16,  OC4+N_G,  48,  OC4+N_G,  16

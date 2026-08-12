@@ -81,13 +81,14 @@ secsizehi:
 ;   5 hold         none
 ;
 ; The battle listens to voices 2 and 3 and NOT to voice 1.  Voice 1 there is
-; a running sixteenth-note figure — 350 onsets in the section's 2100 frames,
-; one every six.  Spawning on it asked for 612 shapes in 35 seconds against a
-; measured cost of about four frames each, and 52 of them were dropped
-; (measured, after three rounds of optimisation had already taken the shape
-; cost down by more than half).  The running figure is texture; the stabs and
-; the bass hits are the accents, and accents are what a shape should mark.
-; This is a policy choice, not a capitulation: it is why `dropped` reads 0.
+; a running sixteenth-note figure of duration-6 events — 7 real ticks each,
+; so 300 onsets in the section's 2100 frames, one every seven.  Spawning on
+; it asked for 612 shapes in 35 seconds against a measured cost of about
+; four frames each, and 52 of them were dropped (measured, after three
+; rounds of optimisation had already taken the shape cost down by more than
+; half).  The running figure is texture; the stabs and the bass hits are the
+; accents, and accents are what a shape should mark.  This is a policy
+; choice, not a capitulation: it is why `dropped` reads 0.
 
 secspawn:
         .byte   %001, %011, %110, %001, %111, %000
@@ -143,6 +144,17 @@ secinstr:
                                           ; row's 6 (68 ms = four frames):
                                           ; the anacrusis is 16-frame notes
                                           ; and a four-frame attack blunts it.
+                                          ; Decay 8 (300 ms), not the trumpet
+                                          ; row's 0 (6 ms): with sustain 10 a
+                                          ; decay only times the fall from the
+                                          ; attack peak to the held level, so
+                                          ; it shapes the note's front and,
+                                          ; unlike a sustain-0 row's, cannot
+                                          ; end the note early.  300 ms also
+                                          ; outlasts the 13 frames an s1v1
+                                          ; 16-duration event stays gated, so
+                                          ; the short notes never settle onto
+                                          ; that level and the long ones do.
                                           ; Sustain 10 — a wind holds its
                                           ; level, and that is exactly the
                                           ; contrast that makes the piano
@@ -181,8 +193,10 @@ secinstr:
 ; reed.  The reed is the one that looks like an oversight: references/
 ; hardware.md's Trumpet row is a sawtooth WITH a band-pass, and the reed takes
 ; its waveform and its sustain 10 from that row — but only those two.  Its
-; attack, decay and release all differ, for the reasons given beside the row
-; itself, and the band-pass is dropped for the reason below.
+; attack and decay differ for the reasons given beside the row itself; its
+; release differs for the reason given with the piano rows above, since the
+; 48 ms and the argument for it are shared by every sounding row in sections
+; 0 and 1; and the band-pass is dropped for the reason below.
 ;
 ; The cutoff word is 0 for the whole of sections 0-2, and $D415/$D416 have
 ; exactly two writers between them:

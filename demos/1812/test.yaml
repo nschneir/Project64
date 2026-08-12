@@ -63,7 +63,7 @@ steps:
   # THE HYMN IS A SOLO PIANO.  Voice 1 is sounding; the left hand has not
   # entered yet and voice 3 never will, and both read ungated — bit 0 of the
   # control byte clear, which is how secinstr stores a waveform and how
-  # gateoff leaves it (sections.s:96, music.s:384-393).
+  # gateoff leaves it (sections.s:97, music.s:384-393).
   - assert: { mem: "sidshadow+4",  mask: { and: "$41", equals: ["$41"] } }  # v1 pulse, GATED
   - assert: { mem: "sidshadow+11", mask: { and: "$41", equals: ["$40"] } }  # v2 pulse, silent
   - assert: { mem: "sidshadow+18", mask: { and: "$11", equals: ["$10"] } }  # v3 triangle, silent
@@ -88,11 +88,12 @@ steps:
   - assert: { mem: "sidshadow+6",  mask: { and: "$f0", equals: [0] } }   # v1 SR
   - assert: { mem: "sidshadow+13", mask: { and: "$f0", equals: [0] } }   # v2 SR
   # ...and the arc has gained its second hand but not a third voice.  The
-  # first read is the frequency HIGH byte alone, so it proves the implication
-  # in one direction only: non-zero means the left hand has gated a note, but
-  # a zero there would not have meant it had not (a low enough pitch has a
-  # zero high byte).  The second read is the whole two-byte pair, which is
-  # exact in both directions.
+  # first read is the frequency HIGH byte alone, and that byte alone settles
+  # it: notefreqh's entries run $02..$7e (tables.inc:152-161), so NO legal
+  # pitch has a zero high byte, and gateon is the only writer of +0/+1.  So
+  # non-zero means the left hand has gated a note, and a zero would have
+  # meant it never had.  The second read takes voice 3's whole pair, which
+  # is the form the file's other two reads of that silence use.
   - assert: { mem: "sidshadow+8",  not_equals: 0 }    # the left hand has played
   - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3 never does
 
@@ -150,16 +151,23 @@ steps:
   # - v1: `noteidx` counts voice 1's PITCHED events only — vtrest branches
   #   away before the `inc` (music.s:309-316) — and nextsec zeroed it at the
   #   3900 boundary, so a non-zero value here is voice 1 sounding in THIS
-  #   section.  A rest-only s2v1 leaves it at 0.
+  #   section.  A rest-only s2v1 leaves it at 0.  The CONVERSE does not
+  #   hold, and saying so is the point: `noteidx` is one byte (vars.s:20)
+  #   and `inc` wraps at 256, so a voice-1 stream whose section-2 event
+  #   count were an exact multiple of 256 would read 0 here and fail this
+  #   step while sounding.  s2v1 fires 300 of them (2100 frames at 7 real
+  #   ticks an event) and so reads 44, which means it is the margin and not
+  #   the logic that keeps this green — the same latent false failure that
+  #   the `differs` witness below had to be checked by hand against.
   # - v2: its stream rests every other event by design, so it is read across
   #   the section instead: `differs` against the byte sampled at 3900 says it
   #   gated a note of a different pitch somewhere inside the battle.  A
   #   rest-only s2v2 never calls gateon, so the byte stays frozen at section
   #   1's value and this fails.  (Checked, not assumed: $12 there, $1f here.)
-  # - v3: s2v3 is thirty-two pitched events and no rests, so its `vnote` is a
-  #   pitch — 1..72 (music.s:19-20) — at every frame of the section.  A rest
-  #   stores 0 there (REST = 0, music.s:42) and a cannon $FD, so both fall
-  #   outside the range.
+  # - v3: s2v3 is sixteen pitched events — thirty-two bytes — and no rests,
+  #   so its `vnote` is a pitch — 1..72 (music.s:19-20) — at every frame of
+  #   the section.  A rest stores 0 there (REST = 0, music.s:42) and a cannon
+  #   $FD, so both fall outside the range.
   - assert: { mem: noteidx, above: 0 }                # v1, the running figures
   - assert: { mem: "sidshadow+8", differs: v2f }      # v2, the off-beat stabs
   - assert: { mem: "vnote+2", between: { min: 1, max: 72 } }   # v3, the octave
@@ -194,13 +202,14 @@ steps:
   # notice.  A pitch byte is $01..$48 and a duration byte may legally hold any
   # of those, so no mask separates the two: the exact compare is the only
   # expressible form, and it pins the sixteen shots and their spacing as well.
-  # The label, never $1803 — every stream label moves when a stream ahead of
-  # it is edited, and the runner resolves symbols through the .lbl the run
-  # itself regenerates.  The terminator is never fetched (sixteen events at
-  # 113 ticks apiece ask for 1808 of the section's 1800 — see the note above
-  # s3v1), but it is what makes the block exactly 33 bytes, and vtfetch reads
-  # a stream with no bound at all (music.s:289-296): the LOOPS byte is what
-  # stops it, not the block's length.
+  # The label, and no literal address here at all — every stream label moves
+  # when a stream ahead of it is edited, this comment has already had one
+  # such literal go stale on it, and the runner resolves symbols through the
+  # .lbl the run itself regenerates.  The terminator is never fetched
+  # (sixteen events at 113 ticks apiece ask for 1808 of the section's 1800 —
+  # see the note above s3v1), but it is what makes the block exactly 33
+  # bytes, and vtfetch reads a stream with no bound at all (music.s:289-296):
+  # the LOOPS byte is what stops it, not the block's length.
   - assert:
       mem: s3v3
       equals: ["$fd", 112, "$fd", 112, "$fd", 112, "$fd", 112,
