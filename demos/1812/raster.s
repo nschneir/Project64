@@ -267,7 +267,7 @@ sfcadv: lda     cpar
 ; shift-add rounds — measured at 330 cycles for the shift-add version against
 ; a 16-vertex transform that calls this 64 times.
 ;
-; The tables are GENERATED AT STARTUP into $C000-$C1FF (qsgen), the 4 KB
+; The tables are GENERATED AT STARTUP into $C000-$C3FF (qsgen), the 4 KB
 ; BASIC never touches.  They are not in the .prg: with the bitmap at $2000
 ; the program has about 120 bytes of headroom (re-derive it from `1812.lbl`,
 ; as vars.s says: $2000 - (__BSS_LOAD__ + __BSS_SIZE__)), and 1 KB of table —
