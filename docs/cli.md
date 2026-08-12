@@ -515,11 +515,12 @@ across subsequent commands — until you `c64 continue`.
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
   the session daemon, so the client pays one IPC round-trip for the whole
-  loop instead of one per arrival (which cost about half a second each) —
-  but see the cost note below: a monitor round-trip per arrival remains.
-  Same quantity as `c64 profile --samples`, under the other name: this one
-  *stops at* the Nth arrival, `profile` *prices all N* — see that flag for
-  why neither is renamed.
+  loop instead of one per arrival, and large counts are fast: **measured at
+  ~370 arrivals per second** of wall clock, not one per half-second (see the
+  cost note below for the measurement). Same quantity as
+  `c64 profile --samples`, under the other name: this one *stops at* the Nth
+  arrival, `profile` *prices all N* — see that flag for why neither is
+  renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on
@@ -533,23 +534,26 @@ program can stop visiting REF (death, menu, pause screen), `until REF` can
 never fire — set a breakpoint at a code path that must still execute and use
 `c64 wait --break` instead.
 
-**`--count N` costs a monitor round-trip per arrival — choose a SPARSE
-reference.** Daemon-side or not, each arrival is one resume plus one
-wait-for-stop against VICE, so the wall clock scales with **N**, not with how
-much of the program you cover. Reaching a given point through a
-frequently-hit reference is therefore many times dearer than reaching the same
-point through a rare one: on `demos/1812`, `until seqtick --count 10200` — a
-per-frame reference — ran for tens of minutes, where `until secchange
---count 5` covered a comparable span of the program in about three, because it
-stopped five times instead of ten thousand.
+**`--count N` costs a monitor round-trip per arrival — about 0.44 ms of it.**
+Each arrival is one resume plus one wait-for-stop against VICE (`_run_until`
+in `daemon.py`), so a high count does add wall clock on top of the emulated
+span — but the span is what dominates, and **budget by the span you cover, not
+by N**. Measured on `demos/1812`, headless, `--warp`, fresh session per run,
+every call under `caffeinate -dimsu`, three runs each:
 
-Budget for this before you set a high count, and **raise `--timeout` to
-match**: the default 30 s will expire long before a four-figure count on a
-per-frame reference arrives. The trap is diagnostic, not just slow — a `until`
-that is merely grinding through its count looks exactly like a wedged VICE,
-and this repo has already spent a debugging session on that mistake. Prefer a
-reference that fires once per thing you care about (a section change, a level
-load, a state transition) over one that fires every frame.
+| command | arrivals | run 1 | run 2 | run 3 |
+|---|---:|---:|---:|---:|
+| `c64 until seqtick --count 10200` (per-frame ref) | 10,200 | 26.91 s | 27.36 s | 27.73 s |
+| `c64 until secchange --count 5` (per-section ref) | 5 | 22.45 s | 23.69 s | 22.54 s |
+
+Both stop at `frames = $27D8` = 10,200 — the *same* emulated span — so the
+4.4 s between the means is 10,195 extra arrivals: **~0.44 ms each, ~370
+arrivals per second.** Ten thousand stops cost 1.19× five stops over that span,
+not many times it. So a sparse reference (a section change, a level load) is
+still the cheaper one and worth preferring, but the saving is the overhead, not
+the run. Do **raise `--timeout` once N is four figures**: 27 s is inside the
+30 s default on this machine with nothing to spare, and a slower host or a
+busier one will not be.
 
 ### `c64 call`
 
