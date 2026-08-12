@@ -84,6 +84,47 @@ def test_mem_read_documents_its_text_column_gloss():
     assert "text_encoding" in section, "the JSON key is undocumented"
 
 
+def test_mem_read_documents_colour_ram_open_bus_and_the_mask():
+    """`$D800-$DBFF` is four bits wide and reads back `(phi1 & $F0) | storage`,
+    so a raw comparison there fails on unchanged builds and passes on changed
+    ones. The passage shipped with no guard; `demos/1812` paid for the missing
+    knowledge twice in one pass, and a doc claim nothing tests can be deleted by
+    a compression pass without anything noticing."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 mem read`").split())
+    assert "(phi1 & $F0) | storage" in section, \
+        "the docs never say what a colour-RAM read actually returns"
+    assert "differ in all 1000 bytes" in section, \
+        "the docs never say two dumps of ONE build can differ everywhere"
+    assert "compare equal by luck" in section, \
+        "the docs never say two dumps of DIFFERENT builds can agree"
+    assert 'mask: { and: "$0f"' in section, \
+        "the docs never give the masked comparison a spec should use"
+    assert "on purpose" in section, \
+        "the docs never say the tool leaves the high nybble unmasked deliberately"
+
+
+def test_until_count_documents_its_measured_per_arrival_cost():
+    """The cost note is the one place a reader learns whether a four-figure
+    `--count` is affordable, and it was written from an unverified aside that
+    re-measurement refuted — "tens of minutes" for a run that takes 27 s. So the
+    guard is on the *measurement*: the two anchors, both run counts, the span
+    they share, and the wrapper the figures were taken under. Prose that drops
+    them is prose that is no longer showing its work."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 until`").split())
+    assert "until seqtick --count 10200" in section and \
+        "until secchange --count 5" in section, \
+        "the cost note names neither of the two anchors it was measured on"
+    assert "frames = $27D8" in section, \
+        "the docs never establish that the two anchors cover the SAME span"
+    assert "caffeinate -dimsu" in section, \
+        "the docs quote timings without the conditions they were taken under"
+    assert "budget by the span you cover, not" in section, \
+        "the docs still let a reader budget by N rather than by the span"
+    for lie in ("tens of minutes", "many times dearer", "expire long before"):
+        assert lie not in section, \
+            f"the refuted claim {lie!r} is back in the `until` cost note"
+
+
 def test_test_run_documents_the_always_present_tests_envelope():
     """A spec-level error emits `{"error", "passed": false, "tests": []}` rather
     than dropping `tests` — 1812's harness crashed on the missing key. A promise
@@ -193,6 +234,24 @@ def test_profile_documents_samples_and_why_one_arrival_lies():
         "the docs never pin that `cycles` survives at --samples 1"
 
 
+def test_profile_documents_that_samples_re_enters_rather_than_reruns():
+    """`--samples` synthesises the same JSR N times; it does not advance the
+    program. For a per-frame tick that steps the game the spread is real, and
+    for a leaf routine whose caller sets its operands it is badline jitter
+    around one repeated case — which four `demos/1812` routines were read as
+    regressions for. Sibling of the `--samples`/`bimodal` guard above: that one
+    says why ONE arrival lies, this one says why N can lie the same way."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 profile`").split())
+    assert "re-enters the routine; it does not re-run the program" in section, \
+        "the docs never say `--samples` does not advance the program"
+    assert "advances the state its cost depends on" in section, \
+        "the docs never name the case where the spread IS the distribution"
+    assert "leaf routine whose inputs its caller sets up" in section, \
+        "the docs never name the case where the spread is jitter, not a range"
+    assert "control the inputs instead of sampling" in section, \
+        "the docs give the limitation without the technique that answers it"
+
+
 def test_profile_documents_blanking_and_the_differential_distinction():
     """Two claims a reader chases a phantom without.
 
@@ -218,6 +277,20 @@ def test_profile_documents_blanking_and_the_differential_distinction():
          "profile measure different quantities across builds")
     assert "`(base & $FF) + index` carries" in section, \
         "the docs never name the mechanism relocation moves cycles by"
+    # What blanking buys, stated as the data supports it. The absolute legs
+    # moved when the workload did; what came back identical across the two
+    # batches was the subtraction, and an earlier draft promoted that into
+    # "all six legs reproduced exactly", which the second batch's own numbers
+    # contradict.
+    assert "is the difference, not the leg" in section, \
+        "the docs claim a blanked leg reproduces, rather than the subtraction"
+    # The multiplier's derivation, with the step that turns a stolen fraction
+    # into a scale factor. Without it the stated equality is simply false:
+    # 1,075 / 17,095 is 6.29%, not 1.0671.
+    assert "6.29% of the frame stolen" in section, \
+        "the badline arithmetic states a quotient it does not compute"
+    assert "0.0629" in section, \
+        "the docs never show the step from a stolen fraction to a multiplier"
 
 
 def test_session_stop_documents_all_and_start_documents_the_notice():
