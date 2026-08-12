@@ -1382,6 +1382,124 @@ def test_a_built_program_is_never_judged_stale(tmp_path):
     assert result.passed is True and result.warnings == []
 
 
+def _cart_pair(tmp_path: Path, crt_at: float, lbl_at: float) -> Path:
+    """A ready-made `cart:` `.crt` and its sibling `.lbl`, stamped to order."""
+    import os
+
+    crt = _crt(tmp_path / "game.crt")
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al 00C000 .entry\n")
+    os.utime(crt, (crt_at, crt_at))
+    os.utime(lbl, (lbl_at, lbl_at))
+    return crt
+
+
+@pytest.mark.parametrize("gap", [600.0, _BEYOND_GRACE])
+def test_cart_older_than_its_labels_is_refused(tmp_path, gap):
+    """The last ready-made artifact with no staleness judgement: a `.crt` the
+    runner did not build, resolving `ref:`s against a `.lbl` written long after
+    it — the cartridge was relinked and the image never refreshed. Pre-launch,
+    like the other two: the comparison reads two mtimes and a path."""
+    crt = _cart_pair(tmp_path, 1_700_000_000.0, 1_700_000_000.0 + gap)
+    launch = Mock()
+    spec = _spec(cart=str(crt), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with pytest.raises(TestError) as exc:
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+    msg = str(exc.value)
+    assert "game.crt predates its symbols" in msg
+    # the actionable half: which artifact is behind, and what rebuilds it
+    when = "%Y-%m-%d %H:%M:%S"
+    assert time.strftime(when, time.localtime(1_700_000_000.0)) in msg
+    assert time.strftime(when, time.localtime(1_700_000_000.0 + gap)) in msg
+    assert "c64 cart build" in msg
+    assert "--allow-stale" in msg and "allow_stale" in msg
+
+
+@pytest.mark.parametrize("gap", [600.0, _BEYOND_GRACE])
+def test_cart_newer_than_its_labels_is_refused(tmp_path, gap):
+    """The mirror, refused on the same evidence, because the order of the pair
+    says nothing: `c64 package game.s -o game.crt` writes the `.lbl` and then
+    the `.crt` ~3 ms later, while `c64 cart build game.ef.yaml` writes the
+    `.crt` and then the `.lbl` ~0.6 ms later. Only the size of the gap can
+    separate one command's two writes from a `.crt` dropped in alone over
+    labels nobody regenerated."""
+    crt = _cart_pair(tmp_path, 1_700_000_000.0 + gap, 1_700_000_000.0)
+    launch = Mock()
+    spec = _spec(cart=str(crt), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with pytest.raises(TestError, match="game.crt is newer than its symbols"):
+        run_test(spec, launch=launch)
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize("crt_at, lbl_at", [
+    (1_700_000_000.0, 1_700_000_000.0),                   # one clock tick
+    (1_700_000_000.003, 1_700_000_000.0),      # measured: c64 package a .s
+    (1_700_000_000.0, 1_700_000_000.0006),     # measured: c64 cart build .ef.yaml
+    (1_700_000_000.0 + _WITHIN_GRACE, 1_700_000_000.0),   # a slow tree copy…
+    (1_700_000_000.0, 1_700_000_000.0 + _WITHIN_GRACE),   # …either way round
+])
+def test_a_cart_and_its_labels_written_together_are_not_stale(
+        tmp_path, crt_at, lbl_at):
+    """Why the cart guard needs a window rather than the disk guard's bare
+    order: the two in-tree cartridge builders write the pair in *opposite*
+    orders, milliseconds apart (measured — see the mirror test), so "labels
+    newer" is what every successful EasyFlash build looks like and refusing it
+    would cost a working cartridge for no signal."""
+    crt = _cart_pair(tmp_path, crt_at, lbl_at)
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(cart=str(crt), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="X"):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True and result.warnings == []
+    assert mon.memory_read.call_args.args[0] == 0xC000
+
+
+def test_allow_stale_covers_the_cart_guard_too(tmp_path):
+    """One override for all three artifacts: a caller who has decided the
+    mtimes are lying should not have to discover which guard spoke."""
+    crt = _cart_pair(tmp_path, 1_700_000_000.0, 1_700_000_600.0)
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(cart=str(crt), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="X"):
+        result = run_test(spec, launch=Mock(return_value=s), allow_stale=True)
+    assert result.passed is True
+    assert "game.crt" in result.warnings[0] and "game.lbl" in result.warnings[0]
+    # the same warning a --json/MCP caller reads, not a CLI-only console line
+    assert result.to_dict()["warnings"] == result.warnings
+
+
+def test_a_built_cart_is_never_judged_stale(tmp_path):
+    """A `.s`/`.ef.yaml` `cart:` is built by the run itself, labels and all, so
+    there is nothing to disagree with — the guard reads the spec's own `cart:`
+    suffix and stays off that path rather than tolerating it with a fudge."""
+    import os
+
+    src = tmp_path / "game.s"
+    src.write_text("; x\n")
+    crt = _crt(tmp_path / "game.crt")
+    lbl = tmp_path / "game.lbl"
+    lbl.write_text("al 00C000 .entry\n")
+    # stamps the ready-made guard would refuse outright
+    os.utime(crt, (1_700_000_000, 1_700_000_000))
+    os.utime(lbl, (1_700_000_600, 1_700_000_600))
+    s, mon = _fake_session()
+    mon.memory_read.return_value = bytes([7])
+    spec = _spec(cart=str(src), dir=str(tmp_path),
+                 steps=[{"assert": {"mem": "entry", "equals": 7}}])
+    with patch("c64lib.testing.read_screen_text", return_value="X"), \
+         patch("c64lib.testing.build_cart",
+               return_value={"crt": str(crt), "labels": str(lbl)}):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True and result.warnings == []
+
+
 def test_load_test_keeps_an_areas_list(tmp_path):
     from c64lib.testing import load_test
 

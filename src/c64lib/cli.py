@@ -2107,10 +2107,10 @@ def test_run(ctx, yaml_file, allow_stale):
     the wait/key/poke/until/call/assert steps fail-fast. Exit 1 if it fails.
 
     `--allow-stale` waives the staleness stop (a `disk:` image older than its
-    sibling `.lbl`; a `program:` `.prg` stamped more than a minute from its own,
-    either way round) and reports what it let through as a warning — for the
-    case the mtimes are lying, which a `cp -r` without `-p` is enough to
-    arrange.
+    sibling `.lbl`; a ready-made `program:` `.prg` or `cart:` `.crt` stamped
+    more than a minute from its own, either way round) and reports what it let
+    through as a warning — for the case the mtimes are lying, which a `cp -r`
+    without `-p` is enough to arrange.
     """
     try:
         spec = load_test(yaml_file)

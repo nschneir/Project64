@@ -440,14 +440,49 @@ def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
         "c64 disk build) and run the test again.", allow_stale, warnings)
 
 
-#: How far apart a `.prg` and its sibling `.lbl` may be stamped and still count
-#: as one act of writing — a build, a copy, a checkout, an unpacked archive — in
-#: whichever order the two files happened to land. `ld65 -Ln` finishes the two
-#: ~60 µs apart, `cp p.lbl p.prg` reverses that order for nothing, and a slow
-#: copy of a big tree can space them by seconds. The failures worth refusing
-#: separate the pair by minutes to days, so a minute of grace buys its
+#: How far apart a ready-made artifact and its sibling `.lbl` may be stamped and
+#: still count as one act of writing — a build, a copy, a checkout, an unpacked
+#: archive — in whichever order the two files happened to land. `ld65 -Ln`
+#: finishes a `.prg` and its labels ~60 µs apart, `cp p.lbl p.prg` reverses that
+#: order for nothing, the two cartridge builders disagree about which of the
+#: `.crt`/`.lbl` pair they write last (see `_reject_stale_cart_labels`), and a
+#: slow copy of a big tree can space any pair by seconds. The failures worth
+#: refusing separate the pair by minutes to days, so a minute of grace buys its
 #: false-positive immunity for no signal it gives up.
-_PRG_LABELS_GRACE = 60.0
+_LABELS_GRACE = 60.0
+
+
+def _reject_far_apart_labels(artifact: Path, labels: Path, what: str,
+                             remedy: str, allow_stale: bool,
+                             warnings: list[str]) -> None:
+    """Refuse a ready-made artifact and its sibling `.lbl` stamped far apart.
+
+    The one comparison both ready-made routes make — a `.prg` `program:` and a
+    `.crt` `cart:` — because both fail the same way and on the same evidence:
+    either file can be the one that was replaced alone, so the gap is judged in
+    both directions and the order is not judged at all. `what` is the artifact's
+    noun in the message ("program", "cartridge") and `remedy` a whole sentence
+    ending in its own full stop, per `_gate_stale`.
+
+    The `disk:` guard does not come through here on purpose: its `.lbl` is
+    written by a *different* command from the image (`c64 build`, `c64 package`),
+    so for it the order alone is evidence and any label file strictly newer is
+    refused, with no grace window to hide behind.
+    """
+    a_at, lbl_at = artifact.stat().st_mtime, labels.stat().st_mtime
+    if abs(a_at - lbl_at) <= _LABELS_GRACE:
+        return
+    dated = (f"the {what} is dated {_stamp(a_at)} and {labels.name} "
+             f"{_stamp(lbl_at)}")
+    if a_at > lbl_at:
+        note = (f"{artifact.name} is newer than its symbols: {dated}, so every "
+                f"symbol this spec names would resolve against the {what} "
+                f"{labels.name} describes, which is not this one.")
+    else:
+        note = (f"{artifact.name} predates its symbols: {dated}, so every "
+                f"symbol this spec names would resolve against a later {what} "
+                f"than the one this spec loads.")
+    _gate_stale(note, remedy, allow_stale, warnings)
 
 
 def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
@@ -461,7 +496,7 @@ def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
     else. Both resolve every `ref:` this spec names against a program that is
     not the one loaded, and both used to do it in silence.
 
-    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`:
+    What the *order* cannot decide is anything inside `_LABELS_GRACE`:
     `build_asm` is the only writer here of both files, and its `ld65 -Ln` emits
     the `.lbl` microseconds after the `.prg` it describes — so "labels newer"
     is what every successful build looks like, and which landed first is an
@@ -478,23 +513,44 @@ def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
     pair and all, and a `.bas` is tokenized with no label file to disagree
     with.
     """
-    prg_at, lbl_at = prg.stat().st_mtime, labels.stat().st_mtime
-    if abs(prg_at - lbl_at) <= _PRG_LABELS_GRACE:
-        return
-    dated = (f"the program is dated {_stamp(prg_at)} and {labels.name} "
-             f"{_stamp(lbl_at)}")
-    if prg_at > lbl_at:
-        note = (f"{prg.name} is newer than its symbols: {dated}, so every "
-                f"symbol this spec names would resolve against the program "
-                f"{labels.name} describes, which is not this one.")
-    else:
-        note = (f"{prg.name} predates its symbols: {dated}, so every symbol "
-                f"this spec names would resolve against a later program than "
-                f"the one this spec loads.")
-    _gate_stale(
-        note, "Rebuild the pair together (c64 build <source>) and run the test "
+    _reject_far_apart_labels(
+        prg, labels, "program",
+        "Rebuild the pair together (c64 build <source>) and run the test "
         f"again, or delete {labels.name} to run without symbols.",
         allow_stale, warnings)
+
+
+def _reject_stale_cart_labels(crt: Path, labels: Path, allow_stale: bool,
+                              warnings: list[str]) -> None:
+    """Refuse a ready-made `.crt` and a sibling `.lbl` written far apart.
+
+    The `.prg` guard one artifact over, and symmetric for the same reason: a
+    cartridge relinked without the `.crt` being refreshed, or a `.crt` copied in
+    over labels nobody regenerated, both resolve every `ref:` this spec names
+    against a link that is not the one mapped at power-on.
+
+    Order is no evidence here at all, which is why this cannot be the disk
+    guard's bare comparison. Measured on this tree: `c64 package game.s -o
+    game.crt` (`build_cart`) writes the `.lbl` and then the `.crt` ~3 ms later,
+    because `cartconv` runs after `ld65`; `c64 cart build game.ef.yaml`
+    (`build_easyflash`) writes the `.crt` and then merges the per-window labels
+    into the `.lbl` ~0.6 ms later. The two builders disagree about which file
+    lands last, so "labels newer than the cartridge" is both what an EasyFlash
+    build looks like and what a stale pair looks like — only a gap no single
+    command could produce separates them.
+
+    Only a `.crt` `cart:` reaches this: a `.s` or an `.ef.yaml` is built by the
+    run itself, labels and all, and its pair cannot disagree. The one command
+    that writes a `.crt` alone and leaves the labels *valid* is
+    `c64 cart convert game.bin -o game.crt` — same image, same addresses — so a
+    conversion run long after the build is judged stale when it is not, and
+    `--allow-stale` is the answer for it as it is for a restamping `cp -r`.
+    """
+    _reject_far_apart_labels(
+        crt, labels, "cartridge",
+        "Rebuild the cartridge (c64 cart build <manifest>, or c64 package "
+        f"<source> -o {crt.name}) and run the test again, or delete "
+        f"{labels.name} to run without symbols.", allow_stale, warnings)
 
 
 def prepare_cart(spec_dir: str | Path, cart: str | Path,
@@ -882,6 +938,16 @@ def run_test(spec: dict, launch=Session.launch,
         crt, cart_labels = prepare_cart(spec.get("dir", "."), spec["cart"],
                                         spec.get("cart_type", "8k"))
         cart_path = str(crt)
+        # A ready-made `.crt` is the third artifact this runner does not build,
+        # so it is the third whose sibling symbols can disagree with it — and
+        # the judgement belongs here, ahead of the launch below, for the reason
+        # the disk one does. The spec's own `cart:` is what decides: a `.s` or
+        # an `.ef.yaml` came out of `prepare_cart` as a `.crt` too, labels and
+        # all, and the run that just built the pair is not evidence against it.
+        if (cart_labels is not None
+                and Path(spec["cart"]).suffix.lower() == ".crt"):
+            _reject_stale_cart_labels(crt, Path(cart_labels), allow_stale,
+                                      warnings)
     session = launch(model=spec["machine"], name=session_name,
                      headless=True, warp=True, cart=cart_path, disk8=disk_path)
     try:

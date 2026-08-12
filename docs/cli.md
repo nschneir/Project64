@@ -2156,7 +2156,20 @@ produce — a minute, against the minutes-to-days a real mismatch takes —
 counts as evidence. A `.bas`/`.s` `program:` is built by the run itself and is
 never judged.
 
-**`--allow-stale`.** Both stops read mtimes, and an mtime is evidence rather
+A ready-made `.crt` `cart:` is judged by the same symmetric rule against the
+`<stem>.lbl` beside it, and reports itself the same way (`game.crt predates its
+symbols` / `game.crt is newer than its symbols`). Rebuild the cartridge —
+`c64 cart build` for a manifest, `c64 package <source> -o game.crt` for a
+single-region one — or delete the `.lbl` to run without symbols. Order is
+worth even less here than for a program: the two builders disagree about which
+file they write last (`c64 package` of a `.s` writes the `.lbl` and then the
+`.crt` about 3 ms later, once `cartconv` has run; `c64 cart build` of an
+`.ef.yaml` writes the `.crt` and then merges its per-window labels about 0.6 ms
+later), so only the size of the gap can separate one command's two writes from
+a pair that drifted. A `.s`/`.ef.yaml` `cart:` is built by the run itself and
+is never judged.
+
+**`--allow-stale`.** All three stops read mtimes, and an mtime is evidence rather
 than proof: `cp -r` without `-p` restamps a whole working tree, so an ordinary
 copy of a consistent pair can be refused with nothing wrong in it. The flag
 runs the spec anyway and reports what it let through — a `warning:` line in the
