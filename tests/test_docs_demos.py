@@ -339,11 +339,19 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     claim wrong twice running. Adding a note to `play.score.yaml`, or emptying
     one of the other nine, silently falsifies all three sentences.
 
-    "Sounding" and not "listed" is the property that matters: `diff_score`
-    compares positionally and an explicitly scored rest matches silence, so a
-    score of nothing but rests would diff a silent window clean exactly as an
-    empty list does. The scores come out of the scripts rather than a list
-    here, so an eleventh capture is in scope the moment it is written.
+    "Sounding" and not "listed" is the property counted, and it is deliberately
+    the wider of the two rather than a claim about what `diff_score` lets
+    through. What really does diff a silent window clean is an empty voice list
+    — a silent voice transcribes to one long rest, which
+    `_drop_unscored_leading_rest` drops where the score claims nothing — or a
+    single rest entry that omits `frames` or names the whole window. Two or more
+    rest entries FAIL it, one "expected rest, heard nothing (log ended)" apiece.
+    So a rests-only score is flagged here because it claims nothing audible, not
+    because it would PASS; counting this way over-flags that shape and cannot
+    miss one that really does PASS at exit 0.
+
+    The scores come out of the scripts rather than a list here, so an eleventh
+    capture is in scope the moment it is written.
     """
     from c64lib.sid_analysis import REST, load_score
 
@@ -371,9 +379,10 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     silent = sorted(ref for ref, notes in sounding.items() if not notes)
     assert silent == [MS_MUNCHER_PLAY], (
         f"the scores with no sounding note are {silent}, not [{MS_MUNCHER_PLAY!r}]. "
-        f"{_THREE_SITES} A score with no sounding note diffs clean against a silent "
-        "window and PASSes at exit 0, so `--strict` is the only guard that capture "
-        f"has. Sounding notes per score: {sounding}")
+        f"{_THREE_SITES} A score that lists no sounding note claims nothing audible, "
+        "and in the shape ms-muncher's `play` has — an empty voice list — it diffs a "
+        "silent window clean and PASSes at exit 0, leaving `--strict` that capture's "
+        f"only guard. Sounding notes per score: {sounding}")
 
 
 def test_every_demo_directory_is_listed():
