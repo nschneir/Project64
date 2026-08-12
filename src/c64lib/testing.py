@@ -461,18 +461,18 @@ def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
     else. Both resolve every `ref:` this spec names against a program that is
     not the one loaded, and both used to do it in silence.
 
-    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`: the
-    only writer here of both files is `build_asm` (`c64 build`, and a `.s`
-    through `c64 package`), whose `ld65 -Ln` emits the `.lbl` microseconds
-    after the `.prg` it describes — so "labels newer" is what every successful
-    build looks like, and which landed first is an accident of the tool. Only a
-    real gap is evidence, in either direction, because two in-tree commands do
-    write one side of the pair alone: `c64 package` tokenizes a `.bas` or
-    copies a `.prg` without writing any labels, and a `c64 cart build` of
-    `game.crt` writes `game.bin` and `game.lbl` and no `.prg` at all. The
-    second is refused here in the "predates" direction when a `game.prg` sits
-    beside it — correctly, since those labels describe the cartridge link and
-    not the `.prg`.
+    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`:
+    `build_asm` is the only writer here of both files, and its `ld65 -Ln` emits
+    the `.lbl` microseconds after the `.prg` it describes — so "labels newer"
+    is what every successful build looks like, and which landed first is an
+    accident of the tool. Only a real gap is evidence, in either direction,
+    because plenty of in-tree commands write one side of the pair alone:
+    `c64 basic tokenize` and `c64 disk get` land a bare `.prg`, `c64 package`
+    tokenizes a `.bas` or copies a `.prg` without writing any labels, and a
+    `c64 cart build` of `game.crt` writes `game.bin` and `game.lbl` and no
+    `.prg` at all. That last one is refused here in the "predates" direction
+    when a `game.prg` sits beside it — correctly, since those labels describe
+    the cartridge link and not the `.prg`.
 
     Only a `.prg` `program:` reaches this: a `.s` is linked by the run itself,
     pair and all, and a `.bas` is tokenized with no label file to disagree

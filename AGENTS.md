@@ -126,10 +126,10 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   goes wrong is the absolute about what some *other* command, writer or tool
   does: "nothing here writes X on its own", "every build does Y". Grep it
   before you write it; where the honest statement is narrower ("no writer in
-  this tree", plus the one command that is the exception), write the narrower
-  one. Four claims of that shape shipped in one branch's comments in 2026-08
-  and had to be walked back: the next reader reasons from a guard's stated
-  premise as if it had been checked, including about what the guard refuses.
+  this tree", plus whichever command is the exception), write the narrower
+  one. The next reader reasons from a guard's stated premise as if it had been
+  checked, including about what the guard refuses — `git log --grep="unverified
+  absolutes"` is a branch's worth of comments walked back for exactly this.
 - Type-check with bare `pyright` — no flags, and **the tree must stay
   clean**: the check is local-only, by ruling (the CI gate was retired
   because its venv re-resolved dependencies on every run and could go red
