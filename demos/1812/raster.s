@@ -935,11 +935,20 @@ paCnext:
 paCdone:
 
 ; ---- sort the crossings ---------------------------------------------------
+; Exactly two crossings is the common case — it is the ONLY case a convex
+; shape can produce, and seven of the ten types are convex — so it gets a
+; straight-line compare-and-swap instead of the general bubble sort below.
+; The general sort pays for machinery two elements cannot use: the `bswap`
+; flag, the index loop and a second pass that exists only to observe that the
+; first one swapped nothing.  Measured, entry to `sfclip`, on the 16-gon at
+; size 90 (179 rows): 21,409 cycles of sorting per shape before this case
+; existed, 8,914 after — see AUDIT.md's iteration-3 table for the method.
         jmp     cssort
 sfjnext: jmp    sfnext          ; the second trampoline, for the tail half
 cssort: lda     ncross
         cmp     #2
-        bcc     sfjnext
+        bcc     sfjnext         ; 0 or 1 crossings: nothing to order
+        beq     cs2             ; exactly 2: the straight-line case below
 cspass: lda     #0
         sta     bswap
         ldx     #1
@@ -968,9 +977,31 @@ csnx:   inx
         jmp     csin
 cschk:  lda     bswap
         bne     cspass
+        jmp     sfclip          ; three or more crossings rejoin here
+
+; ---- the two-crossing case: one signed compare, at most one swap ----------
+cs2:    lda     crossl+1        ; cross[1] < cross[0] ?
+        cmp     crossl
+        lda     crossh+1
+        sbc     crossh
+        bvc     :+
+        eor     #$80
+:       bpl     sfclip          ; already ordered, which is the usual way round
+        lda     crossl+1
+        ldy     crossl
+        sta     crossl
+        sty     crossl+1
+        lda     crossh+1
+        ldy     crossh
+        sta     crossh
+        sty     crossh+1
 
 ; ---- fill the pairs, clipped to the screen -------------------------------
-        lda     scany+1         ; only rows 0..199 paint
+; `sfclip` is a label with no code of its own: it names the in-range test so
+; the L1 profiling leg (patch it to `jmp sfnext` and no row runs the pair-clip
+; in either leg) can be re-derived from the .lbl instead of by counting bytes
+; from `cschk`, which moves whenever this sort changes.
+sfclip: lda     scany+1         ; only rows 0..199 paint
         bne     sfnext
         lda     scany
         cmp     #200
