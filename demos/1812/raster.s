@@ -935,13 +935,17 @@ paCnext:
 paCdone:
 
 ; ---- sort the crossings ---------------------------------------------------
-; Exactly two crossings is the common case — it is the ONLY case a convex
-; shape can produce, and seven of the ten types are convex — so it gets a
+; Two crossings is the common case: it is the only NON-ZERO count a convex
+; shape produces, and seven of the ten types are convex.  So it gets a
 ; straight-line compare-and-swap instead of the general bubble sort below.
 ; The general sort pays for machinery two elements cannot use: the `bswap`
 ; flag, the index loop and a second pass that exists only to observe that the
 ; first one swapped nothing.  Measured entry-to-`sfclip` on the 16-gon at size
-; 90 — 179 rows, and being convex every one of them carries two crossings:
+; 90, whose 179 rows count {2: 178, 0: 1} — the zero is the LAST row, because
+; sfloop runs scany to symax inclusive while pass A drops every edge whose
+; ybot has been reached, and symax IS the bottom-most vertex y, so nothing
+; survives to cross it (read back at scany 189: naet 0, ncross 0; at 188:
+; naet 2, ncross 2).  That row leaves through the `bcc` below, not this case.
 ; 21,409 cycles of sorting per shape before this case existed, 9,419 after.
 ; The three concave types are the reason the general sort stays: some of their
 ; rows carry four crossings, take it as before, and now also pay the
