@@ -134,6 +134,19 @@ def test_test_run_documents_areas_and_the_prg_label_rule():
         "the sibling label file a `.prg` program: picks up is undocumented"
 
 
+def test_test_run_documents_the_sample_width_option():
+    """A one-byte sample against a 16-bit counter passes on margin rather than
+    on logic, and the spec that hit it (1812's `shapes greater_than s0`) had no
+    way to say otherwise. Undocumented, `width:` would go on being unavailable
+    to everyone who did not read the runner."""
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert "width: 2" in section, "the two-byte sample option is undocumented"
+    assert "lo/hi" in section, "the docs never say which byte order a width-2 read is"
+    assert "the width of the sample they name" in section, \
+        "the docs never say the comparison inherits the sample's width"
+
+
 def test_test_run_documents_where_an_s_program_builds():
     """`build_asm` writes beside the source, so a spec that names a `.s`
     rewrites `<stem>.prg` and `<stem>.lbl` in the demo's own directory every
@@ -178,6 +191,33 @@ def test_profile_documents_samples_and_why_one_arrival_lies():
         assert key in section, f"the {key} payload key is undocumented"
     assert '"cycles"' in section, \
         "the docs never pin that `cycles` survives at --samples 1"
+
+
+def test_profile_documents_blanking_and_the_differential_distinction():
+    """Two claims a reader chases a phantom without.
+
+    Blanking the screen is the only way to ask a profile about *code* cost, and
+    a blanked count is not the frame budget — so the caveat has to travel with
+    the trick or the trick becomes a wrong answer to the other question.
+
+    And a patched differential is not cross-checkable against a whole-routine
+    profile across two builds: a size-changing commit moves tables and branches
+    into and out of page crossings, which the differential cancels by
+    construction and the whole-routine figure keeps. `demos/1812`'s `52b2ed3`
+    was filed as "the differential is 6.2% low" for exactly as long as that
+    went unwritten.
+    """
+    # Prose wraps; these are sentences, not lines.
+    section = " ".join(_section(DOC.read_text(), "### `c64 profile`").split())
+    assert "DEN (`$D011` bit 4)" in section, \
+        "the blanking write is undocumented"
+    assert "does not answer *does this fit in a frame*" in section, \
+        "the docs give the blanking trick without the caveat that limits it"
+    assert "not a cross-check" in section, \
+        ("the docs never say a patched differential and a whole-routine "
+         "profile measure different quantities across builds")
+    assert "`(base & $FF) + index` carries" in section, \
+        "the docs never name the mechanism relocation moves cycles by"
 
 
 def test_session_stop_documents_all_and_start_documents_the_notice():

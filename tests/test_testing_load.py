@@ -145,6 +145,19 @@ def test_sample_step_validation(tmp_path):
         load_test(bad)
 
 
+def test_sample_step_width_validation(tmp_path):
+    """`width:` is 1 or 2 and nothing else: a 3-byte counter has no comparator
+    behind it, and a spec that asks for one should be told at load time rather
+    than after the emulator has booted."""
+    f = _write(tmp_path, 'steps:\n  - sample: { mem: "$D000", as: x0, width: 2 }\n')
+    assert load_test(f)["steps"][0]["sample"]["width"] == 2
+    for bad_width in ("3", "0", '"two"'):
+        bad = _write(
+            tmp_path, f'steps:\n  - sample: {{ mem: "$D000", as: x0, width: {bad_width} }}\n')
+        with pytest.raises(TestError, match="width"):
+            load_test(bad)
+
+
 def test_program_test_prefers_test_yaml(tmp_path):
     from c64lib.testing import program_test
     d = tmp_path / "prog"

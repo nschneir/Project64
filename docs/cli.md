@@ -303,6 +303,28 @@ array — `values` mirrors `mem get`'s key so a script can use either;
 `"text_encoding"` is the resolved gloss — `screen`, `petscii`, or `ascii`).
 Machine state preserved.
 
+**Colour RAM (`$D800-$DBFF`) reads back open bus in the high nybble.** The
+colour matrix is four bits wide, so a read returns `(phi1 & $F0) | storage`:
+the low nybble is the value that was written, the high nybble is whatever was
+last on the data bus. It is uniform across a whole dump and varies with where
+the machine stopped — so **two dumps of the same unchanged build can differ in
+all 1000 bytes, and two dumps of different builds can compare equal by luck.**
+
+**Only a masked comparison is valid at `$D800`.** Compare (and hash, and diff)
+`byte & $0F`; in a YAML spec that is
+`assert: { mem: "$D800", mask: { and: "$0f", equals: [...] } }`. A raw
+comparison there is not a weak instrument, it is not an instrument: it fails
+on unchanged builds and passes on changed ones. `demos/1812` paid for this
+twice in one pass — nine dumps of one build showed high nybbles of 0, 5, 11,
+13 and 15, and the odd checksum read as "the optimisation changed the palette"
+until the mask went on; a batch that did compare equal raw had simply stopped
+three times where `phi1` was 0.
+
+Neither `mem read` nor the `c64_mem_read` MCP tool masks this for you, on
+purpose: the open-bus value is the hardware's real answer and a caller may be
+asking about it. The mask belongs at the comparison, where the caller knows
+whether it wants the storage or the bus.
+
 ### `c64 mem get`
 
     c64 mem get ADDR [LENGTH]
@@ -492,11 +514,12 @@ across subsequent commands — until you `c64 continue`.
 - `--count N` (default `1`) — stop at the Nth arrival at REF. With REF set
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
-  the session daemon, so large counts are fast (hundreds of frames per
-  second of wall clock, not one per half-second). Same quantity as
-  `c64 profile --samples`, under the other name: this one *stops at* the Nth
-  arrival, `profile` *prices all N* — see that flag for why neither is
-  renamed.
+  the session daemon, so the client pays one IPC round-trip for the whole
+  loop instead of one per arrival (which cost about half a second each) —
+  but see the cost note below: a monitor round-trip per arrival remains.
+  Same quantity as `c64 profile --samples`, under the other name: this one
+  *stops at* the Nth arrival, `profile` *prices all N* — see that flag for
+  why neither is renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on
@@ -509,6 +532,24 @@ the checkpoint it set (JSON: `"machine": "running"`,
 program can stop visiting REF (death, menu, pause screen), `until REF` can
 never fire — set a breakpoint at a code path that must still execute and use
 `c64 wait --break` instead.
+
+**`--count N` costs a monitor round-trip per arrival — choose a SPARSE
+reference.** Daemon-side or not, each arrival is one resume plus one
+wait-for-stop against VICE, so the wall clock scales with **N**, not with how
+much of the program you cover. Reaching a given point through a
+frequently-hit reference is therefore many times dearer than reaching the same
+point through a rare one: on `demos/1812`, `until seqtick --count 10200` — a
+per-frame reference — ran for tens of minutes, where `until secchange
+--count 5` covered a comparable span of the program in about three, because it
+stopped five times instead of ten thousand.
+
+Budget for this before you set a high count, and **raise `--timeout` to
+match**: the default 30 s will expire long before a four-figure count on a
+per-frame reference arrives. The trap is diagnostic, not just slow — a `until`
+that is merely grinding through its count looks exactly like a wedged VICE,
+and this repo has already spent a debugging session on that mistake. Prefer a
+reference that fires once per thing you care about (a section change, a level
+load, a state transition) over one that fires every frame.
 
 ### `c64 call`
 
@@ -558,8 +599,31 @@ instruction through its own RTS.
   the whole run, not each sample (machine left running, like `c64 call`).
 
 Counts are wall cycles: badline DMA steals are included, which is the
-frame-budget truth (blank the screen — `$D011` bit 4 — if you want the
-bare instruction cost).
+frame-budget truth.
+
+**Blank the screen when the question is code cost rather than frame budget.**
+Clearing DEN (`$D011` bit 4) stops the VIC fetching, so no badline steals a
+cycle and the count is instruction cycles only — for `demos/1812`, whose mode
+byte is `$3B`, that is `c64 mem write '$d011' '$2b'`. What it buys is not a
+smaller number but a *reproducible* one. All six blanked legs of a two-build
+profiling matrix over 1812's `scanfill` reproduced exactly across two
+independent batches, and the two legs that ran the same unmoved code in
+different builds came back as **98,909 cycles each — the same integer, not the
+same within a band**; the identical legs measured with the screen on drifted
+−59…+88 cycles run to run. What the DMA contributes is close to a flat
+multiplier on whatever you are measuring — ×1.0664 to ×1.0686 across the six
+legs of that experiment, against the textbook 25 badlines × ~43 cycles ÷ 17,095
+= ×1.0671 — so a blanked figure scales back to a wall-cycle one by roughly that
+factor.
+
+The caveat is the whole of the technique: with the screen blanked you are no
+longer measuring what the program experiences. A blanked profile answers *how
+many cycles does this code take*; it does not answer *does this fit in a
+frame*, and for that one you leave the screen on and read the wall cycles. Two
+mechanics: the badline condition samples DEN at raster line `$30`, so the write
+has to land at least a frame of emulated time before the profile starts, and
+`$D011` reads back with bit 7 as the raster MSB, so a blanked register reads
+`$2B` or `$AB`.
 
 **Sample a per-frame routine more than once.** One arrival is one honest
 number about one frame, and a game's tick costs what the game's *state* makes
@@ -579,8 +643,65 @@ A `max` above the frame budget with a `mean` below it is the shape to look
 for — it means some frames drop and most do not. The arrivals are consecutive
 *runs of the routine* (the fake JSR is re-armed in place between them, one
 persistent trap for the whole run, and the whole loop runs inside the session
-daemon), so the state that drives the spread advances exactly as it would in
-the program.
+daemon).
+
+**`--samples` re-enters the routine; it does not re-run the program.** Every
+arrival is the same synthesised JSR at REF, and the routine reads whatever
+happens to be in memory when it starts. So the samples spread only as far as
+the routine's own inputs move between them:
+
+- A routine that **advances the state its cost depends on** — a per-frame tick
+  that steps the game, a sequencer step that consumes the next event — moves
+  itself from one arrival to the next, and `--samples` shows the real
+  distribution. `tick` above is this case.
+- A **leaf routine whose inputs its caller sets up** — a multiply, a
+  coordinate transform, a span filler, a shape drawer — is handed the *same*
+  operands N times and recomputes the same case. What comes back is not the
+  distribution: it is badline DMA jitter around one value, a few percent wide.
+  Worse, the case it repeats is whichever one the program happened to be
+  holding when you stopped it, so the figure moves when the anchor moves and
+  reads as a regression that nothing caused. Four routines in `demos/1812`
+  looked like large regressions this way until their inputs were set by hand.
+
+**For those, control the inputs instead of sampling.** Poke the operands with
+`c64 mem write`, take a `--samples 1` reading of each case you care about, and
+quote the range you constructed. `demos/1812`'s span filler is the worked
+example: its cost is driven by the span endpoints `spxa`/`spxb`, which its
+caller writes and which `--samples` never varies, so its true range appears
+only when those two are poked to their extremes — the sampler alone reports a
+DMA-width spread and calls it the answer.
+
+**A patched differential and a whole-routine profile answer different
+questions, and comparing them across builds is not a cross-check.** A routine
+with an entry symbol but no `rts` of its own cannot be bracketed by `c64
+profile` at all. The way round it is to profile an enclosing routine twice —
+once as it stands, once with the part you care about patched out, `c64 mem
+write`-ing a `jmp` over it — and subtract; the difference is that part's cost.
+The subtraction is exact for what it brackets and blind to everything outside
+it, which starts to matter the moment the two profiles come from two *builds*.
+A commit that changes the binary's size relocates code and data, and relocation
+moves cycles on its own, in code nobody edited: an absolute-indexed read costs
+an extra cycle whenever `(base & $FF) + index` carries, so a table that shifts
+across a page boundary changes the cost of the unchanged instruction that reads
+it, and a taken branch saves a cycle when it stops straddling a page. Those
+land in the region *both* legs patch out, so the differential cancels them by
+construction and the whole-routine profile collects them.
+
+`demos/1812`'s `52b2ed3` is the worked example, and it cost a false alarm. The
+commit rewrote a scanline crossing sort and grew the binary by 47 bytes. The
+differential said the sort got **11,990** cycles cheaper, `c64 profile
+scanfill` said the routine got **12,727** cheaper, and the 737-cycle gap — 8×
+the ±90 two single arrivals carry — was filed as the differential
+under-reporting by 6.2%. It was not under-reporting. Re-measured blanked, the
+sort is −11,214 and the routine is −11,870, and the −656 between them is the
+*untouched* row body getting cheaper: the 47-byte shift moved five tables
+(`dither`, `dither+1`, `rowaddrl`, `rowaddrh`, `attrcoll`) relative to the
+unmoved code that indexes them, worth −480 counted off the addresses, and took
+the one taken branch per row off the `$1100` boundary, worth −179. Predicted
+−659 against −656 measured, and −480 against −479 out of sample on a second
+shape. Both numbers were right about different quantities: the differential is
+the algorithm's own cost, the whole-routine profile is what the frame budget
+gets. Quote both, and do not try to reconcile them.
 
 A run whose timers read back untouched — a raw count of 0, which no real
 routine can cost — is reported as an error naming the likely cause (the CIA
@@ -2052,11 +2173,16 @@ steps:
   - sample: { mem: "$D000", as: x0 }        # capture a byte under a name
   - assert: { mem: "$D000", differs: x0 }   # compare against a sample:
   - assert: { mem: "$D000", greater_than: x0 }   # differs / greater_than /
-  - assert: { mem: "ballx", less_than: x0 }      # less_than (plain bytes —
-                                            #   wraparound is yours to handle)
+  - assert: { mem: "ballx", less_than: x0 }      # less_than (one byte by
+                                            #   default — wraparound is
+                                            #   yours to handle)
   - assert: { mem: "$D000", unchanged: x0 } # equality against a sample:
                                             #   "this byte did NOT change"
                                             #   (holds, pauses, game over)
+  - sample: { mem: shapes, as: s0, width: 2 }   # capture a 16-bit lo/hi
+  - assert: { mem: shapes, greater_than: s0 }   #   counter — the comparison
+                                            #   reads two bytes because the
+                                            #   sample did
 ```
 
 Step kinds: `wait` (poll until true or timeout — fails the test on
@@ -2091,6 +2217,32 @@ Sample the byte first and compare against the name:
 
 A comparator given something that parses as a number says so, rather than
 reporting an unknown sample and leaving you to work out why.
+
+**A 16-bit counter needs `width: 2` on the sample.** A `sample:` captures one
+byte by default, so a `greater_than` against a two-byte counter compares low
+bytes only — and a low byte is not a small version of the counter, it is a
+number that falls every 256 counts. A rise of 32 across `$01f0 → $0210` reads
+as `240 → 16` one byte wide and *fails*; a move of exactly 256 leaves the low
+byte where it was and a `differs` witness reads it as unchanged. `width: 2`
+reads the 6502's lo/hi word at that address — the shape `.word` emits and
+`INC lo / BNE / INC hi` maintains:
+
+```yaml
+  - sample: { mem: shapes, as: s0, width: 2 }
+  - until:  { ref: seqtick, count: 600 }
+  - assert: { mem: shapes, greater_than: s0 }
+```
+
+The width is stated once, on the `sample:`. `differs`, `greater_than`,
+`less_than` and `unchanged` read back at the width of the sample they name, so
+a spec cannot compare a word against a byte; step details say which they did
+(`mem $c012 (16-bit) = 528 > sample s0=496`). `width:` is 1 or 2 and a spec
+naming anything else is refused before the emulator boots. There is no
+big-endian option: a hi/lo pair is not an idiom this machine has, and a
+program that stores one can be sampled a byte at a time. Only these four
+comparators take a width — `wait: { mem: … }` and the literal comparisons
+(`equals`, `between`, `mask`) are unchanged, and `equals: [lo, hi]` already
+compares two bytes against literals.
 
 The screen-substring check is spelled `text` in both `wait` and `assert`,
 and `screen` is accepted as an alias in both — so a copied step survives a

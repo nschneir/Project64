@@ -1,7 +1,7 @@
 import time
 from itertools import chain, repeat
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -602,6 +602,103 @@ def test_assert_mem_between_with_a_sample_key_reads_one_byte_once():
         result = run_test(spec, launch=Mock(return_value=s))
     assert result.passed is True
     mon.memory_read.assert_called_once_with(0x0400, 1)
+
+
+def _counter_reads(values):
+    """A monitor read that models one 16-bit little-endian counter in memory:
+    each call takes the next value and returns as many of its bytes as the
+    caller asked for. One fake therefore serves both the one-byte spec and the
+    two-byte one, so a width test cannot pass by being handed different
+    memory."""
+    it = iter(values)
+
+    def _read(_addr, length):
+        return next(it).to_bytes(2, "little")[:length]
+
+    return _read
+
+
+@pytest.mark.parametrize("width, passes", [(2, True), (None, False)])
+def test_sixteen_bit_sample_judges_a_counter_whose_low_byte_falls(width, passes):
+    """The acceptance test docs/todo.md named for this feature. A 16-bit
+    counter crossing $0200 rises 496 -> 528 while its low byte *falls*
+    240 -> 16. `width: 2` compares the counter and passes; the one-byte
+    default compares the low byte and gets the direction backwards. Both
+    halves are asserted, so neither the old behaviour nor the new one can
+    regress unnoticed: 1812's `shapes greater_than s0` passes today only
+    because its rise happens not to cross a multiple of 256.
+    """
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = _counter_reads([0x01F0, 0x0210])
+    sample = {"mem": "$1000", "as": "s0"}
+    if width is not None:
+        sample["width"] = width
+    spec = _spec(steps=[{"sample": sample},
+                        {"assert": {"mem": "$1000", "greater_than": "s0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is passes, [st.detail for st in result.steps]
+    if passes:
+        assert "528 > sample s0=496" in result.steps[1].detail
+    else:
+        assert "16 not > sample s0=240" in result.steps[1].detail
+
+
+def test_sixteen_bit_sample_reads_two_bytes_little_endian():
+    """lo/hi, the 6502's own word order and what `.word` emits — a hi/lo read
+    of the same pair would report 4097 instead of 16."""
+    s, mon = _fake_session()
+    mon.memory_read.return_value = b"\x10\x00"
+    spec = _spec(steps=[{"sample": {"mem": "$1000", "as": "s0", "width": 2}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True
+    mon.memory_read.assert_called_once_with(0x1000, 2)
+    assert result.steps[0].detail == "sampled mem $1000 (16-bit) = 16 as 's0'"
+
+
+def test_sixteen_bit_sample_catches_a_high_byte_only_move():
+    """The other half of the one-byte defect: a counter that moves 496 -> 752
+    leaves its low byte untouched, so a one-byte `differs` witness reads
+    'unchanged' on a value that changed by 256. 1812 hand-checked this class
+    rather than expressing it."""
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = _counter_reads([0x01F0, 0x02F0])
+    spec = _spec(steps=[{"sample": {"mem": "$1000", "as": "s0", "width": 2}},
+                        {"assert": {"mem": "$1000", "differs": "s0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True, [st.detail for st in result.steps]
+    assert "752 != sample s0=496" in result.steps[1].detail
+
+
+def test_sixteen_bit_unchanged_holds_across_a_two_byte_read():
+    """`unchanged` at width 2 is 1812's stronger hold claim — the whole
+    counter, not its low byte, is byte-for-byte where it was."""
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = _counter_reads([0x01F0, 0x01F0])
+    spec = _spec(steps=[{"sample": {"mem": "shapes", "as": "h0", "width": 2}},
+                        {"assert": {"mem": "shapes", "unchanged": "h0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."), \
+         patch("c64lib.testing.session_ref", return_value=0x1000):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True, [st.detail for st in result.steps]
+    assert "496 == sample h0=496" in result.steps[1].detail
+
+
+def test_one_byte_samples_are_unchanged_by_the_width_option():
+    """A widely-used harness: every spec written before `width:` existed must
+    read one byte and report itself in exactly the words it always did."""
+    s, mon = _fake_session()
+    mon.memory_read.side_effect = _counter_reads([0x01F0, 0x0210])
+    spec = _spec(steps=[{"sample": {"mem": "$1000", "as": "s0"}},
+                        {"assert": {"mem": "$1000", "less_than": "s0"}}])
+    with patch("c64lib.testing.read_screen_text", return_value="READY."):
+        result = run_test(spec, launch=Mock(return_value=s))
+    assert result.passed is True, [st.detail for st in result.steps]
+    assert result.steps[0].detail == "sampled mem $1000 = 240 as 's0'"
+    assert result.steps[1].detail == "mem $1000 = 16 < sample s0=240"
+    assert mon.memory_read.call_args_list == [call(0x1000, 1), call(0x1000, 1)]
 
 
 def test_cart_spec_resolves_and_leaves_program_unset(tmp_path):

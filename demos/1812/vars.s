@@ -76,12 +76,15 @@ sfor:   .byte   0               ; ink AND mask
 oldvec: .word   0               ; the CINV value we chained from
 
 ; ==========================================================================
-; Rasteriser working storage — at $C200, NOT in BSS.
+; Rasteriser working storage — at $C400, NOT in BSS.
 ;
-; With the bitmap at $2000 the program has under a hundred bytes of headroom
-; below it, and these arrays are about 370.  $C000-$CFFF is the 4 KB BASIC
-; never touches: $C000-$C1FF holds the quarter-square multiply tables that
-; `qsgen` builds, and $C200-$C3FF holds this.  Neither is in the .prg and
+; With the bitmap at $2000 the program has about 120 bytes of headroom below
+; it — re-derive that from `1812.lbl` rather than trusting the number here,
+; which has moved every iteration: $2000 - (__BSS_LOAD__ + __BSS_SIZE__).
+; These arrays are about 370.  $C000-$CFFF is the 4 KB BASIC
+; never touches: $C000-$C3FF holds the quarter-square multiply tables that
+; `qsgen` builds (QSL then QSH, 512 entries each), and $C400-$C5FF holds
+; this.  Neither is in the .prg and
 ; neither needs to be visible to the VIC-II, which cannot see $C000 anyway.
 ;
 ; Laid out as explicit offsets rather than .res so the block is one contiguous
@@ -132,7 +135,7 @@ symaxh   = RWORK + $172
 scany    = RWORK + $173         ; the scanline loop's y, 16-bit signed
 RWEND    = RWORK + $175
 
-        .assert (RWEND - RWORK) <= RWSIZE, error, "1812: the $C200 work block overflows its 512 bytes"
+        .assert (RWEND - RWORK) <= RWSIZE, error, "1812: the $C400 work block overflows its 512 bytes"
 
         ; named so tests and `c64 until` can reach them
         .export vxl, vxh, vyl, vyh, nvert, nedge, eord, aet, naet, enext

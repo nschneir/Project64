@@ -81,7 +81,7 @@ nextln: .word   $0000
 start:  sei
         cld
         jsr     zerobss
-        jsr     rwzero          ; the $C200 rasteriser block is not in the .prg either
+        jsr     rwzero          ; the $C400 rasteriser block is not in the .prg either
         jsr     qsgen           ; the multiply tables, before anything multiplies
         jsr     setmode
         jsr     clrbitmap
@@ -207,7 +207,7 @@ sp1:    lda     palscr
 ; RAM at load time.  Zero the lot before anything reads it.
 ; ==========================================================================
 
-; rwzero — clear the $C200 working block.  Same reason as zerobss: it is not
+; rwzero — clear the $C400 working block.  Same reason as zerobss: it is not
 ; in the .prg, so at load it holds whatever was in RAM.
 rwzero: lda     #0
         ldx     #0

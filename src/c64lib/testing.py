@@ -49,7 +49,7 @@ _STEP_KEYS = {
     "poke": ({"addr"}, {"addr", "value", "values"}),
     "until": ({"ref"}, {"ref", "count", "timeout"}),
     "call": ({"routine"}, {"routine", "a", "x", "y", "timeout"}),
-    "sample": ({"mem", "as"}, {"mem", "as"}),
+    "sample": ({"mem", "as"}, {"mem", "as", "width"}),
 }
 
 #: Manifest suffixes a spec's `disk:` may name instead of a ready-made image.
@@ -77,6 +77,40 @@ def _looks_numeric(v) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _sample_width(arg: dict) -> int:
+    """How many bytes a `sample:` step captures, defaulting to 1.
+
+    1 or 2, and nothing else. 2 is the 6502's lo/hi word — the shape every
+    16-bit counter on this machine has, because that is what `.word` emits and
+    what `INC lo / BNE / INC hi` maintains — so a wider read would have no
+    idiom behind it and no comparator to judge it with. The named width is
+    recorded with the sample and the comparators read back at it, so a spec
+    states the width once, at the step that decides what the value *is*.
+
+    Validated at load time (so a bad width costs no emulator boot) and read
+    back here at run time, which is also the check for a hand-built spec that
+    never went through `load_test`.
+    """
+    raw = arg.get("width", 1)
+    try:
+        width = _num(raw)
+    except ValueError:
+        width = -1
+    if width not in (1, 2):
+        raise TestError(
+            f"width must be 1 or 2, not {raw!r} — a two-byte sample reads the "
+            "6502's lo/hi word at that address, and the comparison against it "
+            "reads two bytes too")
+    return width
+
+
+def _width_note(width: int) -> str:
+    """How a sampled read announces its width in a step's detail line — and
+    silence at width 1, so every spec written before `width:` existed reports
+    itself in exactly the words it always did."""
+    return " (16-bit)" if width == 2 else ""
 
 
 def _spec_path(spec_dir: str | Path, value: str | Path) -> Path:
@@ -194,6 +228,11 @@ def load_test(path: str | Path) -> dict:
             if kind == "poke" and not ({"value", "values"} & arg.keys()):
                 raise TestError(
                     f"{path}: step {i} (poke) needs value or values")
+            if kind == "sample":
+                try:
+                    _sample_width(arg)
+                except TestError as e:
+                    raise TestError(f"{path}: step {i} (sample) {e}") from None
     return spec
 
 
@@ -631,7 +670,8 @@ def _loaded(text: str) -> bool:
 
 def _do_step(session, kind: str, arg, default_timeout: float,
              labels: dict[str, int] | None = None,
-             captures: dict[str, int] | None = None) -> tuple[bool, str]:
+             captures: dict[str, tuple[int, int]] | None = None
+             ) -> tuple[bool, str]:
     labels = labels or {}
     captures = captures if captures is not None else {}
 
@@ -644,13 +684,16 @@ def _do_step(session, kind: str, arg, default_timeout: float,
 
     if kind == "sample":
         addr = _addr(arg["mem"])
+        width = _sample_width(arg)
         with session.monitor() as mon:
             try:
-                val = mon.memory_read(addr, 1)[0]
+                data = mon.memory_read(addr, width)
             finally:
                 mon.release()
-        captures[str(arg["as"])] = val
-        return True, f"sampled mem ${addr:04x} = {val} as {arg['as']!r}"
+        val = int.from_bytes(data, "little")
+        captures[str(arg["as"])] = (val, width)
+        return True, (f"sampled mem ${addr:04x}{_width_note(width)} = {val} "
+                      f"as {arg['as']!r}")
 
     if kind == "key":
         # `ascii_to_petscii` directly, NOT `ops.key_type` — so a `\n` in a
@@ -838,17 +881,21 @@ def _do_step(session, kind: str, arg, default_timeout: float,
                         "sample, not a literal: record one first with "
                         '`- sample: { mem: "dotsleft", as: d0 }`')
                 return False, detail
-            ref_val = captures[name]
-            val = _read(1)[0]
+            # The comparison reads at the width of the sample it names, so the
+            # two can never disagree about how wide the value is — the one way
+            # a per-step width would let a spec compare a word against a byte.
+            ref_val, width = captures[name]
+            val = int.from_bytes(_read(width), "little")
             ok = {"differs": val != ref_val,
                   "greater_than": val > ref_val,
                   "less_than": val < ref_val,
                   "unchanged": val == ref_val}[cmp_key]
             op = {"differs": "!=", "greater_than": ">", "less_than": "<",
                   "unchanged": "=="}[cmp_key]
-            return ok, (f"mem ${addr:04x} = {val} {op} sample {name}={ref_val}"
+            where = f"mem ${addr:04x}{_width_note(width)}"
+            return ok, (f"{where} = {val} {op} sample {name}={ref_val}"
                         if ok else
-                        f"mem ${addr:04x} = {val} not {op} sample {name}={ref_val}")
+                        f"{where} = {val} not {op} sample {name}={ref_val}")
         scalar = [k for k in ("not_equals", "above", "at_least", "below",
                               "at_most") if k in arg]
         if scalar:
@@ -999,7 +1046,7 @@ def run_test(spec: dict, launch=Session.launch,
                             f"{what} never finished loading; "
                             f"screen:\n{screen_text}")
         passed = True
-        captures: dict[str, int] = {}
+        captures: dict[str, tuple[int, int]] = {}   # name -> (value, width)
         for i, step in enumerate(spec["steps"], start=1):
             kind = next(iter(step))
             try:

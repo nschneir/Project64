@@ -311,6 +311,15 @@ now takes one signed compare and at most one swap.
 | `c64 profile drawshape --samples 2`, worst case | 480,131 | 467,500.5 | −12,630, −2.63% |
 
 Each patched leg is a single arrival at ~±45, so each differential carries ~±90.
+**The differential rows and the whole-routine rows are not two readings of one
+number, and the 737 between −11,990 and −12,727 is not error.** The 47 bytes
+shifted five tables `spanfill` indexes and took the one taken `→ sfnext` branch
+per row off the `$1100` boundary, which makes the *untouched* row body 656
+cycles cheaper — real work, collected by `scanfill` and `drawshape`, and
+cancelled by construction in the differential, whose two legs both delete that
+body. −11,990 is the sort; −12,727 is the sort plus the relocation. (Measured
+by re-profiling both builds with the screen blanked; the method note is in
+`docs/cli.md` under `c64 profile`.)
 The typical shape gains 39% and not 56% because `sh_type 8` is star4, one of the
 three concave types: some of its rows carry four crossings and still take the
 bubble sort. It went in because it cannot change a painted byte *by
