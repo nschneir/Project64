@@ -427,8 +427,12 @@ cannonfire:
         ldx     #$18
         lda     #$1f            ; low-pass, volume 15
         jsr     sidput
-        lda     #$ff
-        sta     cutoff
+        lda     #$ff            ; the sweep's SEED, not a register write: this
+        sta     cutoff          ; is the `cutoff` variable, and cantick — the
+                                ; only writer of $D416 outside sndinit — runs
+                                ; later in the same seqtick and subtracts 10
+                                ; before its first store, so the first value
+                                ; the chip ever sees is $F5.
         lda     #24
         sta     csweep
         lda     #6
@@ -593,8 +597,17 @@ s2v3:   .byte   OC2+N_E,  12,  OC3+N_E,  12,  OC2+N_E,  12,  OC3+N_E,  12
 
 ; ---- 3: the cannon -------------------------------------------------------
 ; The hymn returns wide-spaced over sustained chords, and voice 3 is nothing
-; but artillery: sixteen shots at 112-frame intervals = 1792 of the section's
-; 1800 frames.
+; but artillery: sixteen shots of duration 112.
+;
+; 112 is the DURATION BYTE, not the interval.  An event owns duration + 1
+; ticks — voicetick fetches on the frame vcnt reaches 0 and does not decrement
+; it again that frame (see vtfetch and the `dec vcnt,x` above it) — so the
+; shots arrive 113 ticks apart, on section-3 ticks 1 + 113(k-1), and sixteen
+; of them ask for 16 * 113 = 1808 ticks against the section's 1800.  Shot 16
+; is fetched on tick 1696 and truncated by 8: its gate-off would be due on
+; tick 1805, so nothing inside this section clears it and section 4's
+; loadinstr does it instead, writing $14 with the gate bit clear.  `cannons`
+; still reads 16 either way, because `inc cannons` fires at the fetch.
 
 s3v1:   .byte   OC4+N_E, 240,  OC4+N_G, 240,  OC4+N_A, 240,  OC4+N_B, 240
         .byte   OC4+N_B, 240,  OC4+N_A, 240,  OC4+N_G, 240,  OC4+N_E, 240
