@@ -87,7 +87,12 @@ steps:
   - assert: { mem: section, equals: 0 }               # left hand's tick-849 entry
   - assert: { mem: "sidshadow+6",  mask: { and: "$f0", equals: [0] } }   # v1 SR
   - assert: { mem: "sidshadow+13", mask: { and: "$f0", equals: [0] } }   # v2 SR
-  # ...and the arc has gained its second hand but not a third voice.
+  # ...and the arc has gained its second hand but not a third voice.  The
+  # first read is the frequency HIGH byte alone, so it proves the implication
+  # in one direction only: non-zero means the left hand has gated a note, but
+  # a zero there would not have meant it had not (a low enough pitch has a
+  # zero high byte).  The second read is the whole two-byte pair, which is
+  # exact in both directions.
   - assert: { mem: "sidshadow+8",  not_equals: 0 }    # the left hand has played
   - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3 never does
 
@@ -98,9 +103,22 @@ steps:
   # advance itself, so stopping there N times lands on the Nth change.
   - until:  { ref: secchange, count: 1 }
   - assert: { mem: frames, equals: [96, 9] }          # 2400
+  # The hymn is over and section 1 has not been loaded yet — `secchange` sits
+  # before `inc section`, so `section` still reads 0 and this is section 0's
+  # shadow.  Voice 3's frequency bytes are STILL 0,0, which is the whole
+  # 2399-tick hymn and not merely the first 901 frames of it: gateon is their
+  # only writer and nothing ever clears them, so this is the strongest form
+  # the "voice 3 is silent for the whole hymn" claim has.
+  - assert: { mem: section, equals: 0 }
+  - assert: { mem: "sidshadow+14", equals: [0, 0] }
   - until:  { ref: secchange, count: 1 }
   - assert: { mem: section, equals: 1 }
   - assert: { mem: frames, equals: [60, 15] }         # 3900
+  # A witness for the battle, recorded here at its last silent moment: voice
+  # 2's stream legitimately rests every other event (six frames on, six off),
+  # so no instantaneous read can say whether it is playing in section 2.  What
+  # can is whether it gates a DIFFERENT note there — see the battle group.
+  - sample: { mem: "sidshadow+8", as: v2f }
   # The live palette bytes, NOT a screen cell: a section change deliberately
   # does not repaint anything (SPEC.md 3).  A cell only takes the new palette
   # when a shape of the new section actually covers it, so asserting on
@@ -112,23 +130,47 @@ steps:
   - assert: { mem: frames, equals: [112, 23] }        # 6000
 
   # ---- the arc at full width: three instruments in the battle ------------
-  # The other end of the arc from section 3's solo piano, and the last frame
-  # of the battle: `secchange` is the label at the TOP of nextsec, before
-  # `inc section` (music.s:212-214), so section 2's instruments are still the
-  # ones loaded here.
+  # The other end of the arc from the hymn's solo piano, and the last frame of
+  # the battle: `secchange` is the label at the TOP of nextsec, before
+  # `inc section` (music.s:212-214), so section 2's state is still the state
+  # here — including `noteidx`, which nextsec zeroes four lines further down
+  # (music.s:218).
   #
-  # The gate bit is no witness at this stop.  voicetick releases a note three
-  # frames before its event ends (music.s:264-277), so a stop can land in any
-  # voice's gap and two of these three are in one.  vwave and the frequency
-  # bytes are exact instead: vwave holds each voice's waveform with the gate
-  # bit clear and has exactly two writers, loadinstr and cannonfire
-  # (music.s:129, music.s:407-408), and a non-zero frequency byte says the
-  # voice has sounded at least once.
+  # THE BAR EACH READ HAS TO CLEAR is that it FAILS IF A BATTLE VOICE GOES
+  # SILENT — if any of s2v1/s2v2/s2v3 became a rest-only stream.  Three reads
+  # that look like they clear it and do not, recorded so they are not tried
+  # again: `vwave` merely restates secinstr, which loadinstr writes
+  # unconditionally; a non-zero frequency byte only means "sounded at some
+  # point since sndinit", and all three voices have by now — voices 1 and 2 in
+  # the hymn and voice 3 in section 1's bass hand; and the gate bit is a coin
+  # flip, since voicetick releases a note three frames before its event ends
+  # (music.s:264-277) and two of these three voices are in that gap right now.
+  #
+  # So each voice gets the witness that is exact FOR IT:
+  # - v1: `noteidx` counts voice 1's PITCHED events only — vtrest branches
+  #   away before the `inc` (music.s:309-316) — and nextsec zeroed it at the
+  #   3900 boundary, so a non-zero value here is voice 1 sounding in THIS
+  #   section.  A rest-only s2v1 leaves it at 0.
+  # - v2: its stream rests every other event by design, so it is read across
+  #   the section instead: `differs` against the byte sampled at 3900 says it
+  #   gated a note of a different pitch somewhere inside the battle.  A
+  #   rest-only s2v2 never calls gateon, so the byte stays frozen at section
+  #   1's value and this fails.  (Checked, not assumed: $12 there, $1f here.)
+  # - v3: s2v3 is thirty-two pitched events and no rests, so its `vnote` is a
+  #   pitch — 1..72 (music.s:19-20) — at every frame of the section.  A rest
+  #   stores 0 there (REST = 0, music.s:42) and a cannon $FD, so both fall
+  #   outside the range.
+  - assert: { mem: noteidx, above: 0 }                # v1, the running figures
+  - assert: { mem: "sidshadow+8", differs: v2f }      # v2, the off-beat stabs
+  - assert: { mem: "vnote+2", between: { min: 1, max: 72 } }   # v3, the octave
+                                                      # bass — the voice the
+                                                      # hymn kept silent
+  # And the three instruments really are three, which is a guard on the
+  # secinstr rows rather than on the voices sounding: vwave holds each voice's
+  # waveform with the gate bit clear, written only by loadinstr and cannonfire
+  # (music.s:129, music.s:407-408).  Section 2 is a frozen keeper, so this
+  # should never move.
   - assert: { mem: vwave, equals: ["$20", "$40", "$20"] }  # saw / pulse / saw
-  - assert: { mem: "sidshadow+1",  not_equals: 0 }    # v1, the running figures
-  - assert: { mem: "sidshadow+8",  not_equals: 0 }    # v2, the off-beat stabs
-  - assert: { mem: "sidshadow+15", not_equals: 0 }    # v3, the octave bass — the
-                                                      # voice the hymn kept silent
 
   # ---- shapes only ever accumulate ---------------------------------------
   # `greater_than` against a sample, never an equality: the counter climbs and
