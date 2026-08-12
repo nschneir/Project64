@@ -13,6 +13,7 @@ import pytest
 
 from c64lib import mcp_server
 from c64lib.session import SessionError
+from tests.conftest import cli_json
 from tests.test_cartridge import chip_packet, make_crt
 from tests.test_cli_cart import good_body
 from tests.test_mcp_scaffold import call_tool, list_tools
@@ -333,15 +334,6 @@ def _package_error(args: dict) -> str:
     return out["raw"]
 
 
-def _cli_package_error(argv: list[str]) -> str:
-    from click.testing import CliRunner
-
-    from c64lib.cli import main
-    r = CliRunner().invoke(main, ["--json", "package", *argv])
-    assert r.exit_code == 1, r.output
-    return json.loads(r.output)["error"]
-
-
 @pytest.fixture
 def src(tmp_path):
     s = tmp_path / "game.s"
@@ -356,24 +348,27 @@ def test_package_tool_rejects_cart_type_outside_a_cartridge(src, tmp_path):
     msg = _package_error({"source": str(src), "output": str(out),
                           "cart_type": "16k"})
     assert "--cart-type" in msg
-    assert msg.endswith(_cli_package_error(
-        [str(src), "-o", str(out), "--cart-type", "16k"]))
+    assert msg.endswith(cli_json(
+        ["package", str(src), "-o", str(out), "--cart-type", "16k"],
+        exit_code=1)["error"])
 
 
 def test_package_tool_names_the_format_prg_crt_conflict(src, tmp_path):
     out = tmp_path / "x.crt"
     msg = _package_error({"source": str(src), "output": str(out), "fmt": "prg"})
     assert "--format prg" in msg and "cartridge" in msg
-    assert msg.endswith(_cli_package_error(
-        [str(src), "--format", "prg", "-o", str(out)]))
+    assert msg.endswith(cli_json(
+        ["package", str(src), "--format", "prg", "-o", str(out)],
+        exit_code=1)["error"])
 
 
 def test_package_tool_rejects_a_cartridge_named_as_a_disk(src, tmp_path):
     out = tmp_path / "x.d64"
     msg = _package_error({"source": str(src), "output": str(out), "fmt": "crt"})
     assert ".d64" in msg
-    assert msg.endswith(_cli_package_error(
-        [str(src), "--format", "crt", "-o", str(out)]))
+    assert msg.endswith(cli_json(
+        ["package", str(src), "--format", "crt", "-o", str(out)],
+        exit_code=1)["error"])
 
 
 def test_session_start_tool_accepts_a_cart():

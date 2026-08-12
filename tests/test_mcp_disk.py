@@ -15,6 +15,7 @@ import pytest
 
 from c64lib import mcp_server
 from c64lib.disk import DiskError
+from tests.conftest import cli_json
 from tests.test_mcp_scaffold import call_tool, list_tools
 
 needs_c1541 = pytest.mark.needs_c1541
@@ -51,16 +52,6 @@ def _registered_tool_names() -> list[str]:
     return [t.name for t in list_tools().tools]
 
 
-def _cli(argv: list[str]) -> dict:
-    """Run one --json CLI command, returning its payload."""
-    from click.testing import CliRunner
-
-    from c64lib.cli import main
-    r = CliRunner().invoke(main, ["--json", *argv])
-    assert r.exit_code == 0, r.output
-    return json.loads(r.output)
-
-
 def _lockstep(image, tool, argv):
     """Run the same mutation through both front ends on the same image path,
     rewinding the image in between, and return the two payloads.
@@ -72,7 +63,7 @@ def _lockstep(image, tool, argv):
     shutil.copyfile(image, backup)
     mcp_payload = tool()
     shutil.copyfile(backup, image)
-    cli_payload = _cli(argv)
+    cli_payload = cli_json(argv)
     return mcp_payload, cli_payload
 
 
@@ -92,7 +83,7 @@ def test_get_tool_payload_matches_the_cli(image, tmp_path):
     headlined "MCP parity for the disk verbs"."""
     dest = tmp_path / "out.prg"
     mcp_payload = mcp_server.c64_disk_get(str(image), "alpha", str(dest))
-    cli_payload = _cli(["disk", "get", str(image), "alpha", str(dest)])
+    cli_payload = cli_json(["disk", "get", str(image), "alpha", str(dest)])
     assert mcp_payload == {"image": str(image), "name": "alpha",
                            "dest": str(dest)}
     assert mcp_payload == cli_payload
@@ -110,7 +101,7 @@ def test_disk_get_tool_defaults_dest_like_the_cli(image, tmp_path, monkeypatch):
     assert mcp_payload["dest"] == "alpha.prg"
     assert (tmp_path / "alpha.prg").exists()
     (tmp_path / "alpha.prg").unlink()
-    cli_payload = _cli(["disk", "get", str(image), "alpha"])
+    cli_payload = cli_json(["disk", "get", str(image), "alpha"])
     assert mcp_payload == cli_payload
 
 
@@ -126,8 +117,8 @@ def test_rename_and_rm_tools_echo_the_normalized_name(tmp_path):
     mcp_rename = mcp_server.c64_disk_rename(str(img), "ALPHA", "BETA")
     mcp_rm = mcp_server.c64_disk_rm(str(img), "AL*")
     shutil.copyfile(backup, img)
-    cli_rename = _cli(["disk", "rename", str(img), "ALPHA", "BETA"])
-    cli_rm = _cli(["disk", "rm", str(img), "AL*"])
+    cli_rename = cli_json(["disk", "rename", str(img), "ALPHA", "BETA"])
+    cli_rm = cli_json(["disk", "rm", str(img), "AL*"])
     assert mcp_rename == {"image": str(img), "old": "alpha", "name": "beta"}
     assert mcp_rm == {"image": str(img), "name": "al*", "deleted": 1}
     assert (mcp_rename, mcp_rm) == (cli_rename, cli_rm)
@@ -213,11 +204,11 @@ def test_block_read_tool_writes_a_file_and_drops_the_hex(image, tmp_path):
 @needs_c1541
 def test_block_read_tool_payloads_match_the_cli(image, tmp_path):
     """Lockstep: the same scenario through both front ends, both shapes."""
-    assert mcp_server.c64_disk_block_read(str(image), 18, 0) == _cli(
+    assert mcp_server.c64_disk_block_read(str(image), 18, 0) == cli_json(
         ["disk", "block", "read", str(image), "18", "0"])
     out = tmp_path / "bam.bin"
     assert mcp_server.c64_disk_block_read(str(image), 18, 0,
-                                          output=str(out)) == _cli(
+                                          output=str(out)) == cli_json(
         ["disk", "block", "read", str(image), "18", "0", "-o", str(out)])
 
 
@@ -276,8 +267,8 @@ def test_block_write_tool_pokes_and_matches_the_cli(image):
                                           offset=4)
     assert res == {"image": str(image), "track": 1, "sector": 0,
                    "written": 2, "offset": 4}
-    assert res == _cli(["disk", "block", "write", str(image), "1", "0",
-                        "$de", "$ad", "--offset", "4"])
+    assert res == cli_json(["disk", "block", "write", str(image), "1", "0",
+                            "$de", "$ad", "--offset", "4"])
     data = bytes.fromhex(mcp_server.c64_disk_block_read(str(image), 1, 0)["hex"])
     assert data[4:6] == bytes([0xDE, 0xAD])
 
@@ -297,8 +288,8 @@ def test_block_write_tool_replaces_a_whole_sector_from_a_file(image, tmp_path):
     res = mcp_server.c64_disk_block_write(str(image), 1, 0, src=str(src))
     assert res == {"image": str(image), "track": 1, "sector": 0,
                    "written": 256, "offset": 0}
-    assert res == _cli(["disk", "block", "write", str(image), "1", "0",
-                        "--from", str(src)])
+    assert res == cli_json(["disk", "block", "write", str(image), "1", "0",
+                            "--from", str(src)])
 
 
 @needs_c1541
@@ -331,8 +322,8 @@ def test_block_write_tool_reads_an_empty_values_list_as_no_source(image, tmp_pat
     res = mcp_server.c64_disk_block_write(str(image), 1, 0, src=str(src), values=[])
     assert res == {"image": str(image), "track": 1, "sector": 0,
                    "written": 256, "offset": 0}
-    assert res == _cli(["disk", "block", "write", str(image), "1", "0",
-                        "--from", str(src)])
+    assert res == cli_json(["disk", "block", "write", str(image), "1", "0",
+                            "--from", str(src)])
 
 
 @needs_c1541
@@ -350,7 +341,7 @@ def test_disk_tools_echo_the_image_the_way_the_cli_does(tmp_path, monkeypatch):
     assert mcp_server.c64_disk_block_read(messy, 18, 0)["image"] == "many.d64"
     assert mcp_server.c64_disk_block_write(messy, 1, 0, values=[1])["image"] == \
         "many.d64"
-    assert _cli(["disk", "block", "read", messy, "18", "0"])["image"] == "many.d64"
+    assert cli_json(["disk", "block", "read", messy, "18", "0"])["image"] == "many.d64"
     assert img.exists()
 
 
@@ -411,7 +402,7 @@ def test_validate_tool_matches_the_cli(image):
     assert res["clean"] is True
     assert set(res) == {"image", "clean", "blocks_free_before",
                         "blocks_free_after", "repaired_blocks", "messages"}
-    assert res == _cli(["disk", "validate", str(image)])
+    assert res == cli_json(["disk", "validate", str(image)])
 
 
 @needs_c1541
@@ -423,7 +414,7 @@ def test_build_tool_matches_the_cli(tmp_path):
     core = {"image", "label", "files", "blocks_used", "blocks_free",
             "blocks_total", "run"}
     assert core <= set(res) <= core | {"labels"}
-    assert res == _cli(["disk", "build", str(_manifest(tmp_path))])
+    assert res == cli_json(["disk", "build", str(_manifest(tmp_path))])
 
 
 @needs_c1541

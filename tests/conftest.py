@@ -23,6 +23,7 @@ import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from click.testing import Result
@@ -74,6 +75,37 @@ def assert_json_error(result: Result) -> dict:
     assert isinstance(payload.get("error"), str) and payload["error"], \
         f"no error message in the failure payload: {payload!r}"
     return payload
+
+
+def cli_json(argv: list[str], *, session=None, exit_code: int = 0) -> dict:
+    """Run one ``--json`` CLI command and return its parsed payload.
+
+    The CLI half of a ``…_matches_the_cli`` test: the MCP side calls its tool,
+    this side runs the command, and the two payloads (or the two messages) are
+    compared whole rather than key by key. ``session`` patches
+    ``c64lib.cli.Session`` so both front ends drive the *same* fake — which is
+    what makes a whole-payload comparison an assertion about lockstep instead
+    of an assertion about two unrelated mocks.
+
+    ``exit_code`` is asserted, not assumed: a command that failed for some
+    unrelated reason names itself here, with its output, instead of surfacing
+    three lines later as a ``KeyError`` on the payload.
+
+    Lives here because three test files had grown their own copy.
+    """
+    from click.testing import CliRunner
+
+    from c64lib.cli import main
+
+    runner = CliRunner()
+    if session is None:
+        result = runner.invoke(main, ["--json", *argv])
+    else:
+        with patch("c64lib.cli.Session") as S:
+            S.attach.return_value = session
+            result = runner.invoke(main, ["--json", *argv])
+    assert result.exit_code == exit_code, result.output
+    return json.loads(result.output)
 
 
 # --- emulators left behind by an earlier run ------------------------------

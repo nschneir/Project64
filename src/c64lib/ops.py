@@ -3,6 +3,12 @@
 One implementation of the wait/until primitives, symbol and ref plumbing,
 keyboard typing, sprite and EasyFlash state reads, cart reboot and build
 dispatch, so the two front ends cannot drift.
+
+Also the handful of message fragments that are findings rather than wording —
+`RUNAWAY_ROUTINE`, `profile_hazard`, `key_state_note`,
+`stopped_wait_diagnosis`. Each front end still renders its own message around
+them and passes in its own spelling of any command it names, per the house
+rule; what lives here is the part that would be a divergence if it drifted.
 """
 
 from __future__ import annotations
@@ -689,6 +695,16 @@ def wait_for_break(session, timeout: float = 30.0,
 CALL_TRAP = 0x0400
 
 
+#: what a routine that never came back most likely was. Four timeout messages
+#: end with it — `c64 call`/`c64 profile` and c64_call/c64_profile — and unlike
+#: the `until` and `key hold` timeout prose (deliberately left doubled, because
+#: each side names a companion verb the other spells differently) this clause
+#: names no command at all, so it can be one string. Each front end still
+#: writes everything around it.
+RUNAWAY_ROUTINE = ("(runaway routine? check the address is a subroutine "
+                   "ending in RTS)")
+
+
 def call_routine(session, addr: int, a: int | None = None, x: int | None = None,
                  y: int | None = None, timeout: float = 30.0,
                  trap: int = CALL_TRAP) -> dict:
@@ -868,6 +884,22 @@ def profile_samples_loop(mon, addr: int, n: int, timeout: float,
         out["FL"] = restored
     mon.checkpoint_delete(ck.number)
     return {"fired": True, "raw": raw, "reached": len(raw), "registers": out}
+
+
+def profile_hazard(with_irq: bool, remedy: str) -> str:
+    """What a timed-out profile left behind, ending in the caller's `remedy`.
+
+    The state is a library fact — the CIA#2 timers are still running, and the
+    I flag is still masked unless the measurement ran with interrupts live —
+    so both front ends report it in the same words. Only the way out is theirs
+    to spell: one names `c64 reg set FL`, the other c64_reg_set. With
+    `with_irq` there is nothing to clear and `remedy` is unused, which is why
+    it is a plain argument rather than something the caller has to guard.
+    """
+    if with_irq:
+        return "CIA#2 timers A/B are left RUNNING"
+    return ("CIA#2 timers A/B are left RUNNING and the I flag is left masked "
+            "— the jiffy clock and keyboard stay dead until " + remedy)
 
 
 def profile_routine_samples(session, addr: int, n: int = 1,
@@ -1059,6 +1091,21 @@ def type_basic(session, text: str, run: bool = False) -> dict:
     return {**key_type(session, text, decode_escapes=False), "run": run}
 
 
+def key_state_note(key: str, released: bool, *, flag: str,
+                   clear_with: str) -> str:
+    """Where a timed-out hold left the key, and how to undo it.
+
+    The machine is left RUNNING by then, so the caller cannot look at $CB for
+    itself and the message has to say it. Both front ends say the same thing;
+    `flag` is the option that asked for the state (`--no-release` vs
+    `release=false`) and `clear_with` the poke that ends it, because a caller
+    reading one front end must not be sent to the other's commands.
+    """
+    if released:
+        return "key released ($CB=64)"
+    return f"$CB still holds {key!r} ({flag}) — clear it with {clear_with}"
+
+
 def key_hold(session, key: str, at_addr: int, frames: int = 1,
              timeout: float = 30.0, release: bool = True) -> dict:
     """Hold KEY down for `frames` game ticks: write its keyboard-matrix
@@ -1230,3 +1277,25 @@ def machine_state(session) -> str:
             return status() if status else "unknown"
     except (ConnectionError, TimeoutError, OSError):
         return "unknown"
+
+
+def stopped_wait_diagnosis(effect: str, polls: str, *, stopped_by: str,
+                           remedy: str) -> str:
+    """Why a wait timed out on a machine that was halted for the whole window.
+
+    The one diagnosis behind six messages: three polling waits on each front
+    end, none of which resumes the CPU, so a halted machine could not have
+    produced what the wait was looking for. `effect` is what could not happen
+    ("the byte could not change") and `polls` what the wait watches instead of
+    the CPU — the only two things that differ between the three waits.
+
+    `stopped_by` and `remedy` are the front end's own: it names the commands
+    that could have stopped the machine and the one that resumes it, because
+    a CLI caller told to call `c64_continue` — or an MCP caller told to run
+    `c64 continue` — has been handed the other front end's manual. That is the
+    wrinkle that kept this pair doubled; naming it twice is cheaper than
+    doubling forty words.
+    """
+    return (f"the machine was STOPPED for the whole wait, so {effect}: a wait "
+            f"polls {polls}, it never resumes the CPU. Something before this "
+            f"stopped it ({stopped_by}, or a checkpoint hit). {remedy}")
