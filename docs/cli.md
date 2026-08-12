@@ -609,16 +609,24 @@ frame-budget truth.
 Clearing DEN (`$D011` bit 4) stops the VIC fetching, so no badline steals a
 cycle and the count is instruction cycles only — for `demos/1812`, whose mode
 byte is `$3B`, that is `c64 mem write '$d011' '$2b'`. What it buys is not a
-smaller number but a *reproducible* one. All six blanked legs of a two-build
-profiling matrix over 1812's `scanfill` reproduced exactly across two
-independent batches, and the two legs that ran the same unmoved code in
+smaller number but a *reproducible* one. In a two-build profiling matrix over
+1812's `scanfill`, the two blanked legs that ran the same unmoved code in
 different builds came back as **98,909 cycles each — the same integer, not the
-same within a band**; the identical legs measured with the screen on drifted
-−59…+88 cycles run to run. What the DMA contributes is close to a flat
-multiplier on whatever you are measuring — ×1.0664 to ×1.0686 across the six
-legs of that experiment, against the textbook 25 badlines × ~43 cycles ÷ 17,095
-= ×1.0671 — so a blanked figure scales back to a wall-cycle one by roughly that
-factor.
+same within a band**, where those same two legs measured with the screen on
+drifted −59…+88 cycles run to run.
+
+What reproduces across *workloads* is the difference, not the leg. Re-running
+that matrix at a different shape configuration moved every absolute leg — the
+widest by 71,492 cycles — and still returned **Δ(sort) = −11,214 and a null
+control of exactly 0, the same two integers as the first batch**. Blanking buys
+arithmetic you can reproduce, not a leg you can quote as a constant; quote the
+subtraction, and say what workload the legs were taken at.
+
+What the DMA contributes is close to a flat multiplier on whatever you are
+measuring — ×1.0664 to ×1.0686 across the six legs of that experiment, against
+the textbook 25 badlines × ~43 cycles ÷ 17,095 = **6.29% of the frame stolen**,
+so a blanked count scales back to a wall-cycle one by 1 ÷ (1 − 0.0629) =
+**×1.0671**.
 
 The caveat is the whole of the technique: with the screen blanked you are no
 longer measuring what the program experiences. A blanked profile answers *how
@@ -698,9 +706,10 @@ scanfill` said the routine got **12,727** cheaper, and the 737-cycle gap — 8×
 the ±90 two single arrivals carry — was filed as the differential
 under-reporting by 6.2%. It was not under-reporting. Re-measured blanked, the
 sort is −11,214 and the routine is −11,870, and the −656 between them is the
-*untouched* row body getting cheaper: the 47-byte shift moved five tables
-(`dither`, `dither+1`, `rowaddrl`, `rowaddrh`, `attrcoll`) relative to the
-unmoved code that indexes them, worth −480 counted off the addresses, and took
+*untouched* row body getting cheaper: the 47-byte shift moved the four tables
+behind five absolute-indexed reads (`dither`, read twice as `dither` and
+`dither+1`; `rowaddrl`; `rowaddrh`; `attrcoll`) relative to the unmoved code
+that indexes them, worth −480 counted off the addresses, and took
 the one taken branch per row off the `$1100` boundary, worth −179. Predicted
 −659 against −656 measured, and −480 against −479 out of sample on a second
 shape. Both numbers were right about different quantities: the differential is

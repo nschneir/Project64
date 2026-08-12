@@ -313,7 +313,9 @@ now takes one signed compare and at most one swap.
 Each patched leg is a single arrival at ~±45, so each differential carries ~±90.
 **The differential rows and the whole-routine rows are not two readings of one
 number, and the 737 between −11,990 and −12,727 is not error.** The 47 bytes
-shifted five tables `spanfill` indexes and took the one taken `→ sfnext` branch
+shifted the four tables behind `spanfill`'s five absolute-indexed reads
+(`dither` is read twice, at `dither` and `dither+1`) and took the one taken
+`→ sfnext` branch
 per row off the `$1100` boundary, which makes the *untouched* row body 656
 cycles cheaper — real work, collected by `scanfill` and `drawshape`, and
 cancelled by construction in the differential, whose two legs both delete that
