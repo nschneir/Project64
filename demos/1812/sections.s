@@ -125,8 +125,10 @@ secspawn:
 ;
 ; Nothing in either section is routed through the filter — not the pianos, and
 ; not the reed, which drops the trumpet row's band-pass.  That is a carve-out
-; rather than a preference, and its WHY is recorded once, with secres/secvol
-; below: that is the table which would have to do the routing.
+; rather than an oversight, and its WHY is recorded once, with the filter
+; tables below: that is where the routing would have to be done, and since
+; seccut the reason is a judgement about these instruments rather than a fact
+; about the chip.
 
 secinstr:
         ; --- 0 hymn: a solo piano, two hands, one instrument ---
@@ -192,36 +194,165 @@ secinstr:
         .byte   $10, $00, $00, $00, $00
 
 ; ---- filter setup per section -------------------------------------------
-; $D417 (resonance + routing) and $D418 (mode + volume).  The cannon rewrites
-; both while a shot is sounding.
+; $D416 (cutoff high), $D417 (resonance + routing) and $D418 (mode + volume),
+; all three written by loadinstr — at seqreset, and at every section change
+; EXCEPT 4->5.  That boundary takes a different path and is not an oversight
+; in this comment: nextsec branches to `silence` and returns before nsplay
+; (music.s:224-228), so loadinstr never runs for section 5 and this table's
+; [5] entries are never loaded at all.  What runs instead is `silence`, which
+; writes FOUR registers — the three voice control bytes and $D418
+; (music.s:237-256) — where loadinstr would have written eighteen.  It is the
+; narrower path, not the more thorough one, and it is sufficient rather than
+; equivalent: it reaches the two things that decide whether anything is heard,
+; the gate bits and the volume, and it leaves $D415-$D417 exactly as they
+; stood at the end of the finale — $D416 and $D417 as loadinstr set them for
+; section 4, and $D415 still sndinit's zero, since sndinit is its only writer
+; (the writer list at the end of this block is the authority).  So the hold
+; inherits the finale's cutoff and routing, and that is only harmless because
+; both are already inert — see the corollary near the end of this block,
+; which says what that costs.
 ;
-; WHY SECTIONS 0 AND 1 ROUTE NOTHING — the deliberate omission, recorded here
-; and only here, because this is the table that would have to do the routing.
-; It covers the hymn's two pianos, the Marseillaise's piano pair, and the
-; reed.  The reed is the one that looks like an oversight: references/
-; hardware.md's Trumpet row is a sawtooth WITH a band-pass, and the reed takes
-; its waveform and its sustain 10 from that row — but only those two.  Its
-; attack and decay differ for the reasons given beside the row itself; its
-; release differs for the reason given with the piano rows above, since the
-; 48 ms and the argument for it are shared by every sounding row in sections
-; 0 and 1; and the band-pass is dropped for the reason below.
+; A cannon shot rewrites all three as well, but by TWO routines on two
+; schedules, and collapsing them into "the cannon" is a conflation this file
+; has already had to correct once: cannonfire writes $D417 and $D418 once, at
+; the shot (music.s:428-433), while cantick writes $D416 once a frame for 24
+; frames (music.s:461-476) — the first of them in the shot's OWN frame, not
+; the frame after it: cannonfire runs inside voicetick (music.s:327) and
+; cantick runs after all three voicetick calls in the same seqtick
+; (music.s:201-208).
 ;
-; The cutoff word is 0 for the whole of sections 0-2, and $D415/$D416 have
-; exactly two writers between them:
-;   sndinit  zeroes registers $00-$18 — its loop runs to `cpx #25` — once at
-;            startup and once per restart, which covers both;
-;   cantick  writes $D416, and only while csweep is counting down from a
-;            cannon shot, which cannot happen before section 3.
-; So through sections 0-2 the cutoff is still sndinit's zero.  That zeroing is
-; load-bearing, not incidental: SID registers survive a program stop (see
-; sndinit's own comment), so a register nothing wrote would hold whatever the
-; last program left there — the conclusion is "0" precisely BECAUSE sndinit
-; writes it.
+; THE CUTOFF HAS TO BE A REAL VALUE, AND FOR THE WHOLE LIFE OF THIS DEMO IT
+; WAS NOT.  A filter does nothing until secres routes a voice into it, and
+; nothing USEFUL until the cutoff sits where that voice's harmonics are.  The
+; battle has always routed voice 1 through a band-pass — secres[2] = $f1,
+; secvol[2] = $2f — but before this table existed nothing ever wrote the
+; cutoff pair ahead of section 3, so the battle band-passed at sndinit's
+; zero.  references/hardware.md:253 puts the 11-bit $D415/$D416 pair at
+; about 30 Hz to 12 kHz, so a word of 0 is the bottom of the range: the
+; band-pass was SUBTRACTING voice 1, not shaping it.  seccut is the fix.
 ;
-; A voice routed through a filter parked at the bottom of its range is
-; subtracted, not shaped.  So secres[0] and secres[1] stay $00, and the reed
-; and the pianos are sold by their envelopes alone.
+; seccut[2] = $19, and here is where that number comes from.  $D415 stays 0
+; (below), so the word is 8 * $19 = 200 of 2047.  hardware.md:253 gives that
+; pair's ENDPOINTS — about 30 Hz to 12 kHz — and no curve between them, so any
+; frequency put on 200 is interpolated, and interpolating LINEARLY is an
+; assumption of this comment rather than something the reference licenses:
+; 30 + (12000-30)*200/2047 = about 1.2 kHz.  Read that as a label for the byte,
+; not as a measurement of it — the NOMINAL paragraph below says what was
+; actually measured, and it does not agree.
+;
+; s2v1's running figure spans D#4 to E5 — 311 to 659 Hz — so 1.2 kHz sits
+; ABOVE every fundamental in it and BELOW the fifth harmonic of every note in
+; it: in the harmonically dense part of a sawtooth's spectrum in every case,
+; though not at the same harmonic in every case — near the fourth of the
+; lowest notes, between the first and second of the highest.  It is NOT inside
+; the second-to-fourth harmonic band of all of them, and no byte could be:
+; a cutoff inside [2f, 4f] for every note needs 2*f_hi <= 4*f_lo, so those
+; windows intersect only across a pitch ratio of 2 or less, and this figure
+; spans 2.12.
+;
+; E5 ALONE IS WHAT MAKES THAT IMPOSSIBLE, and the distinction matters because
+; a reader who checks the other candidate will find equality and think the
+; claim is wrong.  E5 wants the cutoff at or above 2*E5 = 1319 Hz while D#4
+; wants it at or below 4*D#4 = 1245 Hz; there is no such value.  D#5 is NOT a
+; second witness — it sits EXACTLY on the boundary, its notefreq word $27E0
+; being precisely twice D#4's $13F0, so 4*D#4 = 2*D#5 = 1245 Hz would satisfy
+; D#5 and the whole rest of the figure, by a hair and with E5 still outside.
+; Separately, at the 1.2 kHz actually chosen, three of the figure's 32 events
+; fall outside the window — D#5 twice and E5 once — but that is a fact about
+; this value, where E5's is a fact about every value.
+;
+; With secres[2]'s resonance nybble $F the result is a fixed formant the
+; figure runs under, which is what a band-pass on an ostinato is for; it also
+; leaves the bottom of the mix to voice 3's octave bass, which is not routed.
+; Centring the band ON the fundamentals was the alternative and is rejected:
+; passing the fundamental and rejecting the harmonics turns a sawtooth into a
+; sine and takes the battle's bite away.
+;
+; That 1.2 kHz is a NOMINAL twice over — once for the interpolation and once
+; for the chip — and hardware.md:360-361 is the reason to say so out loud
+; rather than quote it as a fact.  x64sc emulates a reSID MOS6581 here (VICE
+; says so in its own log), and a three-second capture inside the battle,
+; against the identical capture taken before seccut existed, gained +4.5 dB in
+; the 1.0-1.6 kHz band and +7.5 dB in 1.6-2.5 kHz — so the real resonant peak
+; sits somewhat ABOVE 1.2 kHz.  Two things could put it there and one capture
+; cannot separate them: the linear interpolation being wrong about where 200
+; lands, and the 6581's analog curve varying as the caveat warns.  The first
+; is the likelier.  Neither moves the choice, because the choice is argued in
+; harmonics and not in hertz: the band is still above every fundamental and
+; still below the fifth harmonic of every note.  Another chip would place it
+; differently again, which is the whole reason for arguing it that way.
+; (The same capture pair: whole mix +1.5 dB, no clipped samples, so the voice
+; came back without costing the headroom.)
+;
+; seccut[3] = $10 is cantick's own floor (its ctfloor value), so section 3
+; starts where the sweep ends rather than wherever the previous section left
+; the register.  Shot 1 fires on section 3's first tick and overwrites it
+; with $F5 the same frame, so this is a defined restore point rather than an
+; audible value — but "defined" is the point: before seccut nothing restored
+; $D416 at all.
+;
+; $D415 GETS NO TABLE, DELIBERATELY.  It is the low three bits of the word —
+; one eighth of a seccut step — and hardware.md:360-361 ("6581 caveats") says
+; the analog filter varies between machines and that exact cutoff is never to
+; be relied on.  Three bits below the resolution of a figure that is itself
+; approximate would cost a second six-byte table and its own write for
+; nothing audible, so sndinit's zero is left standing and the word is always
+; 8 * seccut.
+;
+; WHY SECTIONS 0, 1, 4 AND 5 STILL ROUTE NOTHING — the deliberate omission,
+; recorded here and only here, because this is the table that would have to
+; do the routing.  It covers the hymn's two pianos, the Marseillaise's piano
+; pair and its reed, and the finale's three keepers.  The reed is the one
+; that looks like an oversight: references/hardware.md's Trumpet row is a
+; sawtooth WITH a band-pass, and the reed takes its waveform and its sustain
+; 10 from that row — but only those two.  Its attack and decay differ for the
+; reasons given beside the row itself; its release differs for the reason
+; given with the piano rows above, since the 48 ms and the argument for it
+; are shared by every sounding row in sections 0 and 1; and the band-pass is
+; dropped for the reason below.
+;
+; It is NO LONGER that the cutoff is unusable — seccut fixed that, and the
+; chip would band-pass the reed perfectly well now.  It is that these
+; instruments were chosen and judged against an unfiltered signal path and
+; are settled: the piano is sold by its envelope alone (see the arc block
+; above), and the filter is GLOBAL, so a band-pass placed for the reed would
+; also sit on whichever piano voices secres routed alongside it and the two
+; would have to be re-judged together.  seccut[0], [1] and [4] are therefore
+; $00 and inert — with secres $00 no voice reaches the filter at all, so those
+; sections cannot hear their cutoff whatever it holds.  Zero is chosen over
+; some other inert value only because it is what sndinit already leaves there,
+; so the table records the state rather than changing it.  Both halves of that
+; are ASSERTED, not merely written down: test.yaml reads $D417 == 0 at a stop
+; inside section 0, at one inside section 1 and at one inside section 4,
+; because seccut turned this carve-out from a fact about the chip into a
+; judgement about the instruments, and a judgement is one byte of secres from
+; being reversed in silence.  That is one stop for each of the three sections
+; this paragraph rules on.  Section 4's was written for a different reason —
+; it witnesses the cannon handing voice 3 back — but it pins the same byte,
+; and test.yaml says so where all three are enumerated.
+;
+; SECTION 5's ENTRY IS A DIFFERENT CASE and the sentence above does not cover
+; it: [5] is never read by anything, because loadinstr does not run at the
+; 4->5 boundary (see the head of this block).  What makes the hold inert is
+; therefore not this table at all — it is that $D417 still holds the finale's
+; $00 and `silence` has zeroed $D418.  The [5] entries exist to keep all three
+; tables the same shape as `section`'s range, which is how secres[5] and
+; secvol[5] have always been carried; they are documentation, not data.
+;
+; The writers of the cutoff pair, since a comment here is read as a contract:
+;   sndinit   zeroes registers $00-$18 — its loop runs to `cpx #25` — once at
+;             startup and once per restart.  Still the ONLY writer of $D415.
+;   loadinstr writes $D416 from seccut at seqreset and at every section change
+;             but 4->5 (see the head of this block), so section 0 has its
+;             value from the first frame and section 5 inherits the finale's.
+;   cantick   writes $D416 too, but only while csweep is counting down from a
+;             cannon shot, which cannot happen before section 3.
+; sndinit's zeroing is load-bearing, not incidental: SID registers survive a
+; program stop (see sndinit's own comment), so a register nothing wrote would
+; hold whatever the last program left there — $D415 reads 0 precisely BECAUSE
+; sndinit writes it.
 
+seccut: .byte   $00, $00, $19, $10, $00, $00   ; $D416; $D415 stays sndinit's 0
 secres: .byte   $00, $00, $f1, $f4, $00, $00   ; battle routes v1, cannon routes v3
 secvol: .byte   $0f, $0f, $2f, $1f, $0f, $00   ; battle band-pass, cannon low-pass
 

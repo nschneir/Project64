@@ -701,8 +701,21 @@ benext: inc     bei
 :                                ; fall through to the sort
 
 ; ---- sort edge indices by ytop, so the scanline loop admits in order -----
-; Bubble sort: nedge is at most 16, so this is a few hundred cycles once per
-; shape against a scanline loop measured in tens of thousands.
+; Bubble sort, nedge at most 16 — and MEASURED, because "a few hundred cycles
+; once per shape" stood here for the life of the demo and is wrong by ~50x.
+; At the very nedge 16 that bound names it costs 16,381 cycles worst case
+; (16-gon at size 90, angle 192, max of 8 samples; 14,369-14,628 at angle 0),
+; and 3,444 on the natural mid-run 8-edge shape.  Only a triangle comes near
+; the old claim, at 147.  The conclusion survives its number: against a
+; scanline loop measured in tens of thousands (75,996 on that same 8-edge
+; shape, as this build ships — it was 78,688 before the two-crossing case went
+; in) this is 3.0% of a worst-case drawshape — but it is also 70% of
+; buildedges itself, which the old sentence did not say and which is the more
+; interesting fact.  Anchor: `c64 profile $0eb9 --samples 8` after
+; `call xform`, $0EB9 being the `ldx #0` below; the block falls through to
+; besorted, which IS buildedges' rts, and the index init makes re-entry
+; idempotent, so --samples is honest here.  The angle sweep behind those
+; figures is in AUDIT.md's iteration-3 performance section.
 
         ldx     #0
 beid:   txa
@@ -935,11 +948,33 @@ paCnext:
 paCdone:
 
 ; ---- sort the crossings ---------------------------------------------------
+; Two crossings is the common case: it is the only NON-ZERO count a convex
+; shape produces, and seven of the ten types are convex.  So it gets a
+; straight-line compare-and-swap instead of the general bubble sort below.
+; The general sort pays for machinery two elements cannot use: the `bswap`
+; flag, the index loop and a second pass that exists only to observe that the
+; first one swapped nothing.  Measured entry-to-`sfclip` on the 16-gon at size
+; 90, whose 179 rows count {2: 178, 0: 1} — the zero is the LAST row, because
+; sfloop runs scany to symax inclusive while pass A drops every edge whose
+; ybot has been reached, and symax IS the bottom-most vertex y, so nothing
+; survives to cross it (read back at scany 189: naet 0, ncross 0; at 188:
+; naet 2, ncross 2).  That row leaves through the `bcc` below, not this case.
+; 21,409 cycles of sorting per shape before this case existed, 9,419 after.
+; The three concave types are the reason the general sort stays: some of their
+; rows carry four crossings, take the same bubble sort as before, and now pay
+; 5 cycles more than they used to, on those rows only — the `beq cs2` below as
+; a not-taken branch (2) plus the `jmp sfclip` at the sort's exit (3), where it
+; used to fall through.  No measured figure moves and the bias runs against the
+; improvement.  Both legs of the measurement, and the method, are in AUDIT.md's
+; iteration-3 performance section — NOT in the commit body that added this
+; case, which predates the row histogram above and still carries the retracted
+; claim that every one of the 179 rows crosses twice.
         jmp     cssort
 sfjnext: jmp    sfnext          ; the second trampoline, for the tail half
 cssort: lda     ncross
         cmp     #2
-        bcc     sfjnext
+        bcc     sfjnext         ; 0 or 1 crossings: nothing to order
+        beq     cs2             ; exactly 2: the straight-line case below
 cspass: lda     #0
         sta     bswap
         ldx     #1
@@ -968,9 +1003,31 @@ csnx:   inx
         jmp     csin
 cschk:  lda     bswap
         bne     cspass
+        jmp     sfclip          ; three or more crossings rejoin here
+
+; ---- the two-crossing case: one signed compare, at most one swap ----------
+cs2:    lda     crossl+1        ; cross[1] < cross[0] ?
+        cmp     crossl
+        lda     crossh+1
+        sbc     crossh
+        bvc     :+
+        eor     #$80
+:       bpl     sfclip          ; already ordered, which is the usual way round
+        lda     crossl+1
+        ldy     crossl
+        sta     crossl
+        sty     crossl+1
+        lda     crossh+1
+        ldy     crossh
+        sta     crossh
+        sty     crossh+1
 
 ; ---- fill the pairs, clipped to the screen -------------------------------
-        lda     scany+1         ; only rows 0..199 paint
+; `sfclip` is a label with no code of its own: it names the in-range test so
+; the L1 profiling leg (patch it to `jmp sfnext` and no row runs the pair-clip
+; in either leg) can be re-derived from the .lbl instead of by counting bytes
+; from `cschk`, which moves whenever this sort changes.
+sfclip: lda     scany+1         ; only rows 0..199 paint
         bne     sfnext
         lda     scany
         cmp     #200
