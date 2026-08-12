@@ -103,9 +103,10 @@ size in every range reachable. `pickshape` **~25,000 → 1,477 cycles**.
 
 Three rounds of optimisation had more than halved the shape cost and the
 battle still dropped 52. The battle listened to all three voices, and voice 1
-there is a running sixteenth-note figure: 350 onsets in 2,100 frames, one
-every six. That is texture, not accent. `secspawn[2]` changed from `%111` to
-`%110`, so the battle spawns on the stabs and the bass hits.
+there is a running sixteenth-note figure of duration-6 events — 7 real ticks
+each, so 300 onsets in 2,100 frames, one every seven. That is texture, not
+accent. `secspawn[2]` changed from `%111` to `%110`, so the battle spawns on
+the stabs and the bass hits.
 
 This is a design choice about what a shape should mark, not a way of making
 a number go away, and it is recorded here as such. `dropped` = **0**.

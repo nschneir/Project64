@@ -48,15 +48,86 @@ steps:
   - assert: { mem: "$C3FE", equals: ["$fe"] }        # the largest entry
 
   # ======================================================================
-  # 3. the sections progress on their frame budgets (SPEC.md 6.4)
+  # 3. the texture arc opens on ONE instrument (SPEC.md 6.4)
+  # ======================================================================
+  # Still stopped at that first drawshape, which is section 0 frame 1: s0v1
+  # opens on a note rather than a rest, so the anchor above fires immediately
+  # and there is no long rest for it to hang on.
+  #
+  # sidput mirrors every SID write into sidshadow at the register's own
+  # offset (music.s:58-60) and is the chip's only writer, so this block is
+  # the whole evidence that a voice did or did not sound.  Voice n sits at
+  # offset 7n (vbase, music.s:506): frequency at +0/+1, control at +4, SR
+  # at +6 (hardware.md:238-242).
+  #
+  # THE HYMN IS A SOLO PIANO.  Voice 1 is sounding; the left hand has not
+  # entered yet and voice 3 never will, and both read ungated — bit 0 of the
+  # control byte clear, which is how secinstr stores a waveform and how
+  # gateoff leaves it (sections.s:97, music.s:384-393).
+  - assert: { mem: "sidshadow+4",  mask: { and: "$41", equals: ["$41"] } }  # v1 pulse, GATED
+  - assert: { mem: "sidshadow+11", mask: { and: "$41", equals: ["$40"] } }  # v2 pulse, silent
+  - assert: { mem: "sidshadow+18", mask: { and: "$11", equals: ["$10"] } }  # v3 triangle, silent
+  # The gate bit only says "not sounding now"; the frequency bytes say "has
+  # never sounded".  THREE routines write a voice's +0/+1 and nothing else
+  # does: sndinit zeroes $00-$18 at startup and on restart (music.s:68-75),
+  # gateon writes a pitch (music.s:353-370), and cannonfire writes voice 3's
+  # pair directly, from section 3 only (music.s:415-420).  loadinstr never
+  # reaches +0/+1 (instrdst is 4,5,6,2,3 — music.s:507-509) and a rest calls
+  # gateoff alone.  Here in section 0 the cannon cannot have run and the only
+  # other non-gateon writer writes zeros, so 0,0 is exact.
+  - assert: { mem: "sidshadow+7",  equals: [0, 0] }   # the left hand, still to come
+  - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3, silent by design
+
+  # ---- the piano is an ENVELOPE, not a waveform --------------------------
+  # A15, and the one byte-level fact that separates this hymn from the organ
+  # it replaces.  The old rows were three sustained pads at sustain 10 / 9 /
+  # 10, and a non-zero sustain nybble is the single thing that makes a SID
+  # voice read as an organ; both piano voices now hold sustain 0, so a note
+  # is struck and then only decays.  The SR byte is offset 7n+6 — 6 and 13
+  # (hardware.md:242, sustain level in the high nybble).  Masked to that
+  # nybble alone: the release nybble is a separate decision (2 = 48 ms, sized
+  # to voicetick's three-frame gate-off lead) and this criterion is not it.
+  - until:  { ref: seqtick, count: 900 }              # frame 901, well past the
+  - assert: { mem: section, equals: 0 }               # left hand's tick-849 entry
+  - assert: { mem: "sidshadow+6",  mask: { and: "$f0", equals: [0] } }   # v1 SR
+  - assert: { mem: "sidshadow+13", mask: { and: "$f0", equals: [0] } }   # v2 SR
+  # ...and the arc has gained its second hand but not a third voice.  The
+  # first read is the frequency HIGH byte alone, and that byte alone settles
+  # it: notefreqh's entries run $02..$7e (tables.inc:152-161), so NO legal
+  # pitch has a zero high byte, and of the three writers of a +0/+1 pair
+  # listed above only gateon can put a non-zero there — sndinit writes zeros
+  # and cannonfire is voice 3's and cannot run before section 3.  So non-zero
+  # means the left hand has gated a note, and a zero would have meant it
+  # never had.  The second read takes voice 3's whole pair, which is the form
+  # the file's other two reads of that silence use.
+  - assert: { mem: "sidshadow+8",  not_equals: 0 }    # the left hand has played
+  - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3 never does
+
+  # ======================================================================
+  # 4. the sections progress on their frame budgets (SPEC.md 6.4)
   # ======================================================================
   # 2400 / 1500 / 2100 / 1800 / 2400 frames.  `secchange` fires on the
   # advance itself, so stopping there N times lands on the Nth change.
   - until:  { ref: secchange, count: 1 }
   - assert: { mem: frames, equals: [96, 9] }          # 2400
+  # The hymn is over and section 1 has not been loaded yet — `secchange` sits
+  # before `inc section`, so `section` still reads 0 and this is section 0's
+  # shadow.  Voice 3's frequency bytes are STILL 0,0, which is the whole
+  # 2399-tick hymn and not merely the first 901 frames of it: of the three
+  # writers of a +0/+1 pair listed above, sndinit has run once, at startup,
+  # and wrote zeros; gateon has never been called for voice 3; and cannonfire
+  # is three sections away.  So this is the strongest form the "voice 3 is
+  # silent for the whole hymn" claim has.
+  - assert: { mem: section, equals: 0 }
+  - assert: { mem: "sidshadow+14", equals: [0, 0] }
   - until:  { ref: secchange, count: 1 }
   - assert: { mem: section, equals: 1 }
   - assert: { mem: frames, equals: [60, 15] }         # 3900
+  # A witness for the battle, recorded here at its last silent moment: voice
+  # 2's stream legitimately rests every other event (six frames on, six off),
+  # so no instantaneous read can say whether it is playing in section 2.  What
+  # can is whether it gates a DIFFERENT note there — see the battle group.
+  - sample: { mem: "sidshadow+8", as: v2f }
   # The live palette bytes, NOT a screen cell: a section change deliberately
   # does not repaint anything (SPEC.md 3).  A cell only takes the new palette
   # when a shape of the new section actually covers it, so asserting on
@@ -67,6 +138,56 @@ steps:
   - assert: { mem: section, equals: 2 }
   - assert: { mem: frames, equals: [112, 23] }        # 6000
 
+  # ---- the arc at full width: three instruments in the battle ------------
+  # The other end of the arc from the hymn's solo piano, and the last frame of
+  # the battle: `secchange` is the label at the TOP of nextsec, before
+  # `inc section` (music.s:212-214), so section 2's state is still the state
+  # here — including `noteidx`, which nextsec zeroes four lines further down
+  # (music.s:218).
+  #
+  # THE BAR EACH READ HAS TO CLEAR is that it FAILS IF A BATTLE VOICE GOES
+  # SILENT — if any of s2v1/s2v2/s2v3 became a rest-only stream.  Three reads
+  # that look like they clear it and do not, recorded so they are not tried
+  # again: `vwave` merely restates secinstr, which loadinstr writes
+  # unconditionally; a non-zero frequency byte only means "sounded at some
+  # point since sndinit", and all three voices have by now — voices 1 and 2 in
+  # the hymn and voice 3 in section 1's bass hand; and the gate bit is a coin
+  # flip, since voicetick releases a note three frames before its event ends
+  # (music.s:264-277) and two of these three voices are in that gap right now.
+  #
+  # So each voice gets the witness that is exact FOR IT:
+  # - v1: `noteidx` counts voice 1's PITCHED events only — vtrest branches
+  #   away before the `inc` (music.s:309-316) — and nextsec zeroed it at the
+  #   3900 boundary, so a non-zero value here is voice 1 sounding in THIS
+  #   section.  A rest-only s2v1 leaves it at 0.  The CONVERSE does not
+  #   hold, and saying so is the point: `noteidx` is one byte (vars.s:20)
+  #   and `inc` wraps at 256, so a voice-1 stream whose section-2 event
+  #   count were an exact multiple of 256 would read 0 here and fail this
+  #   step while sounding.  s2v1 fires 300 of them (2100 frames at 7 real
+  #   ticks an event) and so reads 44, which means it is the margin and not
+  #   the logic that keeps this green — the same latent false failure that
+  #   the `differs` witness below had to be checked by hand against.
+  # - v2: its stream rests every other event by design, so it is read across
+  #   the section instead: `differs` against the byte sampled at 3900 says it
+  #   gated a note of a different pitch somewhere inside the battle.  A
+  #   rest-only s2v2 never calls gateon, so the byte stays frozen at section
+  #   1's value and this fails.  (Checked, not assumed: $12 there, $1f here.)
+  # - v3: s2v3 is sixteen pitched events — thirty-two bytes — and no rests,
+  #   so its `vnote` is a pitch — 1..72 (music.s:19-20) — at every frame of
+  #   the section.  A rest stores 0 there (REST = 0, music.s:42) and a cannon
+  #   $FD, so both fall outside the range.
+  - assert: { mem: noteidx, above: 0 }                # v1, the running figures
+  - assert: { mem: "sidshadow+8", differs: v2f }      # v2, the off-beat stabs
+  - assert: { mem: "vnote+2", between: { min: 1, max: 72 } }   # v3, the octave
+                                                      # bass — the voice the
+                                                      # hymn kept silent
+  # And the three instruments really are three, which is a guard on the
+  # secinstr rows rather than on the voices sounding: vwave holds each voice's
+  # waveform with the gate bit clear, written only by loadinstr and cannonfire
+  # (music.s:129, music.s:407-408).  Section 2 is a frozen keeper, so this
+  # should never move.
+  - assert: { mem: vwave, equals: ["$20", "$40", "$20"] }  # saw / pulse / saw
+
   # ---- shapes only ever accumulate ---------------------------------------
   # `greater_than` against a sample, never an equality: the counter climbs and
   # a poll can step over any exact value.
@@ -76,10 +197,34 @@ steps:
   - assert: { mem: dropped, equals: 0 }
 
   # ======================================================================
-  # 4. the cannon
+  # 5. the cannon
   # ======================================================================
   - until:  { ref: cannonfire, count: 1 }
   - assert: { mem: section, equals: 3 }
+  # VOICE 3 IS THE CANNON'S, ENTIRELY.  s3v3 is a trigger table and not a
+  # musical line: sixteen CANNON events of duration 112 and a LOOPS
+  # terminator, 33 bytes with no pitch among them.  Asserted rather than left
+  # to a comment, because it is what keeps that policy safe against a later
+  # data edit — a note slipped into this stream would sound with the cannon's
+  # envelope through a filter parked at its floor, and nothing else here would
+  # notice.  A pitch byte is $01..$48 and a duration byte may legally hold any
+  # of those, so no mask separates the two: the exact compare is the only
+  # expressible form, and it pins the sixteen shots and their spacing as well.
+  # The label, and no literal address here at all — every stream label moves
+  # when a stream ahead of it is edited, this comment has already had one
+  # such literal go stale on it, and the runner resolves symbols through the
+  # .lbl the run itself regenerates.  The terminator is never fetched
+  # (sixteen events at 113 ticks apiece ask for 1808 of the section's 1800 —
+  # see the note above s3v1), but it is what makes the block exactly 33
+  # bytes, and vtfetch reads a stream with no bound at all (music.s:289-296):
+  # the LOOPS byte is what stops it, not the block's length.
+  - assert:
+      mem: s3v3
+      equals: ["$fd", 112, "$fd", 112, "$fd", 112, "$fd", 112,
+               "$fd", 112, "$fd", 112, "$fd", 112, "$fd", 112,
+               "$fd", 112, "$fd", 112, "$fd", 112, "$fd", 112,
+               "$fd", 112, "$fd", 112, "$fd", 112, "$fd", 112,
+               "$ff"]
   - until:  { ref: seqtick, count: 1 }
   - assert: { mem: flash, between: { min: 1, max: 6 } }
   - assert: { mem: "$D020", mask: { and: "$0f", equals: [1] } }   # the flash,
@@ -89,6 +234,14 @@ steps:
   - assert: { mem: "sidshadow+18", mask: { and: "$81", equals: ["$81"] } }
   - assert: { mem: "sidshadow+23", mask: { and: "$04", equals: ["$04"] } }
   - assert: { mem: "sidshadow+24", equals: ["$1f"] }
+  # ...and cannonfire has put noise into the waveform shadow.  On its own this
+  # read is a tautology — $80 is also section 3's own secinstr row byte, so
+  # the shot restates the table rather than fighting it.  Its job is the pair
+  # it makes with the $14 read at the finale below: together they say the
+  # override is CONFINED to section 3.  If a later edit ever gave this voice a
+  # musical row, cannonfire would silently overwrite it sixteen times a
+  # section and this is the step that would say so.
+  - assert: { mem: "vwave+2", equals: ["$80"] }
   - until:  { ref: seqtick, count: 8 }
   - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }   # and back to black
   - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }
@@ -104,9 +257,31 @@ steps:
   - assert: { mem: palcol, equals: ["$01"] }
   # the bells: voice 3 is a ring-modulated triangle
   - assert: { mem: "sidshadow+18", mask: { and: "$14", equals: ["$14"] } }
+  # ---- and voice 3 comes back from the artillery CLEAN --------------------
+  # The boundary hands the voice back with no new code: loadinstr rewrites
+  # $D417/$D418 from secres[4]/secvol[4] (music.s:134-141) and reloads vwave
+  # from the finale's row byte (music.s:129).  $D417 = 0 un-routes the
+  # cannon's resonant low-pass; $D418 = $0f is volume 15 with all three
+  # filter-mode bits clear (hardware.md:255).
+  #
+  # THESE THREE READS MUST NOT MOVE BACK to the `secchange` stop above.
+  # `secchange` sits before `inc section` and before nsplay calls loadinstr
+  # (music.s:212-227), so at that stop all three still hold section 3's
+  # values — $f4, $1f and $80.  A read moved back an anchor to tidy the file
+  # fails in a way that looks like a bug in loadinstr and is not.
+  - assert: { mem: "sidshadow+23", equals: [0] }        # $D417: nothing routed
+  - assert: { mem: "sidshadow+24", equals: ["$0f"] }    # $D418: volume, no filter
+  - assert: { mem: "vwave+2", equals: ["$14"] }         # the bells, not the noise
+  # Recorded, not deplored: the cutoff high byte is NOT restored.  $D416 has
+  # exactly two writers in the program — cantick's sweep and sndinit's
+  # register clear (music.s:468-469, music.s:68-75) — so it keeps the last
+  # shot's floor until a restart.  Harmless, because with $D417 = 0 no voice
+  # is routed and $D418's mode bits are clear; it is also why the reads above
+  # witness the routing rather than the cutoff.
+  - assert: { mem: "sidshadow+22", equals: ["$10"] }
 
   # ======================================================================
-  # 5. the end: the whole vocabulary used, nothing dropped
+  # 6. the end: the whole vocabulary used, nothing dropped
   # ======================================================================
   - until:  { ref: secchange, count: 1 }
   - assert: { mem: section,  equals: 4 }
@@ -149,7 +324,7 @@ steps:
   - assert: { mem: "$0400", equals: ["$bc", "$bc", "$bc", "$bc"] }
 
   # ======================================================================
-  # 6. routine-level unit tests — LAST, because `call` ends the demo's run
+  # 7. routine-level unit tests — LAST, because `call` ends the demo's run
   # ======================================================================
   # smul, at the four sign quadrants and the extreme
   - poke:   { addr: MULA, values: [100] }
