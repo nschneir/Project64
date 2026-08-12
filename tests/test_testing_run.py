@@ -1279,7 +1279,7 @@ def _prg_pair(tmp_path: Path, prg_at: float, lbl_at: float) -> Path:
 
 
 #: The largest gap the `.prg` guard tolerates and the smallest it refuses, as
-#: literals rather than as `_PRG_LABELS_GRACE ± ε`: the point of the pair is
+#: literals rather than as `_LABELS_GRACE ± ε`: the point of the pair is
 #: that editing the constant has to turn the suite red.
 _WITHIN_GRACE, _BEYOND_GRACE = 59.5, 60.5
 
@@ -1339,8 +1339,8 @@ def test_a_prg_and_its_labels_written_together_are_not_stale(
 
 
 def test_allow_stale_covers_the_prg_guard_too(tmp_path):
-    """One override for both artifacts: a caller who has decided the mtimes are
-    lying should not have to discover which of the two guards spoke."""
+    """One override for every artifact: a caller who has decided the mtimes are
+    lying should not have to discover which of the three guards spoke."""
     prg = _prg_pair(tmp_path, 1_700_000_600, 1_700_000_000)
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])

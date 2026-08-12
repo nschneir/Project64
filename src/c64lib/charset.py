@@ -110,8 +110,13 @@ def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
         if not stripped or (stripped.startswith("#") and not is_row_shaped):
             # Blank line or comment. A row of `#` at the wrong width is a
             # comment here too, not a width error: in hires `#` is both the
-            # comment marker and a legend glyph, so a mis-typed row and a
-            # `#####` divider are the same string and no rule separates them.
+            # comment marker and a legend glyph, so a mis-typed row of nothing
+            # but `#` and a `#####` divider are the same string and no rule
+            # could separate them. A mixed mis-typed row (`#..#.#`) is
+            # distinguishable in principle and is dropped by this same branch
+            # anyway: one rule for every `#`-leading line, rather than a
+            # carve-out that reports some width typos and stays silent on the
+            # one shape it cannot tell from a divider.
             # `sprites.parse_sprite_sheet` drops it for the same reason;
             # deliberate in both, and the width check below is unreachable
             # for a line that starts with `#`.

@@ -297,7 +297,7 @@ class JsonAwareGroup(click.Group):
         `INPUT_ERRORS` above is the roster and carries its own WHY — including
         why `RuntimeError` may never join it, a rule that outlives any one
         spelling of the tuple. The per-site `except DiskError`/`except
-        BuildError` handlers below — two dozen of them — stay load-bearing
+        BuildError` handlers below — dozens of them — stay load-bearing
         rather than redundant: each says what the user should do next, where
         this one can only repeat what the exception happened to say.
         """

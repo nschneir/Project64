@@ -232,11 +232,16 @@ def parse_sprite_sheet(text: str, multicolor: bool = True,
             #
             # A line of `#` at the WRONG width lands here too, and is dropped
             # rather than reported as a mis-width row. Deliberate: `#` is both
-            # the comment marker and a legend glyph, so a 13-`#` typo and a
-            # `#####` divider are the same string, and the error that would
-            # catch the typo would reject the divider. `charset.parse_charset`
-            # drops it for the same reason. Getting the width right makes the
-            # line a row again — the row branch above runs first.
+            # the comment marker and a legend glyph, so a row of nothing but
+            # `#` typed 13 wide and a `#####` divider are the same string, and
+            # the error that would catch that typo would reject the divider. A
+            # mixed mis-typed row (`#..#.#`) could be told apart, and is
+            # dropped by this branch regardless — one rule for every
+            # `#`-leading line beats a carve-out that catches some width typos
+            # and is blind to the one shape a divider can wear.
+            # `charset.parse_charset` drops it for the same reason. Getting the
+            # width right makes the line a row again — the row branch above
+            # runs first.
             continue
         if ":" in stripped:
             close()

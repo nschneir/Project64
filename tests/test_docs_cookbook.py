@@ -67,6 +67,13 @@ def test_the_mux_reuse_gap_caveat_names_the_emitters_lead():
         "demos/la-galaxia/mux.s no longer holds the MUXGAP the recipe copied"
     assert f"21+{lead} = {21 + lead}" in demo, \
         "demos/la-galaxia/mux.s no longer records the reuse-distance caveat"
+    # The cookbook's listing can say 22 is safe there because its object list is
+    # fixed and was checked. The demo's is dynamic game state and was not, and
+    # a reader who assumes the cookbook's clearance carries over is reading a
+    # measurement that was never taken.
+    assert "is UNMEASURED" in demo, \
+        ("demos/la-galaxia/mux.s no longer says its own object list was never "
+         "checked against the gap — without that a reader assumes it was")
 
 
 @pytest.mark.skipif(shutil.which("petcat") is None, reason="petcat not installed")

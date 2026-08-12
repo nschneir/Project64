@@ -542,7 +542,7 @@ def _reject_stale_cart_labels(crt: Path, labels: Path, allow_stale: bool,
     Only a `.crt` `cart:` reaches this: a `.s` or an `.ef.yaml` is built by the
     run itself, labels and all, and its pair cannot disagree. The one command
     that writes a `.crt` alone and leaves the labels *valid* is
-    `c64 cart convert game.bin -o game.crt` — same image, same addresses — so a
+    `c64 cart convert game.bin game.crt` — same image, same addresses — so a
     conversion run long after the build is judged stale when it is not, and
     `--allow-stale` is the answer for it as it is for a restamping `cp -r`.
     """

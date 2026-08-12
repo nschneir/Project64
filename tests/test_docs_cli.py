@@ -241,11 +241,16 @@ def test_build_documents_which_areas_are_filled():
 #: agree with it. `demos/la-galaxia/PLAN.md` is deliberately NOT here: it is a
 #: dated lab record that quotes its own wrong 14,342 beside the correction,
 #: and a guard forbidding the wrong number would forbid saying it was wrong.
-_FIGURE_ECHOES = ["CHANGELOG.md", "skills/6502-assembly/SKILL.md"]
+_FIGURE_ECHOES = ["CHANGELOG.md"]
 
-#: Matches the figure bolded (`docs/cli.md`) or bare (`CHANGELOG.md`). The
-#: bold-only pattern this widened from matched nothing anywhere, so the guard
-#: below ran zero comparisons while reading as if it checked something.
+#: Matches the figure bolded (`docs/cli.md`) or bare (`CHANGELOG.md`) — one
+#: pattern where the source and the echo used to have a regex each. Neither of
+#: those failed to match anything: the bold one found `docs/cli.md`'s copy and
+#: the bare one would have found any echo's. What made the guard vacuous was
+#: the file it read — only `skills/6502-assembly/SKILL.md`, which has never
+#: carried the figure in any spelling, so the loop ran zero comparisons while
+#: reading as if it checked something. The per-file assert below is what stops
+#: that recurring in silence.
 _FLAT_FIGURE = re.compile(r"flat \*{0,2}([\d,]{6,}) bytes")
 
 
@@ -265,16 +270,18 @@ def test_every_copy_of_the_flat_padding_figure_agrees_with_the_docs():
     to be installed is the same as no guard on the machines that lack it.
     """
     claimed, spelled = _documented_flat_padding()
-    found = 0
     for name in _FIGURE_ECHOES:
-        for stray in _FLAT_FIGURE.findall(Path(name).read_text()):
-            found += 1
+        strays = _FLAT_FIGURE.findall(Path(name).read_text())
+        # Per file, not summed over the list: a list-level count lets one live
+        # entry carry the guard while another sits dead beside it, which is the
+        # exact state this started in.
+        assert strays, (
+            f"{name} no longer spells the flat-padding figure this guard "
+            f"matches. If it really dropped its copy, drop it from "
+            f"_FIGURE_ECHOES too rather than leaving a dead entry behind")
+        for stray in strays:
             assert int(stray.replace(",", "")) == claimed, \
                 f"{name} says {stray} where docs/cli.md says {spelled}"
-    # Without this the guard is vacuous, which is exactly what it was: no file
-    # it read had ever used the phrasing it matched.
-    assert found, \
-        f"no file in {_FIGURE_ECHOES} still spells the figure the guard matches"
 
 
 @pytest.mark.skipif(

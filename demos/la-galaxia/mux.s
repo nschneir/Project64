@@ -36,9 +36,13 @@ MUXREGS = 6                     ; hardware sprites 2-7
 ; early (`sbc #3` below), so the honest safe distance is 21+3 = 24.  At 22 an
 ; object reusing a register 22 or 23 lines below its predecessor has that
 ; register reprogrammed over the last lines of the sprite still being drawn.
+; Whether THIS demo's object list ever produces that spacing is UNMEASURED:
+; the list is dynamic game state, not the cookbook's fixed listing (which
+; states 22 is safe there only because its objects never reuse a register
+; inside 24 lines -- a checked fact, and not one that carries over here).
 ; Left at 22 deliberately: raising it moves this demo's committed .prg and
-; the evidence captured from it.  Copy the rule (21 + the emitter's lead),
-; not the number.
+; the evidence captured from it.  So the value is carried, not cleared.
+; Copy the rule (21 + the emitter's lead), not the number.
 MUXGAP  = 22                    ; see above -- 24 is the safe value, 22 ships
 
 irqinit:

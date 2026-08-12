@@ -493,7 +493,10 @@ across subsequent commands — until you `c64 continue`.
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
   the session daemon, so large counts are fast (hundreds of frames per
-  second of wall clock, not one per half-second).
+  second of wall clock, not one per half-second). Same quantity as
+  `c64 profile --samples`, under the other name: this one *stops at* the Nth
+  arrival, `profile` *prices all N* — see that flag for why neither is
+  renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on

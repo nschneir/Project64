@@ -276,6 +276,37 @@ _THREE_SITES = (
     "[Unreleased] --strict paragraph."
 )
 
+#: One sentence out of each site `_THREE_SITES` sends an editor to, so the
+#: message cannot quietly become a lie about where the claim lives. The
+#: docstring is read off the function rather than off this file: an anchor
+#: matched against the file that holds the anchor is satisfied by itself.
+_SITE_ANCHORS = [
+    ("demos/ms-muncher/tools/audio-evidence.sh", "the cap() comment",
+     "The other four scores list notes"),
+    ("CHANGELOG.md", "the [Unreleased] --strict paragraph",
+     "Nine of those ten calls pass a score listing sounding notes"),
+]
+
+
+def _prose(text: str) -> str:
+    """Wrapped text as one line, with comment markers dropped — the sentences
+    below are wrapped across lines and two of them are inside `#` comments."""
+    return " ".join(text.replace("#", " ").split())
+
+
+def test_the_three_sites_the_failure_message_names_still_say_it():
+    """`_THREE_SITES` tells a future editor which three sentences to update.
+    Nothing made those sentences exist, so the guidance could go stale while
+    every assert it is attached to still passed — a failure message that sends
+    someone to prose that has already moved is worse than none."""
+    doc = _prose(test_every_audio_evidence_script_captures_strictly.__doc__ or "")
+    assert "for nine of them the flag is a second line of defence" in doc, \
+        (f"this file's test_every_audio_evidence_script_captures_strictly "
+         f"docstring no longer states the nine/one split.\n{_THREE_SITES}")
+    for path, where, sentence in _SITE_ANCHORS:
+        assert sentence in _prose(Path(path).read_text()), \
+            f"{path}: {where} no longer says {sentence!r}.\n{_THREE_SITES}"
+
 
 def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
     """Every `c64 audio capture` argv an evidence script builds.
@@ -304,15 +335,27 @@ def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
     stubs = sandbox / "stub"
     # `python3` too, not just the CLI: la-galaxia regenerates two of its scores
     # from genmusic.py before it captures anything, and `set -e` would take the
-    # run down at that line.
-    for exe in (sandbox / ".venv" / "bin" / "c64", stubs / "python3"):
+    # run down at that line. And `c64` twice over, at both spellings a script
+    # could reach it by: `.venv/bin/c64` is how both scripts invoke it today
+    # (after their `cd` to the repo root), `stub/c64` covers a bare `c64` off
+    # PATH. Neither placement covers the other.
+    for exe in (sandbox / ".venv" / "bin" / "c64", stubs / "c64", stubs / "python3"):
         exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_text(_ARGV_STUB)
         exe.chmod(0o755)
     env = dict(os.environ, C64_ARGV_LOG=str(log),
                PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}")
-    run = subprocess.run(["sh", str(tools / script.name)], env=env,
-                         capture_output=True, text=True)
+    # `cwd` is the load-bearing one, not a tidiness flag. Both scripts open with
+    # `cd "$(dirname "$0")/../../.."`, so today `.venv/bin/c64` lands on the
+    # stub whatever this process's cwd is — but a script that ever drops that
+    # line resolves `.venv/bin/c64` against the inherited cwd, which is the real
+    # checkout with the real CLI in it, and a unit test boots a headless VICE.
+    # `timeout` and a closed stdin for the same reason from the other side: a
+    # script that blocks on input or on a tool that never returns must fail this
+    # test, not hang the suite.
+    run = subprocess.run(["sh", str(tools / script.name)], env=env, cwd=sandbox,
+                         capture_output=True, text=True,
+                         timeout=120, stdin=subprocess.DEVNULL)
     assert run.returncode == 0, (
         f"{script} does not run against stubbed tools (exit {run.returncode}), so "
         f"the captures it makes cannot be read off it: {run.stderr.strip()}")
@@ -345,7 +388,9 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     — a silent voice transcribes to one long rest, which
     `_drop_unscored_leading_rest` drops where the score claims nothing — or a
     single rest entry that omits `frames` or names the whole window. Two or more
-    rest entries FAIL it, one "expected rest, heard nothing (log ended)" apiece.
+    rest entries FAIL it: a silent window transcribes to ONE long rest, so every
+    entry past the first diffs as "expected rest, heard nothing (log ended)" —
+    N entries, N−1 messages (measured: 2 → 1, 10 → 9).
     So a rests-only score is flagged here because it claims nothing audible, not
     because it would PASS; counting this way over-flags that shape and cannot
     miss one that really does PASS at exit 0.
