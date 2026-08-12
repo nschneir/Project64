@@ -542,7 +542,11 @@ instruction through its own RTS.
 
 - `REF` — address or symbol of a subroutine ending in RTS.
 - `--samples N` (default `1`) — price N consecutive arrivals and report the
-  spread instead of one number.
+  spread instead of one number. This is `c64 until --count`'s idea under a
+  second name — both count arrivals at `REF` — and the names differ because
+  the results do: `until` *stops at* the Nth arrival and reports that one,
+  `profile` *prices all N* and reports their spread. Neither flag will be
+  renamed; read `count` and `samples` as the same quantity.
 - `--with-irq` — leave interrupts live during the window (real-world cost;
   expect variance and rerun a few times). By default the I flag is set on
   entry so the KERNAL IRQ cannot land inside the measurement, and the

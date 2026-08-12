@@ -1141,8 +1141,10 @@ def key_hold(session, key: str, at_addr: int, frames: int = 1,
     (run_until once); mid-flight the first poke can race the next IRQ.
 
     `release` (default True) pokes KEY_NONE after the final tick, letting
-    the key go; the machine is left stopped at at_addr either way (the
-    release is a monitor write, not a resume). It defaults on because the
+    the key go; the machine is left stopped at at_addr either way (on this
+    path the release is a monitor write and nothing else — no resume). The
+    timeout path below is the exception: it pokes *and* resumes, because
+    run_until has already left the machine running. It defaults on because the
     other end state is never what a caller wants: the per-frame re-poke
     above assumes the KERNAL scan is running to clear $CB, and a game that
     takes the interrupt over — as every raster-multiplexed game must — has

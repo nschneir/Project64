@@ -54,9 +54,11 @@ raster IRQ and **disables the CIA#1 timer IRQ**, so the KERNAL's keyboard
 scan never runs. `$CB` is therefore a byte the game only ever reads, and a
 value `c64 key hold` pokes there persists until something else pokes it —
 which is exactly the property §13 needs, reached without giving up the ROM.
-The consequence for the evidence protocol is a hold that never releases;
-`c64 mem write '$CB' 64` is the release, and every capture that holds a key
-issues it.
+The consequence for the evidence protocol is that nothing in the machine
+clears `$CB` — only the tool does. `c64 key hold` releases by default, poking
+64 itself after the final tick, so the `c64 mem write '$CB' 64` every capture
+still issues is a second poke of the same value: idempotent, and kept so the
+protocol reads correctly without knowing the flag's default.
 
 The ceilings are enforced at link time, not by hoping:
 

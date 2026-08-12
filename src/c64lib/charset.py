@@ -108,7 +108,14 @@ def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
         width, legend = _shape(block_mc)
         is_row_shaped = len(line) == width and set(line) <= set(legend)
         if not stripped or (stripped.startswith("#") and not is_row_shaped):
-            continue                            # blank line or comment
+            # Blank line or comment. A row of `#` at the wrong width is a
+            # comment here too, not a width error: in hires `#` is both the
+            # comment marker and a legend glyph, so a mis-typed row and a
+            # `#####` divider are the same string and no rule separates them.
+            # `sprites.parse_sprite_sheet` drops it for the same reason;
+            # deliberate in both, and the width check below is unreachable
+            # for a line that starts with `#`.
+            continue
         if not is_row_shaped and ":" in stripped:
             close(lineno)                       # reads the OLD block's mode
             name, block_mc = parse_block_header(stripped, lineno, multicolor)

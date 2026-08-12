@@ -652,9 +652,11 @@ sample it while the machine is stopped.
   useless here: buffered keys never touch `$CB`, and this game calls no
   KERNAL input routine. Everything, including the start keys and the
   stage-select digits, goes through `c64 key hold`. Note that this game
-  switches the KERNAL's keyboard scan off, so nothing ever writes 64 back
-  to `$CB`: a hold never releases by itself, and every hold in the
-  evidence protocol must be followed by `c64 mem write '$CB' 64`.
+  switches the KERNAL's keyboard scan off, so nothing in the machine ever
+  writes 64 back to `$CB` — only the tool does: `c64 key hold` releases by
+  default, poking 64 after its final tick. The `c64 mem write '$CB' 64`
+  that follows every hold in the evidence protocol is a second poke of the
+  same value, kept for readability rather than required.
 * **The joystick path** has no CLI driver, so prove it in isolation:
   `c64 call <joy_decode> --a $6F` with the port byte you want, then read
   the normalized bits back out of `input_state` with `c64 mem read`.

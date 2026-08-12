@@ -32,6 +32,43 @@ def test_cookbook_has_recipes():
     assert len(_blocks("asm")) >= 2
 
 
+#: The demo the multiplexer recipe was lifted from, verbatim down to `MUXGAP`.
+DEMO_MUX = Path("demos/la-galaxia/mux.s")
+
+
+def test_the_mux_reuse_gap_caveat_names_the_emitters_lead():
+    """`MUXGAP` has to cover the sprite's 21 lines *plus* the lines the emitter
+    arms the reposition early, and the shipped 22 covers only the first — so a
+    register reused 22 or 23 lines down is reprogrammed over the tail of the
+    sprite it is still drawing. The value stays 22 (raising it moves a
+    committed `.prg`), which makes the caveat the only thing standing between
+    a reader and that bug, and therefore load-bearing.
+
+    The safe distance is computed from the listing rather than typed here, so
+    either constant moving fails this instead of drifting quietly past it.
+    The demo is checked alongside because the recipe inherited the pair from
+    it: the two move together or neither does.
+    """
+    block = _block_by_key("asm", "mux.s")
+    m_gap = re.search(r"^MUXGAP\s*=\s*(\d+)", block, re.M)
+    m_lead = re.search(r"sbc\s+#(\d+)\s+; reprogram three lines early", block)
+    assert m_gap and m_lead, "the listing no longer declares MUXGAP and its lead"
+    gap, lead = int(m_gap.group(1)), int(m_lead.group(1))
+    assert (gap, lead) == (22, 3), \
+        "the MUXGAP/lead pair the caveat is written about has changed"
+    prose = " ".join(COOKBOOK.read_text().split())
+    assert f"the safe distance is {21 + lead}, not {gap}" in prose, \
+        "the cookbook no longer warns that MUXGAP must cover the emitter's lead"
+    assert "copy the rule (21 + the lead), not the number" in prose, \
+        "the cookbook no longer tells the reader which of the two to copy"
+
+    demo = " ".join(DEMO_MUX.read_text().split())   # the .s aligns its columns
+    assert f"MUXGAP = {gap}" in demo, \
+        "demos/la-galaxia/mux.s no longer holds the MUXGAP the recipe copied"
+    assert f"21+{lead} = {21 + lead}" in demo, \
+        "demos/la-galaxia/mux.s no longer records the reuse-distance caveat"
+
+
 @pytest.mark.skipif(shutil.which("petcat") is None, reason="petcat not installed")
 def test_basic_recipes_tokenize(tmp_path):
     for i, block in enumerate(_blocks("basic")):

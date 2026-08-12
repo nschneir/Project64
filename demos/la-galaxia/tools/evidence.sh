@@ -28,9 +28,12 @@
 #    program's own bytes -- the same bytes test.yaml asserts on, so the
 #    evidence and the regression agree by construction.
 #
-# 5. This game switches the KERNAL keyboard scan off, so nothing ever writes
-#    64 back to $CB: a `key hold` never releases by itself.  Every hold here
-#    is followed by `release`.
+# 5. This game switches the KERNAL keyboard scan off, so nothing in the
+#    MACHINE ever writes 64 back to $CB.  The tool does: `c64 key hold`
+#    releases by default, poking 64 after its final tick.  The explicit
+#    `release` after every hold below is therefore a second poke of the same
+#    value -- kept because it makes the protocol readable without knowing the
+#    flag's default, and idempotent, so it costs nothing.
 
 set -e
 C=".venv/bin/c64"

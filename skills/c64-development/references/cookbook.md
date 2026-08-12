@@ -1502,9 +1502,15 @@ raster interrupt a few lines above the object. Three parts, in this order:
   reached. Because the list ascends in Y, greedy is *optimal* here — a
   register passed over could not have served this object either — so there
   is no search and no backtracking. Reserve it for `MUXGAP` lines: the 21
-  lines of the sprite plus at least one more for the reprogramming to land
-  in. Saturate that addition rather than let it wrap, or an object near the
-  bottom of the screen frees its register at line 4.
+  lines of the sprite plus the lead the emitter arms the reposition with.
+  That lead is *three* lines in the listing below, so the safe distance is
+  24, not 22 — at 22 an object reusing a register 22 or 23 lines below its
+  predecessor has that register reprogrammed over the last lines of the
+  sprite still being drawn. The `MUXGAP = 22` below is the demo's shipped
+  value, safe only because its object list never reuses a register inside
+  24 lines; copy the rule (21 + the lead), not the number. Saturate that
+  addition rather than let it wrap, or an object near the bottom of the
+  screen frees its register at line 4.
 - **Publish counters.** `DISPLAYED` is what the frame put on screen,
   `OVERFLOW` is what no register could hold. Both are plain memory, and that
   is the point: a screenshot shows the result, never the budget. A
@@ -1520,7 +1526,8 @@ reposition schedule in memory:
 ; mux.s — 18 objects on 8 sprite registers: sort by Y, assign, count.
 NOBJ    = 18
 MUXREGS = 8                     ; hardware sprites 0-7
-MUXGAP  = 22                    ; 21 sprite lines, plus one to reprogram in
+MUXGAP  = 22                    ; 21 sprite lines + 1; the general rule is
+                                ;   21 + the emitter's lead (24) -- see above
 MAXEV   = 24                    ; cap on the reposition schedule
 SPR0X   = $D000                 ; register r's X/Y pair is SPR0X + r*2
 SPRENA  = $D015
@@ -1756,6 +1763,12 @@ frame: the event is a whole frame late and so is everything after it in the
 list. After arming, subtract the slack you need and compare against `$D012`
 read back — the same register returns the *current* raster line — and if the
 beam is already there, jump back into the dispatcher and run the event now.
+Clamp that subtraction to 0 (`bcc`) if your list can hold an event at line 0
+or 1: `sec`/`sbc #2` underflows there to 254/255, the compare then reads as
+"the beam has not reached it" for almost the whole frame, and the event is
+deferred by one. The list below cannot — line 0 is the parked frame marker,
+which `EV_END` walks the cursor back onto rather than the guard arming — so
+it subtracts bare.
 
 **Acknowledge `$D019` again on the way out.** The compare register is written
 *before* that check, so when the check dispatches inline the beam crosses the

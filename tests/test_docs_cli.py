@@ -237,6 +237,46 @@ def test_build_documents_which_areas_are_filled():
         "the docs never warn that a `.res` inside an area ships as zeros"
 
 
+#: Every file that repeats `docs/cli.md`'s flat-padding figure, and so has to
+#: agree with it. `demos/la-galaxia/PLAN.md` is deliberately NOT here: it is a
+#: dated lab record that quotes its own wrong 14,342 beside the correction,
+#: and a guard forbidding the wrong number would forbid saying it was wrong.
+_FIGURE_ECHOES = ["CHANGELOG.md", "skills/6502-assembly/SKILL.md"]
+
+#: Matches the figure bolded (`docs/cli.md`) or bare (`CHANGELOG.md`). The
+#: bold-only pattern this widened from matched nothing anywhere, so the guard
+#: below ran zero comparisons while reading as if it checked something.
+_FLAT_FIGURE = re.compile(r"flat \*{0,2}([\d,]{6,}) bytes")
+
+
+def _documented_flat_padding() -> tuple[int, str]:
+    section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
+    m = _FLAT_FIGURE.search(section)
+    assert m, "docs/cli.md no longer states the flat padding cost"
+    return int(m.group(1).replace(",", "")), m.group(1)
+
+
+def test_every_copy_of_the_flat_padding_figure_agrees_with_the_docs():
+    """One figure, one source. An unverified second copy is how 14,342
+    survived in `demos/la-galaxia/PLAN.md` and reached a task brief.
+
+    Split out of the build below and left ungated on ca65 on purpose: this
+    half compares text, and a guard that only runs where a toolchain happens
+    to be installed is the same as no guard on the machines that lack it.
+    """
+    claimed, spelled = _documented_flat_padding()
+    found = 0
+    for name in _FIGURE_ECHOES:
+        for stray in _FLAT_FIGURE.findall(Path(name).read_text()):
+            found += 1
+            assert int(stray.replace(",", "")) == claimed, \
+                f"{name} says {stray} where docs/cli.md says {spelled}"
+    # Without this the guard is vacuous, which is exactly what it was: no file
+    # it read had ever used the phrasing it matched.
+    assert found, \
+        f"no file in {_FIGURE_ECHOES} still spells the figure the guard matches"
+
+
 @pytest.mark.skipif(
     shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",
@@ -253,16 +293,10 @@ def test_the_documented_area_padding_is_the_measured_one(tmp_path):
     to it.
     """
     from c64lib.build import Area, build_asm
-    section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
-    m = re.search(r"flat \*\*([\d,]+) bytes\*\*", section)
-    assert m, "docs/cli.md no longer states the flat padding cost"
-    claimed = int(m.group(1).replace(",", ""))
-    # The skill repeats the figure; an unverified second copy is how 14,342
-    # survived in demos/la-galaxia/PLAN.md and reached this task's brief.
-    skill = Path("skills/6502-assembly/SKILL.md").read_text()
-    for stray in re.findall(r"flat ([\d,]{6,}) bytes", skill):
-        assert int(stray.replace(",", "")) == claimed, \
-            f"SKILL.md says {stray} where docs/cli.md says {m.group(1)}"
+
+    # The text half — every other copy of the figure agreeing with this one —
+    # is its own ungated test above; this one builds it.
+    claimed, _ = _documented_flat_padding()
 
     src = tmp_path / "trio.s"
     src.write_text('        .segment "LOADADDR"\n        .word $0801\n'

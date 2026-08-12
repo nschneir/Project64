@@ -30,7 +30,16 @@
         .segment "ENGINE"
 
 MUXREGS = 6                     ; hardware sprites 2-7
-MUXGAP  = 22                    ; a sprite is 21 lines; one more to be safe
+; MUXGAP is the reuse distance: a register handed to an object at line Y is
+; not offered again until Y+MUXGAP.  21 covers the sprite's own lines, so 22
+; reads like one line to spare -- but emitmux arms the reposition THREE lines
+; early (`sbc #3` below), so the honest safe distance is 21+3 = 24.  At 22 an
+; object reusing a register 22 or 23 lines below its predecessor has that
+; register reprogrammed over the last lines of the sprite still being drawn.
+; Left at 22 deliberately: raising it moves this demo's committed .prg and
+; the evidence captured from it.  Copy the rule (21 + the emitter's lead),
+; not the number.
+MUXGAP  = 22                    ; see above -- 24 is the safe value, 22 ships
 
 irqinit:
         sei

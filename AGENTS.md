@@ -113,12 +113,14 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   because a skill's `references/` may ship a runnable script — the first is
   `6502-assembly/references/fix-branch-range.py` — and a tool an agent is told
   to pipe a build into is code, not prose. Demo `tools/` scripts stay outside
-  both gates: they are the demo's own artifact, tested by the demo. There is deliberately
-  **no auto-formatter**: match the surrounding style by hand
-  (`from __future__ import annotations`, type hints on public signatures,
-  and the aligned struct/profile tables in `protocol.py`/`machines.py` are
-  intentional). Comments state contracts, hardware quirks, and non-obvious
-  *why* — see `monitor.py`/`daemon.py` for the house tone; no narration.
+  both gates (ruff here, pyright below): they are the demo's own artifact,
+  tested by the demo.
+  There is deliberately **no auto-formatter**: match the surrounding style by
+  hand (`from __future__ import annotations`, type hints on public
+  signatures, and the aligned struct/profile tables in
+  `protocol.py`/`machines.py` are intentional). Comments state contracts,
+  hardware quirks, and non-obvious *why* — see `monitor.py`/`daemon.py` for
+  the house tone; no narration.
 - **A comment is read as a contract, so its claims carry the same evidence
   burden as a finding** — the discipline the dogfood rule below states for
   `docs/todo.md` items ("quote the file before asserting a gap in it") applies

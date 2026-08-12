@@ -108,11 +108,14 @@ DEFAULT_BACKGROUND = " "
 def _encode_legend(multicolor: bool, background: str) -> dict[str, int]:
     """The legend for one mode, with `background` claimed for pair 00.
 
-    The claim overrides: '.' means pair 01 by default, and `background='.'`
-    makes it 00 — which is why the digits above exist, so '1' still spells
-    pair 01 in a sheet whose background is a visible dot. A space always
-    reads as background; nothing else in either legend maps to 0, so there
-    is nothing for it to shadow.
+    The claim is one remap, not a rebuild: `background` is repointed at 0
+    and every other entry keeps the value it had. So '.' means pair 01 by
+    default and `background='.'` makes it 00 — which is why the digits above
+    exist, so '1' still spells pair 01 in a sheet whose background is a
+    visible dot. Space and '·' already map to 0 in both legends and go on
+    doing so whatever `background` is set to, so the claim adds a spelling
+    for background rather than moving it: a blank column is a hole either
+    way, and the default `background=' '` is a no-op.
     """
     if len(background) != 1:
         raise ValueError(
@@ -224,10 +227,20 @@ def parse_sprite_sheet(text: str, multicolor: bool = True,
             close()                              # blank line: block boundary
             continue
         if stripped.startswith("#"):
-            continue                             # comment — checked before the
-        if ":" in stripped:                      # header, since `#` is legal in
-            close()                              # both and a comment can hold a
-            no_art_yet()                         # colon ("# ---- hires: ...")
+            # Comment — checked before the header, since `#` is legal in both
+            # and a comment can hold a colon ("# ---- hires: ...").
+            #
+            # A line of `#` at the WRONG width lands here too, and is dropped
+            # rather than reported as a mis-width row. Deliberate: `#` is both
+            # the comment marker and a legend glyph, so a 13-`#` typo and a
+            # `#####` divider are the same string, and the error that would
+            # catch the typo would reject the divider. `charset.parse_charset`
+            # drops it for the same reason. Getting the width right makes the
+            # line a row again — the row branch above runs first.
+            continue
+        if ":" in stripped:
+            close()
+            no_art_yet()
             name, block_mc = parse_block_header(
                 stripped, lineno, multicolor, kind="sprite", error=ValueError)
             if name in seen:
