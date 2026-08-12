@@ -91,7 +91,7 @@ seqreset:
 
 ; --------------------------------------------------------------------------
 ; loadinstr — write the section's (waveform, AD, SR, PW) for all three voices
-; and its filter routing and volume.
+; and its filter cutoff, routing and volume.
 ; --------------------------------------------------------------------------
 
 loadinstr:
@@ -139,6 +139,10 @@ lib:    ldx     lisrc
         lda     secvol,x
         ldx     #$18
         jsr     sidput
+        ldx     section         ; the cutoff HIGH byte.  $D415 keeps sndinit's
+        lda     seccut,x        ; zero, so the 11-bit word is 8 * seccut — the
+        ldx     #$16            ; seccut block in sections.s is where the
+        jsr     sidput          ; battle's $19 and the cannon's $10 are argued.
         rts
 
 ; --------------------------------------------------------------------------
@@ -429,10 +433,12 @@ cannonfire:
         jsr     sidput
         lda     #$ff            ; the sweep's SEED, not a register write: this
         sta     cutoff          ; is the `cutoff` variable, and cantick — the
-                                ; only writer of $D416 outside sndinit — runs
-                                ; later in the same seqtick and subtracts 10
-                                ; before its first store, so the first value
-                                ; the chip ever sees is $F5.
+                                ; only writer of $D416 while a shot sounds —
+                                ; runs later in the same seqtick and subtracts
+                                ; 10 before its first store, so the first value
+                                ; the chip ever sees is $F5.  ($D416's other
+                                ; writers are sndinit and loadinstr, and
+                                ; neither runs between shots — see seccut.)
         lda     #24
         sta     csweep
         lda     #6

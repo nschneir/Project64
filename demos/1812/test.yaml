@@ -188,6 +188,29 @@ steps:
   # should never move.
   - assert: { mem: vwave, equals: ["$20", "$40", "$20"] }  # saw / pulse / saw
 
+  # ---- and the band-pass is a REAL band-pass ------------------------------
+  # secres[2]/secvol[2] have always routed voice 1 through a band-pass at
+  # resonance $F, and for the whole life of this demo before seccut existed
+  # the cutoff pair was still sndinit's zero — the bottom of the ~30 Hz to
+  # 12 kHz range hardware.md:253 gives the 11-bit $D415/$D416 word.  A
+  # band-pass parked there subtracts the running figure rather than shaping
+  # it, and nothing noticed for two reasons worth stating: every OTHER byte
+  # was already right, and $D416's absence of a writer is not something a
+  # register read can see.  loadinstr now writes seccut[2] to $D416 at the
+  # section change, so the word is 8 * $19 = 200 of 2047, about 1.2 kHz —
+  # above every fundamental in s2v1's D#4-E5 figure and inside its second-to-
+  # fourth harmonic band.
+  #
+  # $D415 is asserted at 0 DELIBERATELY, not incidentally: it is the low three
+  # bits of the word and it is left with sndinit as its only writer (the
+  # seccut block in sections.s argues why), so "the word is 8 * seccut" is
+  # true only while this reads 0.  If a later change gives $D415 a writer,
+  # this step is the one that should stop it quietly happening.
+  - assert: { mem: "sidshadow+21", equals: [0] }        # $D415: cutoff low
+  - assert: { mem: "sidshadow+22", equals: ["$19"] }    # $D416: the ~1.2 kHz centre
+  - assert: { mem: "sidshadow+23", equals: ["$f1"] }    # $D417: resonance $F, route v1
+  - assert: { mem: "sidshadow+24", equals: ["$2f"] }    # $D418: band-pass, volume 15
+
   # ---- shapes only ever accumulate ---------------------------------------
   # `greater_than` against a sample, never an equality: the counter climbs and
   # a poll can step over any exact value.
@@ -272,13 +295,16 @@ steps:
   - assert: { mem: "sidshadow+23", equals: [0] }        # $D417: nothing routed
   - assert: { mem: "sidshadow+24", equals: ["$0f"] }    # $D418: volume, no filter
   - assert: { mem: "vwave+2", equals: ["$14"] }         # the bells, not the noise
-  # Recorded, not deplored: the cutoff high byte is NOT restored.  $D416 has
-  # exactly two writers in the program — cantick's sweep and sndinit's
-  # register clear (music.s:468-469, music.s:68-75) — so it keeps the last
-  # shot's floor until a restart.  Harmless, because with $D417 = 0 no voice
-  # is routed and $D418's mode bits are clear; it is also why the reads above
-  # witness the routing rather than the cutoff.
-  - assert: { mem: "sidshadow+22", equals: ["$10"] }
+  # The cutoff comes back with them, and by the same write.  This step used to
+  # read $10 and record that nothing restored $D416 at all — the register kept
+  # whatever floor the last shot's sweep left it on, for the rest of the run.
+  # loadinstr writes $D416 from seccut now, and seccut[4] is $00, so the
+  # finale gets a DEFINED cutoff at the boundary.  It is inert either way,
+  # since $D417 = 0 leaves no voice in the filter, which is why the reads
+  # above are still the ones that witness the hand-off; what changed is that
+  # the value is chosen rather than left over.  $D416's writers are now
+  # sndinit, loadinstr and cantick; $D415's is still only sndinit.
+  - assert: { mem: "sidshadow+22", equals: [0] }
 
   # ======================================================================
   # 6. the end: the whole vocabulary used, nothing dropped
