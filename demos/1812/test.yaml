@@ -270,7 +270,13 @@ steps:
   # ---- shapes only ever accumulate ---------------------------------------
   # `greater_than` against a sample, never an equality: the counter climbs and
   # a poll can step over any exact value.
-  - sample: { mem: shapes, as: s0 }
+  #
+  # `width: 2` because `shapes` IS two bytes (lo/hi, `INC shapes / BNE / INC
+  # shapes+1`), and a one-byte compare of a 16-bit counter passes on margin
+  # rather than on logic: over 600 frames the low byte alone can land anywhere,
+  # so `greater_than` at width 1 is only true because it happens to be, and it
+  # would read as a regression the first time the low byte wrapped low.
+  - sample: { mem: shapes, as: s0, width: 2 }
   - until:  { ref: seqtick, count: 600 }
   - assert: { mem: shapes, greater_than: s0 }
   - assert: { mem: dropped, equals: 0 }
@@ -376,17 +382,21 @@ steps:
 
   # ---- the hold ----------------------------------------------------------
   # `painting` is the observable that says nothing is being drawn: the main
-  # loop never enters drawshape once the section reaches 5.  (The stronger
-  # claim — that `shapes` is byte-for-byte unchanged 120 frames later — needs
-  # comparing two samples, which the runner cannot express, so the evidence
-  # run makes it instead and prints both values.)
+  # loop never enters drawshape once the section reaches 5.  The stronger
+  # claim — that `shapes` is byte-for-byte unchanged 120 frames later — is
+  # asserted here directly: a `width: 2` sample plus `unchanged:` compares the
+  # whole counter, so a shape drawn during the hold moves it and fails this
+  # step.  (It used to live only in the evidence run, which printed both values,
+  # because a sample was one byte wide and could not carry the high byte.)
   - until:  { ref: seqtick, count: 4 }
   - assert: { mem: section, equals: 5 }
   - assert: { mem: painting, equals: 0 }
   - assert: { mem: "sidshadow+24", mask: { and: "$0f", equals: [0] } }  # silence
+  - sample: { mem: shapes, as: h0, width: 2 }
   - until:  { ref: seqtick, count: 120 }
   - assert: { mem: section,  equals: 5 }
   - assert: { mem: painting, equals: 0 }
+  - assert: { mem: shapes,   unchanged: h0 }
 
   # ---- and a key restarts it with a fresh seed ---------------------------
   # `poke` + `until` is the held-key protocol: the KERNAL's keyboard scan puts
