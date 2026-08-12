@@ -1958,6 +1958,23 @@ def test_capture_measures_its_lead_in_from_the_machines_own_clock(vice_text,
     assert out["lead_in_frames"] >= 1
 
 
+def test_lead_in_frames_converts_jiffies_at_fps_50():
+    """The conversion, against a number computed by hand rather than by the
+    code under test. The jiffy runs at 60.00 Hz on the PAL machine too, so
+    1.2 of them pass per frame and jiffies are not frames: 37 jiffies is
+    37 / 60.00 = 0.616667 emulated s, which at 50 fps is 30.83 frames and
+    rounds to 31, plus the sampling loop's own resume (1) = 32.
+    """
+    assert audio._lead_in_frames(100, 137, 50.0) == 32
+
+
+def test_lead_in_frames_discards_a_delta_no_arming_could_have_taken():
+    """Not a validity check on a lead-in but a garbage filter on the counter:
+    past ten emulated minutes the program is using $A0-$A2 as its own storage
+    and the delta is somebody else's data, so None is the honest answer."""
+    assert audio._lead_in_frames(0, audio._MAX_LEAD_IN_JIFFIES + 1, 50.0) is None
+
+
 def test_capture_reports_no_lead_in_when_the_program_owns_the_irq(vice_text,
                                                                   tmp_path):
     """The jiffy is the KERNAL's, and a player that takes the IRQ over

@@ -28,7 +28,7 @@ def test_run_pass_exit_zero(tmp_path):
     out = json.loads(r.output)
     assert out["passed"] is True and out["tests"][0]["name"] == "t"
     lt.assert_called_once_with(f)
-    rt.assert_called_once_with({"name": "a"})
+    rt.assert_called_once_with({"name": "a"}, allow_stale=False)
 
 
 def test_run_fail_exit_one(tmp_path):
@@ -39,6 +39,25 @@ def test_run_fail_exit_one(tmp_path):
         r = CliRunner().invoke(main, ["--json", "test", "run", str(f)])
     assert r.exit_code == 1
     assert json.loads(r.output)["passed"] is False
+
+
+def test_run_allow_stale_forwards_the_flag_and_reports_the_waiver(tmp_path):
+    """`--allow-stale` is the answer to a staleness stop a copied tree
+    provoked, and it has to say what it let through in both voices: the human
+    line and the `--json` payload a harness reads."""
+    f = tmp_path / "a.yaml"
+    f.write_text("steps: []\n")
+    result = _result(True)
+    result.warnings = ["staleness allowed: game.d64 predates its symbols"]
+    with patch("c64lib.cli.run_test", return_value=result) as rt, \
+         patch("c64lib.cli.load_test", return_value={"name": "a"}):
+        r = CliRunner().invoke(main, ["test", "run", str(f), "--allow-stale"])
+        j = CliRunner().invoke(main, ["--json", "test", "run", str(f),
+                                      "--allow-stale"])
+    assert r.exit_code == 0, r.output
+    assert "warning: staleness allowed: game.d64 predates" in r.output
+    assert rt.call_args == (({"name": "a"},), {"allow_stale": True})
+    assert json.loads(j.output)["tests"][0]["warnings"] == result.warnings
 
 
 def test_run_load_error(tmp_path):

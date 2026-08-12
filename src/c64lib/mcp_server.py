@@ -65,6 +65,7 @@ from .ops import (
     profile_routine_samples,
     reboot_with_cart,
     run_until,
+    runnable_ext,
     session_labels,
     session_ref,
     sprite_shape,
@@ -756,14 +757,18 @@ def c64_run(source: str, session: str | None = None,
     unknown name, so check c64_session_list if a boot lands somewhere
     unexpected."""
     src = Path(source).resolve()
-    ext = src.suffix.lower()
-    # Before the session is touched, in the CLI's words: --area rewrites the
+    # The extension first, in the CLI's order: a source nothing here can run is
+    # the caller's real problem, and reporting the `areas` rule below instead
+    # invites dropping the parameter and retrying the same unrunnable file.
+    ext = runnable_ext(src)
+    # Before the session is touched, in the CLI's words: `areas` rewrites the
     # linker config only an assembled .s goes through, and a cartridge brings
     # its own memory map. Here rather than in `build_for_run` for that
     # ordering — the op takes an attached session, so a guard inside it would
-    # report "no session is running" first and never reach the bad flag.
+    # report "no session is running" first and never reach the bad parameter.
+    # Named `areas`, not `--area`: an MCP caller has no flags to drop.
     if areas and ext != ".s":
-        raise ValueError("--area applies to assembly sources only")
+        raise ValueError("areas applies to assembly sources only")
     if ext == ".crt":
         # headless/warp as everywhere in this server (see c64_session_start):
         # an MCP client is an automation, not someone watching a window. The
@@ -1151,15 +1156,23 @@ def c64_rom_disasm(start: str, length: int = 32,
 
 
 @srv.tool()
-def c64_test_run(yaml_file: str) -> dict:
+def c64_test_run(yaml_file: str, allow_stale: bool = False) -> dict:
     """Run a declarative YAML test (boots its own fresh C64; the file
     format is documented in docs/cli.md under `c64 test run`).
 
     A spec's `program:` may be a .bas, .s or .prg; a .prg picks up a sibling
     .lbl of the same stem for its symbols, and an `areas:` list of
     "NAME=START:SIZE" strings links a .s program's fixed-address segments
-    (c64_run's `areas`, and an error beside anything else)."""
-    return run_test(load_test(Path(yaml_file))).to_dict()
+    (c64_run's `areas`, and an error beside anything else).
+
+    The run stops before booting anything when the artifact and the .lbl it
+    takes symbols from disagree by mtime — a `disk:` image older than its
+    sibling .lbl, a `program:` .prg stamped more than a minute from its own in
+    either direction. `allow_stale` waives that (the timestamps can lie:
+    `cp -r` without `-p` restamps a whole tree) and names what it let through
+    in the returned `warnings`."""
+    return run_test(load_test(Path(yaml_file)),
+                    allow_stale=allow_stale).to_dict()
 
 
 @srv.tool()

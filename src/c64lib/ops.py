@@ -411,6 +411,35 @@ def _previous_program_note(session) -> str:
             f"({session.loaded_prg}, loaded {when}) — nothing was reloaded")
 
 
+#: What `c64 run`/`c64_run` accept. `.crt` is here and absent from
+#: `build_for_run`'s dispatch below: a cartridge reboots the session with it
+#: attached instead of being turned into something loadable.
+RUNNABLE_SUFFIXES = (".bas", ".s", ".prg", ".crt")
+
+
+def _unrunnable(ext: str) -> str:
+    """One wording for the front-end pre-check and `build_for_run`'s own
+    refusal, so the two cannot drift apart."""
+    known = ", ".join(RUNNABLE_SUFFIXES[:-1]) + f", or {RUNNABLE_SUFFIXES[-1]}"
+    return f"don't know how to run {ext!r} files (use {known})"
+
+
+def runnable_ext(src: Path | str) -> str:
+    """`src`'s lowercased suffix, or ValueError if `c64 run` cannot run it.
+
+    Both front ends call this before their `--area`/`areas` applicability rule
+    and before attaching a session, so `c64 run notes.txt --area FOO=$4000:$100`
+    names the file it cannot run rather than the flag it cannot apply — which
+    would invite dropping the flag and trying again on a file that will never
+    run either way. `build_for_run` refuses the same extensions on its own, so
+    nothing depends on a caller having come through here.
+    """
+    ext = Path(src).suffix.lower()
+    if ext not in RUNNABLE_SUFFIXES:
+        raise ValueError(_unrunnable(ext))
+    return ext
+
+
 def build_for_run(session, src, areas=()
                   ) -> tuple[Path, Path | None, tuple[Path, ...]]:
     """Turn a `c64 run` source into a loadable `.prg`: `(prg, labels, deps)`.
@@ -446,9 +475,10 @@ def build_for_run(session, src, areas=()
                             areas=area_list)
             prg, labels, deps = res.prg, res.labels, res.deps
         else:
-            raise ValueError(
-                f"don't know how to run {ext!r} files "
-                "(use .bas, .s, .prg, or .crt)")
+            # A front end that called `runnable_ext` first never gets here for
+            # anything but a `.crt` it declined to handle; kept so nothing in
+            # this op depends on the caller having checked.
+            raise ValueError(_unrunnable(ext))
     except (BasicError, BuildError) as e:
         # Re-raised as its own class: a caller that tells a failed tokenize
         # from a failed build still can.

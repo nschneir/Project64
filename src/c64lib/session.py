@@ -90,11 +90,19 @@ def _supports_minimized(exe: str) -> bool:
     return "-minimized" in (r.stdout or "")
 
 
-#: The `-sounddev` line of VICE's own --help, whose parenthesised list is the
-#: set of playback devices THIS build has. `dump` also appears in the
-#: `-soundrecdev` list (a different resource entirely), so the device list is
-#: read from its own line rather than by looking for the word anywhere.
+#: The `-sounddev` block of VICE's own --help: its option line plus the indented
+#: description lines under it. Scoped to that block because `dump` shows up
+#: elsewhere in --help as an unrelated option or plain prose (`-dumpconfig`, the
+#: core-dump switches, the printer text device's "dump file"), and `-soundrecdev`
+#: is a different resource whose list could name a device the same way.
 _SOUNDDEV_HELP = re.compile(r"^-sounddev\b.*\n(?:[ \t].*\n?)*", re.M)
+
+#: The parenthesised device list inside that block, e.g.
+#: `(coreaudio/dummy/dump)`. Membership in this list — not the word appearing in
+#: the block — is what says a device exists: the block's own prose may name a
+#: device the build does not have, and a build offering `dumpfile` would satisfy
+#: a substring match while rejecting `dump`.
+_SOUNDDEV_DEVICES = re.compile(r"\(([^)]*)\)")
 
 
 @functools.cache
@@ -110,8 +118,18 @@ def _supports_sound_dump(exe: str) -> bool:
     monitor unanswered — which is indistinguishable from the wedge this
     device is here to remove (observed 2026-08-10 on this GTK3 build, from a
     deliberately bogus value; it took a human looking at the screen to see
-    what the runner could not). Degrading to the host device is always safe:
-    it is what every session did before.
+    what the runner could not). So this answers False on any doubt, which is
+    the cheaper wrong answer rather than a safe one: a false positive wedges
+    every headless session on this build, while a false negative only restores
+    the pre-probe status quo — the host device, which is itself what a
+    headless session can hang waiting on where nothing drains it (docs/cli.md,
+    `c64 session start --headless`).
+
+    True means the whole launch pair is available, `-soundarg` included:
+    `dump` without it writes its register dump to `vicesnd.sid` in the
+    caller's working directory, and `-soundarg` handed to a build that lacks
+    the option exits VICE the way any unrecognized option does. Half the pair
+    is never worth launching with, so one boolean answers for both.
     """
     try:
         r = subprocess.run(
@@ -120,8 +138,22 @@ def _supports_sound_dump(exe: str) -> bool:
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
-    match = _SOUNDDEV_HELP.search(r.stdout or "")
-    return bool(match) and "dump" in match.group(0)
+    help_text = r.stdout or ""
+    block = _SOUNDDEV_HELP.search(help_text)
+    if not block:
+        return False
+    devices = _SOUNDDEV_DEVICES.search(block.group(0))
+    if not devices:
+        return False
+    # This build separates the names with `/`; `,` and stray whitespace are
+    # tolerated so a build that lists them differently still parses.
+    names = {n.strip() for n in re.split(r"[/,]", devices.group(1))}
+    # `-soundarg` is its own non-indented option line, so it is checked against
+    # the whole help output rather than the block — but anchored to a line
+    # start, not matched as a substring: this option's absence has to cost the
+    # sink, and a stray mention inside some other option's description would
+    # instead hand `-soundarg` to a build that exits on it, costing the launch.
+    return "dump" in names and re.search(r"^-soundarg\b", help_text, re.M) is not None
 
 
 RESPAWN_LIMIT = 5
@@ -380,10 +412,12 @@ class Session:
             # writes its register dump to `vicesnd.sid` in the *caller's*
             # working directory. os.devnull cannot grow and cannot litter.
             #
-            # The device name is probed, never assumed — an unrecognized
-            # -sounddev value pops a modal dialog that blocks the emulation
-            # loop, which is this bug wearing a different hat. See
-            # _supports_sound_dump.
+            # The pair is probed, never assumed — an unrecognized -sounddev
+            # value pops a modal dialog that blocks the emulation loop, which
+            # is this bug wearing a different hat, and an unrecognized
+            # -soundarg exits outright. One probe answers for both, so a build
+            # missing either keeps host audio rather than getting half of it.
+            # See _supports_sound_dump.
             if _supports_sound_dump(exe):
                 base_args += ["-sounddev", "dump", "-soundarg", os.devnull]
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -329,6 +329,10 @@ class TestResult:
     elapsed: float
     screen: str
     session_name: str = ""
+    #: Non-fatal notes about the run itself rather than about a step — today
+    #: only a staleness guard waived by `allow_stale`. Always in `to_dict`, so
+    #: a harness can read the key whether or not anything was waived.
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -337,7 +341,15 @@ class TestResult:
             "steps": [{"index": s.index, "kind": s.kind, "ok": s.ok,
                        "detail": s.detail} for s in self.steps],
             "screen": self.screen,
+            "warnings": list(self.warnings),
         }
+
+
+def _sibling_labels(artifact: Path) -> Path | None:
+    """The `<stem>.lbl` beside `artifact`, or None — the sibling symbol table a
+    ready-made artifact carries, and the same shape `cart:`/`disk:` look for."""
+    lbl = artifact.with_suffix(".lbl")
+    return lbl if lbl.exists() else None
 
 
 def _prepare(program: str, profile,
@@ -355,9 +367,10 @@ def _prepare(program: str, profile,
         # Same rule as `cart:` and `disk:`: a sibling .lbl of the same stem is
         # this program's symbol table, silently skipped when it is not there.
         # Without it a `.prg` spec resolved no symbols at all, and every
-        # `until: {ref: …}` failed with an empty known-list.
-        lbl = src.with_suffix(".lbl")
-        return src, (lbl if lbl.exists() else None)
+        # `until: {ref: …}` failed with an empty known-list. Whether that pair
+        # is consistent is `_reject_stale_prg_labels`' question, asked before
+        # the machine boots.
+        return src, _sibling_labels(src)
     if ext == ".bas":
         return tokenize(src, src.with_suffix(".prg"), profile.basic_version), None
     if ext == ".s":
@@ -368,7 +381,33 @@ def _prepare(program: str, profile,
         ".prg; a cartridge goes in `cart:` instead — .crt, .s, or .ef.yaml)")
 
 
-def _reject_stale_disk_labels(image: Path, labels: Path) -> None:
+def _stamp(mtime: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
+
+
+def _gate_stale(note: str, remedy: str, allow_stale: bool,
+                warnings: list[str]) -> None:
+    """Refuse a staleness `note`, or record it as a warning under `allow_stale`.
+
+    The override exists because an mtime is evidence, not proof: `cp -r`
+    without `-p` restamps a whole working tree, so an ordinary copy of a
+    perfectly consistent pair can trip either guard with no way past it. It
+    warns rather than going quiet — a guard that can be waived in silence is
+    one nobody notices they waived.
+
+    `remedy` is a whole sentence, ending in its own full stop: a `.prg`'s ends
+    in an alternative ("or delete p.lbl…"), and continuing that sentence here
+    would attach the continuation to the wrong clause.
+    """
+    if allow_stale:
+        warnings.append(f"staleness allowed: {note}")
+        return
+    raise TestError(f"{note} {remedy} To test the artifact as it is, allow the "
+                    "staleness explicitly (--allow-stale, or allow_stale=true).")
+
+
+def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
+                              warnings: list[str]) -> None:
     """Refuse a disk image older than the sibling `.lbl` it takes symbols from.
 
     Rebuilding the program without repackaging the image is the whole failure:
@@ -386,15 +425,76 @@ def _reject_stale_disk_labels(image: Path, labels: Path) -> None:
         return
     img_at, lbl_at = image.stat().st_mtime, labels.stat().st_mtime
     if lbl_at <= img_at:
+        # Equal is not stale. Only a label file strictly later than the image
+        # is evidence the program was rebuilt after being packaged; a tie is
+        # what a shared or coarse timestamp looks like (two writes inside one
+        # clock tick, a copy that carried both stamps over), and refusing it
+        # would cost a working image for no signal.
         return
-    when = "%Y-%m-%d %H:%M:%S"
-    raise TestError(
+    _gate_stale(
         f"{image.name} predates its symbols: the image is dated "
-        f"{time.strftime(when, time.localtime(img_at))} and {labels.name} "
-        f"{time.strftime(when, time.localtime(lbl_at))}, so every symbol this "
-        f"spec names would resolve against a program the image does not "
-        f"contain. Rebuild the image (c64 package <source> -o {image.name}, "
-        "or c64 disk build) and run the test again.")
+        f"{_stamp(img_at)} and {labels.name} {_stamp(lbl_at)}, so every symbol "
+        f"this spec names would resolve against a program the image does not "
+        f"contain.",
+        f"Rebuild the image (c64 package <source> -o {image.name}, or "
+        "c64 disk build) and run the test again.", allow_stale, warnings)
+
+
+#: How far apart a `.prg` and its sibling `.lbl` may be stamped and still count
+#: as one act of writing — a build, a copy, a checkout, an unpacked archive — in
+#: whichever order the two files happened to land. `ld65 -Ln` finishes the two
+#: ~60 µs apart, `cp p.lbl p.prg` reverses that order for nothing, and a slow
+#: copy of a big tree can space them by seconds. The failures worth refusing
+#: separate the pair by minutes to days, so a minute of grace buys its
+#: false-positive immunity for no signal it gives up.
+_PRG_LABELS_GRACE = 60.0
+
+
+def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
+                             warnings: list[str]) -> None:
+    """Refuse a ready-made `.prg` and a sibling `.lbl` written far apart.
+
+    The disk guard's failure one artifact down — symbols that do not describe
+    the bytes — but symmetric, because for a program pair either file can be
+    the one that was replaced alone: a `.prg` copied in over labels nobody
+    regenerated, or a `.lbl` copied in from a build whose `.prg` went somewhere
+    else. Both resolve every `ref:` this spec names against a program that is
+    not the one loaded, and both used to do it in silence.
+
+    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`:
+    `build_asm` is the only writer here of both files, and its `ld65 -Ln` emits
+    the `.lbl` microseconds after the `.prg` it describes — so "labels newer"
+    is what every successful build looks like, and which landed first is an
+    accident of the tool. Only a real gap is evidence, in either direction,
+    because plenty of in-tree commands write one side of the pair alone:
+    `c64 basic tokenize` and `c64 disk get` land a bare `.prg`, `c64 package`
+    tokenizes a `.bas` or copies a `.prg` without writing any labels, and a
+    `c64 cart build` of `game.crt` writes `game.bin` and `game.lbl` and no
+    `.prg` at all. That last one is refused here in the "predates" direction
+    when a `game.prg` sits beside it — correctly, since those labels describe
+    the cartridge link and not the `.prg`.
+
+    Only a `.prg` `program:` reaches this: a `.s` is linked by the run itself,
+    pair and all, and a `.bas` is tokenized with no label file to disagree
+    with.
+    """
+    prg_at, lbl_at = prg.stat().st_mtime, labels.stat().st_mtime
+    if abs(prg_at - lbl_at) <= _PRG_LABELS_GRACE:
+        return
+    dated = (f"the program is dated {_stamp(prg_at)} and {labels.name} "
+             f"{_stamp(lbl_at)}")
+    if prg_at > lbl_at:
+        note = (f"{prg.name} is newer than its symbols: {dated}, so every "
+                f"symbol this spec names would resolve against the program "
+                f"{labels.name} describes, which is not this one.")
+    else:
+        note = (f"{prg.name} predates its symbols: {dated}, so every symbol "
+                f"this spec names would resolve against a later program than "
+                f"the one this spec loads.")
+    _gate_stale(
+        note, "Rebuild the pair together (c64 build <source>) and run the test "
+        f"again, or delete {labels.name} to run without symbols.",
+        allow_stale, warnings)
 
 
 def prepare_cart(spec_dir: str | Path, cart: str | Path,
@@ -723,11 +823,13 @@ def _do_step(session, kind: str, arg, default_timeout: float,
         f"assert step needs 'screen' (alias 'text'), 'mem', or 'reg': {arg}")
 
 
-def run_test(spec: dict, launch=Session.launch) -> TestResult:
+def run_test(spec: dict, launch=Session.launch,
+             allow_stale: bool = False) -> TestResult:
     t0 = time.monotonic()
     profile = get_profile(spec["machine"])
     session_name = f"t{uuid.uuid4().hex[:6]}"
     steps: list[StepResult] = []
+    warnings: list[str] = []
     screen_text = ""
     cart_path, cart_labels, disk_path = (None, None, None)
     # load_test rejects these too, but a hand-built spec (program_test, a caller
@@ -747,6 +849,22 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
         # as a build error, not as a program that never appears on screen.
         disk_path = str(prepare_disk(spec.get("dir", "."), spec["disk"],
                                      spec["machine"]))
+        # Two mtimes and a path: nothing the staleness guard reads needs a
+        # running machine, and a refusal placed after the launch below charged
+        # the caller a boot and a 45-second READY. gate to be told no — the
+        # cost `areas` above already refuses to pay.
+        image = Path(disk_path).resolve()
+        img_labels = disk_labels_path(image)
+        if img_labels is not None:
+            _reject_stale_disk_labels(image, img_labels, allow_stale, warnings)
+    if spec.get("program") and Path(spec["program"]).suffix.lower() == ".prg":
+        # A `.prg` is the one `program:` this runner does not build, so it is
+        # the one whose symbols can disagree with it. `_prepare` resolves the
+        # same sibling `.lbl` after launch; this is the pair it will use.
+        prg = Path(spec["program"])
+        prg_labels = _sibling_labels(prg)
+        if prg_labels is not None:
+            _reject_stale_prg_labels(prg, prg_labels, allow_stale, warnings)
     if spec.get("cart"):
         # load_test already resolved `cart:` against the spec's directory;
         # a hand-built spec carries that directory in `dir` (cwd if absent).
@@ -777,7 +895,6 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
                 # file `disk build` kept for the image's first entry.
                 lblp = disk_labels_path(started)
                 if lblp is not None:
-                    _reject_stale_disk_labels(started, lblp)
                     labels = load_labels(lblp)
             elif spec.get("program"):
                 prg, lbl = _prepare(spec["program"], profile, areas)
@@ -823,6 +940,7 @@ def run_test(spec: dict, launch=Session.launch) -> TestResult:
         screen_text = _screen(session)
         return TestResult(name=spec["name"], machine=spec["machine"], passed=passed,
                           steps=steps, elapsed=round(time.monotonic() - t0, 2),
-                          screen=screen_text, session_name=session_name)
+                          screen=screen_text, session_name=session_name,
+                          warnings=warnings)
     finally:
         session.stop()

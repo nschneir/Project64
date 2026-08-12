@@ -151,6 +151,21 @@ def test_test_run_documents_where_an_s_program_builds():
         "the docs never connect a source build to the disk staleness stop"
 
 
+def test_test_run_documents_the_staleness_override():
+    """A guard with no documented escape gets worked around instead of used:
+    `cp -r` without `-p` restamps a tree, and the stop is mtime-based."""
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert "--allow-stale" in section, "the staleness override is undocumented"
+    assert "warns" in section or "warning" in section, \
+        "the docs never say the override reports what it let through"
+    # both nouns: the `.prg` comparison is symmetric, and documenting one
+    # direction is how a caller learns to distrust the other one's silence
+    for direction in ("newer than its symbols", "predates its symbols"):
+        assert direction in section, \
+            f"the docs never mention `{direction}`"
+
+
 def test_profile_documents_samples_and_why_one_arrival_lies():
     """`--samples` is only worth reaching for if the docs say what a single
     arrival gets wrong: a per-frame cost that spikes on a repaint every few
@@ -184,6 +199,21 @@ def test_session_stop_documents_all_and_start_documents_the_notice():
         "the already-running notice is undocumented"
     assert "stderr" in start, \
         "the docs never say the notice bypasses --json (it is on stderr)"
+
+
+def test_headless_documents_the_null_sound_sink():
+    """A headless session is silent by construction — its sound goes to a
+    file-backed null sink so the emulation loop never waits on a host consumer
+    that may not exist. Undocumented, that silence reads as a broken audio path
+    and invites someone to "fix" the one thing keeping headless sessions from
+    wedging."""
+    text = DOC.read_text()
+    start = text[text.index("### `c64 session start`"):
+                 text.index("### `c64 session ensure`")]
+    section = " ".join(start.split())          # the claim is a sentence, not a line
+    assert "null sink" in section, "the headless sound sink is undocumented"
+    assert "makes no noise" in section, \
+        "the docs never say the sink is why a headless session is silent"
 
 
 #: The three areas the la-galaxia dogfood measured the fill against, and the

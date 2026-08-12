@@ -587,11 +587,24 @@ def test_launch_non_headless_omits_minimized(home, monkeypatch):
 # a modal error dialog that blocks the emulation loop even under -minimized,
 # which looks exactly like the wedge this is fixing.
 
-#: A --help whose sound section is this build's: the device list is what the
-#: probe reads.
+#: The sound section of the installed x64sc's own --help, verbatim (captured
+#: 2026-08-11): the device list is what the probe reads, and `-soundarg` — its
+#: own non-indented option, so no `-sounddev` block contains it — is the other
+#: half of what a launch needs.
 HELP_WITH_DUMP = ("-minimized\n\tStart VICE minimized\n"
                   "-sounddev <Name>\n\tSpecify sound driver. "
-                  "(coreaudio/dummy/dump)\n")
+                  "(coreaudio/dummy/dump)\n"
+                  "-soundarg <args>\n"
+                  "\tSpecify initialization parameters for sound driver\n")
+
+#: A build whose playback devices do not include `dump`, but whose help block
+#: says the word anyway. Hand-built: this build's help has no such prose, and a
+#: probe that reads the block instead of the list cannot tell the two apart.
+HELP_DUMP_ONLY_IN_PROSE = (
+    "-sounddev <Name>\n\tSpecify sound driver. (coreaudio/dummy)\n"
+    "\tTo dump SID register writes to a file use -soundrecdev.\n"
+    "-soundarg <args>\n"
+    "\tSpecify initialization parameters for sound driver\n")
 
 
 def test_supports_sound_dump_true_when_help_lists_it(monkeypatch):
@@ -609,8 +622,11 @@ def test_supports_sound_dump_false_when_the_device_list_omits_it(monkeypatch):
     it: the value would be rejected at runtime with a blocking dialog."""
     from c64lib import session as session_mod
 
+    # `-soundarg` is present so the missing device is the only thing the probe
+    # can be answering.
     help_text = ("-sounddev <Name>\n\tSpecify sound driver. "
-                 "(alsa/pulse/dummy)\n")
+                 "(alsa/pulse/dummy)\n"
+                 "-soundarg <args>\n\tSpecify initialization parameters\n")
     monkeypatch.setattr(
         session_mod.subprocess, "run",
         lambda *a, **k: Mock(stdout=help_text, returncode=0),
@@ -619,19 +635,73 @@ def test_supports_sound_dump_false_when_the_device_list_omits_it(monkeypatch):
 
 
 def test_supports_sound_dump_reads_only_the_sounddev_line(monkeypatch):
-    """`dump` appears elsewhere in VICE's --help (`-dump`-ish debug options,
-    the recording drivers). Matching the bare word anywhere would hand the
-    value to a build that has no such *playback* device."""
+    """`dump` appears elsewhere in VICE's --help (`-dumpconfig`, the core-dump
+    switches), and `-soundrecdev` is a different resource whose list could name
+    a device the same way. Matching the bare word anywhere would hand the value
+    to a build that has no such *playback* device."""
     from c64lib import session as session_mod
 
     help_text = ("-soundrecdev <Name>\n\tSpecify recording sound driver. "
                  "(fs/wav/dump)\n"
-                 "-sounddev <Name>\n\tSpecify sound driver. (alsa/dummy)\n")
+                 "-sounddev <Name>\n\tSpecify sound driver. (alsa/dummy)\n"
+                 "-soundarg <args>\n\tSpecify initialization parameters\n")
     monkeypatch.setattr(
         session_mod.subprocess, "run",
         lambda *a, **k: Mock(stdout=help_text, returncode=0),
     )
     assert session_mod._supports_sound_dump("/vice/no-dump/x64sc") is False
+
+
+def test_sound_dump_probe_ignores_the_word_dump_in_prose(monkeypatch):
+    """The answer is membership in the parenthesised device list, not the word
+    appearing somewhere in the block. A false positive here hands VICE a device
+    name it rejects with a modal dialog — the wedge the sink exists to remove."""
+    from c64lib import session as session_mod
+
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=HELP_DUMP_ONLY_IN_PROSE, returncode=0),
+    )
+    assert session_mod._supports_sound_dump("/vice/prose-only/x64sc") is False
+
+
+def test_sound_dump_probe_requires_soundarg(monkeypatch):
+    """`dump` and `-soundarg` are one pair, so the probe answers for both: the
+    device without the arg dumps `vicesnd.sid` into the caller's directory, and
+    the arg passed to a build that lacks the option exits VICE outright. Half
+    the pair is never worth launching with."""
+    from c64lib import session as session_mod
+
+    help_text = ("-sounddev <Name>\n\tSpecify sound driver. "
+                 "(coreaudio/dummy/dump)\n"
+                 "-soundrecdev <Name>\n\tSpecify recording sound driver. "
+                 "(wav)\n")
+    monkeypatch.setattr(
+        session_mod.subprocess, "run",
+        lambda *a, **k: Mock(stdout=help_text, returncode=0),
+    )
+    assert session_mod._supports_sound_dump("/vice/no-soundarg/x64sc") is False
+
+
+def test_sound_dump_probe_survives_undecodable_help(monkeypatch):
+    """A --help whose bytes are not valid under the process's locale encoding
+    must not raise UnicodeDecodeError out of this probe: a probe failure may
+    only ever cost the sink, never the launch, and UnicodeDecodeError is not
+    among the caught exceptions. The fake mirrors what subprocess.run's own
+    text-mode decoding does (strict by default, permissive with
+    errors="replace") so removing that kwarg fails this test — and the answer
+    asserted is the positive one, which is only reachable through a decode that
+    actually happened.
+    """
+    from c64lib import session as session_mod
+
+    def fake_run(*args, **kwargs):
+        if kwargs.get("errors") != "replace":
+            raise UnicodeDecodeError("ascii", b"\xff", 0, 1, "ordinal not in range(128)")
+        return Mock(stdout=HELP_WITH_DUMP, returncode=0)
+
+    monkeypatch.setattr(session_mod.subprocess, "run", fake_run)
+    assert session_mod._supports_sound_dump("/broken/locale/x64sc") is True
 
 
 def test_supports_sound_dump_false_when_probe_fails(monkeypatch):
@@ -695,7 +765,8 @@ def test_launch_headless_omits_sounddev_when_the_build_lacks_dump(home,
     _stub_launch_deps(
         monkeypatch, session_mod, seen,
         "-minimized\n\tStart VICE minimized\n"
-        "-sounddev <Name>\n\tSpecify sound driver. (alsa/dummy)\n")
+        "-sounddev <Name>\n\tSpecify sound driver. (alsa/dummy)\n"
+        "-soundarg <args>\n\tSpecify initialization parameters\n")
     session_mod.Session.launch(name="no-dump-sess", headless=True)
     assert "-sounddev" not in seen["args"]
     assert "-soundarg" not in seen["args"]
