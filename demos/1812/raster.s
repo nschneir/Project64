@@ -940,9 +940,13 @@ paCdone:
 ; straight-line compare-and-swap instead of the general bubble sort below.
 ; The general sort pays for machinery two elements cannot use: the `bswap`
 ; flag, the index loop and a second pass that exists only to observe that the
-; first one swapped nothing.  Measured, entry to `sfclip`, on the 16-gon at
-; size 90 (179 rows): 21,409 cycles of sorting per shape before this case
-; existed, 8,914 after — see AUDIT.md's iteration-3 table for the method.
+; first one swapped nothing.  Measured entry-to-`sfclip` on the 16-gon at size
+; 90 — 179 rows, and being convex every one of them carries two crossings:
+; 21,409 cycles of sorting per shape before this case existed, 9,419 after.
+; The three concave types are the reason the general sort stays: some of their
+; rows carry four crossings, take it as before, and now also pay the
+; `jmp sfclip` at its exit — 3 cycles on those rows only.  Both legs of the
+; measurement, and the method, are in the commit that added this.
         jmp     cssort
 sfjnext: jmp    sfnext          ; the second trampoline, for the tail half
 cssort: lda     ncross
