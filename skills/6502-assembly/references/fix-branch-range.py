@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Turn ca65 "Range error" failures into `jmp` trampolines, mechanically.
 
 A 6502 branch reaches ±127 bytes. Growing a routine pushes existing
@@ -12,10 +11,11 @@ The fix never varies: invert the branch over a `jmp` to the real target,
                                jmp far
                                :
 
-so pipe the failing build's output straight in:
+so pipe the failing build's output straight in (this file ships
+non-executable, like every other .py here, so name the interpreter):
 
-    c64 build game.s 2>&1 | python fix-branch-range.py
-    c64 build game.s 2>&1 | python fix-branch-range.py --dry-run
+    c64 build game.s 2>&1 | python3 fix-branch-range.py
+    c64 build game.s 2>&1 | python3 fix-branch-range.py --dry-run
 
 Exit 0 when every reported branch was rewritten (or there was nothing to
 do), 1 when at least one was left for you — read the report, it says which
@@ -106,6 +106,14 @@ def rewrite(lines: list[str], branch: int) -> list[str]:
 
     Raises `Skipped` for anything the mechanical fix would get wrong.
     """
+    if lines[branch].endswith(("\r\n", "\r")):
+        # Named rather than fixed: the trampoline's three lines would go in
+        # with LF and leave the file mixed, and `\r` is not in BRANCH's
+        # trailer either, so without this the skip would blame the
+        # instruction ("not a conditional branch") for the file's encoding.
+        ending = "CRLF" if lines[branch].endswith("\r\n") else "CR"
+        raise Skipped(f"{ending} line endings — convert the file to LF "
+                      "(dos2unix) and re-run the build")
     m = BRANCH.match(lines[branch].rstrip("\n"))
     if not m:
         raise Skipped(f"not a conditional branch: {lines[branch].strip()!r}")
@@ -147,7 +155,13 @@ def fix_file(path: Path, branches: list[int], dry_run: bool) -> tuple[list[str],
     Descending line order is not cosmetic: each fix adds two lines, so fixing
     upward first would invalidate every line number below it.
     """
-    lines = path.read_text().splitlines(keepends=True)
+    # newline="" on both ends keeps the file's own line endings inside the
+    # strings instead of translating them to "\n". Without it a CRLF source
+    # reads as LF, every branch matches, and the write-back reformats every
+    # line in the file — a whole-file diff for a three-line fix. `rewrite`
+    # refuses those lines, and this is the only place it can see them.
+    with path.open(newline="") as fh:
+        lines = fh.read().splitlines(keepends=True)
     report, left = [], 0
     for branch in sorted(set(branches), reverse=True):
         if branch >= len(lines):
@@ -165,7 +179,8 @@ def fix_file(path: Path, branches: list[int], dry_run: bool) -> tuple[list[str],
                       f"{' / '.join(s.strip() for s in new)}")
         lines[branch:branch + 1] = new
     if not dry_run and left < len(set(branches)):
-        path.write_text("".join(lines))
+        with path.open("w", newline="") as fh:
+            fh.write("".join(lines))
     return report, left
 
 

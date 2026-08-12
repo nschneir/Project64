@@ -128,13 +128,14 @@ multicolour bit. Regenerated, rebuilt and repackaged, and two of those three
 are pinned, because a generated file with no regeneration test can disagree
 with its source forever: one test re-encodes `tools/sprites.txt` and compares
 it with the committed include, another assembles `la-galaxia.s` and compares
-it with the committed `.prg`. The `.d64` is not pinned — packaging shells out
-to `c1541` and costs seconds where the assembler pass costs a fraction of
-one, and the image carries that same `.prg`. `docs/cli.md` also now says
-where a `.s` `program:` builds: beside its source, overwriting `<stem>.prg`
-and `<stem>.lbl` every run, which republishes a committed artifact and leaves
-the label file newer than any sibling image — the state the disk staleness
-stop refuses.
+it with the committed `.prg`. The third, the `.d64`, stays unpinned —
+packaging shells out to `c1541` and costs seconds where the assembler pass
+costs a fraction of one — so nothing checks that the shipped image carries
+the `.prg` beside it, and a rebuild has to be re-packaged by hand.
+`docs/cli.md` also now says where a `.s` `program:` builds: beside its
+source, overwriting `<stem>.prg` and `<stem>.lbl` every run, which
+republishes a committed artifact and leaves the label file newer than any
+sibling image — the state the disk staleness stop refuses.
 
 And `audio-verification.md` gains the two things this demo's score work cost
 most. **Generating a score is constructive**: model the player one frame at a

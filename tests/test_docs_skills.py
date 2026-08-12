@@ -420,6 +420,49 @@ def test_asm_skill_points_at_the_branch_fixer():
     assert "25" in text, "the La Galaxia count is what makes it worth tooling"
 
 
+def test_fixer_is_run_through_an_interpreter_not_executed():
+    """WHY the script carries no `#!` line: every `.py` this repo tracks ships
+    non-executable (100644) — the demo generators too — and is invoked as
+    `python3 <script>`, which is also what the pipe in SKILL.md does. A shebang
+    on a 100644 file is a promise the mode cannot keep: `./fix-branch-range.py`
+    is "permission denied" and the `#!` line has no other effect. Adding one
+    back means making the file 100755 in the same commit and saying so here.
+
+    The interpreter is spelled `python3`, not `python`: on a machine with no
+    `python` shim the documented pipe fails at the shell rather than at the
+    script, which reads as the tool being broken."""
+    text = FIXER.read_text()
+    assert not text.startswith("#!"), \
+        "shebang on a non-executable file — see this test's docstring"
+    assert not FIXER.stat().st_mode & 0o111, \
+        f"{FIXER} is executable but carries no shebang — pick one"
+    assert "python3 fix-branch-range.py" in text, \
+        "the module docstring must show the interpreter it needs"
+    skill = Path("skills/6502-assembly/SKILL.md").read_text()
+    assert "python3 skills/6502-assembly/references/fix-branch-range.py" in skill, \
+        "the skill's pipe must spell python3 too"
+
+
+def test_fixer_names_crlf_line_endings_rather_than_the_branch(tmp_path):
+    """CRLF is the one input the mechanical fix must not touch. Reading with
+    universal newlines hid it entirely: `\\r\\n` arrived as `\\n`, every branch
+    matched, and the write-back put the WHOLE file back in LF — a rewrite of
+    every line in a file the author asked for one three-line change in. Reading
+    the endings verbatim exposes them, and the skip has to name them, because
+    "not a conditional branch" points at an instruction that is perfectly
+    fine."""
+    src = tmp_path / "crlf.s"
+    before = b"        bne far\r\n        nop\r\nfar:    rts\r\n"
+    src.write_bytes(before)
+    mod = _fixer()
+    report, left = mod.fix_file(src, [0], dry_run=False)
+    assert left == 1
+    assert src.read_bytes() == before, \
+        "a refused file must keep its bytes, line endings included"
+    assert "SKIPPED" in report[0] and "line endings" in report[0]
+    assert "CRLF" in report[0]
+
+
 def test_fixer_parses_ca65_range_errors():
     """Verbatim ca65 wording, taken from a real failed `c64 build`."""
     mod = _fixer()

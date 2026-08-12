@@ -338,21 +338,30 @@ def test_la_galaxia_prg_is_a_build_of_the_committed_sources(tmp_path):
     with no regeneration test" failure, one level down. It costs one ca65 and
     one ld65 pass over a single translation unit (~0.2 s) and is
     byte-reproducible. The `.d64` is deliberately not pinned: packaging shells
-    out to c1541 and costs seconds, and it carries this exact `.prg`.
+    out to c1541 and costs seconds where this pass costs a fraction of one, so
+    nothing here checks that the shipped image carries the `.prg` this test
+    just rebuilt — re-package by hand after any rebuild.
 
-    The areas come from `test.yaml`, so the spec stays the one place the
-    program's link layout is written down."""
+    The areas and the load address both come from data — `test.yaml` and the
+    machine profile — so the spec stays the one place the program's link
+    layout is written down and no line here restates it."""
     import yaml
 
     from c64lib.build import build_asm
+    from c64lib.machines import get_profile
     from c64lib.ops import parse_areas
 
     spec = yaml.safe_load((LG / "test.yaml").read_text())
-    assert spec.get("areas"), "test.yaml no longer declares the ENGINE area"
+    areas = spec.get("areas")
+    assert areas, ("test.yaml no longer declares any `areas:` — la-galaxia "
+                   "cannot link without one")
+    basic_start = get_profile("c64").basic_start
     built = build_asm(LG / "la-galaxia.s", out_prg=tmp_path / "la-galaxia.prg",
-                      areas=parse_areas(spec["areas"], 0x0801)).prg
+                      basic_start=basic_start,
+                      areas=parse_areas(areas, basic_start)).prg
+    flags = " ".join(f"--area '{a}'" for a in areas)
     assert built.read_bytes() == (LG / "la-galaxia.prg").read_bytes(), (
         "demos/la-galaxia/la-galaxia.prg is not a build of the committed "
-        "sources — re-run `c64 build demos/la-galaxia/la-galaxia.s --area "
-        "'ENGINE=$4000:$6000'` (and `c64 package` the .d64, which carries it)"
+        f"sources — re-run `c64 build demos/la-galaxia/la-galaxia.s {flags}` "
+        "(and `c64 package` the .d64, which nothing pins to it)"
     )

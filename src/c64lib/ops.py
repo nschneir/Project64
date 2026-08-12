@@ -104,8 +104,16 @@ def _area_spelling(a: Area) -> str:
     return f"{a.name}=${a.start:04X}:${a.size:X}"
 
 
-def parse_areas(values, basic_start: int = 0x0801) -> list[Area]:
+def parse_areas(values, basic_start: int) -> list[Area]:
     """Parse `--area NAME=START:SIZE` tokens into sorted, checked `Area`s.
+
+    `basic_start` is required, not defaulted: every caller already has a
+    profile and passes `profile.basic_start`, so a C64 literal here would be
+    a second, unowned copy of a profile field — one that agrees with every
+    shipped profile today and would quietly stop agreeing the first time a
+    machine with another load address ships. The load address decides which
+    areas are rejected as sitting inside the program, so the wrong one
+    rejects a legal area or accepts an overlapping one.
 
     Every rejection here is one ld65 would either accept and mis-link, or
     reject in terms that name its own generated config rather than the flag
