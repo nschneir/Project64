@@ -84,6 +84,111 @@ def test_mem_read_documents_its_text_column_gloss():
     assert "text_encoding" in section, "the JSON key is undocumented"
 
 
+def test_mem_read_documents_colour_ram_open_bus_and_the_mask():
+    """`$D800-$DBFF` is four bits wide and reads back `(phi1 & $F0) | storage`,
+    so a raw comparison there fails on unchanged builds and passes on changed
+    ones. The passage shipped with no guard; `demos/1812` paid for the missing
+    knowledge twice in one pass, and a doc claim nothing tests can be deleted by
+    a compression pass without anything noticing."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 mem read`").split())
+    assert "(phi1 & $F0) | storage" in section, \
+        "the docs never say what a colour-RAM read actually returns"
+    assert "differ in all 1000 bytes" in section, \
+        "the docs never say two dumps of ONE build can differ everywhere"
+    assert "compare equal by luck" in section, \
+        "the docs never say two dumps of DIFFERENT builds can agree"
+    assert 'mask: { and: "$0f"' in section, \
+        "the docs never give the masked comparison a spec should use"
+    assert "on purpose" in section, \
+        "the docs never say the tool leaves the high nybble unmasked deliberately"
+
+
+def test_until_count_documents_its_measured_per_arrival_cost():
+    """The cost note is the one place a reader learns whether a four-figure
+    `--count` is affordable, and it was written from an unverified aside that
+    re-measurement refuted — "tens of minutes" for a run that takes 27 s. So the
+    guard is on the *measurement*: the two anchors, both run counts, the span
+    they share, and the wrapper the figures were taken under. Prose that drops
+    them is prose that is no longer showing its work."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 until`").split())
+    assert "until seqtick --count 10200" in section and \
+        "until secchange --count 5" in section, \
+        "the cost note names neither of the two anchors it was measured on"
+    assert "frames = $27D8" in section, \
+        "the docs never establish that the two anchors cover the SAME span"
+    assert "caffeinate -dimsu" in section, \
+        "the docs quote timings without the conditions they were taken under"
+    assert "budget by the span you cover, not" in section, \
+        "the docs still let a reader budget by N rather than by the span"
+    for lie in ("tens of minutes", "many times dearer", "expire long before"):
+        assert lie not in section, \
+            f"the refuted claim {lie!r} is back in the `until` cost note"
+
+
+def test_until_cost_notes_conclusions_follow_from_its_own_table():
+    """Naming the measurement is not enough on its own: an edit could swap the
+    timings, or restate the conclusions, and leave the guard above green while
+    the paragraph stopped following from the table under it. So this one does
+    the arithmetic. It recomputes the marginal per-arrival cost, the ratio and
+    the frame-stepping rate from the six timings the table publishes, and
+    requires the prose's stated figures to match.
+
+    It is also the guard against the two quantities being conflated again:
+    0.44 ms per arrival and ~370 frames per second are not reciprocals — one is
+    what a stop costs, the other is how fast the emulator covers the program —
+    and a reader who reads them as one is out by a factor of six.
+    """
+    section = " ".join(_section(DOC.read_text(), "### `c64 until`").split())
+    rows = re.findall(r"\| `c64 until (\w+) --count (\d+)\`[^|]*\|[^|]*\|"
+                      r"([^|]*)\|([^|]*)\|([^|]*)\|", section)
+    assert len(rows) == 2, f"the cost note's measurement table is gone or reshaped: {rows}"
+    means, arrivals = {}, {}
+    for ref, count, *cells in rows:
+        runs = [float(m) for c in cells for m in re.findall(r"([\d.]+) s", c)]
+        assert len(runs) == 3, f"`{ref}` no longer publishes three runs: {cells}"
+        means[ref] = sum(runs) / len(runs)
+        arrivals[ref] = int(count)
+
+    def stated(pattern: str, what: str) -> float:
+        """The figure the prose claims — and a readable failure when the prose
+        has stopped claiming it at all, which is the other way this guard can
+        need to fire."""
+        m = re.search(pattern, section)
+        assert m is not None, f"the cost note no longer states {what}"
+        return float(m.group(1))
+
+    dense, sparse = "seqtick", "secchange"
+    # marginal cost of one arrival, from the two anchors' shared span
+    ms = (means[dense] - means[sparse]) * 1000 / (arrivals[dense] - arrivals[sparse])
+    stated_ms = stated(r"marginal cost is ~([\d.]+) ms", "a per-arrival cost")
+    assert abs(ms - stated_ms) < 0.05, \
+        f"the stated ~{stated_ms} ms per arrival is not what the table gives ({ms:.3f})"
+
+    ratio = means[dense] / means[sparse]
+    stated_ratio = stated(r"\*\*([\d.]+)×\*\* five stops", "the dense/sparse ratio")
+    assert abs(ratio - stated_ratio) < 0.02, \
+        f"the stated {stated_ratio}x is not what the table gives ({ratio:.3f})"
+
+    rate = arrivals[dense] / means[dense]
+    stated_rate = stated(r"~(\d+) emulated frames per second", "a frame-stepping rate")
+    assert abs(rate - stated_rate) < 15, \
+        f"the stated ~{stated_rate}/s is not what the table gives ({rate:.1f})"
+
+    # The sparse anchor covers the SAME span, so its rate comes off the same
+    # table — and it is the faster one. Quoting it as "the same throughput"
+    # understated it by the very ratio the paragraph below states.
+    sparse_rate = arrivals[dense] / means[sparse]
+    stated_sparse = stated(r"~(\d+) frames a second", "the sparse reference's rate")
+    assert abs(sparse_rate - stated_sparse) < 15, \
+        f"the stated ~{stated_sparse}/s is not what the table gives ({sparse_rate:.1f})"
+    assert stated_sparse > stated_rate, \
+        "the sparse reference is documented as no faster than the dense one"
+    # …and the rate is NOT the reciprocal of the per-arrival cost. If a future
+    # edit ever makes it so, the two quantities have been collapsed into one.
+    assert abs(rate - 1000 / stated_ms) > 100, \
+        "the frame rate now reads as 1/(per-arrival cost) — two different things"
+
+
 def test_test_run_documents_the_always_present_tests_envelope():
     """A spec-level error emits `{"error", "passed": false, "tests": []}` rather
     than dropping `tests` — 1812's harness crashed on the missing key. A promise
@@ -193,6 +298,24 @@ def test_profile_documents_samples_and_why_one_arrival_lies():
         "the docs never pin that `cycles` survives at --samples 1"
 
 
+def test_profile_documents_that_samples_re_enters_rather_than_reruns():
+    """`--samples` synthesises the same JSR N times; it does not advance the
+    program. For a per-frame tick that steps the game the spread is real, and
+    for a leaf routine whose caller sets its operands it is badline jitter
+    around one repeated case — which four `demos/1812` routines were read as
+    regressions for. Sibling of the `--samples`/`bimodal` guard above: that one
+    says why ONE arrival lies, this one says why N can lie the same way."""
+    section = " ".join(_section(DOC.read_text(), "### `c64 profile`").split())
+    assert "re-enters the routine; it does not re-run the program" in section, \
+        "the docs never say `--samples` does not advance the program"
+    assert "advances the state its cost depends on" in section, \
+        "the docs never name the case where the spread IS the distribution"
+    assert "leaf routine whose inputs its caller sets up" in section, \
+        "the docs never name the case where the spread is jitter, not a range"
+    assert "control the inputs instead of sampling" in section, \
+        "the docs give the limitation without the technique that answers it"
+
+
 def test_profile_documents_blanking_and_the_differential_distinction():
     """Two claims a reader chases a phantom without.
 
@@ -218,6 +341,27 @@ def test_profile_documents_blanking_and_the_differential_distinction():
          "profile measure different quantities across builds")
     assert "`(base & $FF) + index` carries" in section, \
         "the docs never name the mechanism relocation moves cycles by"
+    # What blanking buys, stated as the data supports it. The absolute legs
+    # moved when the workload did; what came back identical across the two
+    # batches was the subtraction, and an earlier draft promoted that into
+    # "all six legs reproduced exactly", which the second batch's own numbers
+    # contradict.
+    assert "is the difference, not the leg" in section, \
+        "the docs claim a blanked leg reproduces, rather than the subtraction"
+    # The multiplier's derivation, with the step that turns a stolen fraction
+    # into a scale factor. Without it the stated equality is simply false:
+    # 1,075 / 17,095 is 6.29%, not 1.0671.
+    assert "6.29% of the frame stolen" in section, \
+        "the badline arithmetic states a quotient it does not compute"
+    assert "0.0629" in section, \
+        "the docs never show the step from a stolen fraction to a multiplier"
+    # The overclaim this paragraph was corrected for. gapB measured a different
+    # shape configuration and four of the six legs moved with it; only the
+    # subtraction came back identical. Negative, like the `until` guard's, since
+    # the failure mode here is a compression pass restoring a tidier sentence.
+    for lie in ("All six blanked legs", "all six blanked legs"):
+        assert lie not in section, \
+            f"the refuted claim {lie!r} is back in the blanking passage"
 
 
 def test_session_stop_documents_all_and_start_documents_the_notice():
@@ -254,6 +398,27 @@ def test_headless_documents_the_null_sound_sink():
     assert "null sink" in section, "the headless sound sink is undocumented"
     assert "makes no noise" in section, \
         "the docs never say the sink is why a headless session is silent"
+
+
+def test_session_start_documents_the_macos_idle_throttling_hazard():
+    """The second way a headless session presents as broken, and the one that
+    costs a debugging session rather than a puzzled minute: macOS idle-throttles
+    a minimized background emulator until every binary-monitor call times out,
+    while the process is alive and its ports still answer. It reads as a wedge.
+    The A/B that attributed it lives in `CHANGELOG.md`, which is not where a
+    reader looks for operating guidance — hence the pointer here."""
+    text = DOC.read_text()
+    start = text[text.index("### `c64 session start`"):
+                 text.index("### `c64 session ensure`")]
+    section = " ".join(start.split())
+    assert "caffeinate -dimsu" in section, \
+        "the remedy for macOS idle throttling is undocumented"
+    assert "idle-throttles" in section, \
+        "the docs never name what slows an unattended headless session"
+    assert "wedged emulator" in section, \
+        "the docs never say the symptom is indistinguishable from a wedge"
+    assert "CHANGELOG.md" in section, \
+        "the docs never point at the A/B that attributed the hazard"
 
 
 #: The three areas the la-galaxia dogfood measured the fill against, and the

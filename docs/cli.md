@@ -96,6 +96,17 @@ Boot a fresh emulated C64.
   straight into it; there is nothing to load afterwards. A sibling `.lbl` of
   the cartridge's stem is registered as the session's symbols if it is there.
 
+**Unattended `--headless` work on macOS belongs under `caffeinate -dimsu`.**
+A headless session is a minimized background process, and macOS idle-throttles
+one once the machine sits without user activity: the emulation loop slows until
+binary-monitor calls time out, while `x64sc` is still alive at ~2% CPU with its
+ports still answering — so it presents as a wedged emulator rather than a slow
+one. The A/B that attributed it (three smokes wedging identically under the
+throttle, the same code clean the moment it was wrapped) is in `CHANGELOG.md`
+under the audio-pin work. Put the wrapper outside the whole detached run —
+`nohup caffeinate -dimsu /bin/zsh driver.sh &` — so it covers every child, and
+on each `c64` call as well if the command lines are being recorded as evidence.
+
 Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
 file registered from `--disk`/`--cart`, or `null`. Machine left running.
@@ -515,11 +526,16 @@ across subsequent commands — until you `c64 continue`.
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
   the session daemon, so the client pays one IPC round-trip for the whole
-  loop instead of one per arrival (which cost about half a second each) —
-  but see the cost note below: a monitor round-trip per arrival remains.
-  Same quantity as `c64 profile --samples`, under the other name: this one
-  *stops at* the Nth arrival, `profile` *prices all N* — see that flag for
-  why neither is renamed.
+  loop instead of one per arrival, and frame stepping is fast: stepping
+  `demos/1812` through 10,200 frames on its per-frame reference ran at
+  **~370 emulated frames per second** of wall clock, not one per half-second.
+  Read that as a rate of *program covered* — it is set by how fast the
+  emulator runs the program, and a sparse reference covering the same span
+  covers it faster still, at **~446 frames a second**, off five stops instead
+  of ten thousand. What a stop itself adds is in the cost note below. Same
+  quantity as `c64 profile --samples`, under the
+  other name: this one *stops at* the Nth arrival, `profile` *prices all N* —
+  see that flag for why neither is renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on
@@ -533,23 +549,34 @@ program can stop visiting REF (death, menu, pause screen), `until REF` can
 never fire — set a breakpoint at a code path that must still execute and use
 `c64 wait --break` instead.
 
-**`--count N` costs a monitor round-trip per arrival — choose a SPARSE
-reference.** Daemon-side or not, each arrival is one resume plus one
-wait-for-stop against VICE, so the wall clock scales with **N**, not with how
-much of the program you cover. Reaching a given point through a
-frequently-hit reference is therefore many times dearer than reaching the same
-point through a rare one: on `demos/1812`, `until seqtick --count 10200` — a
-per-frame reference — ran for tens of minutes, where `until secchange
---count 5` covered a comparable span of the program in about three, because it
-stopped five times instead of ten thousand.
+**`--count N` costs a monitor round-trip per arrival — about 0.44 ms of it.**
+Each arrival is one resume plus one wait-for-stop against VICE (`_run_until`
+in `daemon.py`), so a high count does add wall clock on top of the emulated
+span — but the span is what dominates, and **budget by the span you cover, not
+by N**. Measured on `demos/1812`, headless, `--warp`, fresh session per run,
+every call under `caffeinate -dimsu`, three runs each:
 
-Budget for this before you set a high count, and **raise `--timeout` to
-match**: the default 30 s will expire long before a four-figure count on a
-per-frame reference arrives. The trap is diagnostic, not just slow — a `until`
-that is merely grinding through its count looks exactly like a wedged VICE,
-and this repo has already spent a debugging session on that mistake. Prefer a
-reference that fires once per thing you care about (a section change, a level
-load, a state transition) over one that fires every frame.
+| command | arrivals | run 1 | run 2 | run 3 |
+|---|---:|---:|---:|---:|
+| `c64 until seqtick --count 10200` (per-frame ref) | 10,200 | 26.91 s | 27.36 s | 27.73 s |
+| `c64 until secchange --count 5` (per-section ref) | 5 | 22.45 s | 23.69 s | 22.54 s |
+
+Both stop at `frames = $27D8` = 10,200 — the *same* emulated span — so the
+4.4 s between the two means is the 10,195 extra arrivals, and **an arrival's
+marginal cost is ~0.44 ms**. The remaining 22.9 s is the emulator running the
+program, and that is what sets the throughput either way: 10,200 frames in
+27.3 s through the per-frame reference, the same 10,200 frames in 22.9 s
+through the sparse one. So the per-arrival cost and the ~370-frames-a-second
+rate quoted under `--count` are different quantities and not reciprocals of one
+another: 0.44 ms is what a *stop* costs, not what a frame costs, and reading one
+off the other is out by about six times.
+
+So ten thousand stops cost **1.19×** five stops over that span, not many times
+it. A sparse reference (a section change, a level load) is still the cheaper
+one and worth preferring, but what it saves is the overhead, not the run. Do
+**raise `--timeout` once N is four figures**: 27 s is inside the 30 s default on
+this machine with nothing to spare, and a slower host or a busier one will not
+be.
 
 ### `c64 call`
 
@@ -605,16 +632,25 @@ frame-budget truth.
 Clearing DEN (`$D011` bit 4) stops the VIC fetching, so no badline steals a
 cycle and the count is instruction cycles only — for `demos/1812`, whose mode
 byte is `$3B`, that is `c64 mem write '$d011' '$2b'`. What it buys is not a
-smaller number but a *reproducible* one. All six blanked legs of a two-build
-profiling matrix over 1812's `scanfill` reproduced exactly across two
-independent batches, and the two legs that ran the same unmoved code in
+smaller number but a *reproducible* one. In a two-build profiling matrix over
+1812's `scanfill`, the two blanked legs that ran the same unmoved code in
 different builds came back as **98,909 cycles each — the same integer, not the
-same within a band**; the identical legs measured with the screen on drifted
-−59…+88 cycles run to run. What the DMA contributes is close to a flat
-multiplier on whatever you are measuring — ×1.0664 to ×1.0686 across the six
-legs of that experiment, against the textbook 25 badlines × ~43 cycles ÷ 17,095
-= ×1.0671 — so a blanked figure scales back to a wall-cycle one by roughly that
-factor.
+same within a band**. Those same two legs measured with the screen on drifted
++48 and −38 cycles between runs of the identical command line, and across all
+six legs of the matrix the run-to-run drift spanned −59…+88.
+
+What reproduces across *workloads* is the difference, not the leg. Re-running
+that matrix at a different shape configuration moved every absolute leg — the
+widest by 71,492 cycles — and still returned **Δ(sort) = −11,214 and a null
+control of exactly 0, the same two integers as the first batch**. Blanking buys
+arithmetic you can reproduce, not a leg you can quote as a constant; quote the
+subtraction, and say what workload the legs were taken at.
+
+What the DMA contributes is close to a flat multiplier on whatever you are
+measuring — ×1.0664 to ×1.0686 across the six legs of that experiment, against
+the textbook 25 badlines × ~43 cycles ÷ 17,095 = **6.29% of the frame stolen**,
+so a blanked count scales back to a wall-cycle one by 1 ÷ (1 − 0.0629) =
+**×1.0671**.
 
 The caveat is the whole of the technique: with the screen blanked you are no
 longer measuring what the program experiences. A blanked profile answers *how
@@ -694,9 +730,12 @@ scanfill` said the routine got **12,727** cheaper, and the 737-cycle gap — 8×
 the ±90 two single arrivals carry — was filed as the differential
 under-reporting by 6.2%. It was not under-reporting. Re-measured blanked, the
 sort is −11,214 and the routine is −11,870, and the −656 between them is the
-*untouched* row body getting cheaper: the 47-byte shift moved five tables
-(`dither`, `dither+1`, `rowaddrl`, `rowaddrh`, `attrcoll`) relative to the
-unmoved code that indexes them, worth −480 counted off the addresses, and took
+*untouched* row body getting cheaper: the 47-byte shift moved the four tables
+behind the five absolute-indexed reads whose crossing status it changed
+(`dither`, read twice as `dither` and `dither+1`; `rowaddrl`; `rowaddrh`;
+`attrcoll`) relative to the unmoved code that indexes them, worth −480 counted
+off the addresses — the routine's other indexed reads moved as well and were
+worth nothing, which is the point — and took
 the one taken branch per row off the `$1100` boundary, worth −179. Predicted
 −659 against −656 measured, and −480 against −479 out of sample on a second
 shape. Both numbers were right about different quantities: the differential is

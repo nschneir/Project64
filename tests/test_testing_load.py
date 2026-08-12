@@ -148,10 +148,14 @@ def test_sample_step_validation(tmp_path):
 def test_sample_step_width_validation(tmp_path):
     """`width:` is 1 or 2 and nothing else: a 3-byte counter has no comparator
     behind it, and a spec that asks for one should be told at load time rather
-    than after the emulator has booted."""
+    than after the emulator has booted.
+
+    `true`/`false` are in the list because YAML has booleans and Python's `bool`
+    is an `int`: `width: true` would otherwise satisfy `width in (1, 2)` and
+    read one byte, which is the default dressed up as a choice."""
     f = _write(tmp_path, 'steps:\n  - sample: { mem: "$D000", as: x0, width: 2 }\n')
     assert load_test(f)["steps"][0]["sample"]["width"] == 2
-    for bad_width in ("3", "0", '"two"'):
+    for bad_width in ("3", "0", '"two"', "true", "false"):
         bad = _write(
             tmp_path, f'steps:\n  - sample: {{ mem: "$D000", as: x0, width: {bad_width} }}\n')
         with pytest.raises(TestError, match="width"):
