@@ -707,8 +707,9 @@ benext: inc     bei
 ; (16-gon at size 90, angle 192, max of 8 samples; 14,369-14,628 at angle 0),
 ; and 3,444 on the natural mid-run 8-edge shape.  Only a triangle comes near
 ; the old claim, at 147.  The conclusion survives its number: against a
-; scanline loop measured in tens of thousands (78,688 on that same 8-edge
-; shape) this is 3.0% of a worst-case drawshape — but it is also 70% of
+; scanline loop measured in tens of thousands (75,996 on that same 8-edge
+; shape, as this build ships — it was 78,688 before the two-crossing case went
+; in) this is 3.0% of a worst-case drawshape — but it is also 70% of
 ; buildedges itself, which the old sentence did not say and which is the more
 ; interesting fact.  Anchor: `c64 profile $0eb9 --samples 8` after
 ; `call xform`, $0EB9 being the `ldx #0` below; the block falls through to

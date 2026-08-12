@@ -213,6 +213,12 @@ inside a plan workspace that is deleted when the plan closes, and a decision
 that exists only in a deleted workspace is not a record. The fuller iteration-3
 entry should **absorb this section**, not sit beside it.
 
+**Anchors here are labels, not line numbers.** The first version of this section
+cited `raster.s:809-814` for `sfloop`; a comment edit twelve lines above it, in
+the same wave, moved that block to 821-826 and the citation went stale before
+the branch even closed. Routine and label names are what survive — the same
+convention `docs/todo.md`'s preamble states, for the same reason.
+
 Seven optimisation candidates were profiled. **Six are dropped, each with the
 number that dropped it; one is implemented.** None of it was required: `dropped`
 was already **0** at frame 10,200 with a ~42% margin, so the measurement *is*
@@ -245,8 +251,9 @@ implemented.
 with `symax` forced to `$FFFF`; ≈6,320 including the `jmp cssort` trampoline.
 Three things compound. It is **zero on a shape entirely on screen** — at
 `sh_cy 100` the same shape measures `symin 11 / symax 189`, no offscreen rows to
-skip. `sfloop` (`raster.s:809-814`) already exits at the bottom of the screen,
-so only *top*-clipped shapes could gain at all. And the scanline cost is set by
+skip. `sfloop`'s own screen-bottom test already exits at the bottom of the
+screen, so only *top*-clipped shapes could gain at all. And the scanline cost
+is set by
 admission order rather than geometry, so 6,032 is one shape at one angle, not a
 per-shape saving. Candidate 5 has since cut the sort this would skip by 56%,
 leaving ≈2,700 on that same configuration — an inference from the measured 56%,
@@ -262,7 +269,7 @@ reaches **4** — which is exactly two disjoint spans on one row. An interval ov
 two disjoint spans claims the gap between them; those gap cells are then never
 palette-stamped, and a later scanline in the same cell row whose span *does*
 cover them is skipped as "already stamped", leaving the previous shape's colour
-under the new shape's pixels. That breaks the contract stated at `raster.s:181`
+under the new shape's pixels. That breaks the contract in `sfattr`'s header
 — *"without ever stamping a cell the shape does not cover"* — and `test.yaml`
 asserts `typeseen == $03FF`, so all ten types really do run. A correct variant
 must keep the byte array as a fallback and add a per-cell-row contiguity flag,
@@ -279,8 +286,9 @@ and applies to 7 types of 10, so the realised figure is lower again. The ceiling
 is the number.
 
 **4 — per-span dither/ink/AND-OR recompute. Dropped.** The recompute
-(`raster.s:28-60`) is ~100 instruction cycles of the 623-cycle minimum measured
-on a short span (`c64 profile spanfill` at `spy 100 / spxa 0 / spxb 8`: 696.2
+(the dither/ink block at the head of `spanfill`, down to the `ORB1` store) is
+~100 instruction cycles of the 623-cycle minimum measured on a short span
+(`c64 profile spanfill` at `spy 100 / spxa 0 / spxb 8`: 696.2
 mean, 623 min, 1,123 max over 8); over ~222 calls that is ≈22,000 = 4.6%. It
 depends only on `(sh_pat, sh_ink, spy&7)`, so a per-shape table indexed by
 `spy&7` would replace it — but the table still costs ~52 cycles per call to
@@ -323,10 +331,10 @@ measured anchor is `c64 profile spanfill` at `spy 100 / spxa 0 / spxb 160`,
 unrolled chain** (`ldy #0/8/16/24` with a `+32` re-base), 34 → ~23.5 cycles per
 cell ≈ 6% of a shape — but it needs two parity entry points (`ANDM0/ORB0` against
 `ANDM1/ORB1`) plus a remainder path, **≈130 bytes against the 120 now free below
-`$2000`**, and `vars.s:215` turns an overrun into a build error. **The byte
-figure is the binding one, and 120 is the number to watch**: anything that frees
-space below `$2000` re-opens this candidate and anything that consumes space
-closes it further.
+`$2000`**, and the BSS-overrun `.assert` at the end of `vars.s` turns an
+overrun into a build error. **The byte figure is the binding one, and 120 is
+the number to watch**: anything that frees space below `$2000` re-opens this
+candidate and anything that consumes space closes it further.
 
 The cheap variant — stepping `Y` by 8 instead of adding 8 to `BMPPTR`, ~25 bytes
 — saves 5 of 34 cycles per cell, ≈14,000 per worst-case shape = **2.9%**, and is
@@ -334,11 +342,16 @@ the first thing a future pass should pick up. It is *not* covered by the
 400-shape checksum, and the reason is worth knowing: it needs a re-base past 32
 middle cells whose correctness interacts with the even/odd dither parity, and on
 the current tables **the demo cannot produce a span that wide at all** —
-`secsizehi` is 90 (`sections.s:71`), the largest vertex radius in `shapes.s` is
+`secsizehi`'s largest entry is 90, the largest vertex radius in `shapes.s` is
 the cross's (64, 22) → r = 67.7, and `xform` shifts right twice for x, so the
-half-width ceiling is 67.7 × 90 × 127 / 16384 ≈ 47 multicolour pixels ≈ 24 cells
-≈ 22 middle cells. That margin is a property of the size tables, not of the
-loop: raise `secsizehi`, add a shape with a larger vertex radius, or change
+half-width ceiling is 67.7 × 90 × 127 / 16384 ≈ 47 multicolour pixels, so a span
+is at most 95 pixels wide and touches at most **25** cells — `floor((o+94)/4) −
+floor(o/4) + 1` at the worst alignment `o` — leaving **≤ 23 middle cells**. (The
+task report said 24 cells and 22 middle cells, which is what a span aligned to a
+cell boundary touches; one straddling a boundary reaches 25 and therefore 23.
+The margin against 32 is what the claim rests on, and it is unaffected either
+way: 23 < 32.) That margin is a property of the size tables, not of the loop:
+raise `secsizehi`, add a shape with a larger vertex radius, or change
 either shift in `xform`, and it moves. The proof that would clear the variant is
 a targeted span identity — poke `spy` / `spxa 0` / `spxb 160` at both `spca`
 parities on both builds, `c64 mem read` the affected bitmap rows and compare byte
@@ -368,7 +381,8 @@ of `$D800-$DBFF` returns `(phi1 & $F0) | storage` — colour RAM is four bits
 wide and the high nybble is open bus, uniform across the dump but varying with
 where the machine stopped. A raw comparison of two dumps of the *same* build can
 therefore differ in all 1000 bytes. **Only a masked comparison is a valid
-instrument there**, which is why `test.yaml:30` masks its `$D800` assertion.
+instrument there**, which is why `test.yaml`'s one colour-RAM assertion masks
+with `$0f`.
 
 ---
 
@@ -376,10 +390,13 @@ instrument there**, which is why `test.yaml:30` masks its `$D800` assertion.
 
 - 136-step regression test passes; the demo runs the full 2:50 with
   `dropped = 0`, all ten shape types and all eight dither patterns used.
-- The one ceiling worth watching: the program ends a few hundred bytes below
-  `$2000`, and the `$C400` block has its own size assertion. Both are
-  **linker assertions**, so growing past either is a build error rather than
-  a demo that quietly paints over its own canvas.
+- The one ceiling worth watching: the program ends just below `$2000`, and the
+  `$C400` block has its own size assertion. Both are **linker assertions**, so
+  growing past either is a build error rather than a demo that quietly paints
+  over its own canvas. The margin was **252** bytes at the close of iteration
+  2 and is **120** after iteration 3 (see the performance section above). It
+  has moved three times in one iteration, so read it out of `1812.lbl` rather
+  than out of this line.
 - Deliberately not optimised further: the per-scanline active-edge machinery
   is now comparable in cost to the fill itself for small shapes. With
   `dropped = 0` and a measured margin it is not worth the risk; the next

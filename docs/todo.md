@@ -251,8 +251,9 @@ than proposed.
 
 **What's wrong now.** `vars.s:81-82` and `raster.s:272` both say "under 100
 bytes of headroom"; the real figure was 252 before iteration 3, 184 after the
-arrangement work, and is **120** now — the performance pass spent 47 more on
-the two-crossing case. (`$2000 − (__BSS_LOAD__ $1F2E + __BSS_SIZE__ $5A)`.)
+arrangement work, **167** after the band-pass fix spent 17 on `seccut` and its
+write, and is **120** now — the performance pass spent 47 more on the
+two-crossing case. (`$2000 − (__BSS_LOAD__ $1F2E + __BSS_SIZE__ $5A)`.)
 Both comments are still wrong, but by 20 bytes rather than by 150, and the
 figure has now moved three times in one iteration — so whoever fixes them
 should consider saying "see `1812.lbl`" instead of quoting a number at all.
