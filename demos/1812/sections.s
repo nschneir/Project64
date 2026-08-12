@@ -149,9 +149,10 @@ secinstr:
                                           ; contrast that makes the piano
                                           ; beside it read as percussive.
                                           ; PW is 0 because a sawtooth has no
-                                          ; pulse width.  The trumpet's
-                                          ; band-pass is DELIBERATELY dropped:
-                                          ; the cutoff is still 0 here.
+                                          ; pulse width.  The trumpet row's
+                                          ; band-pass is dropped: the WHY is
+                                          ; with secres/secvol, which is the
+                                          ; table that would route it.
         .byte   $40, $08, $02, $00, $08   ; v2 piano, chords
         .byte   $40, $09, $02, $00, $08   ; v3 piano, bass hand
         ; --- 2 battle: running figures, stabs, driving bass ---
@@ -174,6 +175,17 @@ secinstr:
 ; ---- filter setup per section -------------------------------------------
 ; $D417 (resonance + routing) and $D418 (mode + volume).  The cannon rewrites
 ; both while a shot is sounding.
+;
+; WHY SECTION 1's REED IS NOT BAND-PASSED — the deliberate omission, recorded
+; at the table that enforces it.  references/hardware.md's Trumpet row pairs a
+; sawtooth with a band-pass, and secinstr's reed takes everything else from
+; that row; routing it would mean a non-zero secres[1] here.  It is dropped on
+; purpose, because the cutoff word is 0 for the whole of sections 0-2: $D415
+; has no writer anywhere in the program, and $D416 is written only by cantick
+; during a cannon shot.  A voice routed through a filter parked at the bottom
+; of its range is subtracted, not shaped, so secres[1] stays $00 and the reed
+; is sold by its envelope alone.  The same fact is why no piano voice in
+; sections 0 and 1 is filtered either.
 
 secres: .byte   $00, $00, $f1, $f4, $00, $00   ; battle routes v1, cannon routes v3
 secvol: .byte   $0f, $0f, $2f, $1f, $0f, $00   ; battle band-pass, cannon low-pass

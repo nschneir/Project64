@@ -545,10 +545,21 @@ sv3h:   .byte   >s0v3, >s1v3, >s2v3, >s3v3, >s4v3, >s5v
 ; THE ARITHMETIC, because it is load-bearing three times over.  An event owns
 ; duration + 1 ticks (see vtfetch), and section 0 runs on ticks 1..2399 — the
 ; frame on which secframe reaches 2400 is spent on nextsec and on section 1's
-; first tick.  Every stream below therefore sums to exactly 2399 real frames
-; and NEVER REWINDS inside the section.  That is deliberate for voice 2: its
-; stream head is the rest lead-in, so a rewind would silence the left hand for
-; another 848 frames rather than repeating its material.
+; first tick.  The two PIANO streams below each sum to exactly 2399 real
+; frames, so neither of them rewinds inside the section.
+;
+; For VOICE 2 that is a requirement and not tidiness: its stream head is the
+; rest lead-in, so a rewind would silence the left hand for another 848 frames
+; rather than repeating its material.  For VOICE 1 it is only clean — a rewind
+; there would merely replay the troparion, which is what the stream it
+; replaces did for the last 343 ticks of every section 0.
+;
+; s0v3 is the exception, and it DOES rewind — nine times a section.  It is 240
+; real frames against 2399 ticks, so it is fetched on ticks 1, 241, 481 … 2161
+; and takes the LOOPS branch on all but the first.  That is harmless because
+; every pass is the same rest, but the "sums to its section" property above is
+; a claim about the two piano streams only, and must not be read as one about
+; all three.
 ;
 ; Voice 1, the right hand — 33 events, 848 + 1551 = 2399 real frames.
 ;   ticks    1.. 848  the troparion, ALONE: 13 quarters of 60 and a 68-frame
