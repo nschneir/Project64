@@ -79,12 +79,13 @@ Boot a fresh emulated C64.
   README's Supported machines table).
 - `-s, --name NAME` — session name (defaults to the model name).
 - `--headless` — no window on SDL builds; on GTK builds (the installed
-  `x64sc`) it starts minimized and never takes focus. On builds offering
-  VICE's `dump` sound device its audio is routed to a null sink, which is why
-  a headless session makes no noise — nobody is listening, and VICE's sound
-  device paces the emulation loop at real time, so a session waiting on a
-  host output device that isn't there would hang instead. Recording is
-  unaffected (`c64 audio record`).
+  `x64sc`) it starts minimized and never takes focus. On builds offering both
+  VICE's `dump` sound device and `-soundarg` its audio is routed to a null
+  sink, which is why a headless session makes no noise — nobody is listening,
+  and VICE's sound device paces the emulation loop at real time, so a session
+  waiting on a host output device that isn't there would hang instead. A build
+  missing either half keeps host audio. Recording is unaffected
+  (`c64 audio record`).
 - `--warp` — run at maximum speed (recommended for automation).
 - `--disk PATH` — attach a `.d64`/`.d71`/`.d81` image to drive 8 at boot.
   Attaching only fills the drive — the machine still boots to BASIC;
@@ -1604,17 +1605,20 @@ analysis side reads to work out what a tune actually played.
 - `FRAMES` — how many frames to sample (at least 1).
 - `PATH` — the JSONL file to write.
 
-Line 1 is a clock stamp — `{"machine", "clock_hz", "fps"}`, taken from the
-session's own model — and every line after it is one frame and nothing else:
-`{"frame": n, "regs": [25 ints]}`, where `regs[0]` is `$D400` and `regs[24]`
-is `$D418`. The whole block is one 25-byte read taken at a frame boundary, so
-the registers in a record are consistent with each other.
+Line 1 is a clock stamp — at least `{"machine", "clock_hz", "fps"}`, taken
+from the session's own model — and every line after it is one frame and nothing
+else: `{"frame": n, "regs": [25 ints]}`, where `regs[0]` is `$D400` and
+`regs[24]` is `$D418`. The whole block is one 25-byte read taken at a frame
+boundary, so the registers in a record are consistent with each other.
 
 The stamp exists because the records cannot carry a clock and the same
 registers are different notes on different machines: `c64 audio report` reads
 it back, so a re-score months later needs no `-s` and cannot silently assume
 PAL. Logs written before the stamp existed still parse — the header is
-optional to the reader, never to the writer.
+optional to the reader, never to the writer — and a line 1 carrying keys
+beside those three is still read as the stamp, not rejected as a malformed
+frame record, so the format can gain a field without breaking a reader
+already shipped.
 
 The sampling loop runs inside the session daemon, one frame per round trip
 — a per-frame round trip from the client would cost about half a second
@@ -2133,17 +2137,18 @@ cannot go stale on their own.
 
 A ready-made `.prg` `program:` is judged the same way, in **both** directions
 and on the size of the gap rather than on the order.
-`p.prg is newer than its symbols` when the program was written a minute or more
-after the `p.lbl` beside it (a `.prg` copied in over labels nobody regenerated);
-`p.prg predates its symbols` when the label file is the one that arrived alone
-(a build in a scratch directory whose `.lbl` was copied over the local one).
-Rebuild the pair, or
-delete the `.lbl` to run without symbols. What the order alone cannot say is
-anything about a pair written *together*: one command writes both (`ld65`
-finishes the label file microseconds after the program), so only a gap no single
-command could produce — a minute, against the minutes-to-days a real mismatch
-takes — counts as evidence. A `.bas`/`.s` `program:` is built by the run itself
-and is never judged.
+`p.prg is newer than its symbols` when the program was written more than a
+minute after the `p.lbl` beside it (a `.prg` copied in over labels nobody
+regenerated); `p.prg predates its symbols` when the label file is the one
+that arrived alone (a build in a scratch directory whose `.lbl` was copied
+over the local one, or a `c64 cart build` whose `<stem>.lbl` describes the
+cartridge link rather than any `.prg`). Rebuild the pair, or delete the `.lbl`
+to run without symbols. What the order alone cannot say is anything about a
+pair written *together*: one command writes both (`ld65` finishes the label
+file microseconds after the program), so only a gap no single command could
+produce — a minute, against the minutes-to-days a real mismatch takes —
+counts as evidence. A `.bas`/`.s` `program:` is built by the run itself and is
+never judged.
 
 **`--allow-stale`.** Both stops read mtimes, and an mtime is evidence rather
 than proof: `cp -r` without `-p` restamps a whole working tree, so an ordinary

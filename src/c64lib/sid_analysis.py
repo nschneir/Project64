@@ -252,9 +252,10 @@ def _log_stamp(line: str) -> dict | None:
 
     The one predicate both readers use: `log_timing` returns what this returns
     and `parse_log` skips the line this accepts, so stamp-ness cannot mean two
-    things. What a superset costs is a line carrying all three stamp keys AND
-    a frame record's own — nothing writes such a hybrid, and a second notion
-    of stamp-ness in `parse_log` to exclude it would cost more than it saves.
+    things. What a superset costs is a line carrying all three stamp keys AND a
+    frame record's own: no writer in this tree emits such a hybrid, and until
+    one turns up, an "and not a frame record" clause here would be a guard
+    against nothing.
     """
     try:
         row = json.loads(line)
@@ -266,7 +267,8 @@ def _log_stamp(line: str) -> dict | None:
 
 
 def log_timing(path: str | Path) -> dict | None:
-    """`{"machine", "clock_hz", "fps"}` a log was captured with, or None.
+    """The clock stamp a log was captured with — line 1 whole, extras and all —
+    or None.
 
     A register log does not carry its clock in its records — the same
     `$D400/$D401` pair is A4 on the NTSC machine and G#4 +35 cents on PAL —

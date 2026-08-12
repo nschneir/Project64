@@ -1208,9 +1208,10 @@ def test_allow_stale_runs_the_spec_and_warns(tmp_path):
 
 
 def test_equal_mtimes_are_not_stale(tmp_path):
-    """The `lbl_at <= img_at` boundary: `c64 package` writes the image and
-    copies the label file beside it in the same breath, so equal timestamps are
-    the ordinary successful build, not a stale artifact."""
+    """The `lbl_at <= img_at` boundary: only a label file strictly later than
+    the image says the program was rebuilt after being packaged, so a tie —
+    two writes inside one clock tick, a copy that carried both stamps over —
+    runs rather than being refused."""
     img = _stale_disk(tmp_path, 1_700_000_000, 1_700_000_000)
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])

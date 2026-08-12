@@ -403,7 +403,7 @@ def _gate_stale(note: str, remedy: str, allow_stale: bool,
         warnings.append(f"staleness allowed: {note}")
         return
     raise TestError(f"{note} {remedy} To test the artifact as it is, allow the "
-                    "staleness explicitly (--allow-stale, allow_stale: true).")
+                    "staleness explicitly (--allow-stale, or allow_stale=true).")
 
 
 def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
@@ -425,8 +425,11 @@ def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
         return
     img_at, lbl_at = image.stat().st_mtime, labels.stat().st_mtime
     if lbl_at <= img_at:
-        # Equal is not stale: `c64 package` writes the image and copies the
-        # label file beside it in one command.
+        # Equal is not stale. Only a label file strictly later than the image
+        # is evidence the program was rebuilt after being packaged; a tie is
+        # what a shared or coarse timestamp looks like (two writes inside one
+        # clock tick, a copy that carried both stamps over), and refusing it
+        # would cost a working image for no signal.
         return
     _gate_stale(
         f"{image.name} predates its symbols: the image is dated "
@@ -442,8 +445,8 @@ def _reject_stale_disk_labels(image: Path, labels: Path, allow_stale: bool,
 #: whichever order the two files happened to land. `ld65 -Ln` finishes the two
 #: ~60 µs apart, `cp p.lbl p.prg` reverses that order for nothing, and a slow
 #: copy of a big tree can space them by seconds. The failures worth refusing
-#: separate the pair by minutes to days, three orders of magnitude clear of
-#: this, so the window buys its false-positive immunity for no signal.
+#: separate the pair by minutes to days, so a minute of grace buys its
+#: false-positive immunity for no signal it gives up.
 _PRG_LABELS_GRACE = 60.0
 
 
@@ -458,17 +461,22 @@ def _reject_stale_prg_labels(prg: Path, labels: Path, allow_stale: bool,
     else. Both resolve every `ref:` this spec names against a program that is
     not the one loaded, and both used to do it in silence.
 
-    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`: one
-    command writes both files there (`ld65 -Ln` emits the `.lbl` microseconds
-    after the `.prg` it describes, so "labels newer" is what every successful
-    build looks like), and which landed first is an accident of the tool. Only
-    a real gap is evidence — in either direction. Nothing in this toolset
-    writes a `.prg`'s sibling `.lbl` on its own: `build_asm` writes the pair,
-    `build_disk` writes `<stem>.<cbm-name>.lbl` copies instead, and
-    `c64 package` writes no labels at all.
+    What the *order* cannot decide is anything inside `_PRG_LABELS_GRACE`: the
+    only writer here of both files is `build_asm` (`c64 build`, and a `.s`
+    through `c64 package`), whose `ld65 -Ln` emits the `.lbl` microseconds
+    after the `.prg` it describes — so "labels newer" is what every successful
+    build looks like, and which landed first is an accident of the tool. Only a
+    real gap is evidence, in either direction, because two in-tree commands do
+    write one side of the pair alone: `c64 package` tokenizes a `.bas` or
+    copies a `.prg` without writing any labels, and a `c64 cart build` of
+    `game.crt` writes `game.bin` and `game.lbl` and no `.prg` at all. The
+    second is refused here in the "predates" direction when a `game.prg` sits
+    beside it — correctly, since those labels describe the cartridge link and
+    not the `.prg`.
 
-    Only a `.prg` `program:` reaches this. A `.bas`/`.s` is built by the run
-    itself, which writes both files.
+    Only a `.prg` `program:` reaches this: a `.s` is linked by the run itself,
+    pair and all, and a `.bas` is tokenized with no label file to disagree
+    with.
     """
     prg_at, lbl_at = prg.stat().st_mtime, labels.stat().st_mtime
     if abs(prg_at - lbl_at) <= _PRG_LABELS_GRACE:

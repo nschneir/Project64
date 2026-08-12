@@ -119,6 +119,17 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   and the aligned struct/profile tables in `protocol.py`/`machines.py` are
   intentional). Comments state contracts, hardware quirks, and non-obvious
   *why* — see `monitor.py`/`daemon.py` for the house tone; no narration.
+- **A comment is read as a contract, so its claims carry the same evidence
+  burden as a finding** — the discipline the dogfood rule below states for
+  `docs/todo.md` items ("quote the file before asserting a gap in it") applies
+  to every comment, docstring and doc paragraph the tree ships. The shape that
+  goes wrong is the absolute about what some *other* command, writer or tool
+  does: "nothing here writes X on its own", "every build does Y". Grep it
+  before you write it; where the honest statement is narrower ("no writer in
+  this tree", plus the one command that is the exception), write the narrower
+  one. Four claims of that shape shipped in one branch's comments in 2026-08
+  and had to be walked back: the next reader reasons from a guard's stated
+  premise as if it had been checked, including about what the guard refuses.
 - Type-check with bare `pyright` — no flags, and **the tree must stay
   clean**: the check is local-only, by ruling (the CI gate was retired
   because its venv re-resolved dependencies on every run and could go red
