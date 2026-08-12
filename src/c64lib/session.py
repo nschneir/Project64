@@ -118,8 +118,12 @@ def _supports_sound_dump(exe: str) -> bool:
     monitor unanswered — which is indistinguishable from the wedge this
     device is here to remove (observed 2026-08-10 on this GTK3 build, from a
     deliberately bogus value; it took a human looking at the screen to see
-    what the runner could not). Degrading to the host device is always safe:
-    it is what every session did before.
+    what the runner could not). So this answers False on any doubt, which is
+    the cheaper wrong answer rather than a safe one: a false positive wedges
+    every headless session on this build, while a false negative only restores
+    the pre-probe status quo — the host device, which is itself what a
+    headless session can hang waiting on where nothing drains it (docs/cli.md,
+    `c64 session start --headless`).
 
     True means the whole launch pair is available, `-soundarg` included:
     `dump` without it writes its register dump to `vicesnd.sid` in the
@@ -144,10 +148,12 @@ def _supports_sound_dump(exe: str) -> bool:
     # This build separates the names with `/`; `,` and stray whitespace are
     # tolerated so a build that lists them differently still parses.
     names = {n.strip() for n in re.split(r"[/,]", devices.group(1))}
-    # `-soundarg` is its own non-indented option line, so no `-sounddev` block
-    # ever contains it — it is checked against the whole help output, the way
-    # `_supports_minimized` checks for `-minimized`.
-    return "dump" in names and "-soundarg" in help_text
+    # `-soundarg` is its own non-indented option line, so it is checked against
+    # the whole help output rather than the block — but anchored to a line
+    # start, not matched as a substring: this option's absence has to cost the
+    # sink, and a stray mention inside some other option's description would
+    # instead hand `-soundarg` to a build that exits on it, costing the launch.
+    return "dump" in names and re.search(r"^-soundarg\b", help_text, re.M) is not None
 
 
 RESPAWN_LIMIT = 5
