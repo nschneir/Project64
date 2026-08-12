@@ -303,6 +303,28 @@ array — `values` mirrors `mem get`'s key so a script can use either;
 `"text_encoding"` is the resolved gloss — `screen`, `petscii`, or `ascii`).
 Machine state preserved.
 
+**Colour RAM (`$D800-$DBFF`) reads back open bus in the high nybble.** The
+colour matrix is four bits wide, so a read returns `(phi1 & $F0) | storage`:
+the low nybble is the value that was written, the high nybble is whatever was
+last on the data bus. It is uniform across a whole dump and varies with where
+the machine stopped — so **two dumps of the same unchanged build can differ in
+all 1000 bytes, and two dumps of different builds can compare equal by luck.**
+
+**Only a masked comparison is valid at `$D800`.** Compare (and hash, and diff)
+`byte & $0F`; in a YAML spec that is
+`assert: { mem: "$D800", mask: { and: "$0f", equals: [...] } }`. A raw
+comparison there is not a weak instrument, it is not an instrument: it fails
+on unchanged builds and passes on changed ones. `demos/1812` paid for this
+twice in one pass — nine dumps of one build showed high nybbles of 0, 5, 11,
+13 and 15, and the odd checksum read as "the optimisation changed the palette"
+until the mask went on; a batch that did compare equal raw had simply stopped
+three times where `phi1` was 0.
+
+Neither `mem read` nor the `c64_mem_read` MCP tool masks this for you, on
+purpose: the open-bus value is the hardware's real answer and a caller may be
+asking about it. The mask belongs at the comparison, where the caller knows
+whether it wants the storage or the bus.
+
 ### `c64 mem get`
 
     c64 mem get ADDR [LENGTH]
@@ -492,11 +514,12 @@ across subsequent commands — until you `c64 continue`.
 - `--count N` (default `1`) — stop at the Nth arrival at REF. With REF set
   to the program's main-loop label this is deterministic **frame stepping**
   (see the cookbook's frame-stepping recipe). The count loop runs inside
-  the session daemon, so large counts are fast (hundreds of frames per
-  second of wall clock, not one per half-second). Same quantity as
-  `c64 profile --samples`, under the other name: this one *stops at* the Nth
-  arrival, `profile` *prices all N* — see that flag for why neither is
-  renamed.
+  the session daemon, so the client pays one IPC round-trip for the whole
+  loop instead of one per arrival (which cost about half a second each) —
+  but see the cost note below: a monitor round-trip per arrival remains.
+  Same quantity as `c64 profile --samples`, under the other name: this one
+  *stops at* the Nth arrival, `profile` *prices all N* — see that flag for
+  why neither is renamed.
 - `--timeout SECS` (default `30`).
 
 JSON: `{"registers", "pc_symbol", "stopped": true, "count"}`. Exit 1 on
@@ -509,6 +532,24 @@ the checkpoint it set (JSON: `"machine": "running"`,
 program can stop visiting REF (death, menu, pause screen), `until REF` can
 never fire — set a breakpoint at a code path that must still execute and use
 `c64 wait --break` instead.
+
+**`--count N` costs a monitor round-trip per arrival — choose a SPARSE
+reference.** Daemon-side or not, each arrival is one resume plus one
+wait-for-stop against VICE, so the wall clock scales with **N**, not with how
+much of the program you cover. Reaching a given point through a
+frequently-hit reference is therefore many times dearer than reaching the same
+point through a rare one: on `demos/1812`, `until seqtick --count 10200` — a
+per-frame reference — ran for tens of minutes, where `until secchange
+--count 5` covered a comparable span of the program in about three, because it
+stopped five times instead of ten thousand.
+
+Budget for this before you set a high count, and **raise `--timeout` to
+match**: the default 30 s will expire long before a four-figure count on a
+per-frame reference arrives. The trap is diagnostic, not just slow — a `until`
+that is merely grinding through its count looks exactly like a wedged VICE,
+and this repo has already spent a debugging session on that mistake. Prefer a
+reference that fires once per thing you care about (a section change, a level
+load, a state transition) over one that fires every frame.
 
 ### `c64 call`
 
@@ -579,8 +620,33 @@ A `max` above the frame budget with a `mean` below it is the shape to look
 for — it means some frames drop and most do not. The arrivals are consecutive
 *runs of the routine* (the fake JSR is re-armed in place between them, one
 persistent trap for the whole run, and the whole loop runs inside the session
-daemon), so the state that drives the spread advances exactly as it would in
-the program.
+daemon).
+
+**`--samples` re-enters the routine; it does not re-run the program.** Every
+arrival is the same synthesised JSR at REF, and the routine reads whatever
+happens to be in memory when it starts. So the samples spread only as far as
+the routine's own inputs move between them:
+
+- A routine that **advances the state its cost depends on** — a per-frame tick
+  that steps the game, a sequencer step that consumes the next event — moves
+  itself from one arrival to the next, and `--samples` shows the real
+  distribution. `tick` above is this case.
+- A **leaf routine whose inputs its caller sets up** — a multiply, a
+  coordinate transform, a span filler, a shape drawer — is handed the *same*
+  operands N times and recomputes the same case. What comes back is not the
+  distribution: it is badline DMA jitter around one value, a few percent wide.
+  Worse, the case it repeats is whichever one the program happened to be
+  holding when you stopped it, so the figure moves when the anchor moves and
+  reads as a regression that nothing caused. Four routines in `demos/1812`
+  looked like large regressions this way until their inputs were set by hand.
+
+**For those, control the inputs instead of sampling.** Poke the operands with
+`c64 mem write`, take a `--samples 1` reading of each case you care about, and
+quote the range you constructed. `demos/1812`'s span filler is the worked
+example: its cost is driven by the span endpoints `spxa`/`spxb`, which its
+caller writes and which `--samples` never varies, so its true range appears
+only when those two are poked to their extremes — the sampler alone reports a
+DMA-width spread and calls it the answer.
 
 A run whose timers read back untouched — a raw count of 0, which no real
 routine can cost — is reported as an error naming the likely cause (the CIA
