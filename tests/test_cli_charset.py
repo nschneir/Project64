@@ -104,15 +104,15 @@ def test_check_label_is_one_validator_with_two_flag_spellings():
     same strings in the same words. Only the flag's own spelling differs, and
     that is the one thing either front end passes in — the rule itself lives
     beside `format_glyphs`, which is what the label names."""
-    check_label("fontgly")                  # an identifier: no complaint
-    check_label("_end2")
+    check_label("fontgly", "--label")       # an identifier: no complaint
+    check_label("_end2", "label")
     with pytest.raises(CharsetError) as e:
         check_label("font gly", "--label")
     assert str(e.value) == (
         "--label 'font gly' is not an assembler identifier (letters, digits "
         "and underscore, not starting with a digit)")
     with pytest.raises(CharsetError) as e:
-        check_label("9lives")
+        check_label("9lives", "label")
     assert str(e.value).startswith(
         "label '9lives' is not an assembler identifier (letters,")
 

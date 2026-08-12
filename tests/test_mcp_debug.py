@@ -406,6 +406,11 @@ def test_wait_mem_diagnosis_matches_the_cli_bar_the_command_names():
     assert spine in cli_error
     assert "c64_continue" in out["diagnosis"] and "c64_wait_break" in out["diagnosis"]
     assert "`c64 continue`" in cli_error and "`c64 wait --break`" in cli_error
+    # `stopped_by` is the other per-front-end half, and just as swappable as
+    # the remedy above unless each spelling is pinned to its own side.
+    assert "(`c64 until`, `step`, `finish`, or a checkpoint hit)" in cli_error
+    assert ("(c64_until, c64_step, c64_finish, or a checkpoint hit)"
+            in out["diagnosis"])
 
 
 def test_key_state_note_is_one_rule_with_each_front_ends_way_out():
@@ -437,6 +442,10 @@ def test_key_hold_timeout_key_state_matches_the_cli():
     for msg in (out["raw"], cli_error):
         assert "$CB still holds 'd' (" in msg and ") — clear it with " in msg
     assert "(--no-release)" in cli_error and "(release=false)" in out["raw"]
+    # The way out has to be the reader's own front end, not the other's: pin
+    # the pokes themselves, or the two `clear_with` arguments swap unnoticed.
+    assert "clear it with `c64 mem write '$CB' 64`" in cli_error
+    assert "clear it with c64_mem_write addr='$CB' values=[64]" in out["raw"]
 
 
 def test_call_timeout_message_matches_the_cli():

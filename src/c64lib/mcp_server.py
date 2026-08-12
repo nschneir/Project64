@@ -1291,7 +1291,7 @@ def c64_charset_encode(file: str, hires: bool = False,
     ends, so several sheets concatenate into one include without being
     renamed on the way out. The charset twin of c64_sprite_encode."""
     from .charset import check_label, encode_row, format_glyphs, parse_charset_file
-    check_label(label)
+    check_label(label, "label")
     glyphs = parse_charset_file(file, multicolor=not hires)
     # "rendered" deliberately exceeds the CLI's --json payload: MCP has no
     # stdout, so without it first_code would be a no-op here. The CLI omits
