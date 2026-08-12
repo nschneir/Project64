@@ -99,15 +99,61 @@ secspawn:
 ; tables.  Waveform bits: $10 triangle, $20 sawtooth, $40 pulse, $80 noise;
 ; $04 ring mod (triangle against the previous voice's oscillator).
 
+; THE TEXTURE ARC (SPEC.md 6.4) is what these rows spell: the piece opens on
+; ONE instrument and gains them — 1, 2, 3, 2 + artillery, 3, 0 — so the
+; finale's full texture is arrived at rather than merely present.  Sections
+; 2, 3 and 4 are unchanged; the arc is carried entirely by the six rows below.
+;
+; A PIANO IS AN ENVELOPE, NOT A WAVEFORM.  Attack 0 (2 ms) and SUSTAIN 0 are
+; the whole of it: a struck string has an instantaneous onset and then only
+; decays, and a non-zero sustain nybble is the single thing that makes a SID
+; voice read as an organ.  That is why the old hymn was thin — three pads at
+; sustain 10, 9 and 10 with 68/68/38 ms attacks, which is an organ chord and
+; not an orchestra.  The sustain nybble of every piano row here reads 0, and
+; music.s explains why the hymn's NOTES had to be re-voiced to match.
+;
+; Only the decay nybble moves between piano rows, and it tracks the tempo:
+; $A (1.5 s) at the hymn's quarter = 60 frames, 8 (300 ms) for the march's
+; chords at quarter = 32.  The bass hand gets 9 (750 ms) — one step longer,
+; because low notes sound weaker than high ones on the 6581 and the usual
+; remedy, raising the sustain level, is the one thing these rows may not do.
+; Release is 2 (48 ms) rather than hardware.md's 0 (6 ms): voicetick releases
+; a note three frames before its event ends, so 48 ms lands the damper fall
+; exactly inside the gap the sequencer already leaves, where 6 ms would chop a
+; still-audible decay and click.
+;
+; No piano voice is filtered, and that is not a preference: $D415 has no
+; writer anywhere and $D416 is written only by cantick during a cannon shot,
+; so the cutoff is 0 for the whole of sections 0-2.  A voice routed through a
+; filter parked at the bottom of its range is subtracted, not shaped.  The
+; same fact is why the reed below drops the trumpet's band-pass.
+
 secinstr:
-        ; --- 0 hymn: soft chant over a sustained pedal ---
-        .byte   $10, $68, $a5, $00, $08   ; v1 triangle, slow attack, high sustain
-        .byte   $10, $68, $95, $00, $08   ; v2 triangle, the answering voice
-        .byte   $40, $47, $a4, $00, $08   ; v3 pulse PW $0800, the pedal
-        ; --- 1 marseillaise: dotted march ---
-        .byte   $40, $19, $a2, $00, $04   ; v1 pulse, swept PW
-        .byte   $20, $28, $92, $00, $00   ; v2 sawtooth thirds
-        .byte   $40, $09, $82, $00, $02   ; v3 pulse, marching bass
+        ; --- 0 hymn: a solo piano, two hands, one instrument ---
+        .byte   $40, $0a, $02, $00, $08   ; v1 piano PW $0800, right hand
+        .byte   $40, $0a, $02, $00, $08   ; v2 the left hand — an IDENTICAL
+                                          ; row, so the two fuse into one
+                                          ; instrument rather than reading as
+                                          ; two.  Only secpw parts them.
+        .byte   $10, $00, $00, $00, $00   ; v3 silent — see s0v3.  Triangle
+                                          ; because that is the convention
+                                          ; section 5's silent rows use.
+        ; --- 1 marseillaise: a reed arrives over the piano ---
+        .byte   $20, $18, $a2, $00, $00   ; v1 sawtooth reed, the anthem.
+                                          ; Attack 1 (8 ms), not the trumpet
+                                          ; row's 6 (68 ms = four frames):
+                                          ; the anacrusis is 16-frame notes
+                                          ; and a four-frame attack blunts it.
+                                          ; Sustain 10 — a wind holds its
+                                          ; level, and that is exactly the
+                                          ; contrast that makes the piano
+                                          ; beside it read as percussive.
+                                          ; PW is 0 because a sawtooth has no
+                                          ; pulse width.  The trumpet's
+                                          ; band-pass is DELIBERATELY dropped:
+                                          ; the cutoff is still 0 here.
+        .byte   $40, $08, $02, $00, $08   ; v2 piano, chords
+        .byte   $40, $09, $02, $00, $08   ; v3 piano, bass hand
         ; --- 2 battle: running figures, stabs, driving bass ---
         .byte   $20, $06, $81, $00, $00   ; v1 sawtooth, band-passed
         .byte   $40, $05, $71, $00, $01   ; v2 narrow pulse stabs
@@ -135,5 +181,25 @@ secvol: .byte   $0f, $0f, $2f, $1f, $0f, $00   ; battle band-pass, cannon low-pa
 ; ---- pulse-width sweep ---------------------------------------------------
 ; The base $D403 value for voice 1's swept pulse; 0 disables the sweep.
 ; Only the sections whose voice 1 is a pulse waveform use it.
+;
+; Both of the first two entries moved with the arc, because both sections'
+; voice-1 waveform changed:
+;   [0] $00 -> $08  the hymn's voice 1 is now a pulse piano, and $08 centres
+;                   the sweep on its own PW $0800 — the same relation
+;                   [1] used to have to secinstr's PW hi, and [4] still does.
+;                   pwtick's period is 128 frames against notes of 60-120, so
+;                   the width really does move WITHIN a note at this tempo.
+;   [1] $04 -> $00  the Marseillaise's voice 1 is now a sawtooth reed, which
+;                   has no pulse width.  Leaving $04 would have pwtick writing
+;                   $D403 every frame for a voice that ignores it, which is
+;                   exactly what this table's comment says it does not do.
+;
+; pwtick writes $D403 and nothing else, so pulse-width motion is available to
+; VOICE 1 ONLY: the hymn's right hand has it and its left hand does not.  That
+; asymmetry is wanted — two hands of one piano are never spectrally identical,
+; and the envelope, which is bit-identical across both, is what names the
+; instrument.  If a capture ever shows the hands separating into two
+; instruments instead of fusing, [0] back to $00 undoes it and nothing else
+; has to move.
 
-secpw:  .byte   $00, $04, $00, $00, $06, $00
+secpw:  .byte   $08, $00, $00, $00, $06, $00

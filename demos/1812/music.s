@@ -524,28 +524,99 @@ sv3h:   .byte   >s0v3, >s1v3, >s2v3, >s3v3, >s4v3, >s5v
 ; ---- 0: the hymn, "O Lord, Save Thy People" ------------------------------
 ; E minor, quarter = 60 frames (one second).  A rising fourth, a stepwise
 ; descent, and a long held tonic — the shape of the troparion, reduced.
+;
+; THE TEXTURE ARC OPENS HERE, AND IT OPENS AS A SOLO PIANO.  The whole piece
+; is 1 -> 2 -> 3 -> 2 + artillery -> 3 -> 0 instruments, so this section has
+; exactly one: a piano, played by two hands on voices 1 and 2 over an
+; identical secinstr row.  Voice 3 is silent, because a solo piano has no
+; third instrument.
+;
+; WHY THE NOTES CHANGED, AND NOT JUST THE INSTRUMENT.  The piano row has
+; SUSTAIN 0 (sections.s), which is the one thing that stops a SID voice
+; reading as an organ.  A sustain-0 voice stops sounding the moment its decay
+; completes, whatever its duration byte says: the hymn's decay is 1.5 s = 90
+; frames, and the old data held notes for 120-240 frames.  Dropping a piano
+; envelope onto that would have given a struck note followed by up to 2.5
+; seconds of silence, sixteen times a section.  So the material is re-voiced,
+; not replaced: the rising fourth, the stepwise descent and the held tonic are
+; all still here, but a held half is re-struck as two beats and the held tonic
+; is rolled as an arpeggio, which is how a piano sustains anything.
+;
+; THE ARITHMETIC, because it is load-bearing three times over.  An event owns
+; duration + 1 ticks (see vtfetch), and section 0 runs on ticks 1..2399 — the
+; frame on which secframe reaches 2400 is spent on nextsec and on section 1's
+; first tick.  Every stream below therefore sums to exactly 2399 real frames
+; and NEVER REWINDS inside the section.  That is deliberate for voice 2: its
+; stream head is the rest lead-in, so a rewind would silence the left hand for
+; another 848 frames rather than repeating its material.
+;
+; Voice 1, the right hand — 33 events, 848 + 1551 = 2399 real frames.
+;   ticks    1.. 848  the troparion, ALONE: 13 quarters of 60 and a 68-frame
+;                     close.  Solo, so it is the dense writing — one strike
+;                     every 60 frames, well inside the 90-frame decay.
+;   ticks  849..2399  the second phrase, WITH the left hand: halves and
+;                     quarters.  The left hand now carries the continuous
+;                     motion, so the melody can hold longer values again.
+; Every onset here spawns a shape — secspawn[0] is %001, voice 1 only — so
+; this stream is also the section's shape budget.  33 onsets in 2399 frames,
+; one every 73.
 
-s0v1:   .byte   OC4+N_E, 120,  OC4+N_E,  60,  OC4+N_FS, 60,  OC4+N_G, 120
-        .byte   OC4+N_A, 120,  OC4+N_G,  60,  OC4+N_FS, 60,  OC4+N_E, 240
-        .byte   OC4+N_G, 120,  OC4+N_A, 120,  OC4+N_B, 240,  OC4+N_A, 120
-        .byte   OC4+N_G, 120,  OC4+N_FS,120,  OC4+N_E, 240,  REST,    120
+s0v1:   .byte   OC4+N_E,  59,  OC4+N_E,  59,  OC4+N_E,  59,  OC4+N_FS, 59
+        .byte   OC4+N_G,  59,  OC4+N_G,  59,  OC4+N_A,  59,  OC4+N_A,  59
+        .byte   OC4+N_G,  59,  OC4+N_FS, 59,  OC4+N_E,  59,  OC4+N_G,  59
+        .byte   OC4+N_B,  59,  OC5+N_E,  67   ; 13*60 + 68 = 848: the cue
+        .byte   OC4+N_G, 119,  OC4+N_A, 119,  OC4+N_B, 119,  OC4+N_B, 119
+        .byte   OC4+N_A, 119,  OC4+N_G, 119
+        .byte   OC4+N_FS, 59,  OC4+N_E,  59,  OC4+N_FS, 59,  OC4+N_G,  59
+        .byte   OC4+N_E,  59,  OC4+N_G,  59,  OC4+N_B,  59,  OC5+N_E,  59
+        .byte   OC4+N_B,  59,  OC4+N_G,  59,  OC4+N_FS, 59,  OC4+N_E,  59
+        .byte   OC4+N_E, 110   ; 6*120 + 12*60 + 111 = 1551
         .byte   LOOPS
 
-s0v2:   .byte   OC3+N_B, 120,  OC3+N_B,  60,  OC3+N_A,  60,  OC3+N_B, 120
-        .byte   OC4+N_C, 120,  OC3+N_B,  60,  OC3+N_A,  60,  OC3+N_G, 240
-        .byte   OC4+N_E, 120,  OC4+N_FS,120,  OC4+N_G, 240,  OC4+N_FS,120
-        .byte   OC4+N_E, 120,  OC4+N_D, 120,  OC3+N_B, 240,  REST,    120
+; Voice 2, the left hand — enters on TICK 849, the same tick on which the
+; right hand starts its second phrase, so the two hands land on that downbeat
+; together.  The lead-in is four rests of 211 = 4 * 212 = 848 real frames; the
+; duration byte maxes at 255, so four is the minimum that reaches 848, and
+; four equal ones happen to fit it exactly.  Then 24 quarters and a 111-frame
+; close: 848 + 1440 + 111 = 2399.
+;
+; Broken triads under the melody, E natural minor throughout (no D#: the
+; troparion is modal, and so was the line this replaces).  Voice 2 does not
+; spawn in this section, so its event count is free.
+
+s0v2:   .byte   REST,    211,  REST,    211,  REST,    211,  REST,    211
+        .byte   OC2+N_E,  59,  OC2+N_B,  59,  OC3+N_E,  59,  OC3+N_G,  59
+        .byte   OC2+N_E,  59,  OC2+N_B,  59,  OC3+N_E,  59,  OC3+N_B,  59
+        .byte   OC2+N_A,  59,  OC3+N_E,  59,  OC3+N_A,  59,  OC3+N_E,  59
+        .byte   OC2+N_E,  59,  OC2+N_B,  59,  OC3+N_E,  59,  OC3+N_G,  59
+        .byte   OC2+N_E,  59,  OC2+N_G,  59,  OC2+N_B,  59,  OC3+N_E,  59
+        .byte   OC2+N_B,  59,  OC3+N_FS, 59,  OC2+N_B,  59,  OC3+N_FS, 59
+        .byte   OC2+N_E, 110
         .byte   LOOPS
 
-s0v3:   .byte   OC2+N_E, 240,  OC2+N_E, 240,  OC2+N_A, 240,  OC2+N_A, 120
-        .byte   OC2+N_B, 240,  OC2+N_B, 120,  OC2+N_E, 240,  OC2+N_E, 240
-        .byte   OC3+N_C, 240,  OC3+N_C, 120,  OC2+N_A, 240,  OC2+N_B, 240
-        .byte   OC2+N_E, 240,  REST,     60
+; Voice 3 is SILENT for the whole hymn, and this is the deliberate omission
+; the arc rests on: one instrument means one instrument, and the piano above
+; is already using two voices for its two hands.  There is no per-voice mute
+; flag — loadstreams always aims all three pointers — so silence has to be a
+; rest-only stream.  It costs nothing in the picture: secspawn[0] is %001, so
+; voice 3's onsets never spawned a shape even when it had some.
+
+s0v3:   .byte   REST,    239
         .byte   LOOPS
 
 ; ---- 1: the Marseillaise fragment ----------------------------------------
 ; G major, quarter = 32 frames.  The dotted anacrusis and the rising fourth
 ; into the held note — the anthem's first gesture, reduced.
+;
+; THE ARC GAINS ITS SECOND INSTRUMENT HERE: a reed takes the anthem on voice
+; 1, and the piano carried over from the hymn keeps voices 2 and 3 — chords
+; and a marching bass.  Two instruments over three voices, which is what makes
+; the arc read as gaining an instrument rather than swapping one.
+;
+; Voices 1 and 2 keep their notes; only their instrument rows change.  Both
+; already move in 16-32 frame events, and the piano's decay here is 300 ms =
+; 18 frames, so neither has the dead-air problem the hymn had.  Leaving them
+; alone also leaves the picture alone: secspawn[1] is %011, voices 1 and 2.
 
 s1v1:   .byte   OC4+N_D,  16,  OC4+N_D,  16,  OC4+N_G,  48,  OC4+N_G,  16
         .byte   OC4+N_A,  48,  OC4+N_A,  16,  OC5+N_D,  64,  OC4+N_B,  48
@@ -563,10 +634,32 @@ s1v2:   .byte   OC3+N_B,  32,  OC4+N_D,  32,  OC3+N_B,  32,  OC4+N_D,  32
         .byte   OC3+N_A,  32,  OC4+N_D,  32,  OC3+N_B,  32,  OC3+N_G,  32
         .byte   LOOPS
 
-s1v3:   .byte   OC2+N_G,  32,  OC2+N_G,  32,  OC3+N_D,  32,  OC3+N_D,  32
-        .byte   OC3+N_C,  32,  OC3+N_C,  32,  OC3+N_D,  32,  OC3+N_D,  32
-        .byte   OC2+N_G,  32,  OC2+N_G,  32,  OC2+N_B,  32,  OC2+N_B,  32
-        .byte   OC3+N_D,  32,  OC3+N_D,  32,  OC2+N_G,  64
+; Voice 3, the piano's bass hand — enters on TICK 495, the tick on which the
+; anthem restarts, so the bass arrives with the repeat rather than under the
+; first statement.  The lead-in is two rests of 246 = 2 * 247 = 494 real
+; frames; the anthem's first statement is s1v1's first fourteen events, whose
+; real length is 480 + 14 = 494 (the naive sum, 480, is short by one frame per
+; event and is the wrong number).
+;
+; Section 1 runs on ticks 1..1500 — unlike section 0 it gets its whole budget
+; in ticks, because nextsec zeroes secframe before that frame's tick runs — so
+; the bass has 1006 frames to fill and the stream sums to 494 + 1006 = 1500
+; exactly.  It must fill them: the stream head is the rest lead-in, so a
+; rewind would silence the bass for another 494 frames.  Two strains of
+; fifteen events, root-and-fifth on the beat, the second one walking.
+;
+; Voice 3 does not spawn in this section either (%011), so the late entry is
+; free in the picture as well.
+
+s1v3:   .byte   REST,    246,  REST,    246
+        .byte   OC2+N_G,  32,  OC3+N_D,  32,  OC2+N_G,  32,  OC3+N_D,  32
+        .byte   OC3+N_C,  32,  OC3+N_G,  32,  OC3+N_C,  32,  OC3+N_G,  32
+        .byte   OC3+N_D,  32,  OC3+N_A,  32,  OC3+N_D,  32,  OC3+N_A,  32
+        .byte   OC2+N_G,  32,  OC3+N_D,  32,  OC2+N_G,  32   ; 15 * 33 = 495
+        .byte   OC2+N_G,  32,  OC3+N_D,  32,  OC2+N_B,  32,  OC3+N_D,  32
+        .byte   OC3+N_C,  32,  OC3+N_G,  32,  OC3+N_E,  32,  OC3+N_G,  32
+        .byte   OC3+N_D,  32,  OC3+N_A,  32,  OC3+N_FS, 32,  OC3+N_A,  32
+        .byte   OC2+N_G,  32,  OC3+N_D,  32,  OC2+N_G,  48   ; 14*33 + 49 = 511
         .byte   LOOPS
 
 ; ---- 2: the battle -------------------------------------------------------
