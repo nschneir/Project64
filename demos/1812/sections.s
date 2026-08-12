@@ -122,11 +122,10 @@ secspawn:
 ; exactly inside the gap the sequencer already leaves, where 6 ms would chop a
 ; still-audible decay and click.
 ;
-; No piano voice is filtered, and that is not a preference: $D415 has no
-; writer anywhere and $D416 is written only by cantick during a cannon shot,
-; so the cutoff is 0 for the whole of sections 0-2.  A voice routed through a
-; filter parked at the bottom of its range is subtracted, not shaped.  The
-; same fact is why the reed below drops the trumpet's band-pass.
+; Nothing in either section is routed through the filter — not the pianos, and
+; not the reed, which drops the trumpet row's band-pass.  That is a carve-out
+; rather than a preference, and its WHY is recorded once, with secres/secvol
+; below: that is the table which would have to do the routing.
 
 secinstr:
         ; --- 0 hymn: a solo piano, two hands, one instrument ---
@@ -176,16 +175,30 @@ secinstr:
 ; $D417 (resonance + routing) and $D418 (mode + volume).  The cannon rewrites
 ; both while a shot is sounding.
 ;
-; WHY SECTION 1's REED IS NOT BAND-PASSED — the deliberate omission, recorded
-; at the table that enforces it.  references/hardware.md's Trumpet row pairs a
-; sawtooth with a band-pass, and secinstr's reed takes everything else from
-; that row; routing it would mean a non-zero secres[1] here.  It is dropped on
-; purpose, because the cutoff word is 0 for the whole of sections 0-2: $D415
-; has no writer anywhere in the program, and $D416 is written only by cantick
-; during a cannon shot.  A voice routed through a filter parked at the bottom
-; of its range is subtracted, not shaped, so secres[1] stays $00 and the reed
-; is sold by its envelope alone.  The same fact is why no piano voice in
-; sections 0 and 1 is filtered either.
+; WHY SECTIONS 0 AND 1 ROUTE NOTHING — the deliberate omission, recorded here
+; and only here, because this is the table that would have to do the routing.
+; It covers the hymn's two pianos, the Marseillaise's piano pair, and the
+; reed.  The reed is the one that looks like an oversight: references/
+; hardware.md's Trumpet row is a sawtooth WITH a band-pass, and the reed takes
+; its waveform and its sustain 10 from that row — but only those two.  Its
+; attack, decay and release all differ, for the reasons given beside the row
+; itself, and the band-pass is dropped for the reason below.
+;
+; The cutoff word is 0 for the whole of sections 0-2, and $D415/$D416 have
+; exactly two writers between them:
+;   sndinit  zeroes registers $00-$18 — its loop runs to `cpx #25` — once at
+;            startup and once per restart, which covers both;
+;   cantick  writes $D416, and only while csweep is counting down from a
+;            cannon shot, which cannot happen before section 3.
+; So through sections 0-2 the cutoff is still sndinit's zero.  That zeroing is
+; load-bearing, not incidental: SID registers survive a program stop (see
+; sndinit's own comment), so a register nothing wrote would hold whatever the
+; last program left there — the conclusion is "0" precisely BECAUSE sndinit
+; writes it.
+;
+; A voice routed through a filter parked at the bottom of its range is
+; subtracted, not shaped.  So secres[0] and secres[1] stay $00, and the reed
+; and the pianos are sold by their envelopes alone.
 
 secres: .byte   $00, $00, $f1, $f4, $00, $00   ; battle routes v1, cannon routes v3
 secvol: .byte   $0f, $0f, $2f, $1f, $0f, $00   ; battle band-pass, cannon low-pass
