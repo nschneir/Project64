@@ -616,8 +616,13 @@ PLAY = Path("play.html")
 PLAY_ASSETS = {
     "prg": "{demo}.prg",
     "d64": "{demo}.d64",
-    "image": "evidence/title.png",
 }
+
+#: The tile art is the one asset whose *name* is not derivable. Every game has
+#: an `evidence/title.png`; 1812 has no title screen to shoot, so its tile is
+#: an evidence frame. The rule that survives both is the one that catches the
+#: real mistake — the image must live under the demo's own `evidence/`.
+PLAY_IMAGE_DIR = "demos/{demo}/evidence/"
 
 
 def _play_registry() -> list[dict[str, str]]:
@@ -639,26 +644,27 @@ def _play_registry() -> list[dict[str, str]]:
     return entries
 
 
-def test_play_page_registry_is_the_game_demos_in_the_roster_order():
+def test_play_page_registry_is_the_runnable_demos_in_the_roster_order():
     """`play.html` publishes its own roster and derives it from nothing:
-    `DEMOS` is a hand-written array inside the page. The maintainer ruling that
-    put four demos on it — the games, in `demos/README.md`'s order — makes that
-    array a fourth copy of the roster the three surfaces above already share,
-    so it is held to the same standard. A fifth game demo landing in the tree,
-    a reordering, or a renamed directory should not be able to leave the play
-    page quietly serving the old four.
+    `DEMOS` is a hand-written array inside the page. That makes the array a
+    fourth copy of a list the three markdown surfaces already share, so it is
+    held to the same standard: a new demo, a reordering, or a renamed
+    directory should not be able to leave the play page serving the old set.
 
-    1812 is out of the play page and stays out — a music demo rather than a
-    game, and the one demo with no `evidence/title.png` to cut a tile from. It
-    is filed under "Miscellaneous cool stuff", so the tier this reads keeps it
-    out without naming it.
+    What belongs on it is "every demo with a committed program", not a tier.
+    The games qualify; so does 1812, which is watched rather than played but
+    runs perfectly well in a browser. `fugue` and the numbered teaching demos
+    do not, because nothing in the tree builds them into a `.prg` — and that
+    is the condition this asserts, so a demo that gains one is a test failure
+    rather than an omission nobody notices.
     """
-    games = [slug for slug, tier in _md_roster(DEMOS_README.read_text()).items()
-             if tier == "game"]
+    runnable = [slug for slug in _md_roster(DEMOS_README.read_text())
+                if (DEMOS_DIR / slug / f"{slug}.prg").exists()]
     ids = [entry["id"] for entry in _play_registry()]
-    assert ids == games, (
-        f"play.html's DEMOS roster is {ids} but demos/README.md's game demos "
-        f"are {games} — both lists are maintained by hand and they have parted")
+    assert ids == runnable, (
+        f"play.html's DEMOS roster is {ids} but the demos with a committed "
+        f".prg are {runnable} — both lists are maintained by hand and they "
+        f"have parted")
     for demo in ids:
         assert (DEMOS_DIR / demo).is_dir(), \
             f"play.html serves {demo!r}, which is not a demo directory"
@@ -687,6 +693,14 @@ def test_every_demo_file_play_html_serves_exists_and_is_tracked():
                 f"{entry[field]!r}, not {want!r} — a tile pointing into another "
                 f"demo's directory resolves fine and ships the wrong game")
             referenced[entry[field]] = f"DEMOS[{demo}].{field}"
+
+        assert "image" in entry, f"play.html's {demo!r} entry has no image"
+        want_dir = PLAY_IMAGE_DIR.format(demo=demo)
+        assert entry["image"].startswith(want_dir), (
+            f"play.html's {demo!r} tile takes its image from "
+            f"{entry['image']!r}, which is not under {want_dir!r} — a tile "
+            f"showing another demo's screen resolves fine and misleads")
+        referenced[entry["image"]] = f"DEMOS[{demo}].image"
 
     text = PLAY.read_text()
     fallback = text[text.index("<noscript>"):text.index("</noscript>")]
