@@ -615,6 +615,11 @@
          so this boot is stale and must not touch the DOM at all. */
       if(gen !== bootGen) return;
       if(!ok || !window.vc64web_player || !window.jQuery){
+        /* A deep link shows the sound hint before the boot is attempted, so on
+           this path the yellow "click the screen for sound" line would sit under
+           a message saying there is no screen to click. Nothing will unlock
+           audio now, so the hint is retracted with the boot. */
+        hideSoundHint();
         renderMessage(demo, "THE EMULATOR FAILED TO LOAD.",
           "The in-browser C64 could not be reached, so " + demo.title +
           " cannot run here right now. It still runs anywhere else — " +
