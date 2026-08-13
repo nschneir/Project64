@@ -317,6 +317,24 @@
      autostart script to write — the player does it. */
   var BOOT_MEDIUM = "prg";
 
+  /* Settings that must never reach the player, swept immediately before load().
+     A denylist and not an allowlist on purpose: an allowlist — JSON.stringify's
+     array replacer is the tempting one-liner — would also silently drop a
+     legitimate setting added here later, trading one silent failure for
+     another. A key listed here is deleted and announced on the console, so a
+     well-meaning re-addition is both inert and audible.
+
+     dialog_on_disk: execute_load() reads it as "loading is probably done by
+     scripting" and then skips auto-run entirely (vc64_ui.js:3507-3510). The
+     program is flashed into RAM correctly but RUN is never typed, so the
+     machine sits at a READY. prompt that looks exactly like an open-ROM
+     incompatibility — it cost the ROM investigation its one failed run. A .prg
+     raises no disk dialog, so setting it buys nothing even where it is
+     harmless. */
+  var FORBIDDEN_CONFIG = {
+    dialog_on_disk: "it silently disables the player's auto-run (vc64_ui.js:3507-3510)"
+  };
+
   var REPO_TREE = "https://github.com/nschneir/Project64/tree/main/demos/";
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -376,6 +394,7 @@
   var strip    = document.getElementById("demo-strip");
   var frame    = document.getElementById("player-frame");
   var legend   = document.getElementById("controls-text");
+  var hint     = document.getElementById("sound-hint");
   var attrLinks= document.getElementById("attribution-links");
 
   var activeDemo = null;   // the selected registry entry
@@ -625,13 +644,10 @@
            when the program message lands, configure_file_dialog() treats the
            incoming .prg as a ROM file instead of running it. */
         dialog_on_missing_roms: false,
-        /* DO NOT ADD dialog_on_disk HERE. It looks like the obvious companion to
-           the line above, and it is a trap: execute_load() reads it as "loading
-           is done by scripting" and then skips auto-run entirely
-           (vc64_ui.js:3507-3510). The program is flashed into RAM correctly but
-           RUN is never typed, so you get a READY. prompt that looks exactly like
-           an open-ROM incompatibility. It cost the ROM investigation its one
-           failed run. A .prg raises no disk dialog, so it buys nothing either. */
+        /* dialog_on_disk is absent on purpose — it looks like the obvious
+           companion to the line above and it silently breaks auto-run. It is on
+           the FORBIDDEN_CONFIG denylist, so adding it back here has no effect
+           beyond a console warning; the full reason is at that constant. */
         navbar: false,
         wide: false,
         border: 0.3,
@@ -641,6 +657,19 @@
            `10 SYS 2061` stub that RUN fires. */
       };
 
+      /* The denylist sweep — see FORBIDDEN_CONFIG for why each key is on it.
+         Deliberately after the literal above, so it catches a key however it
+         got there. */
+      Object.keys(FORBIDDEN_CONFIG).forEach(function(key){
+        if(key in config){
+          delete config[key];
+          if(window.console && console.warn){
+            console.warn("play.html: refusing config." + key + " — " +
+                         FORBIDDEN_CONFIG[key]);
+          }
+        }
+      });
+
       playerUp = true;
       /* encodeURIComponent is required, not tidiness: load_into() builds the
          iframe from an HTML string (src="...#${address}"), so a raw quote in the
@@ -648,6 +677,43 @@
          get_parameter_link() decodes on the way in. */
       player.load(ensureSlot(), encodeURIComponent(JSON.stringify(config)));
     });
+  }
+
+  /* ── the sound hint ────────────────────────────────────────────────────── */
+
+  /* Shown only for an auto-boot: a visitor who clicked the screen themselves
+     has already made the gesture that unlocks audio, so the hint would be
+     telling them about something they just did. */
+  var hintShown = false;
+
+  function hideSoundHint(){
+    if(!hintShown) return;
+    hintShown = false;
+    hint.hidden = true;
+    frame.removeEventListener("click", hideSoundHint);
+    window.removeEventListener("message", onPlayerMessage);
+  }
+
+  /* The brief's trigger is "the first click anywhere in the player area", and
+     the frame listener below is exactly that. But once the emulator is up, the
+     player area IS a cross-origin-style iframe: a click that lands on the C64
+     screen — the click the hint is asking for — never bubbles to this document,
+     so the frame listener alone would leave the hint up for precisely the
+     visitor it is aimed at. The player relays the emulator's audio state to the
+     parent (vc64web_player.js:104-107) and 'running' is the unlocked state
+     (:351). That is the moment the hint stops being true, so it is the second
+     trigger. */
+  function onPlayerMessage(e){
+    if(!e || !e.data || e.data.msg !== "render_current_audio_state") return;
+    if(e.data.value === "running") hideSoundHint();
+  }
+
+  function showSoundHint(){
+    if(hintShown) return;
+    hintShown = true;
+    hint.hidden = false;
+    frame.addEventListener("click", hideSoundHint);
+    window.addEventListener("message", onPlayerMessage);
   }
 
   function selectDemo(id, boot){
@@ -679,7 +745,30 @@
     }).observe(frame, {childList:true, subtree:true});
   }
 
-  /* Task 3 (deep links + the sound hint) drives the page through these. */
+  /* ── deep links: play.html?demo=<id> ───────────────────────────────────── */
+
+  /* A known id boots unprompted and gets the sound hint; anything else — an
+     unknown id, an empty value, no query at all — falls back to the first demo,
+     selected but idle. A bad link lands somewhere sensible rather than on an
+     error, which is the whole point of it being an entry point and not state.
+     Nothing here touches history: switching tiles afterwards leaves the URL
+     alone, so the query is where the visitor came in, not where they are. */
+  function initFromQuery(){
+    var requested = null;
+    try{
+      requested = new URLSearchParams(location.search).get("demo");
+    }catch(e){ requested = null; }
+
+    var demo = requested ? demoById(requested) : null;
+    if(demo){
+      showSoundHint();
+      selectDemo(demo.id, true);
+    }else{
+      selectDemo(DEMOS[0].id, false);
+    }
+  }
+
+  /* Tasks 4-5 link to play.html?demo=<id>; this is the contract they rely on. */
   window.playPage = {
     DEMOS: DEMOS,
     selectDemo: selectDemo,
@@ -689,7 +778,11 @@
 
   buildStrip();
   buildAttribution();
-  selectDemo(DEMOS[0].id, false);
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", initFromQuery, {once:true});
+  }else{
+    initFromQuery();
+  }
   /* No warm-up fetch: until the fork is live it only buys a 404 in the console
      on every page load, which would train the eye to ignore the one error that
      actually means something. The fetch happens on the first boot instead,
