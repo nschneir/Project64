@@ -295,11 +295,15 @@ Three protocols produced everything below, and each is re-runnable:
   `--warp --headless` sessions, the piece played three times; twelve PNGs and
   the state bytes quoted here. `shipped-d64.png` is the thirteenth, taken by
   hand from the packaged image afterwards.
-- `tools/audio-evidence.sh` — five real-time captures, one per section, into
-  `evidence/audio/`; five `capture.wav` + `sid-log.jsonl` + `piano-roll.png` +
-  `spectrogram.png` + `report.md`.
-- `c64 test run demos/1812/test.yaml --json` — **170 steps, `passed: true`,
-  40.87 s**; the step indices cited below are that run's.
+- `tools/audio-evidence.sh` — five captures, one per section, each window taken
+  off warp and therefore in real time, into `evidence/audio/`; five
+  `capture.wav` + `sid-log.jsonl` + `piano-roll.png` + `spectrogram.png` +
+  `report.md`.
+- `c64 test run demos/1812/test.yaml --json` — **170 steps, exit 0**, run twice
+  with identical step output. The step numbers cited below are `test.yaml`'s
+  own ordering, so each one names a tracked assertion rather than a number
+  that lived only in a run: where a step asserts an equality, the value quoted
+  here is the one the file asserts and the run is what makes it a measurement.
 
 ### Evaluate
 
@@ -307,20 +311,20 @@ Three protocols produced everything below, and each is re-runnable:
 |---|---|---|
 | A1 mode | `$D011=59`, `$D016=216` (`&$1F=24`), `$D018=25` (`&$FE=24`), `$D020/$D021=240 240` (`&$0F=0`); re-read with their masks at test steps 2-6 | PASS |
 | A2 canvas starts black | `lit=0 checksum=00000000` at the entry to the first `drawshape` | PASS |
-| A3 counter only rises | **746** shapes at the end — 33 / 121 / 435 / 555 / 746 at the five section ends, and 435 → 480 across two `seqtick` stops in the test (steps 55, 57) | PASS |
-| A4 sections progress | `frames` = 2400 / 3900 / 6000 / 7800 / 10200 at the five `secchange` stops, exact; test steps 32 and 37 read `$0960` and `$0F3C` at the first two | PASS |
+| A3 counter only rises | **746** shapes at the end — 33 / 121 / 435 / 555 / 746 at the five section ends; and the test samples `shapes` as a 16-bit counter at one `seqtick` stop and asserts it strictly greater at a later one (steps 55, 57) | PASS |
+| A4 sections progress | `frames` = 2400 / 3900 / 6000 / 7800 / 10200 at the five `secchange` stops, exact; the test asserts `frames` equal to `$0960` and `$0F3C` at the first two (steps 32, 37) | PASS |
 | A5 rotation is real | one rectangle at `lsangle` 0 / 48 / 96 → vertices `x=12 67 67 12` / `55 76 24 3` / `79 39 0 40`; three different vertex sets, three different bitmaps | PASS — but see the instrument note under *Re-verify* |
 | A6 nothing is ever cleared | `litcount` **3,913 → 24,946 → 28,807 → 28,973 → 29,804 → 29,947**, non-decreasing; **64 of 64** addresses lit at the end of the hymn still lit at frame 10,201 | PASS |
-| A7 the cannon | `cannons` = `$10` = **16** at the end of section 3 (test step 75); `$D020/$D021 = 241 241` during a flash and `240 240` eight frames later | PASS — the number comes from `test.yaml`, for the reason below |
+| A7 the cannon | `test.yaml`'s `cannons == 16` assertion at the end of section 3 passes (step 75), as does its byte-for-byte comparison of section 3's V3 stream against sixteen `$FD`/`112` pairs; `$D020/$D021 = 241 241` during a flash and `240 240` eight frames later | PASS — the number comes from `test.yaml`, for the reason below |
 | A8 sound happened | mid-cannon voice 3 control `129` (`$81`, noise + gate), routing `244` (bit 2), `$D418` `31` (`$1F`, low-pass, volume 15); mid-finale control `21` (`$15`, triangle + ring mod + gate); volume `0` in the hold | PASS |
 | A9 determinism | at `shapedone --count 400`: `$1812` twice → frames 5,770, `rng $08EB`, `lit 28,967`, checksum `c8b13257`; `$9977` twice → frames 5,772, `rng $1A9C`, `lit 28,412`, `503d64b0`. Same seed identical in every column; different seeds differ in every column | PASS |
-| A10 the budget fits | `dropped = 0` at all five section ends and at frame 10,202; test steps 58, 91 and 110 read it 0 as well | PASS |
-| A11 vocabulary | `typeseen = $03FF`, `patseen = $FF` (test steps 89, 90) | PASS |
-| A12 hold and restart | `shapes = 746` 120 frames into the hold, byte-for-byte unchanged (steps 98, 102); after the keypress `shapes = 1`, `section = 0`, `cannons = 0`, `rng`/`seed` move from `$27F1`/`$1812` to `$3D22`/`$E91B`, and the first 32 bitmap bytes are zero | PASS |
+| A10 the budget fits | `dropped = 0` at all five section ends and at frame 10,202; the test's three `dropped == 0` assertions pass too (steps 58, 91, 110) | PASS |
+| A11 vocabulary | `typeseen = $03FF`, `patseen = $FF`; the test asserts both by value (steps 89, 90) | PASS |
+| A12 hold and restart | `shapes = 746` 120 frames into the hold, and the test's `unchanged` comparison over those same 120 frames passes (steps 98, 102); after the keypress `shapes = 1`, `section = 0`, `cannons == 0` (step 109), `rng`/`seed` move from `$27F1`/`$1812` to `$3D22`/`$E91B`, and the first 32 bitmap bytes are zero | PASS |
 | A13 cost is measured | `smul` **111–151** over nine poked cases · `rnd` **29 or 38** blanked · `spanfill` 2,985.4 mean on a poked 160-pixel span · worst-case `drawshape` **480,131 → 467,500.5** (see *Improve*) | PASS |
 | A14 it ships | `c64 package` → `1812.d64`; booted from the image with `disk boot` and stopped at `seqtick` ×300 with `shapes = 5` (`shipped-d64.png`); the program ends at `$1F88`, **120** bytes below `$2000` | PASS |
 | **A15 the arrangement is heard** *(new)* | five captures, five `report.md` **PASS** — 0 diffs, 0 anomalies, `nothing_played` false, 0 clipped samples, each WAV of real duration (18.44 / 15.14 / 10.25 / 15.36 / 15.28 s) | PASS on the machine half; **the maintainer's listen is outstanding** |
-| **A16 the piano envelope** *(new)* | at `seqtick` ×900, `sidshadow+6 & $F0 = 0` and `sidshadow+13 & $F0 = 0` — both piano hands hold sustain 0 (steps 26, 27) — while `sidshadow+14` still reads `0000`, so voice 3 has not sounded at all (step 29) | PASS |
+| **A16 the piano envelope** *(new)* | at `seqtick` ×900 the test asserts `sidshadow+6 & $F0 == 0` and `sidshadow+13 & $F0 == 0` — both piano hands hold sustain 0 (steps 26, 27) — and `sidshadow+14 == 0000`, so voice 3 has not sounded at all (step 29); all three pass | PASS |
 
 A15 and A16 did not exist before this iteration; they were added to `SPEC.md`
 §12 in it, which is why the first table entry for each is here.
@@ -379,8 +383,11 @@ The arc is legible in the images, which is the point of having them:
 
 **What this evidence does not claim.** No score asserts a duration. The
 sequencer runs off a CINV wedge on the KERNAL's CIA jiffy — **60.0016 Hz** —
-while `sid_log` samples once per NTSC video frame — **59.826 Hz** — so the log
-runs ahead of the model by about one frame per 300, one-sidedly: the hymn's
+while `sid_log` samples once per NTSC video frame — **59.826 Hz**. They
+separate by 0.1756 counts a second, so a **full frame of drift takes 1 / 0.1756
+= 5.69 s ≈ 341 log frames**, and the machine is always the one ahead. (The
+300-frame probe capture saw exactly one frame appear, which is that period seen
+at one starting phase, not a second estimate of it.) One-sidedly: the hymn's
 left hand is modelled on tick 849 and heard at frame 846, the Marseillaise's
 bass on tick 495 and heard at 493, and the cannon's intervals come back
 `112 113 113 113 112 113 113 112` against a modelled 113. The scores therefore
@@ -621,13 +628,15 @@ The rebuild is byte-identical to the committed binaries (`1812.prg`
 `cd80da09…`, `1812.d64` `d6d7e589…`), so the evidence PNGs were the only stale
 artifact this iteration had to retake.
 
-`c64 test run demos/1812/test.yaml --json`: **170 steps, all `ok`, exit 0**,
-40.87 s. The margin below `$2000` is **120** bytes
+`c64 test run demos/1812/test.yaml --json`: **170 steps, every one `ok`, exit
+0** — run twice, with identical step output both times. The margin below
+`$2000` is **120** bytes
 (`__BSS_LOAD__ $1F2E` + `__BSS_SIZE__ $5A` out of `1812.lbl`).
 
 **One instrument note, and it invalidates three of the thirteen PNGs as
 evidence.** `rot-a/b/c.png` changed on this run, and the geometry did not move:
-re-staging section 9 three times from scratch gives a byte-identical bitmap
+re-staging `evidence.sh`'s **stage 9** — the rotation captures; the demo's own
+sections stop at 5 — three times from scratch gives a byte-identical bitmap
 every pass (`lit=6105 checksum=1c454f03`, vertices `y=44 44 155 155`) and three
 *different* PNGs, whose every differing pixel sits in one horizontal band at
 the shape's lower edge. `evidence.sh` screenshots straight after

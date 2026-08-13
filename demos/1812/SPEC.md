@@ -586,8 +586,11 @@ Lit-pixel counting is done by `tools/litcount.py` over a
 
 The picture's protocol cannot say anything about the sound, so there is a
 second one: `tools/audio-evidence.sh`, also re-runnable, also owning its own
-session — but **warp off and in real time**, because a capture is a recording.
-One window per section, each opening on that section's first tick, into
+`--warp --headless` session — but **each capture window takes the machine off
+warp**, because a capture is a recording and a warped window writes a
+zero-frame WAV. The five windows are therefore real time, and the run is long
+by construction. One window per section, each opening on that section's first
+tick, into
 `demos/1812/evidence/audio/SECTION/`:
 
 | Artifact | What it is |

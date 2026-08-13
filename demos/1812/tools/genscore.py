@@ -38,7 +38,9 @@ one run's lead-in.
 
 WHY NO `frames`.  The sequencer is paced by the CINV wedge on the KERNAL's
 CIA jiffy, which runs at 60.0016 Hz, while the sid log samples once per NTSC
-video frame at 59.826 Hz.  The two drift by one frame every ~342, so over a
+video frame at 59.826 Hz.  The two separate by 60.0016 - 59.826 = 0.1756
+counts a second, so a whole frame of drift takes 1 / 0.1756 = 5.69 s, which is
+~341 log frames (~342 sequencer ticks).  Over a
 900-frame window two or three ticks land between one pair of samples and the
 events either side of them come back a frame short.  That is the drift
 `references/audio-verification.md` names ("Durations drift, and omitting
@@ -106,9 +108,20 @@ SECTIONS = {0: "hymn", 1: "marseillaise", 2: "battle", 3: "cannon", 4: "finale"}
 #: it: every event there is a 3-frame note and a 4-frame rest, so no window
 #: length leaves more than 3 frames of it after the edge (checked over every
 #: length from 480 to 920).  3 frames covers 599 frames of drift (1.7) and does
-#: not cover 900 (2.6).  The other four windows are chosen the same way and
-#: their margins are large: 60/55/60 for the hymn, 27/28/27 for the
-#: Marseillaise, 55/55/60 for the cannon, 60/26/26 for the finale.
+#: not cover 900 (2.6).
+#:
+#: THE MARGINS, per voice, as the model computes them: the frames from the
+#: window's edge to that voice's next modelled TRANSITION, which is the first
+#: thing the drift could pull in and the first thing that would show up as an
+#: extra entry.  Recompute them by walking `per_frame` past the edge; they are
+#: a property of the streams and the window and move whenever either does.
+#:
+#:      hymn          115 /  55 / never — s0v2 is the left hand, and s0v3
+#:                                        never sounds at all (the solo piano)
+#:      marseillaise   27 /  28 /  27
+#:      battle          3 /  10 /   8  — the binding one, above
+#:      cannon         55 /  55 / 108
+#:      finale        131 /  26 /  26
 WINDOWS = {"hymn": 1089, "marseillaise": 892, "battle": 599, "cannon": 905,
            "finale": 900}
 
