@@ -549,8 +549,21 @@ GETIN returns *buffered* keypresses — good for menus, wrong for action
 controls, where a held key must move you every frame and releasing must
 stop you. The IRQ keyboard scanner maintains the **matrix code** of the
 key held right now at `$CB` (64 = none) — matrix codes, not PETSCII: A is
-10, D is 18, space is 60 (see zero-page.md). A paddle on row 12 that
-slides while A or D is held:
+10, D is 18, space is 60 (see zero-page.md).
+
+**Ship it anywhere and you must scan the matrix instead.** `$CB` is
+Commodore's KERNAL scratch, not a published call, and a clean-room KERNAL
+need not write it: MEGA65 open-roms does not — measured, zero stores to `$CB`
+in its 8 KB against two in Commodore's — and there the byte reads a constant
+0, which is not the 64 this recipe tests for, so the paddle would slide on a
+key nobody pressed. That is not hypothetical for this repo: `play.html` runs
+the demos in a browser on open-roms, and five of them were deaf to the
+keyboard there until they read `$DC00`/`$DC01` for themselves. Keep `$CB` as
+the fallback when the matrix comes back idle — `key hold` below drives that
+byte, and the CLI protocol depends on it — and read a `$CB` of 0 as "no key".
+`keyscan` in `demos/snake/snake.s` is that routine, about 60 bytes.
+
+A paddle on row 12 that slides while A or D is held:
 
 ```asm
 ; keyhold.s — a paddle steered by HELD A/D keys read from $CB.

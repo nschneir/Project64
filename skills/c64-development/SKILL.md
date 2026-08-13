@@ -400,6 +400,12 @@ source of bugs:
   go afterwards unless you pass `--no-release`: the re-poke assumes the
   KERNAL keyboard scan is running to clear `$CB`, and a game that owns the
   interrupt has no scan, so an unreleased key stays down for ever.
+  **`$CB` is a Commodore-KERNAL detail, so a game that only reads it is
+  playable only under that ROM.** MEGA65 open-roms never writes the byte —
+  this repo's `play.html` boots open-roms, and five demos took no keyboard
+  input in the browser until they scanned `$DC00`/`$DC01` themselves and kept
+  `$CB` as the fallback `key hold` drives (hardware.md, "Keyboard and
+  joysticks"). Write the matrix scan; test it through `$CB`.
 - A sprite demo that "shows nothing" in `c64 screen` — sprites never appear
   in decoded text. Check `$D015` and positions with `c64 mem read '$D000' 17`
   and capture `c64 screen --png` for the visual.

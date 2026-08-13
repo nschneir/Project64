@@ -19,7 +19,7 @@ Reference Guide. Disassemble any entry yourself with `c64 rom disasm NAME`.
 | FF96 | TKSA   | Send secondary address in A after TALK. |
 | FF99 | MEMTOP | Read (carry set, into X/Y) or set top of RAM. |
 | FF9C | MEMBOT | Read (carry set, into X/Y) or set bottom of RAM. |
-| FF9F | SCNKEY | Scan the keyboard matrix; updates $C5/$CB and the buffer. Normally called by the IRQ. |
+| FF9F | SCNKEY | Scan the keyboard matrix; updates $C5/$CB and the buffer. Normally called by the IRQ. The buffer is the published half; $C5/$CB are this ROM's scratch — see "KERNAL internals". |
 | FFA2 | SETTMO | Set serial bus timeout flag (A). |
 | FFA5 | ACPTR  | Input one byte from the serial bus into A. |
 | FFA8 | CIOUT  | Output the byte in A to the serial bus. |
@@ -301,6 +301,22 @@ inside the KERNAL, which has three revisions. Addresses below were verified
 on the stock 901227-03 image (`$FF80` = $03); re-verify with `c64 disasm`
 before depending on one under a different KERNAL.
 
+**Clean-room caveat:** a *reimplemented* KERNAL owes you the jump table and
+nothing else — not these addresses, and not the zero-page bytes they leave
+behind. `$CB` (SFDX, the held key) is the one that bites, because polling it
+is the standard held-key idiom. Scanning both 8 KB images for a zero-page
+store to it (`85`/`86`/`84` followed by `CB`): VICE's `kernal-901227-03.bin`
+has exactly two, `$EA8E` and `$EAC9`, both inside KEYSCAN above; the
+`kernal.rom` the play page serves — MEGA65 open-roms — has none. Live on that
+ROM, `$CB` read a constant 0 through held keys and released ones, and 0 is
+not the 64 "no key" sentinel, so code testing for "no key" sees a key held
+for ever. The buffer kept working in the same session: pressing Z took `$C6`
+from 2 to 3 and put `$5A` in `$0277`. That is the difference between the
+documented API and a residue. It matters here and not only in theory:
+`play.html` boots open-roms, and five demos that polled `$CB` took no
+keyboard input in the browser until they scanned `$DC00`/`$DC01` themselves.
+Read the hardware when the ROM is not yours to choose.
+
 | Addr | Name      | What it is |
 |------|-----------|------------|
 | E37B | BASWARM   | BASIC warm start — CLRCHN, reset the I/O channel, back to READY |
@@ -317,7 +333,7 @@ before depending on one under a different KERNAL.
 | E5CD | INLOOP    | The direct-mode input loop: spins on NDX ($C6) waiting for a key. **This is what `c64 wait --idle` watches** (`ops.IDLE_PC_RANGE` = $E5CD-$E5D4) |
 | E716 | SCROUT    | Put one character on the screen (the screen half of CHROUT) |
 | EA31 | IRQMAIN   | The default IRQ service routine: UDTIM, cursor blink, keyboard scan |
-| EA87 | KEYSCAN   | Keyboard matrix scan (SCNKEY's body); sets SFDX ($CB) and KEYTAB ($F5) |
+| EA87 | KEYSCAN   | Keyboard matrix scan (SCNKEY's body); sets SFDX ($CB) and KEYTAB ($F5). Its two `STY $CB` are at $EA8E and $EAC9 — the only `85/86/84 CB` pairs anywhere in the image |
 | F13E | GETCH     | GETIN's body: buffered key from NDX, or the current input channel |
 | F157 | BASIN     | CHRIN's body — the default $0324 target |
 | F1CA | BSOUT     | CHROUT's body — the default $0326 target; screen when DFLTO = 3 |

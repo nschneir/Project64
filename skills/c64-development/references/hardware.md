@@ -27,6 +27,22 @@ leaves results where code can read them cheaply:
   live key-down state — `c64 key hold` drives it deterministically for
   testing. Matrix codes: space 60, RETURN 1, W 9, A 10, S 13, D 18
   (full table: `MATRIX_CODES` in `src/c64lib/ops.py`).
+  **`$CB` is Commodore's KERNAL, not the machine.** It is that ROM's private
+  scratch byte, not a published entry point, so a clean-room KERNAL has no
+  reason to maintain it — and MEGA65 open-roms does not. Measured on the two
+  8 KB images: Commodore's holds two stores to it (`STY $CB` at `$EA8E` and
+  `$EAC9`, in its keyboard scan), open-roms holds none, and under open-roms
+  `$CB` read a constant 0 — not even the 64 "no key" sentinel, so a program
+  testing for "no key" sees a key held for ever. In the same session `$C6`
+  still counted (2 → 3 on a keypress, the PETSCII landing in `$0277`), which
+  is the difference between a documented API and a residue.
+  **`play.html` in this repo boots open-roms**, so a demo written against
+  `$CB` is broken in the browser by construction; five of them
+  were, and the fix was to scan `$DC00`/`$DC01` as above and keep `$CB`
+  only as a fallback for `c64 key hold` (`keyscan` in `demos/snake/snake.s`
+  is the routine, copied into each). The durable rule: **reading the
+  hardware matrix works on every ROM; reading a KERNAL zero-page byte works
+  only on the ROM that maintains it.**
 - `$C6` — count of characters in the type-ahead buffer at `$0277`
   (write 0 to flush).
 - `JSR $FFE4` (GETIN) — next buffered *decoded* character, 0 = none; the
@@ -35,8 +51,9 @@ leaves results where code can read them cheaply:
 **Joysticks:** port 2 reads at `$DC00`, port 1 at `$DC01` — bits 0-3 =
 up/down/left/right, bit 4 = fire, 0 = active. Reading `$DC01` collides
 with the keyboard scan, which is why game docs say "use port 2"
-(`JSR` nothing — just `LDA $DC00 / AND #$1F`). Prefer joystick port 2 or
-`$CB` polling for game input. A one-line BASIC reader that yields a
+(`JSR` nothing — just `LDA $DC00 / AND #$1F`). Prefer joystick port 2 or a
+matrix scan of your own for game input; `$CB` polling only where the
+Commodore KERNAL is the ROM (see the caveat above). A one-line BASIC reader that yields a
 screen-offset delta (−41..+41): `PP=PEEK(56320) : P=((PP AND 4)=0)-((PP AND
 8)=0)+40*((PP AND 1)=0)-40*((PP AND 2)=0)`. To block until fire on port 2:
 `WAIT 56320,16,16` (the third `WAIT` arg XORs before the mask, so it waits for
