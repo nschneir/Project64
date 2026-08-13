@@ -219,6 +219,23 @@ applies to everything else: **quote the file before asserting a gap in it.**
 Grep the reference, paste the sentence that is or is not there, and let the
 quote carry the finding.
 
+**Answer "does anything reference X?" with `git grep` for tracked files and an
+explicitly-pathed `grep` for the ignored ones — never with a bare recursive
+`grep`, whose empty output cannot be told from a crash.** Two mechanisms here
+produce silence that reads as "clean", and on 2026-08-13 they combined to put
+a false claim into a task report — "nothing in the repo cites `PROMPT.md` by
+line", offered with the failed command as its evidence, in a repo whose own
+rule is to quote the file. There were eight citers. First, the glob never
+reaches grep: `grep -rn "…" --include=*.md .` dies in zsh before the process
+starts (`(eval):1: no matches found: --include=*.md`) because the unquoted
+`*.md` is expanded against the cwd, and in that run nothing was printed at
+all — not even the error. Second, `grep` here is a shell function that execs
+`ugrep --ignore-files`, which honours `.gitignore`, so `docs/superpowers/` and
+any SDD workspace — exactly where plans and constraint files live — are
+invisible to it. Handed explicit paths, the same pattern found all eight hits
+at once. `git grep -nI` is the instrument that says a *tracked* file is clean;
+say which of the two questions you asked.
+
 The trap is inferring upstream from downstream. A demo's prompt, a generated
 artifact, or your own earlier code being wrong about a hardware fact does not
 imply the skills references are silent on it — they usually are not, and the

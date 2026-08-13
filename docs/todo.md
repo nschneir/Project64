@@ -384,40 +384,6 @@ semitones off the nearest label. The second is cheaper and works at any range.
 **How to verify.** Generate a roll over a 33-semitone passage and name a bar's
 pitch from the image alone, without opening `report.md`.
 
-## A bare recursive `grep` here cannot be told from one that never ran
-
-**Anchor:** `AGENTS.md`'s "Dogfood post-mortems" section, which is where the
-"quote the file before asserting a gap in it" rule lives; the `grep` shell
-function in `~/.claude/shell-snapshots/snapshot-zsh-*.sh`.
-
-**Status:** open, and it **already cost a false claim in this repo** — a task
-report asserted "nothing in the repo cites `PROMPT.md` by line" and offered the
-failed command as its evidence, in a repo whose own rule is to quote the file.
-
-**What's wrong now.** Two mechanisms, both of which produced an empty result
-that read as "clean". First, the glob never reaches grep:
-`grep -rn "…" --include=*.md .` dies in zsh before the process starts
-(`(eval):1: no matches found: --include=*.md`, exit 1) because the unquoted
-`*.md` is expanded against the cwd — and in the run that mattered no output was
-reported at all, not even the error. Second, the wrapper hides the gitignored
-trees: `type grep` shows a shell function that execs `ugrep` with
-`--ignore-files`, which honours `.gitignore` — and `.superpowers/` and
-`docs/superpowers/` are gitignored, which is exactly where this repo's plans
-and constraint files live. Handed explicit paths, the same pattern found eight
-hits immediately. Only *tracked* files were genuinely clean, and
-`git grep -nI` is the instrument that says so.
-
-**Fix direction (needs a maintainer ruling — it is a house rule).** Add to
-`AGENTS.md` beside the existing evidence rule: "does anything reference X?" is
-answered with `git grep` for tracked files and an explicitly-pathed `grep` for
-the ignored ones, never with a bare recursive `grep` whose empty output cannot
-be told from a crash. The tooling alternative — a wrapper that says on stderr
-when `--ignore-files` suppressed a tree — lives outside this repo, so the rule
-is the part this repo can actually enforce.
-
-**How to verify.** Grep for a string that exists only under `docs/superpowers/`
-and confirm the method used reports it.
-
 ## No cycles-per-frame budget anywhere in `skills/`
 
 **Anchor:** `skills/c64-development/references/hardware.md` — the VIC-II
@@ -459,9 +425,14 @@ nothing — the failure this file's own first entry is about.
 `c64 test run`; `play.html`'s `KERNAL_ROM_URL` / `BASIC_ROM_URL` /
 `CHARSET_ROM_URL` constants.
 
-**Status:** open, and never mitigated — the ROM research that cleared the open
-ROMs for shipping recorded this as its residual risk with "*mitigation:* none in
-place", and nothing since has supplied one.
+**Status:** open, and **narrowed to the general case**. The specific
+dependency that bit — input read from `$CB` alone — is now guarded:
+`tests/test_docs_demos.py::test_no_demo_takes_its_input_from_the_kernal_alone`
+fails any demo on the play page's roster that reads `$CB` without also reading
+the keyboard matrix at `$DC01`, which is hardware and answers on any ROM.
+Proved by stripping snake's matrix reads and watching it go red. What is left
+is the wider risk this item was filed about: some *other* KERNAL routine
+open-roms does not implement.
 
 The risk landed on 2026-08-13, in the shape this item predicted. All four games
 read the held key from `$CB`, a KERNAL scratch byte open-roms never writes, so
@@ -486,12 +457,12 @@ The gap is wider than "CI does not cover it": `.github/workflows/` holds
 `release.yml` and nothing else, so the demo suites are not run by CI at all.
 Whatever closes this has to be a check a person or a hook actually runs.
 
-**Fix direction (not ruled).** Two shapes were considered and neither chosen.
-The cheap one is a documented note that the play page's ROM set differs, so the
-next author at least knows to look. The real one is a smoke check that boots
-each `.prg` to its first playable frame on the open ROMs and asserts the same
-screen the `test.yaml` first step does — which needs the open ROM images
-reachable from a test run, and they deliberately do not live in this repo.
+**Fix direction (not ruled).** The remaining shape is the real one: a smoke
+check that boots each `.prg` to its first playable frame on the open ROMs and
+asserts the same screen the `test.yaml` first step does. It needs the open ROM
+images reachable from a test run, and they deliberately do not live in this
+repo — which is the decision this item is still waiting on. The narrow guard
+above is not a substitute: it knows about one byte.
 
 **How to verify.** Whatever is built, the check must fail when a demo starts
 depending on the Commodore KERNAL. A cheap proof it works: point it at a demo

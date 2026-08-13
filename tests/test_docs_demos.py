@@ -788,3 +788,45 @@ def test_play_page_describes_each_game_the_way_the_landing_page_does():
             f"the description of {demo!r} has drifted between the two pages:\n"
             f"  index.html: {site[demo]!r}\n"
             f"  play.html:  {entry['description']!r}")
+
+
+#: `$CB` with no hex digit after it, so `$CB00` is not a hit; and the CIA port
+#: whose bits are the keyboard matrix rows. Written against the source text
+#: rather than a routine name because the five demos do not share one —
+#: la-galaxia scans the matrix inside `keydecode`, the others in `keyscan`.
+_READS_CB = re.compile(r"\$[cC][bB](?![0-9a-fA-F])")
+_READS_MATRIX = re.compile(r"\$[dD][cC]01")
+
+
+def test_no_demo_takes_its_input_from_the_kernal_alone():
+    """The play page boots these programs on MEGA65 open-roms; every
+    `test.yaml` proves them under VICE on Commodore's. Nothing else exercises
+    the second ROM set, so a demo that depends on a Commodore-only detail is
+    green here and broken in the browser — which is not hypothetical: all five
+    read the held key from `$CB`, a KERNAL scratch byte open-roms never writes,
+    and all five were unplayable on the play page while every spec passed.
+
+    `$CB` itself is allowed, because the CLI drives held keys by poking it and
+    the demos keep it as a fallback. What is not allowed is `$CB` as the *only*
+    source: a demo that reads it must also read the keyboard matrix off the
+    CIA, which is hardware and answers on any ROM.
+
+    This is the narrow guard, not the general one. It catches the dependency
+    that has actually bitten twice; it cannot catch a demo that starts calling
+    some other KERNAL routine open-roms does not implement. That wider check
+    needs the open ROM images reachable from a test run and is still open in
+    `docs/todo.md`.
+    """
+    for demo in _play_registry():
+        slug = demo["id"]
+        sources = sorted((DEMOS_DIR / slug).glob("*.s"))
+        assert sources, f"{slug} has a committed .prg but no .s sources"
+        text = "".join(p.read_text() for p in sources)
+        if not _READS_CB.search(text):
+            continue
+        assert _READS_MATRIX.search(text), (
+            f"{slug} reads $CB but never reads the keyboard matrix at $DC01, "
+            f"so its input depends on a byte the Commodore KERNAL maintains "
+            f"and MEGA65 open-roms does not. It will pass c64 test run under "
+            f"VICE and take no input on the play page. Scan the CIA and keep "
+            f"$CB as the fallback, the way the other demos do.")
