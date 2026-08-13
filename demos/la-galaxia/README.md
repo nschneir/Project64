@@ -48,8 +48,8 @@ yet) rather than the only way in.
 
 **Controls.** `A` and `D` move, `SPACE` fires. `SPACE` also starts a
 one-player game and `X` starts two. Input is read three ways and folded into
-one byte — the keyboard matrix scanned directly, `$CB` for the current held
-key, and joystick port 2 — so a player can move and fire in the same frame.
+one byte — the keyboard matrix scanned directly, the KERNAL's `$CB` as a
+fallback, and joystick port 2 — so a player can move and fire in the same frame.
 
 Function keys are deliberately not used: `F1`/`F3` are the obvious mapping of
 the arcade's start buttons and were the first choice here, but they do not

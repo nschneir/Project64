@@ -36,8 +36,8 @@ c64 package demos/1812/1812.s -o demos/1812/1812.d64 --title "1812"
 ```
 
 **Controls.** None while it plays — it runs for 2 minutes 50 seconds and then
-holds the finished canvas. Any key restarts it with a fresh seed, read as the
-live matrix code at `$CB` rather than through a ROM call.
+holds the finished canvas. Any key restarts it with a fresh seed, read as a
+live matrix code off the CIA rather than through a ROM call.
 
 ## What is here
 

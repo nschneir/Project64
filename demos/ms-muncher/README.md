@@ -36,8 +36,8 @@ c64 package demos/ms-muncher/ms-muncher.s -o demos/ms-muncher/ms-muncher.d64 \
 ```
 
 **Controls.** `W`/`A`/`S`/`D` steer, `SPACE` starts a game from the title
-and skips an intermission. Input is read from `$CB`, the matrix code of the
-key held *right now*, so a held key turns her at the next corner; a turn
+and skips an intermission. Input is the matrix code of the key held *right
+now*, scanned off the CIA, so a held key turns her at the next corner; a turn
 entered early is buffered and taken there, and a reversal is instant.
 Leave the title alone for a few seconds and the game plays itself.
 
@@ -63,7 +63,7 @@ act audio capture in `evidence/` was taken.
 | `sprites.s` + `sprites.inc` | the shape compositor and the 27 stored shapes |
 | `maze.s` + `mazes.inc` | the four playfields, the wall auto-tiler, eating |
 | `actor.s` | the shared movement engine: half-pixel steps on 8.8 speed accumulators |
-| `player.s` | `$CB` steering, the turn buffer, collision |
+| `player.s` | matrix-scan steering, the turn buffer, collision |
 | `ghosts.s` | four personalities, the phase table, the house, fright, the LFSR |
 | `fruit.s` | the bonus fruit and its route |
 | `hud.s` | score, hi-score, board, lives, the fruit strip |

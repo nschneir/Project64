@@ -33,8 +33,8 @@ c64 package demos/invaders/invaders.s -o demos/invaders/invaders.d64 --title "IN
 ```
 
 **Controls.** Hold `A` and `D` to move the laser base, `SPACE` to fire. Any
-key starts a game from the attract screen. Input is read from `$CB`, the
-matrix code of the key held right now, so movement is continuous while
+key starts a game from the attract screen. Input is the matrix code of the
+key held right now, scanned off the CIA, so movement is continuous while
 firing.
 
 ## What is here

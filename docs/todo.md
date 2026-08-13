@@ -559,56 +559,6 @@ cited as evidence by each demo's `AUDIT.md`.
 running title screen with its own tile: same words in the same cells, different
 letterforms. That is the whole of the defect, and it is the check.
 
-## The play page has never been seen running
-
-**Anchor:** `play.html`; `https://nschneir.github.io/Project64/play.html`;
-the `nschneir/vc64web.github.io` fork.
-
-**Status:** open, and **blocking any claim that browser play works**. Everything
-shipped is verified against the *fallback*, not against a running emulator.
-
-**What's wrong now.** The whole page was built and checked locally against an
-emulator that 404s. As of 2026-08-13 the fork is committed but unpushed and has
-no GitHub Pages, so `https://nschneir.github.io/vc64web.github.io/` — and every
-ROM and script under it — returns 404; and this branch is unpushed, so
-`https://nschneir.github.io/Project64/play.html` returns 404 while
-`https://nschneir.github.io/Project64/` serves fine. A visitor following a
-README play link today gets a 404; a visitor on a local copy gets the graceful
-"THE EMULATOR FAILED TO LOAD" panel with working `.prg`/`.d64` downloads. That
-fallback is verified. Nothing else on the boot path is.
-
-Specifically unverified: that the emulator loads from the fork at all; that any
-demo reaches a playable frame from the published URLs; that a real keyboard
-drives them (the demos poll `$CB` once a tick, so synthetic key events are
-missed by design — automation cannot substitute); that audio unlocks on the
-first gesture and the sound hint then retracts; that a phone works at all —
-touch controls reaching the game, the virtual keyboard, sound after tap. The
-`touch:` flag is seeded from `(pointer: coarse)`, which is false on every
-machine this was tested on, so the touch path has never once been exercised.
-Nothing outside Chrome has been tried.
-
-**Fix direction (ruled — it is a sequence, not a design).** Push the fork and
-enable Pages on it; push this branch and let Project64 Pages rebuild; then repeat
-the local pass against the published URLs, and add the two things only a human
-can do — real-keyboard play of all four demos, and one phone check.
-
-**How to verify.** `curl -sI https://nschneir.github.io/vc64web.github.io/js/vc64web_player.js`
-returns 200, and each of the four
-`https://nschneir.github.io/Project64/play.html?demo=<id>` links boots to its own
-title screen with sound after the first click.
-
-**Both of the design spec's follow-up candidates are moot, not deferred.** The
-spec asked implementation to look for "a warp-during-load config flag as a
-nice-to-have", premised on its own note that "real 1541 loading takes ~15-25 s".
-The shipped page has no 1541: it boots a `.prg` flashed straight into RAM with
-no drive ROM installed at all (`play.html`'s `BOOT_MEDIUM`). There is no load to
-warp through. The spec's other candidate was 1812's `.d64` packaging, "when its
-dogfood run lands" — that run landed and `demos/1812/1812.d64` is tracked, so
-the packaging is done; 1812 is nonetheless off the roster, ruled out as a music
-demo rather than a game, and it is the only demo with no `evidence/title.png` to
-cut a tile from. Both are recorded here because a later reader otherwise cannot
-tell a closed candidate from a forgotten one.
-
 ## `play.html`'s audio-state listener trusts any window that posts to it
 
 **Anchor:** `play.html`, `onPlayerMessage()`.
@@ -759,33 +709,6 @@ for that reason.
 **How to verify.** With the player live, boot and stop three times, then read
 `jQuery._data(window, "events").resize.length` in the console: 3 today, 0 once
 `stop_emu_view()` unregisters.
-
-## The play page and five READMEs still advertise `$CB` steering
-
-**Anchor:** `play.html:427` (snake's `description`), `index.html:343` (the same
-sentence in the demo table), `demos/snake/README.md:4,36,69`,
-`demos/invaders/README.md:36`, `demos/ms-muncher/README.md:39,66`,
-`demos/la-galaxia/README.md:51`, `demos/1812/README.md:40`.
-
-**Status:** open, and inaccurate as of 2026-08-13 — every line above, 1812's
-included now that it is fixed too.
-
-**What's wrong now.** Those sentences describe the input path as reading `$CB`.
-All five demos now scan the CIA keyboard matrix and consult `$CB` only as a
-fallback for `c64 key hold`, so "`$CB` held-key steering" names the fallback and
-not the mechanism; 1812's "read as the live matrix code at `$CB` rather than
-through a ROM call" has the sharpest version of the error, because `$CB` *is*
-the ROM call's residue and reading the matrix is what replaced it. The source
-comments were corrected with the change; this prose was left alone because the
-fix was scoped to the input path and its comments, and rewriting shipped
-narrative text was ruled out of it.
-
-**Fix direction (not ruled).** Replace the mechanism with what it now is —
-"keyboard-matrix held-key steering" reads the same length in the page
-description and the table cell.
-
-**How to verify.** `grep -rn '\$CB' play.html index.html demos/*/README.md`
-returns only lines about the fallback.
 
 ## `la-galaxia`'s fighter-movement assertion is a coin flip
 

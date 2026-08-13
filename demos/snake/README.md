@@ -1,8 +1,8 @@
 # Snake
 
 A complete arcade Snake for the Commodore 64 in pure 6502 assembly — a custom
-hires character set, deliberate colour on every cell it draws, `$CB` held-key
-steering, SID effects with every write shadowed in RAM, nine levels that
+hires character set, deliberate colour on every cell it draws, held-key
+steering off the keyboard matrix, SID effects with every write shadowed in RAM, nine levels that
 speed the snake up and recolour it, a high score that survives the game, and
 an explicit audit-and-improve loop that ran until every spec bullet passed.
 
@@ -33,7 +33,7 @@ c64 package demos/snake/snake.s -o demos/snake/snake.d64 --title "SNAKE"
 
 **Controls.** Hold `W`/`A`/`S`/`D` to steer. Any key starts a game from the
 title screen; `SPACE` plays again after a game over. Input is the matrix code
-of the key held right now, read from `$CB` at the top of every tick, so
+of the key held right now, scanned off the CIA at the top of every tick, so
 steering is continuous and does not wait on key repeat.
 
 **Rules.** Eat apples to grow. Each apple is worth 10 points times the
@@ -66,7 +66,7 @@ tail is leaving *this* move does not.
 ## What a passing run shows
 
 An assembled program with a BASIC SYS stub and a real game state machine
-(title → play → game over → play again), `$CB` held-key steering, a custom
+(title → play → game over → play again), held-key steering, a custom
 charset and deliberate colour across the title, border, snake, food and HUD,
 SID sound effects with shadowed registers, and a jiffy-paced main loop that
 quickens per level; then an audit in `AUDIT.md` with every spec bullet marked
