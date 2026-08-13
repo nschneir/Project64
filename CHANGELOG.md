@@ -8,607 +8,66 @@ commit).
 
 ## [Unreleased]
 
-`c64 key hold` releases the key. `$CB` goes back to 64 after the last held
-frame, `--no-release` (`release=false` over MCP) keeps the old behaviour, and
-the payload says which happened. What makes that a bug rather than a nicety
-is a game that switches the KERNAL keyboard scan off: nothing else ever
-writes 64 back, so an unreleased hold pins the key down for the rest of the
-run, and every hold in La Galaxia's evidence script and its regression spec
-had to be chased with a poke of 64. The release is a plain monitor write with
-no resume, so a completed hold still ends stopped on its anchor exactly as
-before. A *timed-out* hold releases too — that is where it matters most,
-since the usual cause is a mistyped anchor on a perfectly healthy running
-game — and there it pokes and then resumes, which is what keeps the "machine
-left RUNNING" promise honest; the failure message either says `key released
-($CB=64)` or names the byte still held along with the write that clears it.
+The demos are playable in a browser. `play.html` embeds vc64web — a
+WebAssembly port of VirtualC64 — loaded at runtime from a maintainer-owned
+fork, with ▶ PLAY links from the landing page and both READMEs. It boots five
+demos (the four games plus 1812) from their `.prg`, on the MEGA65 open-roms
+KERNAL, BASIC and character ROMs: no Commodore ROM is hosted, distributed or
+sent to a browser, and with no 1541 ROM in the set there is no drive to load
+from. `LICENSE` carries the third-party notice; every upstream author is
+credited on all three surfaces.
 
-`c64 profile --samples N` (MCP `c64_profile(samples=N)`) prices N consecutive
-arrivals at a routine and reports min, max and mean. One measurement of a
-routine whose cost depends on its data — a multiplexer band, a collision pass
-over however many objects are alive — is a sample of a distribution reported
-as a fact, and the spread is the answer. At `N = 1` the payload still carries
-`cycles`, so nothing that read the single-shot form breaks, and the
-impossible-measurement guard (a raw count of 0, which no routine can cost)
-still aborts the whole run rather than averaging a fiction. `profile_routine`
-itself is gone, with its tests moved onto the sampling form rather than
-deleted: both front ends call the one entry point now.
+That exposed a ROM dependency nobody had written down: **`$CB` is Commodore's
+KERNAL, not the C64.** All five demos polled it for the held key, and
+open-roms never maintains it — Commodore's ROM has two stores to `$CB`,
+open-roms has none, so it reads a constant 0 and no key ever registers. Each
+demo now scans the CIA matrix at `$DC00`/`$DC01` and keeps `$CB` only as a
+fallback, so `c64 key hold` and the existing specs still drive them. The trap
+is recorded in `hardware.md`, `kernal-routines.md`, the cookbook and
+`SKILL.md`: reading the hardware matrix works on every ROM; reading a KERNAL
+zero-page byte works only on the ROM that maintains it. Separately,
+`c64 key hold` now *releases* the key — an unreleased hold pinned it down for
+the rest of a run on any game that switches the KERNAL scan off.
 
-`c64 session stop --all` (MCP `c64_session_stop(all=true)`) stops every
-session in the registry and returns the names it stopped — the one command
-for the emulators an interrupted run leaves behind, which until now had to be
-hunted with `pgrep` and killed by hand. It reads the registry records
-directly rather than through the loader that prunes them, because the pruning
-loader drops a session whose process is already gone *before* anything can
-clean up after it, and reaping means the socket file, the respawn counter and
-the audio pin as well as the record. One stubborn session does not strand the
-rest: the errors are collected and raised once, naming what was stopped and
-what was not. `c64 session start` also says on stderr how many sessions were
-already up, printed before the launch attempt so it explains the failure in
-the very case where the name is already taken.
+Operational failures are a contract rather than a traceback. Seven commands
+that crashed on ordinary conditions now exit 1 with a parseable `{"error": …}`,
+and under them the CLI's root group catches thirteen exception types as a
+floor — a `--json` caller previously got empty stdout, indistinguishable from
+a crashed process. Per-site handlers stay, because they say what to do next.
+`c64 session stop --all` reaps every session an interrupted run left behind
+(and was itself the worst offender: one unreadable record broke the only
+command that could clear it). `c64 profile --samples N` prices N arrivals and
+reports min, max and mean, because one measurement of a data-dependent
+routine is a distribution reported as a fact.
 
-Seven operational failures that escaped as tracebacks now exit 1 through
-`fail()` with a parseable `--json` error object, which is the same bug seven
-times and worth naming as a class: an operational failure is exactly as
-likely as the operation, so every path that can raise has to be inside the
-handler. `c64 profile` let a daemon-side `ValueError` through, because the
-narrowed old-daemon fallback made that a second exception type the command
-had never caught; `c64 session start` read the registry for its new count
-*above* the `try`, so a truncated or older-format record — which `launch`
-itself has always reported cleanly — escaped instead; and `c64 audio report`
-turned an undecodable log into a traceback.
+A timed-out wait says **where the machine was**. `--mem`, `--text` and
+`--idle` all only poll, so a machine stopped for the whole window burns the
+timeout and reports nothing useful; each now samples both sides of the wait
+and names the cause. `--idle` used to read every timeout as a wedge and send
+the reader to a playbook whose first step cannot work on a stopped machine.
 
-`c64 session stop --all` was the worst of them, because the state that broke
-it is the state it exists to clear: it read each record *outside* its
-per-session `try`, so one unreadable record crashed the only command that
-could have removed it — and every other registry read goes through the same
-reader, so `session list`, `session stop NAME` and `session start` were
-broken by it too. The record is now discarded and reported: discarded because
-a record that will not parse is a record nothing can be stopped for, with no
-pid to signal and no socket to close, and reported rather than reaped like a
-dead session because a dead session is *known* dead while an unparseable
-record is exactly where an orphaned emulator hides. A second run comes back
-clean. The message names the file and what is wrong with it wherever a record
-is read, in place of the bare `'port'` that `str(KeyError)` produces.
+Sound is verifiable. `c64 audio capture` aims its window and reports the
+arming cost it measured (`lead_in_frames`) instead of quoting someone else's;
+`sid-log.jsonl` opens with its own clock stamp; the score diff compares pitch
+rather than spelling; and `--strict` turns a silent capture into a failure
+instead of a pass. The ten evidence scripts call it on every capture.
+Nine of those ten calls pass a score listing sounding notes; the tenth is the
+case the flag exists for. The `warp on` wedge is fixed at its cause. 1812's
+iteration 3 put that to work: the arrangement was rebuilt as a texture arc
+from solo piano outward, and the demo gained the audio evidence it had never
+had — five sections, scores generated from the note tables rather than
+transcribed — with `SPEC.md` gaining acceptance criteria for both.
 
-`c64 audio report` also tracebacked on a session whose model this build has
-no profile for — the clock lookup's named-model branch sat above the `try` —
-and `c64 charset encode` and `c64 sprite encode` tracebacked on a binary
-file, `read_text`'s `UnicodeDecodeError` being a `ValueError` that neither
-`except CharsetError` nor the bare read caught. Both encoders now name the
-file they could not read, over MCP as well: FastMCP already returned those
-raises as structured tool errors, so what the MCP twins were missing was the
-message, not the exit code.
-
-Then a **floor** under that whole class, because patching it per site
-demonstrably was not closing it: six instances were fixed one at a time and
-two of those were found only by a later sweep, having survived review. The
-CLI's root group now catches thirteen exception types escaping any command —
-the module-level `INPUT_ERRORS` roster in `src/c64lib/cli.py` — and funnels
-them into `fail()`: exit 1 with a parseable `{"error": …}` on stdout,
-traceback still on stderr. What made the original defect worth this much is
-that its symptom is unreadable rather than merely ugly: a `--json` caller gets
-empty stdout, which it cannot tell apart from a crashed process, so the
-seventh instance would have cost the same debugging as the first. The roster
-is `ValueError` (carrying `CharsetError` by inheritance), `KeyError`,
-`OSError`, and every exception class this package defines: `AudioError`
-(with its `PinnedStopError` subclass), `BasicError`, `BuildError`,
-`CartError`, `DiskError`, `MonitorError`, `PackageError`, `ProtocolError`,
-`SessionError`, `TestError`. Not all thirteen are user-input-shaped, and that
-is deliberate — `ProtocolError` is a corrupt monitor frame and `MonitorError`
-is VICE rejecting a command, each as often a defect here as a user's mistake,
-and a `KeyError` on one of our own dicts is simply a bug — but a parseable
-`{"error": …}` beats a traceback over empty stdout whoever is at fault, so
-they are on the roster anyway, dressed as user error on purpose. The guard is
-a floor and not a ceiling: the dozens of per-site `except DiskError` /
-`except BuildError` handlers stay load-bearing rather than becoming
-redundant, because each says what the user should do next where the guard can
-only repeat what the exception happened to say. What stays *out* is as
-deliberate as what went in — bare `Exception`, so a defect off the roster
-stays a traceback instead of posing as user error; `click.ClickException`,
-`click.Abort` and `SystemExit`, the last because `fail()` exits by raising it
-and catching it would append the guard's payload to the one the command
-already wrote; and **`RuntimeError`, which may never join the tuple**, since
-`click.exceptions.Exit` subclasses it and a roster holding the base would
-swallow `ctx.exit(1)` and report `{"error": "1"}` for a test verdict. That
-last rule is why `AudioError` — itself a `RuntimeError` subclass — is named
-individually rather than covered by its base.
-
-The sheet encoders went a step further than the per-block modes below. A
-**sprite** sheet takes `name:` headers carrying their own mode
-(`fighter:hires`, `captured:multicolor`), `#` comment lines, and
-`--background CHAR`: a visible character for the transparent pair, so a
-shape's edges can be counted instead of being trailing spaces an editor may
-or may not have kept. Because `.` is pair 01 by default, the multicolour
-legend also gained `1`/`2`/`3` for pairs 01/10/11 — the digit is the pair
-value, exactly how `charset` already spells it — so `--background .` turns a
-sprite sheet's legend into a charset sheet's and every pair stays spellable.
-A header with no art rows is rejected where it used to be dropped in silence,
-errors name the block, and `--json` carries a `blocks` array of names and
-modes. `c64 charset encode --label NAME` names the emitted block, which is
-the other half of the same job; both reach MCP with the same spellings, and
-one header parser now serves both encoders. La Galaxia's own converter,
-`tools/gensprites.py`, is deleted: its 21 shapes took two invocations over
-two generated intermediate files and take one over the authored sheet now,
-byte-identical across the change.
-
-La Galaxia's regression spec builds from source. It named the packaged `.d64`
-because that was the only route to symbols for a program that needs `--area`
-to link at all; with `areas:` on a spec it assembles `la-galaxia.s` on every
-run, which also takes the ~13 s of serial load out of the gate — 35 s end to
-end, and nothing that can go stale between the symbols and the bytes they are
-read against. Regenerating the demo's art closed the other half of that:
-`sprites.inc` had drifted a whole block out of date, holding a sixth *hires*
-fighter at block 5 where the sheet and `sprites.s`'s own manifest
-(`SPR_CAPTIVE = SPRBLK + 5`, "multicolour from here down") both say the
-multicolour captive belongs — so the game drew a hires bitmap through the
-multicolour bit. Regenerated, rebuilt and repackaged, and two of those three
-are pinned, because a generated file with no regeneration test can disagree
-with its source forever: one test re-encodes `tools/sprites.txt` and compares
-it with the committed include, another assembles `la-galaxia.s` and compares
-it with the committed `.prg`. The third, the `.d64`, stays unpinned —
-packaging shells out to `c1541` and costs seconds where the assembler pass
-costs a fraction of one — so nothing checks that the shipped image carries
-the `.prg` beside it, and a rebuild has to be re-packaged by hand.
-`docs/cli.md` also now says where a `.s` `program:` builds: beside its
-source, overwriting `<stem>.prg` and `<stem>.lbl` every run, which
-republishes a committed artifact and leaves the label file newer than any
-sibling image — the state the disk staleness stop refuses.
-
-And `audio-verification.md` gains the two things this demo's score work cost
-most. **Generating a score is constructive**: model the player one frame at a
-time — one entry per frame, including the gate-down frame a retrigger costs —
-and run-length encode that. It is the transcriber's own algorithm, so the two
-agree by construction, and it is not the forbidden move of pasting a
-transcription back in as the score, because the input is the note table;
-`demos/la-galaxia/tools/genmusic.py`'s `per_frame()` is the worked example.
-The reference had the retrigger *fact* and no recipe, and this demo's first
-generator walked its rows and multiplied: every note a frame too long, no
-leading rests, one whole capture to find out. **A reference score is hostage
-to its window**: it claims every voice for every frame, so the dive whines
-and the collisions the game raised on its own were in the score too; it
-passed on the run it was written from and failed on the next one, when an
-unrelated edit moved the enemies and the same effects landed on different
-frames. The fix is to take the other sounds out of the window — clear the
-state that can seize a voice before the capture opens — rather than to
-re-score them.
-
-A `--mem` wait that times out now says **where the machine was**. Issued after
-a `c64 until` — or a `step`, a `finish`, a fired checkpoint — a wait polls a
-byte no running CPU is writing, so it can only burn its whole timeout and hand
-back the value it started with; the la-galaxia dogfood spent two minutes that
-way and filed a false "the game is stuck". `c64 wait --mem` and
-`c64_wait_mem` now sample the machine's state on **both** sides of the wait —
-one sample cannot support "stopped the whole time", since a machine stopped
-only at the end really was running for part of the window — and when both read
-stopped, the CLI's error names the cause and points at `c64 continue` while
-the JSON carries `"machine": "stopped"` in place of the `"running"` that path
-used to assert unconditionally. The MCP tool, which had carried no `machine`
-key at all where its three siblings all did, gains the same field plus a
-`diagnosis` string, so the surface agents actually drive stops being the one
-that fails silently.
-
-`--text` and `--idle` now do the same, which is where the footgun is most
-expensive rather than least. All three of those waits only poll, so a machine
-halted for the whole window is the identical bug in each; `--text` previously
-dumped 25 lines of screen and left the reader to work out that nothing had
-been printed because nothing was running, and `--idle` was worse than
-uninformative — it read every timeout as a wedge and pointed at the
-wedged-machine playbook in the `6502-debugging` skill, whose first step is to
-sample `c64 reg` a second apart on a PC that by construction cannot move. On a
-stopped machine that pointer is now *replaced* by the cause and `c64 continue`
-rather than joined by it. Both arms sample either side of the wait for the
-same reason `--mem` does, both carry `"machine"` in `--json`, and the running
-case is untouched: a machine that ran the whole window genuinely never printed
-the text or reached direct mode, and saying "stopped" there would send the
-reader off to `c64 continue` for nothing. `docs/cli.md` also stops reading
-`"running"` as a positive claim — it means *not provably stopped for the whole
-window*, since a session with no daemon socket cannot be asked at all.
-
-`skills/6502-assembly/references/fix-branch-range.py` makes the branch-range
-trap mechanical. Growing a routine pushes its branches past ±127 bytes, and
-the skill's advice — prefer a `jmp` trampoline from the start — is right and
-nearly impossible to apply pre-emptively: La Galaxia hit 25 "Range error"
-failures across six files in a single build. Pipe the failed build in —
-`c64 build game.s 2>&1 | python3 fix-branch-range.py`, the interpreter spelled
-out because the script ships non-executable like every other tracked `.py`
-here — and it inverts each reported branch over a `jmp`, bottom-up so the
-reported line numbers stay valid. Anything the mechanical fix would get wrong
-it **reports rather than touches**, exiting 1 so a human sees it. Two of those
-refusals share one reason: a branch whose target is an anonymous label, and
-any rewrite whose new `:` would land between another `:+` and the label that
-reference resolves to. An anonymous label has no name, only a position, so
-either edit still assembles and quietly branches somewhere else — the one
-failure a green build cannot catch. Another is new here, and is about the file
-rather than the branch: a CRLF or CR line is refused with the line endings
-named, because the trampoline's three lines would go in with LF and leave the
-file mixed, and without the check the report would blame the instruction
-("not a conditional branch") for what is really the file's encoding. Line endings now survive a rewrite byte
-for byte — read and written with `newline=""` — where a CRLF source used to
-arrive through universal newlines as LF, match on every reported branch, and
-go back reformatted end to end for a three-line fix.
-
-Five documentation gaps the same dogfood walked into, each now carrying the
-test that would have caught it. The **character ROM image is 4 KB**, which
-`hardware.md` and `memory-maps.md` both described correctly and neither sized:
-it covers *two* of the eight 2 KB charset bases, so a reader who obeys the
-cookbook's stated rule ("in the VIC's bank") can still pick `$1800` and get
-the ROM's lowercase half — silent, because lowercase glyphs look like text
-rather than like a fault. A live test settles it on the machine, patching the
-same glyph into RAM at `$1800` and `$3800` and drawing each. `--area`'s fill
-rule gains the half that decides file size — every area below the last is
-filled to its declared size, the last is not, so only the top area's unused
-tail is free, and a `.res` inside any area is `type = ro` content that ships
-as zeros wherever it sits. La Galaxia's three areas cost a flat 14,337 bytes;
-the test extracts that number from `docs/cli.md` and rebuilds it, because the
-unverified copy of this same figure in the demo's plan had already drifted by
-five bytes. `docs/graphics-and-sprites.md` §1 stops forbidding a technique the
-repo ships: mid-frame register changes and raster-IRQ multiplexing are in
-scope **when the demo exposes counters a test can assert on** — warp makes the
-moment a test observes unpredictable, not the state it observes — and only
-effects whose sole evidence is a photograph stay out. And §4 gains the rule
-that a **per-frame budget is max-tracked by the program**, with the harness
-reading the mark: sampled every tenth tick, La Galaxia's redraw counter read 4
-against a ceiling of 64 while the program's own mark read 88.
-
-`--area` reaches the two places that could not use it. `c64 run --area
-NAME=START:SIZE` (MCP `c64_run(areas=[…])`) links a fixed-address segment on
-the way to the machine, and a test spec takes the same strings as an `areas:`
-list beside a `.s` `program:`. A program that needs an area to link at all —
-La Galaxia links its engine at `$4000` — was until now unrunnable from
-`c64 run` and untestable from source: the demo shipped a two-command
-`build.sh` and pointed its spec at the packaged `.d64`, paying ~13 s of
-serial load before step 1, because a disk was the only route to symbols
-there was. A `.prg` `program:` now picks up a sibling `.lbl` of the same
-stem, the rule `cart:` and `disk:` already followed — without it a `.prg`
-spec resolved nothing at all, and `until: {ref: tick}` failed with an empty
-known-list. `areas:` is rejected, naming the conflict, beside anything it
-would not reach (a `.bas`, a `.prg`, a `cart:`, a `disk:`), and a malformed
-one is refused before a session boots. Finally, a `disk:` spec whose image is
-*older* than the sibling `.lbl` it takes symbols from now stops with "the
-image predates its symbols" and both timestamps, instead of resolving fresh
-addresses against stale bytes and failing on a plausible wrong byte
-(`mem $414b = 4a != 00`). Only the sibling file is judged that way: the label
-copies `c64 disk build` keeps are written by the command that wrote the
-image, so they cannot go stale on their own.
-
-A ready-made `cart:` is judged too — it was the last route that picked up a
-sibling `.lbl` without ever asking whether the two agree. **This can stop a
-spec that ran before**: a `.crt` handed to a spec is now refused pre-launch
-when the `<stem>.lbl` beside it was written more than a minute away in
-*either* direction (`game.crt predates its symbols` /
-`game.crt is newer than its symbols`, both timestamps named), and the
-existing `--allow-stale` (`allow_stale=true` over MCP) runs it anyway with a
-warning. A `.crt` with no sibling `.lbl` is still silently fine, and a
-`.s`/`.ef.yaml` `cart:` is built by the run itself and never judged. The
-comparison is symmetric because the write order was measured rather than
-assumed, and carries no signal: `c64 package game.s -o game.crt` writes the
-`.lbl` and then the `.crt` about 3 ms later, once `cartconv` has run, while
-`c64 cart build game.ef.yaml` writes the `.crt` and then merges its
-per-window labels about 0.6 ms later. The two in-tree builders disagree about
-which file lands last, so the disk stop's bare "labels newer than the
-artifact" rule would refuse every EasyFlash cartridge built in place, by
-0.6 ms — only a gap no single command could produce is evidence, whichever
-side it falls on. No third copy of the rule: the `.prg` guard's comparison
-moved into a shared `_reject_far_apart_labels` that both ready-made routes
-call, with the same window and the same messages.
-
-A capture window can be **aimed** now, and it says what it cost to open.
-`c64 audio capture --at-frame N 'ADDR=VAL[,ADDR=VAL…]'` (repeatable;
-`at_frame={"N": "…"}` over MCP) performs those writes at frame N of the
-window. This is the la-galaxia dogfood's single biggest audio cost — about
-ninety minutes and a program change — and it was unreachable rather than
-merely awkward: arming spends emulated frames before log frame 0, and once
-the window is open the sampling loop owns the session, running as one round
-trip inside the daemon, so a poke from another command queues behind the
-whole capture instead of landing inside it. A six-frame laser was therefore
-always over before frame 0, and the game's own trigger was no better — the
-fighter fires on an input *edge*, `key hold` pins `$CB` to one value, and
-with the KERNAL scan off the state never falls. The writes travel with the
-sampling loop as a separate `sid_log_at` daemon method, deliberately not a
-third argument on `sid_log`: an older daemon drops extra positional args
-silently, and a capture that looks aimed and is not is the worst outcome
-available. A write lands while the machine is halted, immediately before the
-resume that runs its frame, so frame N is the first *logged* frame that shows
-it and the schedule costs no emulated time at all. A frame outside the window
-is refused before anything is pinned, where a malformed `--ref` already was.
-
-`lead_in_frames` is that arming cost, measured per capture instead of quoted
-from somebody else's run: the KERNAL jiffy read before the pin against the
-jiffy read after the arm, converted through the jiffy's 60.00 Hz — it is a
-clock, not a frame counter, and PAL ticks it 1.2 times a frame — plus the
-sampling loop's own first resume. It is **null**, never a plausible number,
-when the jiffy cannot answer: the KERNAL's IRQ handler is what increments it,
-so a player that owns the IRQ freezes it. The text monitor's cycle
-`STOPWATCH` would have been program-independent and cycle-exact, and it is
-not used on measurement grounds — opening that channel at real time costs
-several frames of the very lead-in it would report, where the jiffy read
-costs one round trip. VICE's binary monitor has neither counter.
-
-`sid-log.jsonl` now opens with a clock stamp — `{"machine", "clock_hz",
-"fps"}` from the session's own model — so `c64 audio report` needs `-s` only
-as an override. Before it, a re-score run after the session had stopped
-silently assumed PAL and renamed every note of an NTSC capture, which reads
-as a badly tuned program rather than a mistake in the tooling. The payload's
-new `clock_source` says which of the three answered (`session`, `log`,
-`default`), because "assumed PAL" and "told PAL" produce identical reports
-and only one of them is evidence. Logs written before the stamp still parse:
-the header is optional to the reader and mandatory for the writer.
-
-And the score diff compares **pitch, not spelling**. A score written from
-music data spells its black keys the way its key signature does, while the
-transcription only ever emits sharps — a frequency carries no key signature
-to choose from — so the first `--ref` run of one demo came back as seven
-diffs, every one of them a flat against its own sharp. `Ab4`, `A♭4`, `G#4`
-and `G♯4` are now one note; the round trip goes through MIDI rather than
-pitch class, so `Cb4` matches `B3` an octave digit down and a real
-wrong-octave bug still fails. A diff quotes both spellings when they differ:
-`expected Ab4 (= G#4), heard A4 at frame 96`.
-
-The `warp on` wedge is fixed at its cause, not just retried around — and
-fixing it surfaced a second latent race, so `pinned_record_stop` now does
-three things in an order where neither can fire. It re-arms the recorder
-onto a throwaway sink first, which closes the capture WAV while the sound
-layer is live; it restores speed and warp while the sink is consuming; and
-it disarms only the sink, under warp, where its unfinalized header is
-nobody's problem. The first race is the wedge investigation's: VICE's
-sound device is the emulation loop's flow control, and a `warp on`
-readback made at real time with no consumer stalled 39 times in 240
-measured pin/unpin cycles (0 in ~877 readbacks made outside that window).
-The old order — disarm, then restore — made that window on every stop.
-The second race is why the obvious fix (just swap the two) was not
-shipped after its first trial run: VICE finalizes a closed WAV's header
-asynchronously, ~50 ms after the close is *serviced*, and it is serviced
-only while sound runs — a disarm issued milliseconds after re-warping
-races the sound teardown, and the loser leaves the placeholder sizes
-(`0x6c6c6c6c`, which `wave` reads as five hours of audio) on disk until
-the session exits. The arpeggio round-trip test caught it: 6 of 11 runs
-of the swap-only fix read that placeholder, all with the identical
-18948.385125 s phantom duration. With the sink order, the forced-arm
-re-runs of the investigation's measurement confirmed both mechanisms: 1
-first-reply miss in 258 post-fix pin/unpin cycles on tone-program
-sessions against 39 in 240 before (16.25% to 0.4%; the one miss was
-rescued by the retry and its cycle stayed clean), 158 of 158 sink-order
-stops handing back an already-finalized header, and the arpeggio test 8
-for 8 against 6 failures in 11 runs of the swap alone.
-`pinned_record_stop` also now *confirms* the header before it
-returns — `record_stop`'s "confirm a stop by the file", finally made real
-— and refuses a WAV that never settles rather than handing back phantom
-evidence. The readback retry in `warp_state` stays: it is cheap,
-measured, and defends every other path through `restore_speed`,
-including the best-effort fallback when the sink itself cannot be armed.
-The second failure mode the investigation left unattributed — bursty
-binary-monitor timeouts that appear in a window and vanish — reproduced
-live during this work and is now attributed, with the diagnostics the
-investigation said it lacked: it is the host, not the protocol. Three
-consecutive pin/unpin smokes wedged identically while the machine sat
-user-idle (`x64sc` alive at 1.8% CPU, its binary port still accepting
-TCP, its text monitor still answering — the emulation loop throttled,
-not blocked on a socket), and the identical code ran clean at full
-speed the moment it was wrapped in `caffeinate -dimsu`: macOS idle
-throttling of the `-minimized` headless emulator slows it until every
-binary-monitor call times out. Unattended VICE work on an idle Mac
-needs a user-activity assertion; the re-verification runs here were
-made under one. One ordering experiment is recorded as
-tried-and-inconclusive rather than silently abandoned: arming the
-recorder before the pin (to close the start's sub-second no-consumer
-gap) wedged its one live trial, but that trial ran inside the
-idle-throttling window — the pin-first control wedged too — so
-`pinned_record_start` keeps its measured-good pin-first order, and its
-docstring records what would justify revisiting. A failed restore still leaves the pin sidecar for `c64
-audio record --stop` to retry, and still disarms on the way out. And the
-stop now *says* which half failed instead of leaving `capture` to infer
-it from whether the sidecar survived — an inference the
-both-halves-failed case fooled into overstating what was on disk:
-`PinnedStopError` carries `restore_error`, `disarm_error`, and
-`wav_complete`, and `capture` branches on the report. A disarm failure
-whose recording the sink had already taken over is a warning now, not a
-discarded capture; the fatal case that remains is the honest one — no
-sink armed and no disarm means the capture WAV is still being written.
-That was `docs/todo.md`'s last open item, so the file itself is gone:
-it is deleted when its last item lands (maintainer ruling, noted in
-`AGENTS.md`, whose dogfood post-mortems recreate it).
-
-The other half of that wedge is gone as well: a headless session no
-longer needs anything on the host to listen to it. The la-galaxia
-dogfood run turned the flow-control mechanism from a hypothesis into a
-reproducer — on a host reporting no audio output device (`ioreg -rc
-IOAudioDevice` counts 0 nodes, `system_profiler SPAudioDataType` comes
-back empty) every real-time operation wedged, every time, while
-everything warped stayed green: builds, tests, 14 evidence captures,
-thousands of frame-stepped ticks. The narrowing was exact — `audio
-record --start`, the pin-and-arm step, is what hung. So `Session.launch`
-now starts every headless emulator with `-sounddev dump -soundarg
-<os.devnull>`. VICE's `dump` device is file-backed, always consumes, and
-never opens coreaudio at all (its own log: `Opened device 'dump'`, with
-none of the `coreaudio_init` lines the default device prints), so the
-dependency disappears instead of being raced around. The obvious
-spelling, `-sounddev dummy`, is measured wrong and now has a test
-against it: dummy consumes nothing, so VICE overflows its own sound
-buffer (`Sound buffer overflow (cycle based)`, 25 times before it stops
-warning) and discards it — the WAV recorder then receives no samples,
-and the live arpeggio capture came back as a bare 44-byte header where
-the same run on `dump` passed with the arpeggio in it, its WAV growing
-at real time's 96 kB/s. The `-soundarg` half is load-bearing too:
-unset, the dump device writes its register dump to `vicesnd.sid` in the
-*caller's* working directory (this repo's root collected one during the
-measurements). Windowed sessions keep host audio, because `headless` is
-already the flag that means nobody is watching or listening — the inert
-`SDL_AUDIODRIVER=dummy` line beside it always intended as much. The
-device *name* is probed against the binary's own `--help`, the way
-`-minimized` already is, and the failure that probe avoids is the nastier
-of the two: VICE rejects an unknown command-line option by exiting, but
-it rejects an unknown `-sounddev` value by logging `device '<name>' not
-found or not supported` **and popping a modal error dialog** — which
-blocks the emulation loop even on a `-minimized` headless launch, so the
-process stays up with its monitor unanswered and looks exactly like the
-wedge being fixed. That was found the hard way during this work, by a
-human watching the screen while a bogus-value probe ran; nothing the
-runner could see said so. A build whose `-sounddev` list has no `dump`
-therefore keeps host audio, and the device list is read from that line
-alone (`dump` is also a *recording* driver, on a different resource).
-What is not claimed: the zero-device host is not reproducible here — this Mac has
-output devices, and on it a real-time launch plus five monitor round
-trips came back clean — so the fix is verified by mechanism (a device
-that needs no consumer cannot wait for one) plus a live capture on a
-dump-sink session, not by literal reproduction. The stop's sink dance
-and the `warp_state` retry are untouched: they defend paths this does
-not remove.
-
-An MCP-wired agent no longer needs a shell. The six commands both
-`docs/agent-setup.md` and the `c64-development` skill told it to shell
-out for have tools now — `c64_break_enable`/`c64_break_disable`, the MCP
-twin of the monitor's `checkpoint_toggle`, and the four offline ones that
-need no session at all: `c64_basic_tokenize`/`c64_basic_detokenize`,
-`c64_sprite_encode` and `c64_charset_encode`. That takes the server from
-68 tools to 74, and every one of the 75 CLI capabilities has a tool. The
-two counts differ in both directions. Seven commands have no tool of
-their own: `c64 help`, whose usage text the protocol already delivers
-with every tool's schema; `c64 mem get`, a print-formatting variant of
-`c64_mem_read`; and five second spellings of commands that already have
-one. Six tools have no command of their own: `c64 wait` splits into
-four, `c64 screen` into three, and the bare `c64 reg` group is spelled
-`c64_reg_get`. 75 - 7 + 6 = 74. The carve-out list in
-`tests/test_mcp_scaffold.py` is empty as a result; the list and its test
-stay, so a future exclusion has to be written down with the reason it is
-one instead of accumulating in silence. Encoding is shared with the CLI
-rather than reimplemented — `sprites.render_sheet` is now the one place a
-multi-sprite sheet gets its running line numbers, called by both — and
-the two encode tools are the one place a payload deliberately exceeds the
-CLI's `--json`: they add `rendered`, the paste-ready text the command
-prints to stdout, because MCP has no stdout and without it `fmt`,
-`start_line` and `first_code` would be no-ops.
-
-Three smaller gaps went with them. `c64_build` takes `output`, the CLI's
-`-o`, which the tool had no way to spell — a build could only land beside
-its source. `c64_sid_report` takes `peak_hz`, the same rFFT measurement
-as the command's `--peak-hz`, and refuses it without a `wav` because a
-dominant partial is a property of the recording and not of the register
-log. And `c64_load` records what it loaded, so `c64_status`'s stale-source
-warning fires after an MCP load: it had been reporting `"stale": []` no
-matter how old the binary was, because the tool never called
-`record_loaded` the way `c64 load` and `c64_run` always have.
-
-The map itself is written down and measured, in the new `docs/mcp.md`:
-one row per registered tool, naming the command it twins and the one-line
-difference where there is one — the folded rows, the renamed parameters
-(`--from` → `src`, `--format` → `fmt`), the headless-and-warp sessions
-the tools hardcode, and the wait timeouts that return
-`{"fired": null, ...}` as data where the CLI exits 1. The page
-states no tool or command counts of its own, since a second uncounted
-copy of index.html's numbers is the drift it exists to prevent; two tests
-guard it the way those counts are guarded — every registered tool must
-appear in it, and every command its tables name must still exist in the
-CLI. `README.md`, `docs/cli.md`, `docs/agent-setup.md` and the
-`c64-development` skill point at it, and index.html reads 74 tools.
-
-A segment can be linked where the VIC needs it. `c64 build --area
-NAME=START:SIZE` (repeatable; also on `c64 package`, and `areas` on the
-`c64_build`/`c64_package` MCP tools) declares an extra linker MEMORY area
-and puts the identically named segment in it — so a RAM character set lands
-on its 2 KB boundary and sprite blocks on their 64-byte ones without a
-startup copy loop. A `.prg` is a flat file, so the flag caps `MAIN` at
-`area.start - load_address` and fills it: the gap below the area ships as
-real zero bytes, which is what makes the segment land there. Areas are
-declared `define = yes`, so `__NAME_LOAD__`/`__NAME_SIZE__` are available
-for a link-time `.assert` on the ceiling. Everything a wrong `--area` could
-do quietly is a rejection instead, naming the flag rather than the config
-generated behind it: a gap between two areas (with the size to raise), an
-overlap, an area at or below the load address, a zero size, a name that
-would redefine one of the config's own, and — the same way `--cart-type`
-already works — `--area` passed for a `.bas`, a `.prg`, or a cartridge.
-With no areas the generated config is byte-identical to what it has always
-been, pinned by a test.
-
-Two sheet-encoder frictions the same dogfood turned up. `c64 charset encode`
-takes a per-block mode — `wall:multicolor`, `letter:hires` — so a multicolor
-playfield charset and a hires HUD font are one sheet and one invocation
-instead of two of each; `--hires` now sets the file's default, which a block
-may override, and an unrecognized suffix is rejected by name. The JSON
-payload carries `multicolor` per glyph. And `c64 sprite encode` says *which*
-block is malformed: `sprite 12 (line 265): art must be 21 rows, got 14`,
-where before a sheet of 27 shapes reported only the row count and had to be
-bisected by hand. Sheets that name no mode encode byte-identically to before
-— both committed demo sheets re-encode to their existing `.inc` files.
-
-A `c64 test run` comparator given a literal now says what it wanted.
-`differs`, `greater_than`, `less_than` and `unchanged` compare against a
-recorded `sample:`, never against a number — `differs: 0` used to fail with
-"no sample named '0'", which is true and unhelpful. When the operand parses
-as a number the error names the design and shows the `sample:` step to add;
-when it does not, the message is unchanged, so a typo'd sample name still
-reads as a typo. `docs/cli.md` gains the table of which assert keys take a
-literal and which take a sample name.
-
-Six things the skills and references were silent about, each of which cost
-the Ms. Muncher dogfood a debugging pass or a whole audit iteration. The
-`c64-development` skill now says that `c64 call` **ends the run** it is
-called in (the CLI reference always said so; the skill that recommends the
-command did not) and that `c64 wait --text/--mem` **poll and do not
-resume**, so one issued after `until`/`step`/`finish`/`wait --break` can
-only time out — inside a YAML spec too. Both get a diagnosis-table row.
-`zero-page.md` gains a second, live-measured table: the 75 bytes a program
-that owns the machine may claim, with the caveats that make them free (one
-ROM call takes them back; `$73-$8A` is the CHRGET *routine*; everything the
-KERNAL IRQ maintains stays off the list). The `6502-assembly` skill gains
-the gotcha that an indexed loop calling a subroutine must reload its index.
-The cookbook gains the bank-0 budget — all three consumers of the VIC's
-16 KB, the three ways out, and the `.assert` that turns the ceiling into a
-build failure — and the two ways a Galois LFSR silently stops being random,
-with the recipe extended to *prove* its 255-value cycle as a live-tested
-`DISTINCT 255`. `audio-verification.md` covers assembly lead-ins (taken per
-start, not baked into looping track data) and the one-shot cue that makes a
-score independent of arming latency. Finally, `docs/graphics-and-sprites.md`
-§5 writes down the deterministic evidence protocol both game demos had
-reinvented separately.
-
-Sound is verifiable now. `c64 audio capture` (MCP `c64_audio_capture`)
-records the machine's audio to a WAV while sampling `$D400–$D418` once per
-frame, transcribes the register log into notes, diffs them against a
-reference score you write in YAML, and drops five artifacts — `capture.wav`,
-`sid-log.jsonl`, `piano-roll.png`, `spectrogram.png`, `report.md` — with a
-PASS/FAIL verdict; the pieces are also separately available as `c64 audio
-record`, `c64 audio sidlog` and `c64 audio report`, the last of which takes
-`--peak-hz` to measure a recording's loudest frequency against the pitch its
-registers predict. Piano-roll voice colors are fixed (voice 1 red, 2 green,
-3 blue) so rolls compare across demos, and a capture pins real time for its
-duration — warp off, `Speed` 100 — so real time is the floor on what it
-costs: every logged frame is a monitor round trip on top, which puts a
-30-second capture at 60–80 seconds of wall clock. The five full-build demo
-prompts — Snake, Invaders, Ms. Muncher, La Galaxia and 1812 — now require
-the artifact set under
-`evidence/audio/` and a passing report, alongside the SID shadow bytes they
-already required: the shadows prove a write was issued, the capture proves
-what came out of the chip. Finally, the method — capturing, authoring a
-score from your note tables, reading a roll and a spectrogram, and the
-register facts behind all of it — is written up in the new reference at
-`skills/c64-development/references/audio-verification.md`. Two demos arrive
-with it: `demos/05-bach-invention/`, a test demo asking for Bach's two-part
-Invention No. 13 out of BASIC and proved by capture — prompt-only like the
-rest of that tier, where the run is the deliverable and nothing is
-committed — and `demos/fugue/`, BWV 847 on three voices in assembly with
-its score scrolling past as it plays, prompt-only so far and waiting to be
-built.
-
-`c64 audio report --strict` and `c64 audio capture --strict` (MCP
-`c64_sid_report(strict=true)`, `c64_audio_capture(strict=true)`) make a
-verdict that checked **nothing** exit 1 — raise, over MCP — instead of PASS.
-A capture in which no voice ever sounded has nothing for any check to
-disagree with, so its PASS is not a weak claim but an empty one, and that is a
-bug rather than a nicety because of what reads it: an evidence script takes
-its success from an exit code under `set -e`, so without the flag a window
-that recorded silence commits a report proving nothing and the run comes back
-green. The default is unchanged and byte-for-byte pinned — the warning the
-report already printed is what most callers want, since proving a program is
-*quiet* is a real claim and cannot be an error — so the flag is opt-in, and
-its extra line says the rule rather than this run's cause, a payload being
-able to be FAIL and empty at once. Both demo evidence scripts adopted it on
-every capture. Nine of those ten calls pass a score listing sounding notes,
-where the flag is a second line of defence behind a diff that already FAILs a
-silent window; the tenth is the case it exists for. ms-muncher's `play` scores
-its lead voice as an empty list and leaves the other two unscored on purpose,
-and a score is only diffed against the voices it lists — so a silent `play`
-window diffs clean, raises no anomaly and PASSes at exit 0, with `--strict` the
-only thing in front of it.
+An MCP-wired agent no longer needs a shell, and `docs/mcp.md` maps every tool
+to the command it twins. Elsewhere: `--area` reaches the places that could not
+use it, so a segment links where the VIC needs it and a spec builds from
+source, at a flat 14,337 bytes of padding for La Galaxia's three areas; a
+ready-made `cart:` is judged for staleness against its sibling `.lbl`; a
+`c64 test run` comparator given a literal says what it wanted; the sprite and
+charset sheet encoders share a header parser and take named blocks, per-block
+modes and `--background`; `fix-branch-range.py` makes the ±127 branch trap
+mechanical; and a batch of skill and reference gaps that cost real dogfood
+time are closed, each with the test that would have caught it.
 
 ## [0.9.5] — 2026-08-03
 
