@@ -24,10 +24,10 @@ Full games, each with its own fidelity bar and evidence protocol:
 
 | Demo | Language | Description |
 |------|----------|-------------|
-| [Snake](snake/PROMPT.md) | 6502 assembly | Arcade Snake on a custom hires charset — the assembler + debugger workflow, `$CB` held-key steering, SID sound, nine speeding-up levels |
-| [Invaders](invaders/PROMPT.md) | 6502 assembly | The 1978 arcade original to an arcade-fidelity spec — sprites and custom charset, the one-invader-per-tick march, 3-voice SID, review loop, packaging |
-| [Ms. Muncher](ms-muncher/PROMPT.md) | 6502 assembly | A maze chase with four rotating mazes — per-ghost targeting AI, six sprites, animated cut scenes, 3-voice SID |
-| [La Galaxia](la-galaxia/PROMPT.md) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing |
+| [Snake](snake/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — the assembler + debugger workflow, `$CB` held-key steering, SID sound, nine speeding-up levels |
+| [Invaders](invaders/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=invaders) | 6502 assembly | The 1978 arcade original to an arcade-fidelity spec — sprites and custom charset, the one-invader-per-tick march, 3-voice SID, review loop, packaging |
+| [Ms. Muncher](ms-muncher/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=ms-muncher) | 6502 assembly | A maze chase with four rotating mazes — per-ghost targeting AI, six sprites, animated cut scenes, 3-voice SID |
+| [La Galaxia](la-galaxia/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=la-galaxia) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing |
 
 ## Miscellaneous cool stuff
 
@@ -46,12 +46,13 @@ writes the program wherever it likes, proves it on a live session, and
 nothing is committed — the run itself is the deliverable. Every demo outside
 the test tier keeps everything: sources, plan, audit, `evidence/`
 screenshots, and the artefact the prompt tells the agent to build, so
-`invaders/invaders.d64`, `snake/snake.d64`, `ms-muncher/ms-muncher.d64` and
-`1812/1812.d64` run in stock VICE without a checkout of this toolset. La
-Galaxia and Fugue are prompt-only so far; their directories fill in the same
-way once built. The four finished builds are written up in
+`invaders/invaders.d64`, `snake/snake.d64`, `ms-muncher/ms-muncher.d64`,
+`la-galaxia/la-galaxia.d64` and `1812/1812.d64` run in stock VICE without a
+checkout of this toolset. Fugue is prompt-only so far; its directory fills in
+the same way once built. The five finished builds are written up in
 [invaders/AUDIT.md](invaders/AUDIT.md), [snake/AUDIT.md](snake/AUDIT.md),
-[ms-muncher/AUDIT.md](ms-muncher/AUDIT.md), and
+[ms-muncher/AUDIT.md](ms-muncher/AUDIT.md),
+[la-galaxia/AUDIT.md](la-galaxia/AUDIT.md), and
 [1812/AUDIT.md](1812/AUDIT.md).
 
 <p align="center">
