@@ -46,6 +46,8 @@ The full upstream licence text is vendored beside the binaries in the
 separate repository as roms/LICENSE-open-roms.txt, with provenance,
 SHA-256 pins and the corresponding-source pointer in roms/README.md.
 
-No Commodore ROM image is used, hosted or distributed by this project,
-and there is no 1541 drive ROM at all: each demo is served as a .prg
-that the emulator flashes straight into RAM.
+No Commodore ROM image is hosted or distributed by either repository —
+the local VICE tooling reads ROM bytes only from the emulator you
+install. There is no 1541 drive ROM in the set at all: each demo is
+served to the play page as a .prg that the emulator flashes straight
+into RAM.
