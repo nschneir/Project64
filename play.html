@@ -223,8 +223,14 @@
       <div id="player-frame">
         <div id="player-slot"></div>
       </div>
-      <p class="controls-legend" id="controls-legend"><span class="lbl">CONTROLS</span><span id="controls-text"></span></p>
-      <p class="sound-hint" id="sound-hint" hidden>the C64 is muted until you click &mdash; click the screen for sound</p>
+      <!-- Both of these appear or change under the visitor rather than on a
+           page load — the legend when a tile is picked, the hint when an
+           auto-boot starts — so both announce when that happens. They are the
+           right nodes to carry it because both PERSIST: only their contents,
+           or the `hidden` attribute, change, and a live region announces
+           reliably only if it was already in the document. -->
+      <p class="controls-legend" id="controls-legend"><span class="lbl">CONTROLS</span><span id="controls-text" aria-live="polite"></span></p>
+      <p class="sound-hint" id="sound-hint" role="status" hidden>the C64 is muted until you click &mdash; click the screen for sound</p>
     </main>
 
     <section class="panel attribution-note">
@@ -536,7 +542,33 @@
     return ensureSlot();
   }
 
-  function renderPreview(demo){
+  /* ── focus, across a slot swap ─────────────────────────────────────────── */
+
+  /* Every swap of the slot destroys the element the visitor is standing on —
+     the preview button that starts the boot, the BACK button, the emulator's
+     own iframe — and focus then falls to <body>, which costs a keyboard or
+     screen-reader visitor their place mid-interaction. So a swap hands focus to
+     whatever replaced what it destroyed. Only when the focus really was in the
+     player area, though: on first paint, and on a tile click, focus belongs
+     exactly where it already is, and moving it would be the same rudeness from
+     the other side. Read BEFORE the swap — afterwards the answer is always
+     <body>. */
+  function slotHasFocus(){
+    var a = document.activeElement;
+    return !!a && a !== document.body && frame.contains(a);
+  }
+  function takeFocus(node){
+    if(!node || !node.focus) return;
+    /* preventScroll where it exists: the visitor is already looking at this
+       region, so there is nothing to scroll to and a jump would be noise. */
+    try{ node.focus({preventScroll:true}); }catch(e){ node.focus(); }
+  }
+
+  /* `focusIt` forces the move for a caller that knows the focus was carried off
+     by something already gone — the emulator iframe, removed before this page
+     could see it hold the focus. */
+  function renderPreview(demo, focusIt){
+    var refocus = focusIt || slotHasFocus();
     var slot = ensureSlot();
     slot.innerHTML = "";
 
@@ -557,12 +589,23 @@
     b.appendChild(overlay);
     b.addEventListener("click", function(){ bootPlayer(demo); });
     slot.appendChild(b);
+    if(refocus) takeFocus(b);
   }
 
   function renderMessage(demo, head, body, withDownloads){
+    var refocus = slotHasFocus();
     var slot = ensureSlot();
     slot.innerHTML = "";
     var box = el("div", "slot-msg");
+    /* The only two things this renders are state — the boot in progress, and
+       the boot that failed — so the box announces itself, and is focusable so
+       that the swap above can land the visitor on the news rather than on
+       <body>. role="status" here rather than a live region around the whole
+       slot on purpose: the slot also holds the preview, whose alt text is a
+       paragraph of screen description, and a live region there would re-read
+       that paragraph on every tile switch. */
+    box.setAttribute("role", "status");
+    box.tabIndex = -1;
     box.appendChild(el("span", "msg-head", head));
     box.appendChild(el("p", null, body));
     if(withDownloads){
@@ -579,6 +622,7 @@
       box.appendChild(row);
     }
     slot.appendChild(box);
+    if(refocus) takeFocus(box);
   }
 
   /* ── loading the player script (and failing honestly if it will not) ───── */
@@ -742,17 +786,49 @@
     if(boot) bootPlayer(demo);
   }
 
-  /* Last line of defence, against future versions rather than this one.
-     Requiring jQuery above means the player mounts inline, so today a mount
-     cannot land after its generation has passed. That is settled — but it is
-     settled about a dependency we do not control, and if a mount ever did land
-     late it would put the wrong game under the right tile, which is worse than
-     a leak. A mount nobody sanctioned (playerUp === false) is removed, the
-     poller it started is stopped, and the current demo's preview goes back. */
+  /* The frame and this page's idea of the frame can disagree in two opposite
+     directions, and the player can cause either one without telling us. Both
+     are read off the live DOM rather than off the mutation records: what
+     matters is the state the visitor is left in, not which edit produced it.
+
+     Because these run in a MutationObserver callback — a microtask delivered
+     after the task that mutated — neither can fire mid-mount. bootPlayer() sets
+     playerUp and calls player.load() in one synchronous run, and load() mounts
+     inline (jQuery is required up front for exactly this reason), so by the
+     time either branch is reached the two are already consistent. */
   if(window.MutationObserver){
     new MutationObserver(function(){
-      if(playerUp) return;
-      if(!frame.querySelector("#player_container")) return;
+      var mounted = !!frame.querySelector("#player_container");
+
+      /* THE PLAYER LEFT BY ITS OWN HAND. load_into() saves this frame's HTML at
+         MOUNT time (vc64web_player.js:150) and stop_emu_view() puts exactly
+         that back (:362-368) — and what it saved is the "STARTING THE C64…"
+         panel bootPlayer() painted a moment earlier, because the mount happens
+         while that panel is on screen. It tells nobody. The ⏹ that calls it is
+         a control this page deliberately styles (.player_icon_btn), so it is
+         offered rather than incidental, and the player's "open in a new tab"
+         link calls it too. Left alone, playerUp stays true over a dead frame
+         and the visitor sits on a boot message for a boot that is over, with no
+         way back but re-picking a tile. */
+      if(playerUp){
+        if(mounted) return;
+        teardownPlayer();     // playerUp, the generation counter, the poller
+        hideSoundHint();      // no screen left to click for sound
+        /* The focus went with the iframe, so it is already <body> by now and
+           slotHasFocus() cannot see what was lost — hence the forced move. */
+        if(activeDemo) renderPreview(activeDemo, true);
+        return;
+      }
+
+      /* A MOUNT NOBODY SANCTIONED — last line of defence, against future
+         versions rather than this one. Requiring jQuery above means the player
+         mounts inline, so today a mount cannot land after its generation has
+         passed. That is settled — but it is settled about a dependency we do
+         not control, and if a mount ever did land late it would put the wrong
+         game under the right tile, which is worse than a leak. It is removed,
+         the poller it started is stopped, and the current demo's preview goes
+         back. */
+      if(!mounted) return;
       stopPoller();
       ensureSlot();
       if(activeDemo) renderPreview(activeDemo);

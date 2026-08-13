@@ -648,3 +648,105 @@ reports and cite that.
 
 **How to verify.** `git grep -n '\.superpowers/' -- src/ docs/ skills/ '*.html'`
 returns nothing that a reader outside this checkout could not follow.
+
+## The fork will republish a GPL-3.0 emulator with no licence text
+
+**Anchor:** `LICENSE`'s "Third-party components" section; `play.html`'s
+`EMU_BASE`; the `nschneir/vc64web.github.io` fork — `vc64.wasm` (2,062,000 B)
+and `vc64.js` (198,736 B) at its root.
+
+**Status:** open, **contestable, and the maintainer's call** — filed so the
+call is made rather than inherited. Not introduced by this branch: the fork's
+one local commit (`a5cddb6`) adds `roms/` and nothing else, so everything else
+is upstream's tree as forked.
+
+**What's wrong now.** vc64web is a WebAssembly build of VirtualC64, which is
+GPL-3.0 — this repo's own `LICENSE` is where that is written down. The fork
+carries no copy of that licence: `git ls-tree -r --name-only 5700ccd` (the
+upstream commit the fork sits on) matches **zero** paths against
+`licen|copying|gpl`, and the fork's `README.md` — 33 bytes, "# deployment repo
+of the vc64web" — and its `index.html` mention neither a licence nor a
+copyright holder. The only licence text anywhere in the fork is
+`roms/LICENSE-open-roms.txt`, which we added and which covers the ROMs only.
+Serving `vc64.wasm` from GitHub Pages under this account is distribution of a
+GPL-3.0 binary, and GPL-3.0 §4 asks a distributor to keep the notices intact
+and give recipients a copy of the licence.
+
+What is genuinely there, and cuts the other way: the served `index.html` links
+`https://github.com/vc64web/virtualc64web` — the corresponding source — though
+it does so in a support line ("If you see an issue please contact us at github
+issues"), not as a source offer. So a reader can reach the source from the page;
+what is missing is the licence text and any statement that this build is
+GPL-3.0 and where its source is.
+
+Do not overstate this: the upstream project distributes in exactly this state,
+nothing here has been redistributed yet (the fork is unpushed), and no claim is
+made about whether the omission is material. What makes it *ours* to decide is
+that this branch's `LICENSE` is what points readers at the fork and names the
+GPL-3.0 — we describe the arrangement, so we are on the hook for it being
+describable.
+
+Adjacent, and probably resolved by whatever is decided here: `play.html`'s
+footer says the emulator is "served from its own site — not bundled" and links
+`https://vc64web.github.io/`, while `EMU_BASE` actually serves it from *our*
+fork. `LICENSE` states the arrangement correctly; the footer's "its own site"
+does not. If the ruling below points `EMU_BASE` back at upstream the sentence
+becomes true again, so the two are worth deciding together.
+
+**Fix direction (not ruled — three options, cheapest first).**
+1. Add the GPL-3.0 text as `LICENSE` at the fork root and three lines to the
+   fork's `README.md`: what the binaries are, that they are GPL-3.0, and the
+   upstream source repository with the commit they were built from. Fixes it
+   where the distribution happens and costs nothing here.
+2. Point `EMU_BASE` back at `https://vc64web.github.io/` and keep only `roms/`
+   in the fork — removes this account from the redistribution chain, at the
+   cost of the version pinning and the same-origin ROM hosting the fork exists
+   for. (`play.html`'s ROM constants are already independent of `EMU_BASE`
+   only by convention; both derive from it today.)
+3. Decide the omission is immaterial for a fork of a project's own deployment
+   repo, and record that decision here so it is not re-litigated.
+
+**How to verify.** In the fork, `git ls-tree -r --name-only HEAD | grep -icE
+'licen|copying'` returns at least the root licence, and once Pages is live
+`curl -sI https://nschneir.github.io/vc64web.github.io/LICENSE` returns 200.
+For option 2, `grep -c 'nschneir.github.io/vc64web' play.html` returns 0.
+
+## Every player mount leaks a `resize` and an `orientationchange` handler
+
+**Anchor:** the fork's `js/vc64web_player.js` — `load_into()` at `:208` and
+`:219` against `stop_emu_view()` at `:362-377`; `play.html`'s
+`teardownPlayer()`.
+
+**Status:** open, **upstream residue, and outside what this page can fix.** The
+plan's "switching must not leak" contract was about iframes and it holds —
+measured 0 iframes and 0 `#player_container`s after switching, and the state
+poller is stopped on both teardown paths.
+
+**What's wrong now.** `load_into()` runs `$(window).on('resize', …)` and
+`$(window).on('orientationchange', …)` on *every* mount, and `stop_emu_view()`
+removes only `document`'s `click` listener (`document.removeEventListener
+("click", this.grab_focus)`). Neither `resize` handler is ever taken off, so k
+boots leave k pairs attached to `window`. Each closes over `load_into`'s scope,
+which holds `element` and `emu_container` — the detached preview subtree — so
+this retains DOM, not just duplicate work.
+
+The visible symptom is small and bounded, which is why it is filed rather than
+worked around: `$vc64web` is assigned inside `load_into` **without `var`**, so
+it is one global that each mount overwrites, and all k handlers therefore
+resize the same live iframe. Behaviour stays correct; the cost is k height
+writes and k 130 ms timeouts per window resize, on a page where k is the number
+of games the visitor has tried.
+
+**Fix direction (not ruled).** It belongs in the fork: `$(window).off('resize
+orientationchange')` at the top of `stop_emu_view()`, or — better, since the
+host page may own handlers of its own — namespaced registration
+(`.on('resize.vc64web', …)`) with the matching `.off('.vc64web')`. From
+`play.html` the only reach is `window.jQuery(window).off("resize
+orientationchange")` after each teardown, which drops handlers this page does
+not own; it happens to be safe today because the page registers none through
+jQuery, and it would break silently the day that stops being true. Not taken
+for that reason.
+
+**How to verify.** With the player live, boot and stop three times, then read
+`jQuery._data(window, "events").resize.length` in the console: 3 today, 0 once
+`stop_emu_view()` unregisters.
