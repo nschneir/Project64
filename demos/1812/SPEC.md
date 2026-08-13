@@ -371,14 +371,28 @@ outlines.
 
 | # | Section | Frames | Time | Material | V1 | V2 | V3 |
 |---|---|---|---|---|---|---|---|
-| 0 | Hymn — *O Lord, Save Thy People* | 2400 | 40 s | E minor, ~50 bpm, whole and half notes | triangle, slow attack — the chant | triangle — the answering voice a third below | pulse PW $0800 — sustained pedal |
-| 1 | Marseillaise | 1500 | 25 s | G major, ~112 bpm, dotted march | pulse, swept PW — the anthem's rising fourth and dotted anacrusis | sawtooth — harmony in thirds | pulse — marching bass on the beat |
+| 0 | Hymn — *O Lord, Save Thy People* | 2400 | 40 s | E minor, ~50 bpm; struck quarters, the held tonic rolled | piano — pulse PW $0800, **sustain 0** — the chant, right hand | the *same* instrument row — the left hand, entering on tick 849 | silent; the opening is one instrument |
+| 1 | Marseillaise | 1500 | 25 s | G major, ~112 bpm, dotted march | **sawtooth reed** — the anthem's rising fourth and dotted anacrusis | the piano — chords | the piano — marching bass on the beat, entering on tick 495 |
 | 2 | Battle | 2100 | 35 s | chromatic, ~150 bpm, sixteenths | sawtooth through the band-pass — running figures | pulse, narrow PW — stabs against the beat | sawtooth — driving octave bass |
 | 3 | Cannon | 1800 | 30 s | the hymn fragment over artillery | triangle — the hymn returning, wide-spaced | sawtooth — sustained chords | **noise through the low-pass**, 16 shots |
 | 4 | Finale | 2400 | 40 s | E major, ~120 bpm, the hymn in triumph | pulse, swept PW — the hymn, doubled up an octave | sawtooth — countermelody | **ring-modulated triangle** — bells |
 | 5 | Hold | ∞ | — | silence; volume 0 | — | — | — |
 
 Total 10,200 frames = **170 s = 2 min 50 s**.
+
+**The texture arc is the design, not a side effect of the voice count.** The
+piece opens on one instrument and gains them — 1 → 2 → 3 → 2 + artillery →
+3 → 0 — so the finale's full texture is *arrived at* rather than merely
+present. Section 0 is a solo piano whose two hands share a byte-identical
+instrument row (only `secpw` parts them); section 1's reed is a second
+instrument over that piano, not a re-voicing of it. The two late entries are
+exact and load-bearing: the left hand enters on section 0's tick 849, the tick
+the right hand begins its second phrase, and the bass hand on section 1's tick
+495, the tick the anthem repeats. A piano row has **sustain 0**, so a note
+stops sounding when its decay completes whatever its duration byte says — that
+nybble is what separates a struck instrument from an organ, and it is asserted
+(§12 A16). Both entries were read off the captures as well as the shadow:
+`AUDIT.md` iteration 3.
 
 Per-voice instruments are a table of `(waveform, attack/decay,
 sustain/release, PW lo, PW hi)` indexed by section and voice — the ADSR
@@ -421,8 +435,11 @@ decay `$A`, sustain 0 / release `$0` — bright, fast decays, no sustain.
 
 ## 7. Randomness
 
-A **16-bit Galois LFSR** in software; all three SID voices stay musical, so
-`$D41B` is not used.
+A **16-bit Galois LFSR** in software. `$D41B` is not used: reading it means
+giving voice 3 over to noise for the whole run, and voice 3 is never spare —
+it carries an instrument in sections 1, 2 and 4, and the artillery in section
+3. (It *is* silent in the hymn, where the arc opens on one instrument, but a
+voice that is silent for one section cannot be traded away for all five.)
 
 ```
 rng >>= 1 ; if the shifted-out bit was 1: rng ^= $B400      (period 65535)
@@ -509,6 +526,8 @@ Anchor frame counts on `seqtick`.
 | `tools/gentables.py` | emits `tables.inc` (stdlib only, runnable standalone) |
 | `tools/litcount.py` | lit-pixel count and checksum from a `c64 mem read --json` dump |
 | `tools/evidence.sh` | the deterministic proof protocol of §11 |
+| `tools/genscore.py` | emits the reference scores of §11.1 from `music.s`'s own streams |
+| `tools/audio-evidence.sh` | the audio protocol of §11.1 |
 | `test.yaml` | the regression test of §10 |
 
 Every included file opens with an explicit `.segment` directive — ca65 does
@@ -534,7 +553,11 @@ Asserts memory, registers and state bytes — **never PNG pixels**
 - the seed is poked before RUN and the same seed reproduces the same `rng`,
   `shapes` and last-shape bytes at the same frame count;
 - `sidshadow` shows a gated noise waveform on voice 3 during a cannon and a
-  ring-modulated triangle during the finale.
+  ring-modulated triangle during the finale;
+- the texture arc, section by section: inside the hymn voice 1 is gated while
+  voices 2 and 3 are not, both piano hands hold a sustain nybble of 0, and
+  voice 3's frequency registers still read `0000` late in the section — while
+  in the battle all three voices are shown to have sounded.
 
 ---
 
@@ -559,11 +582,34 @@ screenshots are `--scale 2 --border` PNGs under `demos/1812/evidence/`.
 Lit-pixel counting is done by `tools/litcount.py` over a
 `c64 mem read --json '$2000' 8000` dump — counted off the dump, not by eye.
 
+### 11.1 The audio protocol
+
+The picture's protocol cannot say anything about the sound, so there is a
+second one: `tools/audio-evidence.sh`, also re-runnable, also owning its own
+session — but **warp off and in real time**, because a capture is a recording.
+One window per section, each opening on that section's first tick, into
+`demos/1812/evidence/audio/SECTION/`:
+
+| Artifact | What it is |
+|---|---|
+| `capture.wav` | the audio itself, for a human to listen to |
+| `sid-log.jsonl` | the per-frame SID log the verdict is computed from |
+| `report.md` | `c64 audio report` against the section's reference score |
+| `piano-roll.png` | voices 1/2/3 as red/green/blue — reads the entries and contours |
+| `spectrogram.png` | the frequency picture — where the cannon's broadband burst and its downward cutoff sweep can be seen at all |
+
+The five reference scores (`evidence/audio/*.score.yaml`) are **generated from
+the note streams by `tools/genscore.py`, not transcribed from a capture** —
+`--check` re-derives them and fails if they have drifted from `music.s`. A
+score that was fitted to a recording proves nothing about the arrangement, and
+this one is deliberately built the other way round.
+
 ---
 
 ## 12. Acceptance criteria
 
-Each is an observation on a stopped machine.
+Each is an observation on a stopped machine — **except A15**, which is the one
+criterion that cannot be one, and says why.
 
 - **A1 — mode.** At any stop after init: `$D011 & $7F == $3B`,
   `$D016 & $1F == $18`, `$D018 & $FE == $18`, `$D020 & $0F == 0`, and
@@ -611,6 +657,27 @@ Each is an observation on a stopped machine.
 - **A14 — it ships.** `c64 package` produces `demos/1812/1812.d64`, which
   autostarts in stock VICE with `x64sc -ntsc demos/1812/1812.d64`, and the
   program ends below `$2000`.
+- **A15 — the arrangement is heard, and by both halves.** The SID shadow (A8)
+  proves a register was written; it cannot prove the piece plays. So:
+  **(a) the machine's half** — `tools/audio-evidence.sh` produces the five
+  captures of §11.1, one per section (hymn, Marseillaise, battle, cannon,
+  finale), and every `report.md` reads **PASS** against that section's
+  generated reference score with `nothing_played` false, no diffs and no
+  anomalies, over a `capture.wav` of real duration with no clipped samples.
+  **(b) the human's half** — a maintainer with speakers listens to those five
+  WAVs, in order, and says whether the reduction reads as the *1812 Overture*.
+  **Neither half substitutes for the other**, and the listen's verdict is
+  recorded in `AUDIT.md` like any other. A score claims each voice's **event
+  sequence**, rests included, and not its durations: the sequencer's jiffy
+  clock (60.0016 Hz) and the log's frame clock (59.826 Hz) differ by 0.3%, so
+  timing claims are made as measurements in `AUDIT.md`, not as score entries.
+- **A16 — the piano is struck, not held.** At a stop inside section 0, the
+  sustain nybble of both piano voices' SR bytes in the SID shadow reads 0 —
+  `sidshadow+6 & $F0 == 0` and `sidshadow+13 & $F0 == 0`, voice *n*'s registers
+  being at offset `7n` — and voice 3's frequency registers (`sidshadow+14`)
+  still read `0000`, so the opening really is one instrument. A non-zero
+  sustain *level* is the single thing that makes a SID voice read as an organ
+  rather than as a struck string, so this is the texture arc's testable core.
 
 ---
 

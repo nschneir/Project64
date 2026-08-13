@@ -123,7 +123,7 @@ Full protocol re-run (`tools/evidence.sh`). Every criterion PASS:
 |---|---|
 | A1 | `$D011=59`, `$D016=216` (`&$1F=24`), `$D018=25` (`&$FE=24`), `$D020/$D021=240` (`&$0F=0`) |
 | A2 | `lit=0 checksum=00000000` at the first `drawshape` |
-| A3 | 732 shapes; `litcount` 3,913 → 20,853 → 27,991 → 28,309 → 29,845 → 29,980 |
+| A3 | 732 shapes; `litcount` 3,913 → 20,853 → 27,991 → 28,309 → 29,845 → 29,980 — **superseded by iteration 3's arrangement**, which reads 746 and moves every rung but the first |
 | A4 | 2400 / 3900 / 6000 / 7800 / 10200, exact |
 | A5 | rectangle at angles 0/48/96 — three different vertex sets, three PNGs |
 | A6 | **64 of 64** addresses lit at the end of the hymn still lit at frame 10,201 |
@@ -281,15 +281,142 @@ at that step, and reverted. 136 steps, exit 0.
 
 ---
 
-## Iteration 3 — the performance candidates, decided in writing
+## Iteration 3 — the arrangement, heard
 
-**Scope of this section, and why it is here on its own.** This is the
-*performance* half of iteration 3 and nothing else — the re-voiced hymn, the
-texture arc and the band-pass belong to the same iteration and are not written
-up here. It is landed separately because these seven decisions were produced
-inside a plan workspace that is deleted when the plan closes, and a decision
-that exists only in a deleted workspace is not a record. The fuller iteration-3
-entry should **absorb this section**, not sit beside it.
+Three things happened in this iteration: the piece was re-voiced into a
+**texture arc** (`f57b904`), seven performance candidates were profiled and one
+of them landed (`52b2ed3`), and the demo was **captured as audio and scored**
+for the first time. Iteration 2's arrangement review had to open *"I cannot
+hear this."* This one does not.
+
+Three protocols produced everything below, and each is re-runnable:
+
+- `tools/evidence.sh` — one detached run under `caffeinate -dimsu`, exit 0, six
+  `--warp --headless` sessions, the piece played three times; twelve PNGs and
+  the state bytes quoted here. `shipped-d64.png` is the thirteenth, taken by
+  hand from the packaged image afterwards.
+- `tools/audio-evidence.sh` — five real-time captures, one per section, into
+  `evidence/audio/`; five `capture.wav` + `sid-log.jsonl` + `piano-roll.png` +
+  `spectrogram.png` + `report.md`.
+- `c64 test run demos/1812/test.yaml --json` — **170 steps, `passed: true`,
+  40.87 s**; the step indices cited below are that run's.
+
+### Evaluate
+
+| Criterion | Observation | Verdict |
+|---|---|---|
+| A1 mode | `$D011=59`, `$D016=216` (`&$1F=24`), `$D018=25` (`&$FE=24`), `$D020/$D021=240 240` (`&$0F=0`); re-read with their masks at test steps 2-6 | PASS |
+| A2 canvas starts black | `lit=0 checksum=00000000` at the entry to the first `drawshape` | PASS |
+| A3 counter only rises | **746** shapes at the end — 33 / 121 / 435 / 555 / 746 at the five section ends, and 435 → 480 across two `seqtick` stops in the test (steps 55, 57) | PASS |
+| A4 sections progress | `frames` = 2400 / 3900 / 6000 / 7800 / 10200 at the five `secchange` stops, exact; test steps 32 and 37 read `$0960` and `$0F3C` at the first two | PASS |
+| A5 rotation is real | one rectangle at `lsangle` 0 / 48 / 96 → vertices `x=12 67 67 12` / `55 76 24 3` / `79 39 0 40`; three different vertex sets, three different bitmaps | PASS — but see the instrument note under *Re-verify* |
+| A6 nothing is ever cleared | `litcount` **3,913 → 24,946 → 28,807 → 28,973 → 29,804 → 29,947**, non-decreasing; **64 of 64** addresses lit at the end of the hymn still lit at frame 10,201 | PASS |
+| A7 the cannon | `cannons` = `$10` = **16** at the end of section 3 (test step 75); `$D020/$D021 = 241 241` during a flash and `240 240` eight frames later | PASS — the number comes from `test.yaml`, for the reason below |
+| A8 sound happened | mid-cannon voice 3 control `129` (`$81`, noise + gate), routing `244` (bit 2), `$D418` `31` (`$1F`, low-pass, volume 15); mid-finale control `21` (`$15`, triangle + ring mod + gate); volume `0` in the hold | PASS |
+| A9 determinism | at `shapedone --count 400`: `$1812` twice → frames 5,770, `rng $08EB`, `lit 28,967`, checksum `c8b13257`; `$9977` twice → frames 5,772, `rng $1A9C`, `lit 28,412`, `503d64b0`. Same seed identical in every column; different seeds differ in every column | PASS |
+| A10 the budget fits | `dropped = 0` at all five section ends and at frame 10,202; test steps 58, 91 and 110 read it 0 as well | PASS |
+| A11 vocabulary | `typeseen = $03FF`, `patseen = $FF` (test steps 89, 90) | PASS |
+| A12 hold and restart | `shapes = 746` 120 frames into the hold, byte-for-byte unchanged (steps 98, 102); after the keypress `shapes = 1`, `section = 0`, `cannons = 0`, `rng`/`seed` move from `$27F1`/`$1812` to `$3D22`/`$E91B`, and the first 32 bitmap bytes are zero | PASS |
+| A13 cost is measured | `smul` **111–151** over nine poked cases · `rnd` **29 or 38** blanked · `spanfill` 2,985.4 mean on a poked 160-pixel span · worst-case `drawshape` **480,131 → 467,500.5** (see *Improve*) | PASS |
+| A14 it ships | `c64 package` → `1812.d64`; booted from the image with `disk boot` and stopped at `seqtick` ×300 with `shapes = 5` (`shipped-d64.png`); the program ends at `$1F88`, **120** bytes below `$2000` | PASS |
+| **A15 the arrangement is heard** *(new)* | five captures, five `report.md` **PASS** — 0 diffs, 0 anomalies, `nothing_played` false, 0 clipped samples, each WAV of real duration (18.44 / 15.14 / 10.25 / 15.36 / 15.28 s) | PASS on the machine half; **the maintainer's listen is outstanding** |
+| **A16 the piano envelope** *(new)* | at `seqtick` ×900, `sidshadow+6 & $F0 = 0` and `sidshadow+13 & $F0 = 0` — both piano hands hold sustain 0 (steps 26, 27) — while `sidshadow+14` still reads `0000`, so voice 3 has not sounded at all (step 29) | PASS |
+
+A15 and A16 did not exist before this iteration; they were added to `SPEC.md`
+§12 in it, which is why the first table entry for each is here.
+
+**A7's number does not come from the evidence run, and could not.**
+`tools/evidence.sh` stops at the *first* `cannonfire` and prints `cannons=1`;
+it never samples a final count. The audio protocol cannot supply it either —
+`tools/audio-evidence.sh` rewinds section 3's streams at log frame 0, which
+re-fires shot 1, so `cannons` over-counts during that run **by construction**,
+and the script's own header says so. The sixteen is `test.yaml`'s: it reads
+`cannons` at the end of section 3 and separately compares section 3's V3 stream
+against sixteen `$FD`/`112` pairs, which pins the count and the spacing as
+data. That is a gap in the *visual* protocol, not in the demo, and it is in the
+friction log rather than left here as a shrug.
+
+### Review — as a listener
+
+**This is the first iteration that could listen, and the machine did the
+listening.** Five windows, one per section, each opening on its section's first
+tick; the reference scores were modelled from `voicetick` one frame at a time
+by `tools/genscore.py` and never edited to fit a capture. All five passed on
+the first run.
+
+| section | window | frames | verdict |
+|---|---|---|---|
+| hymn | 18.1 s | 1089 | PASS |
+| Marseillaise | 14.9 s | 892 | PASS |
+| battle | 10.0 s | 599 | PASS |
+| cannon | 15.1 s | 905 | PASS |
+| finale | 15.0 s | 900 | PASS |
+
+The arc is legible in the images, which is the point of having them:
+
+- **`hymn/piano-roll.png`** — red alone for the first two thirds, the
+  troparion's rising fourth and stepwise descent intact; green enters at
+  **frame 846** low in the range and climbs a broken triad; **blue never
+  appears at all** across 1089 frames. One instrument, then two, and the third
+  provably absent.
+- **`marseillaise/piano-roll.png`** — red and green from frame 0, blue's first
+  bar at **frame 493**, root-and-fifth on the beat from there. Two becoming
+  three, where `s1v3`'s rests put it.
+- **`battle/piano-roll.png`** — all three from frame 0; red a chromatic zigzag
+  of 3-frame bars, green sparse off-beat stabs, blue the octave bass. Nothing
+  off the grid.
+- **`cannon/piano-roll.png`** — red and green converge on E4 as the data says,
+  and blue is **eight 109-frame bars at C2 spaced 112–113 frames apart**: the
+  noise oscillator naming its own register rather than a pitch.
+- **`cannon/spectrogram.png`** — each shot is a broadband vertical smear
+  filling the gaps between the sustained voices' harmonics. Measured off the
+  WAV: over 1.5–4 kHz the first 0.30 s after a shot averages **3.4 dB** above
+  the level between shots, the onsets recur at **1.8833 s** (113 ticks at
+  60.0016 Hz), and the band is back to the floor **0.35–0.40 s** later — the
+  24-frame cutoff sweep, expiring on time.
+- **`finale/piano-roll.png`** — three dense colours, the hymn an octave up and
+  arched, green and blue interleaving rather than doubling.
+
+**What this evidence does not claim.** No score asserts a duration. The
+sequencer runs off a CINV wedge on the KERNAL's CIA jiffy — **60.0016 Hz** —
+while `sid_log` samples once per NTSC video frame — **59.826 Hz** — so the log
+runs ahead of the model by about one frame per 300, one-sidedly: the hymn's
+left hand is modelled on tick 849 and heard at frame 846, the Marseillaise's
+bass on tick 495 and heard at 493, and the cannon's intervals come back
+`112 113 113 113 112 113 113 112` against a modelled 113. The scores therefore
+claim the **event sequence for every voice, every gate-down rest included**,
+and each window was cut so the last modelled event clears its edge. Prose that
+wants to say the tempo is exact has the transcription tables to quote, not
+these verdicts.
+
+**And the listen itself has not happened.** Everything above is a machine's
+account of the arrangement; whether the reduction *sounds* like the Overture is
+a judgement a human with speakers makes. Iteration 2 stated that limit and
+stopped there. This iteration states it as a standing acceptance criterion —
+`SPEC.md` §12 A15 — with the five WAVs named, so the gate is a thing that can
+be met rather than an intention.
+
+### Improve — the texture arc
+
+**The piece now opens on one instrument and gains them:** 1 → 2 → 3 →
+2 + artillery → 3 → 0 (`f57b904`). Section 0 is a **solo piano** — voices 1
+and 2 are two hands over a byte-identical `secinstr` row, and voice 3 is
+silent; section 1 gains a sawtooth reed over the piano's chords and bass hand.
+Sections 2, 3 and 4 were not touched. The defect it answers is an envelope
+one, and it is measurable rather than aesthetic: the old hymn rows held
+sustain nybbles 10, 9 and 10, and a non-zero sustain level is what makes a
+struck instrument read as a sustained organ. Both hands now read sustain 0 on
+the machine (A16 above).
+
+**What it cost the picture: nothing that needed tuning.** `shapes` reads 33 at
+the end of the hymn — the largest shapes in the piece, against the 19 onsets
+the old stream fired (`f57b904`) — and `dropped` is still **0**. No
+spawn mask, size range or frame budget was touched to absorb it: `secspawn` is
+still `%001, %011, %110, %001, %111, %000`, byte for byte what iteration 1's
+policy decision left, so `sections.s`' rationale beside that table still
+describes the masks it sits above.
+
+### Improve — the seven performance candidates, decided in writing
 
 **Anchors here are labels, not line numbers.** The first version of this section
 cited `raster.s:809-814` for `sfloop`; a comment edit twelve lines above it, in
@@ -476,17 +603,58 @@ therefore differ in all 1000 bytes. **Only a masked comparison is a valid
 instrument there**, which is why `test.yaml`'s one colour-RAM assertion masks
 with `$0f`.
 
+### Re-verify
+
+**The whole proof protocol was re-run against the new arrangement**, not
+patched. Eleven of the thirteen PNGs changed; `blank.png` and
+`first-shape.png` came back **byte-identical**, because the first note onset
+still draws the same shape from the same untouched RNG state —
+`lstype=3 lssize=79 lsx=56 lsy=135 lsangle=226 lspat=3 lsink=3`, `lit=3913`,
+which is the first ladder rung iteration 2 recorded. Every later rung moved:
+the new curve climbs harder early (24,946 against 20,853 at the end of the
+hymn, which is where the hymn's 33 shapes — the largest in the piece — land)
+and finishes slightly lower (29,947 against 29,980). **The count never falls**, so A6's persistence proof
+is untouched by the re-take. `sec4.png` and `final.png` are still byte-identical
+to each other (`348b8296…`, 8,620 bytes each) — the hold paints nothing.
+
+The rebuild is byte-identical to the committed binaries (`1812.prg`
+`cd80da09…`, `1812.d64` `d6d7e589…`), so the evidence PNGs were the only stale
+artifact this iteration had to retake.
+
+`c64 test run demos/1812/test.yaml --json`: **170 steps, all `ok`, exit 0**,
+40.87 s. The margin below `$2000` is **120** bytes
+(`__BSS_LOAD__ $1F2E` + `__BSS_SIZE__ $5A` out of `1812.lbl`).
+
+**One instrument note, and it invalidates three of the thirteen PNGs as
+evidence.** `rot-a/b/c.png` changed on this run, and the geometry did not move:
+re-staging section 9 three times from scratch gives a byte-identical bitmap
+every pass (`lit=6105 checksum=1c454f03`, vertices `y=44 44 155 155`) and three
+*different* PNGs, whose every differing pixel sits in one horizontal band at
+the shape's lower edge. `evidence.sh` screenshots straight after
+`call drawshape` with no `until` in between, so the frame is caught wherever
+the beam was — which is the race the script's own header warns about, in the
+one place it does not honour it. **A5 is unaffected** (it rests on the vertex
+sets and on three bitmaps differing, not on three file hashes), but any claim
+that `evidence/` is byte-reproducible is false for those three files until a
+`c64 until` goes between the call and the capture. In the friction log.
+
 ---
 
 ## Closing state
 
-- 136-step regression test passes; the demo runs the full 2:50 with
-  `dropped = 0`, all ten shape types and all eight dither patterns used.
+- 170-step regression test passes; the demo runs the full 2:50 with
+  **746 shapes**, `dropped = 0`, all ten shape types and all eight dither
+  patterns used.
+- **The arrangement has been heard by the machine and not yet by a human.**
+  Five captures under `evidence/audio/`, five PASS reports, and `SPEC.md` §12
+  A15 now states both halves of that criterion. The maintainer's listen is the
+  one acceptance criterion this demo has never satisfied, and it is the open
+  item at the close of iteration 3.
 - The one ceiling worth watching: the program ends just below `$2000`, and the
   `$C400` block has its own size assertion. Both are **linker assertions**, so
   growing past either is a build error rather than a demo that quietly paints
   over its own canvas. The margin was **252** bytes at the close of iteration
-  2 and is **120** after iteration 3 (see the performance section above). It
+  2 and is **120** after iteration 3 (see *Improve*, above). It
   has moved three times in one iteration, so read it out of `1812.lbl` rather
   than out of this line.
 - Deliberately not optimised further: the per-scanline active-edge machinery

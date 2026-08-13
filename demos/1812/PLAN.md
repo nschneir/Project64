@@ -3,6 +3,12 @@
 > **For agentic workers:** execute task by task with
 > `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax.
 
+**2026-08-12 — this file is the pre-build record and stays one.** Its
+checkboxes are the plan the demo was built from, and they are deliberately
+left as they were written. What the demo has become since is in `AUDIT.md`;
+for what changed most recently — the texture arc, the performance decisions
+and the audio evidence — see `AUDIT.md`, iteration 3.
+
 **Goal:** Build the demo `SPEC.md` describes — randomized rotated,
 dither-filled polygons accumulating on a never-cleared multicolor bitmap,
 spawned by note onsets in a three-voice SID reduction of the *1812
