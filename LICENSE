@@ -24,9 +24,10 @@ SOFTWARE.
 
 Third-party components
 
-The browser play page (play.html) loads the vc64web emulator — a
-WebAssembly port of VirtualC64, licensed GPL-3.0 — at runtime from a
-separate repository (https://github.com/nschneir/vc64web.github.io).
+The browser play page (play.html) loads the vc64web emulator — mithrendal's
+WebAssembly port of Dirk W. Hoffmann's VirtualC64
+(https://github.com/dirkwhoffmann/virtualC64), licensed GPL-3.0 — at runtime
+from a separate repository (https://github.com/nschneir/vc64web.github.io).
 No emulator code is included or distributed in this repository.
 The system ROM images the emulator boots on are likewise hosted in
 that separate repository, not in this one — and they are not

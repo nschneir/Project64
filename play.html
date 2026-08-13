@@ -183,6 +183,14 @@
   .attribution-note b{color:var(--p-bright)}
   .attribution-note .links{margin-top:.6em}
 
+  /* Credits: one row per upstream project, its people, and its licence.
+     The play page runs other people's work, so it names them here rather
+     than leaving the footer's licence clause to stand in for a credit. */
+  .credits dl{margin:0}
+  .credits dt{color:var(--p-bright);margin-top:.7em}
+  .credits dt:first-of-type{margin-top:.2em}
+  .credits dd{margin:.15em 0 0;color:var(--p-dim)}
+
   noscript{display:block}
   .noscript-box ul{list-style:none;padding:0;margin:.6em 0}
   .noscript-box li{margin:.3em 0}
@@ -268,18 +276,38 @@
       </section>
     </noscript>
 
+    <section class="panel credits">
+      <span class="cap">CREDITS</span>
+      <p>The games on this page are ours. The C64 they run on is not &mdash; it is
+      other people&rsquo;s work, loaded at runtime and not bundled with this project:</p>
+      <dl>
+        <dt><a href="https://vc64web.github.io/">vc64web</a> &mdash; the emulator in the frame above</dt>
+        <dd>A WebAssembly port by <b>mithrendal</b>, served from a maintainer-owned
+        <a href="https://github.com/nschneir/vc64web.github.io">fork</a> so this page and the
+        emulator share an origin.</dd>
+
+        <dt><a href="https://github.com/dirkwhoffmann/virtualC64">VirtualC64</a> &mdash; the emulator it is a port of</dt>
+        <dd>By <b>Dirk W. Hoffmann</b>. GPL-3.0.</dd>
+
+        <dt><a href="https://github.com/MEGA65/open-roms">MEGA65 open-roms</a> &mdash; the KERNAL, BASIC and character ROMs it boots on</dt>
+        <dd>A free/libre re-implementation by <b>Paul Gardner-Stephen</b> and
+        <b>Roman Standzikowski</b> (FeralChild64), LGPL-3.0-or-later. Parts of the BASIC
+        sources are additionally MIT &copy; Microsoft Corporation. The <b>PXL</b> character
+        font is the work of <b>Retrofan</b>, included with permission under the LGPL-3.0.</dd>
+      </dl>
+      <p><small>These are not Commodore&rsquo;s ROMs. No Commodore ROM image is hosted or
+      distributed by either repository, and none is sent to your browser &mdash; which is
+      also why there is no 1541 drive ROM here at all, and why each game is loaded as a
+      <code>.prg</code> flashed straight into RAM rather than from a disk image.</small></p>
+    </section>
+
     <div class="rule" aria-hidden="true">&#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;</div>
 
     <footer>
-      <p>MIT licensed. The emulator running in the frame above is
-      <a href="https://vc64web.github.io/">vc64web</a>, a separate WebAssembly
-      project, loaded at runtime from a maintainer-owned
-      <a href="https://github.com/nschneir/vc64web.github.io">fork</a> &mdash;
-      not bundled. It boots on the
-      <a href="https://github.com/MEGA65/open-roms">MEGA65 open-roms</a> KERNAL,
-      BASIC and character ROMs &mdash; LGPL-3.0-or-later, with parts of BASIC
-      additionally MIT &copy; Microsoft &mdash; not Commodore&rsquo;s: no
-      Commodore ROM code lives in this repo, and none is sent to your browser.</p>
+      <p>MIT licensed. The emulator and the ROMs it boots on are third-party work,
+      loaded at runtime and not bundled &mdash; their authors and licences are named
+      under Credits above, and in this project&rsquo;s
+      <a href="https://github.com/nschneir/Project64/blob/main/LICENSE">LICENSE</a>.</p>
       <p><small>Built primarily by AI (Anthropic&rsquo;s Claude, via Claude Code) under
       human direction &mdash; a working example of AI-built developer tooling.</small></p>
       <div class="links">

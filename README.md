@@ -136,8 +136,10 @@ Dirk W. Hoffmann's [VirtualC64](https://github.com/dirkwhoffmann/virtualC64) —
 loaded at runtime from a maintainer-owned fork, not bundled with this project.
 It boots each demo's `.prg` on the MEGA65
 [open-roms](https://github.com/MEGA65/open-roms) KERNAL, BASIC and character
-ROMs — LGPL-3.0-or-later, with parts of BASIC additionally MIT © Microsoft —
-so no Commodore ROM is hosted here or sent to your browser.
+ROMs — Paul Gardner-Stephen and Roman Standzikowski's free/libre
+re-implementation, LGPL-3.0-or-later, with parts of BASIC additionally
+MIT © Microsoft and the PXL character font by Retrofan — so no Commodore ROM
+is hosted here or sent to your browser.
 
 <p align="center">
   <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">
