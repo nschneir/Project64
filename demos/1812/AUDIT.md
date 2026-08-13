@@ -299,11 +299,11 @@ Three protocols produced everything below, and each is re-runnable:
   off warp and therefore in real time, into `evidence/audio/`; five
   `capture.wav` + `sid-log.jsonl` + `piano-roll.png` + `spectrogram.png` +
   `report.md`.
-- `c64 test run demos/1812/test.yaml --json` — **170 steps, exit 0**, run twice
-  with identical step output. The step numbers cited below are `test.yaml`'s
-  own ordering, so each one names a tracked assertion rather than a number
-  that lived only in a run: where a step asserts an equality, the value quoted
-  here is the one the file asserts and the run is what makes it a measurement.
+- `c64 test run demos/1812/test.yaml --json` — **170 steps, exit 0**. The step
+  numbers cited below are `test.yaml`'s own ordering, so each one names a
+  tracked assertion rather than a number that lived only in a run: where a step
+  asserts an equality, the value quoted here is the one the file asserts and
+  the run is what makes it a measurement.
 
 ### Evaluate
 
@@ -311,7 +311,7 @@ Three protocols produced everything below, and each is re-runnable:
 |---|---|---|
 | A1 mode | `$D011=59`, `$D016=216` (`&$1F=24`), `$D018=25` (`&$FE=24`), `$D020/$D021=240 240` (`&$0F=0`); re-read with their masks at test steps 2-6 | PASS |
 | A2 canvas starts black | `lit=0 checksum=00000000` at the entry to the first `drawshape` | PASS |
-| A3 counter only rises | **746** shapes at the end — 33 / 121 / 435 / 555 / 746 at the five section ends; and the test samples `shapes` as a 16-bit counter at one `seqtick` stop and asserts it strictly greater at a later one (steps 55, 57) | PASS |
+| A3 counter only rises | **746** shapes at the end — 33 / 121 / 435 / 555 / 746 at the five section ends; and the test samples `shapes` as a 16-bit counter at the first `cannonfire` stop and asserts it strictly greater 600 `seqtick`s later (steps 55, 57) | PASS |
 | A4 sections progress | `frames` = 2400 / 3900 / 6000 / 7800 / 10200 at the five `secchange` stops, exact; the test asserts `frames` equal to `$0960` and `$0F3C` at the first two (steps 32, 37) | PASS |
 | A5 rotation is real | one rectangle at `lsangle` 0 / 48 / 96 → vertices `x=12 67 67 12` / `55 76 24 3` / `79 39 0 40`; three different vertex sets, three different bitmaps | PASS — but see the instrument note under *Re-verify* |
 | A6 nothing is ever cleared | `litcount` **3,913 → 24,946 → 28,807 → 28,973 → 29,804 → 29,947**, non-decreasing; **64 of 64** addresses lit at the end of the hymn still lit at frame 10,201 | PASS |
@@ -320,7 +320,7 @@ Three protocols produced everything below, and each is re-runnable:
 | A9 determinism | at `shapedone --count 400`: `$1812` twice → frames 5,770, `rng $08EB`, `lit 28,967`, checksum `c8b13257`; `$9977` twice → frames 5,772, `rng $1A9C`, `lit 28,412`, `503d64b0`. Same seed identical in every column; different seeds differ in every column | PASS |
 | A10 the budget fits | `dropped = 0` at all five section ends and at frame 10,202; the test's three `dropped == 0` assertions pass too (steps 58, 91, 110) | PASS |
 | A11 vocabulary | `typeseen = $03FF`, `patseen = $FF`; the test asserts both by value (steps 89, 90) | PASS |
-| A12 hold and restart | `shapes = 746` 120 frames into the hold, and the test's `unchanged` comparison over those same 120 frames passes (steps 98, 102); after the keypress `shapes = 1`, `section = 0`, `cannons == 0` (step 109), `rng`/`seed` move from `$27F1`/`$1812` to `$3D22`/`$E91B`, and the first 32 bitmap bytes are zero | PASS |
+| A12 hold and restart | `shapes = 746` 120 frames into the hold; the test samples it 4 `seqtick`s into the hold and finds it `unchanged` 120 `seqtick`s later (steps 98, 102); after the keypress `shapes = 1`, `section = 0`, `cannons == 0` (step 109), `rng`/`seed` move from `$27F1`/`$1812` to `$3D22`/`$E91B`, and the first 32 bitmap bytes are zero | PASS |
 | A13 cost is measured | `smul` **111–151** over nine poked cases · `rnd` **29 or 38** blanked · `spanfill` 2,985.4 mean on a poked 160-pixel span · worst-case `drawshape` **480,131 → 467,500.5** (see *Improve*) | PASS |
 | A14 it ships | `c64 package` → `1812.d64`; booted from the image with `disk boot` and stopped at `seqtick` ×300 with `shapes = 5` (`shipped-d64.png`); the program ends at `$1F88`, **120** bytes below `$2000` | PASS |
 | **A15 the arrangement is heard** *(new)* | five captures, five `report.md` **PASS** — 0 diffs, 0 anomalies, `nothing_played` false, 0 clipped samples, each WAV of real duration (18.44 / 15.14 / 10.25 / 15.36 / 15.28 s) | PASS on the machine half; **the maintainer's listen is outstanding** |
@@ -629,8 +629,7 @@ The rebuild is byte-identical to the committed binaries (`1812.prg`
 artifact this iteration had to retake.
 
 `c64 test run demos/1812/test.yaml --json`: **170 steps, every one `ok`, exit
-0** — run twice, with identical step output both times. The margin below
-`$2000` is **120** bytes
+0**. The margin below `$2000` is **120** bytes
 (`__BSS_LOAD__ $1F2E` + `__BSS_SIZE__ $5A` out of `1812.lbl`).
 
 **One instrument note, and it invalidates three of the thirteen PNGs as
