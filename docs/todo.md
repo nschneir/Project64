@@ -463,6 +463,15 @@ nothing — the failure this file's own first entry is about.
 ROMs for shipping recorded this as its residual risk with "*mitigation:* none in
 place", and nothing since has supplied one.
 
+The risk landed on 2026-08-13, in the shape this item predicted. All four games
+read the held key from `$CB`, a KERNAL scratch byte open-roms never writes, so
+every one of them was unplayable in the browser while all four `test.yaml` runs
+stayed green under VICE. The games now scan the CIA matrix directly (`keyscan`,
+and `keydecode`'s zero clause in `la-galaxia`) and keep `$CB` only as the
+fallback the CLI drives them through — but nothing below the games changed, so
+the next demo to depend on a Commodore-only ROM detail will fail exactly as
+silently. `demos/1812` is that next demo already; see its item.
+
 **What's wrong now.** Every demo's regression suite runs under VICE, which reads
 ROM bytes from the emulator the developer installed — Commodore's. `play.html`
 boots the same four programs on MEGA65 open-roms instead. Nothing exercises the
@@ -750,3 +759,96 @@ for that reason.
 **How to verify.** With the player live, boot and stop three times, then read
 `jQuery._data(window, "events").resize.length` in the console: 3 today, 0 once
 `stop_emu_view()` unregisters.
+
+## `demos/1812` still reads `$CB`, and restarts itself on the play page
+
+**Anchor:** `demos/1812/1812.s:114` (`lda KEYDOWN` in `mlidle`), its
+`KEYDOWN = $CB` equate at `:42`, and the `irqinstall` comment at `:308` that
+says the demo "needs `$CB` live for the restart key".
+
+**Status:** open. The four games were fixed on 2026-08-13 (`keyscan`, reading
+the CIA matrix, with `$CB` kept as the CLI's fallback); 1812 was outside that
+change's scope and still has the original bug.
+
+**What's wrong now.** MEGA65 open-roms, which `play.html` boots, never writes
+`$CB` — it reads 0 forever there, and 0 is not `KEY_NONE`. `mlidle` treats
+anything other than `KEY_NONE` as a key held, so the moment the piece reaches
+section 5 the hold reads a phantom key and `restart` fires, on that tick and
+every tick after it. In the browser the finale cannot hold; the piece relaunches
+itself with a fresh seed instead. Under VICE the Commodore KERNAL keeps `$CB`
+at 64 and the same code is correct, so `c64 test run demos/1812/test.yaml`
+cannot see this.
+
+**Fix direction (not ruled).** The same shape the games took: scan the matrix
+off `$DC00`/`$DC01` and fall back to `$CB` only when the matrix is idle, reading
+a `$CB` of 0 as "no key". `demos/snake/snake.s`'s `keyscan` is a 60-byte copy
+that can be lifted verbatim; note 1812 keeps the KERNAL IRQ chained (`CINV`
+wedge), so the scan must hold interrupts off across itself and put `$DC00` back,
+which that routine already does. Whether 1812 wants a third copy of `keyscan` or
+whether the four copies now in the tree should become one shared include is the
+open design question.
+
+**How to verify.** Serve the repo locally and open
+`play.html?demo=1812`; let it reach section 5 and confirm the canvas holds
+instead of relaunching. `wasm_peek` on `section` and the shape counter through
+the emulator frame shows it directly.
+
+## The play page and four READMEs still advertise `$CB` steering
+
+**Anchor:** `play.html:427` (snake's `description`), `index.html:343` (the same
+sentence in the demo table), `demos/snake/README.md:4,36,69`,
+`demos/invaders/README.md:36`, `demos/ms-muncher/README.md:39,66`,
+`demos/la-galaxia/README.md:51`, `demos/1812/README.md:40`.
+
+**Status:** open, and inaccurate as of 2026-08-13 for every line except 1812's.
+
+**What's wrong now.** Those sentences describe the input path as reading `$CB`.
+The four games now scan the CIA keyboard matrix and consult `$CB` only as a
+fallback for `c64 key hold`, so "`$CB` held-key steering" names the fallback and
+not the mechanism. The source comments were corrected with the change; this
+prose was left alone because the fix was scoped to the input path and its
+comments, and rewriting shipped narrative text was ruled out of it.
+
+**Fix direction (not ruled).** Replace the mechanism with what it now is —
+"keyboard-matrix held-key steering" reads the same length in the page
+description and the table cell. 1812's line stays true until 1812 is fixed.
+
+**How to verify.** `grep -rn '\$CB' play.html index.html demos/*/README.md`
+returns only lines about the fallback, or about 1812.
+
+## `la-galaxia`'s fighter-movement assertion is a coin flip
+
+**Anchor:** `demos/la-galaxia/test.yaml`, the block commented "the fighter moves
+at exactly 1.5 px/frame (§7)" — `sample plx as x0`, hold `A` for 40 ticks,
+`assert: { mem: "plx", less_than: x0 }`; `clv3` in `demos/la-galaxia/la-galaxia.s`.
+
+**Status:** open, and **pre-existing** — measured 2026-08-13 on untouched `main`
+at 4 passes and 1 failure in 5 runs, with the failure reading
+`mem $4187 = 88 not < sample x0=88` (88 is `PLW_MAX/2`, the spawn position).
+
+**What's wrong now.** The assertion only holds if the fighter is alive and free
+when the window opens, and nothing in the spec arranges that. `clv3` seeds the
+LFSR from `$D012`, the live raster line, at startup; where the raster is when
+VICE finishes loading varies run to run, so every run plays a different game
+from the same bytes. A probe run of the same steps caught the state directly:
+`plstate` = 1 — captured by a tractor beam, spinning — so `playertick` returned
+before the movement code and `plx` had moved 2 px, not 60. The block above it
+already knows the fighter is on this edge ("an idle fighter dies inside 200
+ticks now that the game is hard"); the movement block sits 400 ticks further in
+and does not check.
+
+It costs more than a rerun. A failure here reads as an input regression, and the
+2026-08-13 matrix-scan change was suspected on exactly this evidence until the
+baseline was run five times.
+
+**Fix direction (not ruled).** Two shapes. Pin the seed — poke `rnd`/`rnd+1` to
+a constant before the run, which makes the whole spec reproducible and not just
+this step, but changes what the suite is exercising. Or make the precondition
+explicit: assert `plalive` = 1 and `plstate` = 0 immediately before the sample,
+and put the fighter back there if it is not, so a captured fighter fails as
+"the fighter was captured" rather than as "held A does not move it".
+
+**How to verify.** Run `c64 test run demos/la-galaxia/test.yaml` five times on
+an unchanged tree and count. Today that is not 5/5; whatever lands must make it
+5/5, and must still fail if `keydecode` is broken on purpose (poke a `rts` over
+its first byte and confirm the step goes red).
