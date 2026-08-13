@@ -11,63 +11,47 @@ commit).
 The demos are playable in a browser. `play.html` embeds vc64web — a
 WebAssembly port of VirtualC64 — loaded at runtime from a maintainer-owned
 fork, with ▶ PLAY links from the landing page and both READMEs. It boots five
-demos (the four games plus 1812) from their `.prg`, on the MEGA65 open-roms
-KERNAL, BASIC and character ROMs: no Commodore ROM is hosted, distributed or
-sent to a browser, and with no 1541 ROM in the set there is no drive to load
-from. `LICENSE` carries the third-party notice; every upstream author is
-credited on all three surfaces.
+demos from their `.prg` on the MEGA65 open-roms KERNAL, BASIC and character
+ROMs, so no Commodore ROM is hosted or sent to a browser, and with no 1541 ROM
+in the set there is no drive to load from.
 
 That exposed a ROM dependency nobody had written down: **`$CB` is Commodore's
-KERNAL, not the C64.** All five demos polled it for the held key, and
-open-roms never maintains it — Commodore's ROM has two stores to `$CB`,
-open-roms has none, so it reads a constant 0 and no key ever registers. Each
-demo now scans the CIA matrix at `$DC00`/`$DC01` and keeps `$CB` only as a
-fallback, so `c64 key hold` and the existing specs still drive them. The trap
-is recorded in `hardware.md`, `kernal-routines.md`, the cookbook and
-`SKILL.md`: reading the hardware matrix works on every ROM; reading a KERNAL
-zero-page byte works only on the ROM that maintains it. Separately,
-`c64 key hold` now *releases* the key — an unreleased hold pinned it down for
-the rest of a run on any game that switches the KERNAL scan off.
+KERNAL, not the C64.** All five demos polled it for the held key and open-roms
+never maintains it, so it reads a constant 0 and no key registers. Each demo
+now scans the CIA matrix at `$DC00`/`$DC01`, keeping `$CB` as a fallback so
+`c64 key hold` still drives them; the trap is written into the skills.
+Separately, `c64 key hold` now *releases* the key — an unreleased hold pinned
+it down for the rest of any run that switched the KERNAL scan off.
 
 Operational failures are a contract rather than a traceback. Seven commands
 that crashed on ordinary conditions now exit 1 with a parseable `{"error": …}`,
 and under them the CLI's root group catches thirteen exception types as a
 floor — a `--json` caller previously got empty stdout, indistinguishable from
-a crashed process. Per-site handlers stay, because they say what to do next.
-`c64 session stop --all` reaps every session an interrupted run left behind
-(and was itself the worst offender: one unreadable record broke the only
-command that could clear it). `c64 profile --samples N` prices N arrivals and
-reports min, max and mean, because one measurement of a data-dependent
-routine is a distribution reported as a fact.
+a crashed process. `c64 session stop --all` reaps the emulators an interrupted
+run leaves behind, and `c64 profile --samples N` reports min, max and mean,
+because one measurement of a data-dependent routine is a distribution reported
+as a fact.
 
-A timed-out wait says **where the machine was**. `--mem`, `--text` and
-`--idle` all only poll, so a machine stopped for the whole window burns the
-timeout and reports nothing useful; each now samples both sides of the wait
-and names the cause. `--idle` used to read every timeout as a wedge and send
-the reader to a playbook whose first step cannot work on a stopped machine.
+A timed-out `--mem`, `--text` or `--idle` wait now says **where the machine
+was**: all three only poll, so a machine stopped for the whole window burned
+the timeout and reported nothing useful.
 
-Sound is verifiable. `c64 audio capture` aims its window and reports the
-arming cost it measured (`lead_in_frames`) instead of quoting someone else's;
-`sid-log.jsonl` opens with its own clock stamp; the score diff compares pitch
-rather than spelling; and `--strict` turns a silent capture into a failure
-instead of a pass. The ten evidence scripts call it on every capture.
-Nine of those ten calls pass a score listing sounding notes; the tenth is the
-case the flag exists for. The `warp on` wedge is fixed at its cause. 1812's
-iteration 3 put that to work: the arrangement was rebuilt as a texture arc
-from solo piano outward, and the demo gained the audio evidence it had never
-had — five sections, scores generated from the note tables rather than
-transcribed — with `SPEC.md` gaining acceptance criteria for both.
+Sound is verifiable. Capture windows can be aimed and report the arming cost
+they measured, `sid-log.jsonl` carries its own clock stamp, the score diff
+compares pitch rather than spelling, `--strict` turns a silent capture into a
+failure, and the `warp on` wedge is fixed at its cause. 1812's iteration 3 put
+that to work: the arrangement was rebuilt as a texture arc from solo piano
+outward, and the demo gained the audio evidence it never had.
 
 An MCP-wired agent no longer needs a shell, and `docs/mcp.md` maps every tool
 to the command it twins. Elsewhere: `--area` reaches the places that could not
 use it, so a segment links where the VIC needs it and a spec builds from
-source, at a flat 14,337 bytes of padding for La Galaxia's three areas; a
-ready-made `cart:` is judged for staleness against its sibling `.lbl`; a
-`c64 test run` comparator given a literal says what it wanted; the sprite and
-charset sheet encoders share a header parser and take named blocks, per-block
-modes and `--background`; `fix-branch-range.py` makes the ±127 branch trap
-mechanical; and a batch of skill and reference gaps that cost real dogfood
-time are closed, each with the test that would have caught it.
+source; a ready-made `cart:` is judged for staleness; a `c64 test run`
+comparator given a literal says what it wanted; the sprite and charset sheet
+encoders share a header parser and take named blocks, per-block modes and
+`--background`; `fix-branch-range.py` makes the ±127 branch trap mechanical;
+and a batch of skill and reference gaps that cost real dogfood time are
+closed, each with the test that would have caught it.
 
 ## [0.9.5] — 2026-08-03
 

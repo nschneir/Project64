@@ -267,24 +267,27 @@ printf '%s\\n' '{_ARGV_END}' >>"$C64_ARGV_LOG"
 
 MS_MUNCHER_PLAY = "demos/ms-muncher/evidence/audio/play.score.yaml"
 
-_THREE_SITES = (
+_BOTH_SITES = (
     "Nine scored captures that sound and one that does not is load-bearing prose "
-    "in three places, and a score that gains or loses its last sounding note has "
-    "to change all three: this file's "
-    "test_every_audio_evidence_script_captures_strictly docstring, "
-    "demos/ms-muncher/tools/audio-evidence.sh's cap() comment, and CHANGELOG.md's "
-    "[Unreleased] --strict paragraph."
+    "in two places, and a score that gains or loses its last sounding note has "
+    "to change both: this file's "
+    "test_every_audio_evidence_script_captures_strictly docstring and "
+    "demos/ms-muncher/tools/audio-evidence.sh's cap() comment."
 )
 
-#: One sentence out of each site `_THREE_SITES` sends an editor to, so the
+#: CHANGELOG.md was a third site until 2026-08-13. It is not one now, by
+#: maintainer ruling: a changelog says what was true when its entry was
+#: written, so a guard requiring it to track the tree forever makes it
+#: unrewritable — this one blocked a rewrite that was condensing prose, not
+#: changing a fact. Anchoring a live claim to a dated record was the error.
+
+#: One sentence out of each site `_BOTH_SITES` sends an editor to, so the
 #: message cannot quietly become a lie about where the claim lives. The
 #: docstring is read off the function rather than off this file: an anchor
 #: matched against the file that holds the anchor is satisfied by itself.
 _SITE_ANCHORS = [
     ("demos/ms-muncher/tools/audio-evidence.sh", "the cap() comment",
      "The other four scores list notes"),
-    ("CHANGELOG.md", "the [Unreleased] --strict paragraph",
-     "Nine of those ten calls pass a score listing sounding notes"),
 ]
 
 
@@ -294,18 +297,18 @@ def _prose(text: str) -> str:
     return " ".join(text.replace("#", " ").split())
 
 
-def test_the_three_sites_the_failure_message_names_still_say_it():
-    """`_THREE_SITES` tells a future editor which three sentences to update.
+def test_the_sites_the_failure_message_names_still_say_it():
+    """`_BOTH_SITES` tells a future editor which sentences to update.
     Nothing made those sentences exist, so the guidance could go stale while
     every assert it is attached to still passed — a failure message that sends
     someone to prose that has already moved is worse than none."""
     doc = _prose(test_every_audio_evidence_script_captures_strictly.__doc__ or "")
     assert "for nine of them the flag is a second line of defence" in doc, \
         (f"this file's test_every_audio_evidence_script_captures_strictly "
-         f"docstring no longer states the nine/one split.\n{_THREE_SITES}")
+         f"docstring no longer states the nine/one split.\n{_BOTH_SITES}")
     for path, where, sentence in _SITE_ANCHORS:
         assert sentence in _prose(Path(path).read_text()), \
-            f"{path}: {where} no longer says {sentence!r}.\n{_THREE_SITES}"
+            f"{path}: {where} no longer says {sentence!r}.\n{_BOTH_SITES}"
 
 
 def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
@@ -376,11 +379,11 @@ def _refs(call: list[str]) -> list[str]:
 
 def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     """The pin under the docstring above, which nothing but prose held. That
-    docstring, ms-muncher's `cap()` comment and the CHANGELOG all rest on the
-    same split — ten scored captures, nine of whose scores list sounding notes
-    and one, ms-muncher's `play`, that lists none — and the same branch got the
-    claim wrong twice running. Adding a note to `play.score.yaml`, or emptying
-    one of the other nine, silently falsifies all three sentences.
+    docstring and ms-muncher's `cap()` comment both rest on the same split —
+    ten scored captures, nine of whose scores list sounding notes and one,
+    ms-muncher's `play`, that lists none — and the same branch got the claim
+    wrong twice running. Adding a note to `play.score.yaml`, or emptying one of
+    the other nine, silently falsifies both sentences.
 
     "Sounding" and not "listed" is the property counted, and it is deliberately
     the wider of the two rather than a claim about what `diff_score` lets
@@ -406,11 +409,11 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
             found = _refs(call)
             assert len(found) == 1, (
                 f"{script} makes a capture with {len(found)} --ref scores: "
-                f"{' '.join(call)}\n{_THREE_SITES}")
+                f"{' '.join(call)}\n{_BOTH_SITES}")
             refs.extend(found)
     assert len(refs) == 10, (
         f"the evidence scripts now make {len(refs)} scored captures, not ten: "
-        f"{refs}\n{_THREE_SITES}")
+        f"{refs}\n{_BOTH_SITES}")
 
     sounding = {}
     for ref in refs:
@@ -424,7 +427,7 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     silent = sorted(ref for ref, notes in sounding.items() if not notes)
     assert silent == [MS_MUNCHER_PLAY], (
         f"the scores with no sounding note are {silent}, not [{MS_MUNCHER_PLAY!r}]. "
-        f"{_THREE_SITES} A score that lists no sounding note claims nothing audible, "
+        f"{_BOTH_SITES} A score that lists no sounding note claims nothing audible, "
         "and in the shape ms-muncher's `play` has — an empty voice list — it diffs a "
         "silent window clean and PASSes at exit 0, leaving `--strict` that capture's "
         f"only guard. Sounding notes per score: {sounding}")

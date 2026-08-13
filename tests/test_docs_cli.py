@@ -446,10 +446,18 @@ def test_build_documents_which_areas_are_filled():
 #: agree with it — as against `_FIGURE_WATCHED` below, where a copy is what is
 #: being watched *for*. Every entry here must still hold one (see the per-file
 #: assert), so a copy that goes away shows up as a failure and not as silence.
-#: `demos/la-galaxia/PLAN.md` is deliberately in neither list: it is a dated
-#: lab record that quotes its own wrong 14,342 beside the correction, and a
-#: guard over it would forbid saying the number had been wrong.
-_FIGURE_ECHOES = ["CHANGELOG.md"]
+#:
+#: Two files are deliberately in neither list, for the same reason.
+#: `demos/la-galaxia/PLAN.md` is a dated lab record that quotes its own wrong
+#: 14,342 beside the correction, and a guard over it would forbid saying the
+#: number had been wrong. `CHANGELOG.md` was an echo until 2026-08-13 and is
+#: one no longer, by maintainer ruling: a changelog states what was true when
+#: an entry was written, so requiring it to agree with the tree forever makes
+#: it unrewritable — the guard failed a rewrite that was correcting nothing.
+#: A dated record may quote a figure freely, including one since superseded.
+#: The list is empty rather than deleted: the mechanism is right, and the next
+#: live copy of this figure belongs in it.
+_FIGURE_ECHOES: list[str] = []
 
 #: Files that deliberately DON'T repeat the figure — they point at
 #: `docs/cli.md` instead — watched in case one comes back. Zero matches is the
