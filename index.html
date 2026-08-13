@@ -158,6 +158,14 @@
      neither. Green is the logo's own --c64-green, and the hover fill is the
      same invert the .copy button already uses, so the affordance is one the
      page has taught before. */
+  /* The Demo cell is a centred stack: the name, then the button under it.
+     As an inline-block after the name it wrapped in the narrow column with no
+     leading, which read as a 1px seam rather than a deliberate gap. */
+  .demo-cell{text-align:center}
+  /* 2px, not 4: the cell's 24px line-height leaves ~2px of half-leading under
+     the name before this margin starts, so 2 here is the 4px the eye sees.
+     Measured from the name's underline to the button's top border. */
+  .demo-cell .play-btn{display:block;width:max-content;margin:2px auto 0}
   .play-btn{display:inline-block;margin-left:.6em;padding:2px 8px;
     border:1px solid var(--c64-green);color:var(--c64-green);
     font-family:var(--mono);font-size:.85rem;font-weight:700;letter-spacing:.1em;
@@ -340,7 +348,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
         <thead><tr><th>Demo</th><th>Language</th><th>Description</th><th>Screens</th></tr></thead>
         <tbody>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a><a class="play-btn" href="play.html?demo=snake" aria-label="Play Snake in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>Arcade Snake on a custom hires charset &mdash; held-key steering read off the keyboard matrix, SID sound, nine speeding-up levels</td>
+            <td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a><a class="play-btn" href="play.html?demo=snake" aria-label="Play Snake in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>Arcade Snake on a custom hires charset &mdash; held-key steering read off the keyboard matrix, SID sound, nine speeding-up levels</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/snake/evidence/title.png" title="Title screen: SNAKE in block graphics, one colour per letter">
@@ -356,7 +364,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a><a class="play-btn" href="play.html?demo=invaders" aria-label="Play Invaders in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>The 1978 arcade original &mdash; sprites and custom charset, the one-invader-per-tick march, three-voice SID</td>
+            <td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a><a class="play-btn" href="play.html?demo=invaders" aria-label="Play Invaders in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>The 1978 arcade original &mdash; sprites and custom charset, the one-invader-per-tick march, three-voice SID</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/invaders/evidence/title.png" title="Attract screen: the name in block graphics and the score advance table">
@@ -372,7 +380,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a><a class="play-btn" href="play.html?demo=ms-muncher" aria-label="Play Ms. Muncher in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td>
+            <td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a><a class="play-btn" href="play.html?demo=ms-muncher" aria-label="Play Ms. Muncher in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/ms-muncher/evidence/title.png" title="Attract screen: the block-graphics logo, the cast, and the top five">
@@ -388,7 +396,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a><a class="play-btn" href="play.html?demo=la-galaxia" aria-label="Play La Galaxia in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>An old school shooter in Spanish with a deliberately off-kilter sound track &mdash; a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing</td>
+            <td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a><a class="play-btn" href="play.html?demo=la-galaxia" aria-label="Play La Galaxia in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>An old school shooter in Spanish with a deliberately off-kilter sound track &mdash; a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/la-galaxia/evidence/transform.png" title="Stage 4: transforming enemies break out of the formation &mdash; a trio mid-morph over the starfield">
@@ -412,7 +420,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
         <thead><tr><th>Demo</th><th>Language</th><th>Description</th><th>Screens</th></tr></thead>
         <tbody>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a><a class="play-btn" href="play.html?demo=1812" aria-label="Play 1812 in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>Shapes painted to Tchaikovsky's <i>1812 Overture</i> &mdash; bitmap mode, a rotating polygon rasterizer, three-voice SID</td>
+            <td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/1812">1812</a><a class="play-btn" href="play.html?demo=1812" aria-label="Play 1812 in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>Shapes painted to Tchaikovsky's <i>1812 Overture</i> &mdash; bitmap mode, a rotating polygon rasterizer, three-voice SID</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/1812/evidence/sec1.png" title="The canvas at the end of the Marseillaise">
@@ -427,7 +435,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
               </div>
             </td>
           </tr>
-          <tr><td><a href="https://github.com/nschneir/Project64/tree/main/demos/fugue">Fugue No. 2 in C Minor</a></td><td>6502 assembly</td><td>Bach's BWV 847 on three SID voices while its score scrolls past &mdash; custom charset staves, pitch-class note colors, a sprite backlighting the sounding note</td><td class="no">&mdash;</td></tr>
+          <tr><td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/fugue">Fugue No. 2 in C Minor</a></td><td>6502 assembly</td><td>Bach's BWV 847 on three SID voices while its score scrolls past &mdash; custom charset staves, pitch-class note colors, a sprite backlighting the sounding note</td><td class="no">&mdash;</td></tr>
         </tbody>
       </table>
       </div>

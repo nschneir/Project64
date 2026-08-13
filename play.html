@@ -138,9 +138,10 @@
   }
   .preview:hover img,.preview:focus-visible img{opacity:.8}
   /* The affordance is centred over the whole still (the overlay is inset:0), so
-     on all four screenshots it does land on the screen's own text — invaders'
-     score advance table, ms-muncher's cast row, la-galaxia's ESPACIO UN
-     JUGADOR, snake's PRESS ANY KEY TO PLAY. That is accepted: the still is an
+     on four of the five stills it does land on the screen's own text —
+     invaders' score advance table, ms-muncher's cast row, la-galaxia's
+     ESPACIO UN JUGADOR, snake's PRESS ANY KEY TO PLAY; only 1812's evidence
+     frame, which carries no text, is unaffected. That is accepted: the still is an
      invitation, not something to read, and the real screen replaces it on the
      first click. What is defended is the affordance's own legibility over
      whatever it lands on — the still is dimmed to .55 and the chip carries its
@@ -190,7 +191,7 @@
   .attribution-note .links{margin-top:.6em}
 
   /* Three clear blocks of air above the receipts panel, so the page's own
-     story is visibly separate from the games above it. */
+     story is visibly separate from the demos above it. */
   .receipts-gap{margin-top:3em}
 
   /* Credits: one block per upstream project — name and role on one line, who
@@ -232,13 +233,13 @@
     <header>
       <a class="backlink" href="index.html">&#x25C2; PROJECT&nbsp;64</a>
       <h1 class="title">PLAY</h1>
-      <p class="tag">Play the demo games on an emulated Commodore 64. Pick a game, click the play button, and the emulator will run it.</p>
+      <p class="tag">Play the demos on an emulated Commodore 64. Pick a demo, click the play button, and the emulator will run it.</p>
     </header>
 
     <nav class="demo-strip" id="demo-strip" aria-label="Choose a demo"></nav>
 
     <main>
-      <!-- The selected game's description, verbatim from index.html's demo
+      <!-- The selected demo's description, verbatim from index.html's demo
            table (tests/test_docs_demos.py holds the two in step). It sits
            between the strip and the screen so the choice you just made is
            described where you are looking. It PERSISTS and only its text
@@ -259,7 +260,7 @@
 
     <section class="panel attribution-note receipts-gap">
       <span class="cap">RECEIPTS</span>
-      <p><b>Every game here was written by Claude.</b> Each demo folder holds a single
+      <p><b>Every demo here was written by Claude.</b> Each demo folder holds a single
       prompt. An AI agent was given that prompt and wrote, assembled, debugged,
       and verified the entire program on an emulated Commodore 64 &mdash; no
       human-written code. The receipts &mdash; prompt, audit, and evidence &mdash; are in
@@ -270,10 +271,10 @@
     <noscript>
       <section class="panel noscript-box">
         <span class="cap">NO JAVASCRIPT</span>
-        <p>The in-browser C64 needs JavaScript &mdash; but every game is a plain file
+        <p>The in-browser C64 needs JavaScript &mdash; but every demo is a plain file
         you can download and run in <a href="https://vice-emu.sourceforge.io/">VICE</a>
         (<code>x64sc -ntsc &lt;file&gt;</code>). The <code>.prg</code> is the program
-        itself &mdash; the one this page runs; the <code>.d64</code> is the same game
+        itself &mdash; the one this page runs; the <code>.d64</code> is the same demo
         as a disk image, for a real drive:</p>
         <ul>
           <li>SNAKE &mdash;
@@ -363,8 +364,8 @@
      The emulator boots on the MEGA65 open-roms KERNAL + BASIC + CHARGEN, with
      no 1541 drive ROM at all: not a compromise but the better configuration —
      no Commodore ROM image is hosted or distributed by this repository or the
-     emulator fork, and all four demos were verified reaching a playable frame
-     on it before ship. The standing caveats — chiefly that the demos' own test
+     emulator fork, and every demo on the strip was verified reaching a
+     playable frame on it before ship. The standing caveats — chiefly that the demos' own test
      suites still run on Commodore ROMs — are in docs/todo.md. Nothing below
      hard-codes a URL, a ROM name, or the choice of medium.
      ══════════════════════════════════════════════════════════════════════════ */
@@ -724,7 +725,7 @@
      vc64web_player.load() calls load_into() inline (vc64web_player.js:111-119)
      and the iframe is mounted before load() returns. Left to itself the player
      fetches jQuery lazily and mounts whenever that lands — a window in which
-     the visitor can pick another game, and demo A ends up under demo B's
+     the visitor can pick another demo, and demo A ends up under demo B's
      highlight. Everything after this promise runs under a generation check. */
   function loadPlayerScript(){
     if(scriptLoad) return scriptLoad;
@@ -909,7 +910,7 @@
          mounts inline, so today a mount cannot land after its generation has
          passed. That is settled — but it is settled about a dependency we do
          not control, and if a mount ever did land late it would put the wrong
-         game under the right tile, which is worse than a leak. It is removed,
+         demo under the right tile, which is worse than a leak. It is removed,
          the poller it started is stopped, and the current demo's preview goes
          back. */
       if(!mounted) return;
