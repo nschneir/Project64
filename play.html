@@ -72,9 +72,6 @@
     font-size:clamp(1.9rem,7vw,3.6rem);letter-spacing:.02em;color:var(--p-bright);
     text-shadow:0 0 4px rgba(207,200,247,.6),0 0 22px rgba(138,124,224,.45);
   }
-  /* No max-width: the intro is one sentence and should sit on one line where
-     the viewport allows it, wrapping only when it genuinely has to. */
-  .tag{margin:.5em 0 .2em;color:var(--p);font-size:clamp(.9rem,1.75vw,1.02rem);text-wrap:pretty}
   .rule{color:var(--p-dim);white-space:nowrap;overflow:hidden;user-select:none;margin:22px 0 8px;font-size:1rem}
   h2{font-size:clamp(1.05rem,3.2vw,1.35rem);color:var(--p-bright);letter-spacing:.12em;margin:.2em 0 .8em}
   h2 .mk{color:var(--p-dim)}
@@ -185,7 +182,9 @@
   .player_icon_btn:hover{color:#fff;opacity:1}
   .btn_play{color:var(--p-bright);fill:currentColor;background:transparent;opacity:1}
 
-  .demo-desc{margin:0 0 12px;color:var(--p-dim);font-size:1rem;line-height:1.5}
+  /* White, not a palette token: this line is the page's one piece of copy
+     about the thing you are about to run, so it outranks the body text. */
+  .demo-desc{margin:0 0 12px;color:#fff;font-size:1rem;line-height:1.5}
 
   .attribution-note b{color:var(--p-bright)}
   .attribution-note .links{margin-top:.6em}
@@ -233,7 +232,6 @@
     <header>
       <a class="backlink" href="index.html">&#x25C2; PROJECT&nbsp;64</a>
       <h1 class="title">PLAY</h1>
-      <p class="tag">Play the demos on an emulated Commodore 64. Pick a demo, click the play button, and the emulator will run it.</p>
     </header>
 
     <nav class="demo-strip" id="demo-strip" aria-label="Choose a demo"></nav>
