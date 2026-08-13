@@ -123,8 +123,9 @@ and [`demos/snake/`](demos/snake/) each have the sources an agent wrote, a
 [fidelity](demos/invaders/AUDIT.md) [audit](demos/snake/AUDIT.md), a
 regression test, and a runnable disk: `x64sc -ntsc demos/invaders/invaders.d64`
 and play it with A/D and space, `x64sc -ntsc demos/snake/snake.d64` and play
-it with W/A/S/D, or `x64sc -ntsc demos/ms-muncher/ms-muncher.d64` and play
-that with W/A/S/D too. Fugue is prompt-only so far.
+it with W/A/S/D, `x64sc -ntsc demos/ms-muncher/ms-muncher.d64` and play
+that with W/A/S/D too, or `x64sc -ntsc demos/la-galaxia/la-galaxia.d64` and
+play that with A/D and space. Fugue is prompt-only so far.
 
 The four game demos also run in the browser: the ▶ Play links above, or all
 of them together at
@@ -135,8 +136,8 @@ Dirk W. Hoffmann's [VirtualC64](https://github.com/dirkwhoffmann/virtualC64) —
 loaded at runtime from a maintainer-owned fork, not bundled with this project.
 It boots each demo's `.prg` on the MEGA65
 [open-roms](https://github.com/MEGA65/open-roms) KERNAL, BASIC and character
-ROMs (LGPL-3.0-or-later), so no Commodore ROM is hosted here or sent to your
-browser.
+ROMs — LGPL-3.0-or-later, with parts of BASIC additionally MIT © Microsoft —
+so no Commodore ROM is hosted here or sent to your browser.
 
 <p align="center">
   <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">
