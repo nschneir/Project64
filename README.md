@@ -116,19 +116,19 @@ watch it write, run, and debug real C64 software on the emulated machine.
 **Game demos** — complete builds with sprites, custom charsets, and
 three-voice SID sound:
 
-| Demo | Language | Description |
-|------|----------|-------------|
-| [Snake](demos/snake/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — held-key steering read off the keyboard matrix, SID sound, nine speeding-up levels |
-| [Invaders](demos/invaders/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=invaders) | 6502 assembly | The 1978 arcade original — sprites and custom charset, the one-invader-per-tick march, 3-voice SID |
-| [Ms. Muncher](demos/ms-muncher/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=ms-muncher) | 6502 assembly | A maze chase — four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes |
-| [La Galaxia](demos/la-galaxia/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=la-galaxia) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing |
+| Demo | Language | Description | Screens |
+|------|----------|-------------|---------|
+| [Snake](demos/snake/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — held-key steering read off the keyboard matrix, SID sound, nine speeding-up levels | <img src="demos/snake/evidence/title.png" width="150" alt="Snake title screen: SNAKE in large block letters in five colours, a green snake reaching for a red apple, and PRESS ANY KEY TO PLAY"> <img src="demos/snake/evidence/levelup.png" width="150" alt="Snake at level 2: a light green snake curled inside a light blue double-line border, a red apple ahead of it, SCORE 0050 and LEVEL 2 on the status line"> <img src="demos/snake/evidence/gameover.png" width="150" alt="Snake game over: a panel over the playfield with GAME OVER on a red reverse-video bar, the final score, the high score, and PRESS SPACE TO PLAY AGAIN"> |
+| [Invaders](demos/invaders/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=invaders) | 6502 assembly | The 1978 arcade original — sprites and custom charset, the one-invader-per-tick march, 3-voice SID | <img src="demos/invaders/evidence/title.png" width="150" alt="Invaders attract screen: INVADERS in large block letters above a score advance table"> <img src="demos/invaders/evidence/formation.png" width="150" alt="Wave 1 in play: five rows of eleven invaders in cyan, green and red above four green bunkers and the laser base"> <img src="demos/invaders/evidence/ufo.png" width="150" alt="The red mystery saucer crossing the top of the screen while the bunkers show bomb damage"> |
+| [Ms. Muncher](demos/ms-muncher/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=ms-muncher) | 6502 assembly | A maze chase — four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes | <img src="demos/ms-muncher/evidence/title.png" width="150" alt="Ms. Muncher attract screen: MS MUNCHER in large block letters above the four named ghosts and a table of top scores"> <img src="demos/ms-muncher/evidence/chase.png" width="150" alt="Board 1 in play: a blue auto-tiled maze full of yellow dots with four coloured ghosts and Ms. Muncher"> <img src="demos/ms-muncher/evidence/frightened.png" width="150" alt="The same board after an energizer: all four ghosts drawn as blue frightened shapes"> |
+| [La Galaxia](demos/la-galaxia/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=la-galaxia) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing | <img src="demos/la-galaxia/evidence/transform.png" width="150" alt="Stage 4: the alien formation in cyan, red and yellow with three transformed enemies diving mid-morph, the player fighter below and the Spanish HUD down both sides"> <img src="demos/la-galaxia/evidence/title.png" width="150" alt="La Galaxia attract screen: the game name in yellow over a starfield, framed by a bezel with the Spanish HUD down both sides"> <img src="demos/la-galaxia/evidence/formation.png" width="150" alt="The settled formation: five rows of alien blocks in cyan, red and yellow above the player fighter"> |
 
 **Miscellaneous cool stuff**:
 
-| Demo | Language | Description |
-|------|----------|-------------|
-| [1812](demos/1812/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=1812) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID |
-| [Fugue No. 2 in C Minor](demos/fugue/) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note |
+| Demo | Language | Description | Screens |
+|------|----------|-------------|---------|
+| [1812](demos/1812/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=1812) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID | <img src="demos/1812/evidence/sec1.png" width="150" alt="The 1812 canvas at the end of the Marseillaise: large blue and red polygons over dithered blue, red and white fills"> <img src="demos/1812/evidence/cannon.png" width="150" alt="A cannon shot in the 1812 canvas: the border flashed white around a bitmap of red, orange, yellow and blue dithered shapes"> <img src="demos/1812/evidence/final.png" width="150" alt="The finished 1812 canvas: blue, yellow, brown and white shapes layered over the whole bitmap, a blue star among them"> |
+| [Fugue No. 2 in C Minor](demos/fugue/) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note | &nbsp; |
 
 Every demo outside the test tier keeps its whole solution once it has been
 built: the sources an agent wrote, a fidelity audit, a regression test, and
@@ -156,19 +156,6 @@ ROMs — Paul Gardner-Stephen and Roman Standzikowski's free/libre
 re-implementation, LGPL-3.0-or-later, with parts of BASIC additionally
 MIT © Microsoft and the PXL character font by Retrofan — so no Commodore ROM
 is hosted here or sent to your browser.
-
-<p align="center">
-  <img src="demos/invaders/evidence/title.png" alt="Invaders attract screen" width="300">
-  <img src="demos/invaders/evidence/formation.png" alt="Invaders wave 1 in play" width="300">
-</p>
-<p align="center">
-  <img src="demos/snake/evidence/title.png" alt="Snake title screen" width="300">
-  <img src="demos/snake/evidence/levelup.png" alt="Snake at level 2, recoloured" width="300">
-</p>
-<p align="center">
-  <img src="demos/ms-muncher/evidence/title.png" alt="Ms. Muncher attract screen" width="300">
-  <img src="demos/ms-muncher/evidence/chase.png" alt="Ms. Muncher board 1 in play" width="300">
-</p>
 
 The reference example programs (with expected screen output, runnable as
 regression tests via `c64 test programs`) live in
