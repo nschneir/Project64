@@ -133,8 +133,14 @@
     background:#000;image-rendering:pixelated;opacity:.55;transition:opacity .15s;
   }
   .preview:hover img,.preview:focus-visible img{opacity:.8}
-  /* the affordance sits in its own dimmed column so it never fights the
-     screenshot's own text for legibility */
+  /* The affordance is centred over the whole still (the overlay is inset:0), so
+     on all four screenshots it does land on the screen's own text — invaders'
+     score advance table, ms-muncher's cast row, la-galaxia's ESPACIO UN
+     JUGADOR, snake's PRESS ANY KEY TO PLAY. That is accepted: the still is an
+     invitation, not something to read, and the real screen replaces it on the
+     first click. What is defended is the affordance's own legibility over
+     whatever it lands on — the still is dimmed to .55 and the chip carries its
+     own near-opaque backing. */
   .preview .play-overlay{
     position:absolute;inset:0;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:.5em;pointer-events:none;

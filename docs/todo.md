@@ -588,12 +588,17 @@ returns 200, and each of the four
 `https://nschneir.github.io/Project64/play.html?demo=<id>` links boots to its own
 title screen with sound after the first click.
 
-**One candidate lapsed rather than deferred.** The design spec asked
-implementation to look for "a warp-during-load config flag as a nice-to-have",
-premised on its own note that "real 1541 loading takes ~15-25 s". The shipped
-page has no 1541: it boots a `.prg` flashed straight into RAM with no drive ROM
-installed at all (`play.html`'s `BOOT_MEDIUM`). There is no load to warp
-through, so the candidate is moot rather than skipped.
+**Both of the design spec's follow-up candidates are moot, not deferred.** The
+spec asked implementation to look for "a warp-during-load config flag as a
+nice-to-have", premised on its own note that "real 1541 loading takes ~15-25 s".
+The shipped page has no 1541: it boots a `.prg` flashed straight into RAM with
+no drive ROM installed at all (`play.html`'s `BOOT_MEDIUM`). There is no load to
+warp through. The spec's other candidate was 1812's `.d64` packaging, "when its
+dogfood run lands" — that run landed and `demos/1812/1812.d64` is tracked, so
+the packaging is done; 1812 is nonetheless off the roster, ruled out as a music
+demo rather than a game, and it is the only demo with no `evidence/title.png` to
+cut a tile from. Both are recorded here because a later reader otherwise cannot
+tell a closed candidate from a forgotten one.
 
 ## `play.html`'s audio-state listener trusts any window that posts to it
 
