@@ -24,7 +24,7 @@ Full games, each with its own fidelity bar and evidence protocol:
 
 | Demo | Language | Description |
 |------|----------|-------------|
-| [Snake](snake/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — the assembler + debugger workflow, `$CB` held-key steering, SID sound, nine speeding-up levels |
+| [Snake](snake/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — the assembler + debugger workflow, held-key steering off the keyboard matrix, SID sound, nine speeding-up levels |
 | [Invaders](invaders/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=invaders) | 6502 assembly | The 1978 arcade original to an arcade-fidelity spec — sprites and custom charset, the one-invader-per-tick march, 3-voice SID, review loop, packaging |
 | [Ms. Muncher](ms-muncher/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=ms-muncher) | 6502 assembly | A maze chase with four rotating mazes — per-ghost targeting AI, six sprites, animated cut scenes, 3-voice SID |
 | [La Galaxia](la-galaxia/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=la-galaxia) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing |
@@ -35,7 +35,7 @@ Audiovisual builds that aren't games:
 
 | Demo | Language | Description |
 |------|----------|-------------|
-| [1812](1812/PROMPT.md) | 6502 assembly | Randomised shapes painted to Tchaikovsky's *1812 Overture* — spec→plan→build, bitmap mode, a rotating polygon rasterizer, 3-voice SID |
+| [1812](1812/PROMPT.md) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=1812) | 6502 assembly | Randomised shapes painted to Tchaikovsky's *1812 Overture* — spec→plan→build, bitmap mode, a rotating polygon rasterizer, 3-voice SID |
 | [Fugue No. 2 in C Minor](fugue/PROMPT.md) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note |
 
 **Where the work goes.** Every demo is a directory holding its prompt in

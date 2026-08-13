@@ -60,6 +60,19 @@ Debian / Ubuntu:
 Every command takes `--json` for machine-readable output — the intended
 interface for AI agents.
 
+## Documentation
+
+| Reference | What's in it |
+|---|---|
+| **[docs/cli.md](docs/cli.md)** | The complete `c64` command reference — one entry per command, every flag, and the `*.yaml` test and disk-manifest formats. |
+| **[docs/mcp.md](docs/mcp.md)** | The CLI↔MCP map: which tool twins which command. Each MCP tool describes itself, so this page maps rather than repeats. |
+| **[docs/agent-setup.md](docs/agent-setup.md)** | The two integration routes, with config for Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and Crush. |
+| **[docs/graphics-and-sprites.md](docs/graphics-and-sprites.md)** | What demos may use, how sprite and graphic data is authored, and what a test may assert about pixels. |
+
+Domain knowledge — C64 memory maps, KERNAL routines, 6502 idioms, and a
+cookbook of working recipes — lives in [`skills/`](skills/), written to be
+loaded by an agent rather than read start to finish.
+
 ## Supported machines
 
 Every session boots a Commodore 64 (`--model`, default `c64`). The two
@@ -105,7 +118,7 @@ three-voice SID sound:
 
 | Demo | Language | Description |
 |------|----------|-------------|
-| [Snake](demos/snake/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — `$CB` held-key steering, SID sound, nine speeding-up levels |
+| [Snake](demos/snake/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=snake) | 6502 assembly | Arcade Snake on a custom hires charset — held-key steering read off the keyboard matrix, SID sound, nine speeding-up levels |
 | [Invaders](demos/invaders/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=invaders) | 6502 assembly | The 1978 arcade original — sprites and custom charset, the one-invader-per-tick march, 3-voice SID |
 | [Ms. Muncher](demos/ms-muncher/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=ms-muncher) | 6502 assembly | A maze chase — four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes |
 | [La Galaxia](demos/la-galaxia/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=la-galaxia) | 6502 assembly | An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing |
@@ -114,20 +127,23 @@ three-voice SID sound:
 
 | Demo | Language | Description |
 |------|----------|-------------|
-| [1812](demos/1812/) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID |
+| [1812](demos/1812/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=1812) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID |
 | [Fugue No. 2 in C Minor](demos/fugue/) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note |
 
 Every demo outside the test tier keeps its whole solution once it has been
-built — [`demos/invaders/`](demos/invaders/)
-and [`demos/snake/`](demos/snake/) each have the sources an agent wrote, a
-[fidelity](demos/invaders/AUDIT.md) [audit](demos/snake/AUDIT.md), a
-regression test, and a runnable disk: `x64sc -ntsc demos/invaders/invaders.d64`
-and play it with A/D and space, `x64sc -ntsc demos/snake/snake.d64` and play
-it with W/A/S/D, `x64sc -ntsc demos/ms-muncher/ms-muncher.d64` and play
-that with W/A/S/D too, or `x64sc -ntsc demos/la-galaxia/la-galaxia.d64` and
-play that with A/D and space. Fugue is prompt-only so far.
+built: the sources an agent wrote, a fidelity audit, a regression test, and
+a runnable disk. All five are in
+[`demos/`](demos/) — `x64sc -ntsc demos/invaders/invaders.d64` and play it
+with A/D and space, `x64sc -ntsc demos/snake/snake.d64` and play it with
+W/A/S/D, `x64sc -ntsc demos/ms-muncher/ms-muncher.d64` and play that with
+W/A/S/D too, `x64sc -ntsc demos/la-galaxia/la-galaxia.d64` and play that with
+A/D and space, or `x64sc -ntsc demos/1812/1812.d64` and just watch. Their
+audits are [invaders](demos/invaders/AUDIT.md), [snake](demos/snake/AUDIT.md),
+[ms-muncher](demos/ms-muncher/AUDIT.md),
+[la-galaxia](demos/la-galaxia/AUDIT.md) and [1812](demos/1812/AUDIT.md).
+Fugue is prompt-only so far.
 
-The four game demos also run in the browser: the ▶ Play links above, or all
+All five built demos also run in the browser: the ▶ Play links above, or all
 of them together at
 [play.html](https://nschneir.github.io/Project64/play.html). Browser play is
 powered by
