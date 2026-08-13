@@ -72,7 +72,6 @@
     font-size:clamp(1.9rem,7vw,3.6rem);letter-spacing:.02em;color:var(--p-bright);
     text-shadow:0 0 4px rgba(207,200,247,.6),0 0 22px rgba(138,124,224,.45);
   }
-  .rule{color:var(--p-dim);white-space:nowrap;overflow:hidden;user-select:none;margin:22px 0 8px;font-size:1rem}
   h2{font-size:clamp(1.05rem,3.2vw,1.35rem);color:var(--p-bright);letter-spacing:.12em;margin:.2em 0 .8em}
   h2 .mk{color:var(--p-dim)}
   p{margin:.55em 0}
@@ -216,7 +215,6 @@
   @keyframes blink{50%{opacity:0}}
 
   @media (max-width:560px){
-    .rule{font-size:.7rem}
     .screen{border-radius:0}
   }
   @media (prefers-reduced-motion:reduce){
@@ -303,8 +301,8 @@
         <span class="name"><a href="https://vc64web.github.io/">vc64web</a>
           <span class="role">&mdash; the emulator in the frame above</span></span>
         <span class="by">A WebAssembly port by <b>mithrendal</b>, served from a
-          maintainer-owned <a href="https://github.com/nschneir/vc64web.github.io">fork</a>
-          so this page and the emulator share an origin.</span>
+          <a href="https://github.com/nschneir/vc64web.github.io">fork</a> so this
+          page and the emulator share an origin.</span>
       </p>
 
       <p class="who">
@@ -317,29 +315,18 @@
       <p class="who">
         <span class="name"><a href="https://github.com/MEGA65/open-roms">MEGA65 open-roms</a>
           <span class="role">&mdash; the KERNAL, BASIC and character ROMs it boots on</span></span>
-        <span class="by">A free/libre re-implementation by <b>Paul Gardner-Stephen</b>
+        <span class="by">A free re-implementation by <b>Paul Gardner-Stephen</b>
           and <b>Roman Standzikowski</b> (FeralChild64). The <b>PXL</b> character font
-          is by <b>Retrofan</b>, included with permission.</span>
+          is by <b>Retrofan</b>.</span>
         <span class="lic">LGPL-3.0-or-later &middot; parts of BASIC additionally
           MIT &copy; Microsoft Corporation</span>
       </p>
 
       <p class="note">These are not Commodore&rsquo;s ROMs. No Commodore ROM image is
-      hosted or distributed by either repository, and none is sent to your browser.
-      That is also why there is no 1541 drive ROM here at all, and why each demo is
-      loaded as a <code>.prg</code> flashed straight into RAM rather than from a disk
-      image.</p>
+      hosted or distributed by either repository.</p>
     </section>
 
-    <div class="rule" aria-hidden="true">&#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;</div>
-
     <footer>
-      <p>MIT licensed. The emulator and the ROMs it boots on are third-party work,
-      loaded at runtime and not bundled &mdash; their authors and licences are named
-      under Credits above, and in this project&rsquo;s
-      <a href="https://github.com/nschneir/Project64/blob/main/LICENSE">LICENSE</a>.</p>
-      <p><small>Built primarily by AI (Anthropic&rsquo;s Claude, via Claude Code) under
-      human direction &mdash; a working example of AI-built developer tooling.</small></p>
       <div class="links">
         <a href="index.html">&#x25B8; Home</a>
         <a href="https://github.com/nschneir/Project64">&#x25B8; GitHub</a>
