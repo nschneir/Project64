@@ -180,6 +180,8 @@
   .player_icon_btn:hover{color:#fff;opacity:1}
   .btn_play{color:var(--p-bright);fill:currentColor;background:transparent;opacity:1}
 
+  .demo-desc{margin:0 0 12px;color:var(--p-dim);font-size:1rem;line-height:1.5}
+
   .attribution-note b{color:var(--p-bright)}
   .attribution-note .links{margin-top:.6em}
 
@@ -218,9 +220,8 @@
     <header>
       <a class="backlink" href="index.html">&#x25C2; PROJECT&nbsp;64</a>
       <h1 class="title">PLAY</h1>
-      <p class="tag">The game demos, on a real emulated Commodore 64, in this tab.
-        Pick a game, click the screen, and the machine boots and runs it &mdash; the
-        same <code>.prg</code> you would load on real hardware.</p>
+      <p class="tag">Play the demo games on an emulated Commodore 64. Pick a game,
+        click the play button, and the emulator will run it.</p>
     </header>
 
     <div class="rule" aria-hidden="true">&#x2554;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2557;</div>
@@ -228,6 +229,12 @@
     <nav class="demo-strip" id="demo-strip" aria-label="Choose a game"></nav>
 
     <main>
+      <!-- The selected game's description, verbatim from index.html's demo
+           table (tests/test_docs_demos.py holds the two in step). It sits
+           between the strip and the screen so the choice you just made is
+           described where you are looking. It PERSISTS and only its text
+           changes, which is what lets it carry a live region. -->
+      <p class="demo-desc" id="demo-desc" aria-live="polite"></p>
       <div id="player-frame">
         <div id="player-slot"></div>
       </div>
@@ -393,6 +400,7 @@
       title: "SNAKE",
       accent: "var(--c64-green)",
       tagline: "Eat apples, don't eat yourself.",
+      description: "Arcade Snake on a custom hires charset — $CB held-key steering, SID sound, nine speeding-up levels",
       d64: "demos/snake/snake.d64",
       prg: "demos/snake/snake.prg",
       image: "demos/snake/evidence/title.png",
@@ -404,6 +412,7 @@
       title: "INVADERS",
       accent: "var(--c64-cyan)",
       tagline: "The classic descending formation.",
+      description: "The 1978 arcade original — sprites and custom charset, the one-invader-per-tick march, three-voice SID",
       d64: "demos/invaders/invaders.d64",
       prg: "demos/invaders/invaders.prg",
       image: "demos/invaders/evidence/title.png",
@@ -415,6 +424,7 @@
       title: "MS. MUNCHER",
       accent: "var(--c64-yellow)",
       tagline: "Four rotating mazes, and every ghost hunts differently.",
+      description: "A maze chase — four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes",
       d64: "demos/ms-muncher/ms-muncher.d64",
       prg: "demos/ms-muncher/ms-muncher.prg",
       image: "demos/ms-muncher/evidence/title.png",
@@ -426,6 +436,7 @@
       title: "LA GALAXIA",
       accent: "var(--c64-red)",
       tagline: "A fixed shooter in Spanish, with the full 40-enemy formation.",
+      description: "An old school shooter in Spanish with a deliberately off-kilter sound track — a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing",
       d64: "demos/la-galaxia/la-galaxia.d64",
       prg: "demos/la-galaxia/la-galaxia.prg",
       image: "demos/la-galaxia/evidence/title.png",
@@ -439,6 +450,7 @@
   var strip    = document.getElementById("demo-strip");
   var frame    = document.getElementById("player-frame");
   var legend   = document.getElementById("controls-text");
+  var blurb    = document.getElementById("demo-desc");
   var hint     = document.getElementById("sound-hint");
   var attrLinks= document.getElementById("attribution-links");
 
@@ -812,6 +824,9 @@
     activeDemo = demo;
     markTiles();
     legend.innerHTML = renderKeys(demo.controls);
+    /* textContent, not innerHTML: the description is prose copied from
+       index.html and carries no markup of its own. */
+    blurb.textContent = demo.description;
     renderPreview(demo);
     if(boot) bootPlayer(demo);
   }

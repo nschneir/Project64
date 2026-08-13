@@ -716,3 +716,58 @@ def test_every_demo_file_play_html_serves_exists_and_is_tracked():
     assert run.returncode == 0, (
         "play.html points at files git does not track, so GitHub Pages serves a "
         f"404 for them however well they resolve locally:\n{run.stderr.strip()}")
+
+
+def _html_descriptions(text: str) -> dict[str, str]:
+    """`index.html`'s demo table, slug -> Description cell as plain prose.
+
+    Tags are stripped and the handful of entities the cells actually use are
+    decoded, because the same sentence lives in `play.html` as a JavaScript
+    string with no markup at all — so the two are only comparable once
+    `index.html`'s is reduced to what it says.
+    """
+    section = text[text.index('id="demos"'):]
+    out: dict[str, str] = {}
+    for table in re.finditer(r"<table[^>]*>.*?</table>", section, re.S):
+        head = re.search(r"<thead>.*?</thead>", table.group(0), re.S)
+        assert head, "demos table without a <thead>"
+        header = [
+            re.sub(r"<[^>]+>", "", c).strip()
+            for c in re.findall(r"<th[^>]*>(.*?)</th>", head.group(0), re.S)
+        ]
+        if "Description" not in header:
+            continue
+        desc_col = header.index("Description")
+        for row in re.finditer(r"<tr>.*?</tr>", table.group(0), re.S):
+            link = re.search(r"tree/main/demos/([A-Za-z0-9-]+)", row.group(0))
+            if not link:
+                continue
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row.group(0), re.S)
+            if len(cells) <= desc_col:
+                continue
+            plain = re.sub(r"<[^>]+>", "", cells[desc_col])
+            plain = plain.replace("&mdash;", "—").replace("&amp;", "&")
+            out[link.group(1)] = " ".join(plain.split())
+    return out
+
+
+def test_play_page_describes_each_game_the_way_the_landing_page_does():
+    """The play page repeats `index.html`'s description for the selected game,
+    so the same sentence is now authored twice — once as a table cell, once as
+    a JavaScript string. Nothing derives one from the other at build time
+    because neither page has a build step, which leaves this test as the only
+    thing standing between them and a slow divergence: the landing page
+    describing a demo one way and the page you play it on another.
+    """
+    site = _html_descriptions(INDEX.read_text())
+    for entry in _play_registry():
+        demo = entry["id"]
+        assert demo in site, \
+            f"play.html serves {demo!r}, which index.html's demo table omits"
+        assert "description" in entry, (
+            f"play.html's {demo!r} entry has no description — the play page "
+            "shows one for every game it serves")
+        assert entry["description"] == site[demo], (
+            f"the description of {demo!r} has drifted between the two pages:\n"
+            f"  index.html: {site[demo]!r}\n"
+            f"  play.html:  {entry['description']!r}")
