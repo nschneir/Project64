@@ -534,6 +534,22 @@ every WAV finding with the roll before naming a cause.
   register dump). The halt itself is the frame boundary, so the log samples
   once per resume and needs no raster at all — and this works whether your
   program runs off a raster IRQ, the jiffy clock, or nothing at all.
+- **A jiffy-paced player and the sid log are two clocks, and they separate by
+  one frame every ~341 log frames.** The KERNAL's CIA timer ticks at
+  **60.0016 Hz**; the log samples once per NTSC video frame, **59.826 Hz**
+  (`1022727 / (65 × 263)`). The difference is 0.1756 counts a second, so a full
+  frame of drift takes `1 / 0.1756 = 5.69 s ≈ 341 log frames`, and the machine
+  is always the one ahead — an event modelled on tick *n* is heard at a log
+  frame at or below *n*. That is the number behind "durations drift" above:
+  under ~300 frames a fully-durationed score is usually safe, and past it a
+  score that pins `frames` fails on entries that are musically correct. There
+  is no per-entry tolerance in `diff_score`, so the choice is still pin-or-omit.
+  Derived, not measured end to end: a 300-frame probe capture of `demos/1812`
+  saw exactly one frame appear, which is this period seen at one starting
+  phase rather than a second estimate of it, and the same demo's 15-second
+  section captures came back within 2-3 frames of the model
+  (`demos/1812/AUDIT.md`, iteration 3). A PAL machine is a different
+  arithmetic, not a smaller drift — redo it from that machine's two rates.
 - **Gate transitions inside a single frame are invisible — and that is a tool,
   not only a limit.** The control register is read once per frame, so a gate
   that goes low and high again between two samples leaves no trace: the driver

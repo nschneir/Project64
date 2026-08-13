@@ -79,7 +79,7 @@ steps:
   - assert: { mem: "sidshadow+14", equals: [0, 0] }   # voice 3, silent by design
 
   # ---- the piano is an ENVELOPE, not a waveform --------------------------
-  # A15, and the one byte-level fact that separates this hymn from the organ
+  # A16, and the one byte-level fact that separates this hymn from the organ
   # it replaces.  The old rows were three sustained pads at sustain 10 / 9 /
   # 10, and a non-zero sustain nybble is the single thing that makes a SID
   # voice read as an organ; both piano voices now hold sustain 0, so a note

@@ -1,12 +1,25 @@
 #!/bin/sh
 # evidence.sh — the deterministic proof protocol for demos/1812.
 #
-# Every capture is taken with the machine STOPPED at a `c64 until` label: a
-# screenshot of a running machine is a race, and at warp the frame you wanted
-# is emulated seconds gone.  Nothing here is staged — the pictures are what
-# the state bytes printed beside them produced.
+# Every capture but three is taken with the machine STOPPED at a `c64 until`
+# label: a screenshot of a running machine is a race, and at warp the frame you
+# wanted is emulated seconds gone.  Nothing here is staged — the pictures are
+# what the state bytes printed beside them produced.
 #
-#   sh demos/1812/tools/evidence.sh
+# The three exceptions are section 9's rot-a/b/c, which follow a `c64 call`
+# and cannot be anchored: the call's fake return address has replaced the
+# program's control flow, so there is no label left to stop on.  Those shots
+# are torn at the raster split and their BYTES CHURN between runs while their
+# content does not — measured 2026-08-12, three replays, byte-identical bitmap
+# (lit=6105 checksum=1c454f03) and three different PNGs.  The vertex and angle
+# numbers printed beside them are what carries section 9's claim, not the file
+# hashes.  See docs/graphics-and-sprites.md section 5 (the note after the rules
+# table) and section 6 for why no primitive fixes this yet.
+#
+# The figures below go to stdout and nowhere else, and README.md/AUDIT.md quote
+# them — so keep the run log, or the proof is gone when the terminal scrolls:
+#
+#   sh demos/1812/tools/evidence.sh 2>&1 | tee /tmp/1812-evidence.log
 #
 # Re-runnable: it stops and restarts its own session.  Takes a few minutes;
 # the whole 10,200-frame piece is played three times.

@@ -408,8 +408,13 @@ only testable evidence that sound happened.
 
 ### 6.6 The cannon
 
-A `$FD` event in section 3's V3 stream, sixteen of them at 112-frame
-intervals:
+A `$FD` event in section 3's V3 stream, sixteen of them, each carrying a
+duration byte of 112. **112 is the duration, not the interval**: an event owns
+duration + 1 ticks, so the shots arrive **113 ticks apart**, on section-3 ticks
+1 + 113(k−1) (`music.s:717-727`). Sixteen of them ask for 1,808 ticks against
+the section's 1,800, so shot 16 is truncated by 8 and its gate-off falls to
+section 4's `loadinstr`; `cannons` still reads 16 either way, because it
+increments at the fetch. Each shot does:
 
 1. V3 control ← noise + gate (`$81`), ADSR attack 0 / decay `$A`,
    sustain 0 / release `$8`.

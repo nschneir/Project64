@@ -968,6 +968,17 @@ not from here.
   and for the same reason — an option that cannot apply says so instead of
   being ignored.
 
+**Packaging a `.s` also rewrites its label file, and the JSON does not say
+so.** The assembly path runs ld65 with `-Ln`, which writes the `.lbl` beside
+the output `.prg` — packaging `demos/1812/1812.s` to a `.d64` rewrites
+`demos/1812/1812.lbl` — and it does so on every invocation, since the build
+step has no up-to-date check. That is usually what you want: the symbols a
+later `c64 load --symbols` or an evidence script resolves stay in step with
+the program. But the reported payload is `{"prg", "image", "title", "run"}`
+with no labels key — the cartridge payload has `labels`, the `.prg`/disk one
+does not — so nothing in the output says the file moved. A caller that cares
+whether its symbols changed has to stat the `.lbl` itself.
+
 **Cartridges.** A `.s` is treated as cart-native code (it owns the boot
 sequence: export `cart_main`, or supply your own `STARTUP` segment) unless
 `--wrap` says otherwise; a `.bas` or `.prg` is always wrapped, because an

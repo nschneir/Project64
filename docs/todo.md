@@ -10,9 +10,12 @@ produced these items (`.superpowers/sdd/*/progress.md`) are deleted when a plan
 finishes, so this file is the only surviving record. Line numbers are a hint;
 the function/test names are the durable anchors.
 
-Recreated 2026-08-12 by the 1812 iteration-3 pass, whose deferrals are the
-first four items below; the last is the residue of the 16-bit-sample work that
-closed one of them.
+Recreated 2026-08-12 by the 1812 iteration-3 pass. The first items are that
+pass's deferrals; everything from *A capture staged with `c64 call`* onward is
+its toolchain post-mortem (`AGENTS.md`, "Dogfood post-mortems"), triaged from a
+friction log kept while the work happened rather than remembered after it.
+Every proposal below names **both front ends**, because a CLI proposal without
+an MCP counterpart is not a proposal (`AGENTS.md`, "Code quality").
 
 ## A plan deliverable was destroyed by the SDD workspace cleanup
 
@@ -53,46 +56,39 @@ reader could follow the reference.
 owed and confirm each artifact exists somewhere the deletion cannot reach —
 `git ls-files <path>` naming the file, not merely `ls` finding it.
 
-## `demos/1812`'s evidence PNGs no longer depict the shipped build
+## `AUDIT.md`'s register table still reads the pre-texture-arc arrangement
 
-**Anchor:** `demos/1812/evidence/sec0.png`…`sec4.png`, `final.png`,
-`cannon.png`, `shipped-d64.png`; `demos/1812/tools/evidence.sh`.
+**Anchor:** `demos/1812/AUDIT.md`'s "each section is playing the material it
+was written to play" table — the `40 | hymn` and `2600 | Marseillaise` rows.
 
-**Status:** open, and **deliberately deferred by the maintainer on 2026-08-12**
-to a later plan. Recorded here so it is not mistaken for an oversight.
+**Status:** open, and **all that survives of "`main` ships source citing
+documents that do not yet say what it claims"**. That item's other three
+anchors are closed. `sections.s:103` cites `SPEC.md` §6.4 for the texture arc
+and §6.4 now spells it — "The texture arc is the design, not a side effect of
+the voice count. The piece opens on one instrument and gains them — 1 → 2 → 3 →
+2 + artillery → 3 → 0". `test.yaml:82` cited **A15** "which does not exist";
+§12 now has both A15 and A16, and the block underneath it asserts A16's
+subject (`sidshadow+6 & $f0 == 0`), so the citation was corrected to A16 rather
+than left resolving to the wrong criterion. `SPEC.md` §6.6's "112-frame
+intervals" now reads "112 is the duration, not the interval… the shots arrive
+113 ticks apart", which is what `music.s:717-727` has said all along.
 
-**What's wrong now.** Iteration 3 re-voiced the hymn. The shape RNG is shared,
-so the picture diverges from the hymn onward and every committed PNG depicts
-the pre-arrangement build.
+**What's wrong now.** The table's first two rows are iteration 2's measured
+registers. It records the hymn as `E4 triangle | B3 triangle | E2 pulse` and
+the Marseillaise's voice 1 as `D5 pulse`, while `SPEC.md` §6.4 now specifies a
+pulse piano for the hymn (both hands on a byte-identical instrument row, voice
+3 silent) and a sawtooth reed for the Marseillaise, and `test.yaml` asserts the
+hymn's shape directly — `sidshadow+4 & $41 == $41` (v1 pulse, gated),
+`sidshadow+11 & $41 == $40` (v2 silent), `sidshadow+14 == 0,0` (v3 never
+sounded). The audit's own table contradicts the test one file over.
 
-**How to verify.** Regenerate through `tools/evidence.sh` and confirm each PNG
-matches a fresh run at its anchored frame.
+**Why not here.** Every cell is a register read at a named frame on a stopped
+machine, so correcting it means re-taking the readings at frames 40 and 2600,
+not re-wording them — a VICE run, which is more than a triage pass can verify.
 
-## `main` ships source citing documents that do not yet say what it claims
-
-**Anchor:** `demos/1812/sections.s:103` (cites `SPEC.md` §6.4),
-`demos/1812/test.yaml:82` (cites acceptance criterion **A15**),
-`SPEC.md:397-398`, `AUDIT.md:173-174`.
-
-**Status:** open, and **narrowed**. The amendments are the evidence-and-prose
-plan's deliverable; this item exists because the code landed first. Two of the
-anchors it was written with are now closed: `SPEC.md:376` (the battle's
-"sawtooth through the band-pass") and `AUDIT.md:181` (the same claim in the
-audit's prose) were false only while the battle band-passed at a cutoff of 0,
-and the `seccut` table on this branch made both true. They are struck; what is
-listed above is what is still open.
-
-**What's wrong now.** `sections.s:103` points at `SPEC.md` §6.4 for the texture
-arc while `SPEC.md:372-375` still describes the old three-pad hymn.
-`test.yaml:82` cites **A15**, which does not exist — `SPEC.md` §12 stops at A14.
-`SPEC.md:397-398` still says "112-frame intervals", the exact naive-duration
-error corrected in `music.s`. `AUDIT.md:173-174` still carry iteration 2's
-measured register rows for the hymn and the Marseillaise, and the texture arc
-changed voice 1's waveform in both: the hymn's is a pulse piano now, not a
-triangle, and the Marseillaise's is a sawtooth reed, not a pulse.
-
-**How to verify.** Grep every `SPEC.md`/`A<N>` citation in `demos/1812/*.s` and
-`test.yaml` and confirm each resolves to text that agrees with it.
+**How to verify.** Stop at each frame the table names, read `sidshadow` back,
+and decode; then re-grep every `SPEC.md`/`A<N>` citation in `demos/1812/*.s`
+and `test.yaml` and confirm each still resolves to text that agrees with it.
 
 ## `AUDIT.md`'s A13 cycle row is not reproducible as written
 
@@ -165,3 +161,246 @@ and makes the existing assertion honest; the second changes no code.
 the new witness fails on a voice-1 stream that is silent for the section —
 check it, do not assume it, since that is the failure the current step already
 cannot see.
+
+## A capture staged with `c64 call` cannot be anchored, and its PNG churns
+
+**Anchor:** `demos/1812/tools/evidence.sh` section 9 (`call drawshape`
+immediately followed by `screen --png`), and the three files it writes,
+`evidence/rot-a.png`, `rot-b.png`, `rot-c.png`;
+`docs/graphics-and-sprites.md` §5 (the rules table and the note after it) and
+§6, where the deferral is recorded with its reopen condition.
+
+**Status:** open as a **missing primitive**, and the documentation half is
+done. The reference and the script both stated the rule as an absolute
+("Every capture is taken with the machine STOPPED at a `c64 until` label";
+"the same script produces the same frames every time"); both now carry the
+exception and the measurement.
+
+**What's wrong now.** `c64 call` ends at its trap wherever the raster happened
+to be, and `c64 screen --png` returns the emulator's rendered display rather
+than a re-render of video RAM, so a shot taken straight after a call is torn at
+the raster split. Measured 2026-08-12: three replays of section 9's staging —
+same session flags, same seven `mem write`s, `sh_angle 0` — produced a
+byte-identical bitmap (`lit=6105`, checksum `1c454f03`, vertices
+`y=44 44 155 155`) and three different PNGs, whose pixel diffs sit entirely in
+rows 356–369 of 526. Three committed artifacts therefore change on every
+regeneration for no semantic reason. The obvious fix is not available: an
+`until` cannot follow a call, because "the call's fake return address replaces
+the program's control flow; that run is over" (`docs/cli.md`, `c64 call`), so
+there is no label left to stop on.
+
+**Fix direction (not ruled — this is the open question).** A stop that does not
+need a program label. Either a raster-anchored stop — `c64 until --raster N`
+with `c64_until(raster=N)` beside it — or a capture that waits for the frame
+top itself, `c64 screen --png --at-frame-top` with the same flag on
+`c64_screenshot`. Either way the operation goes in `ops.py` and both front ends
+surface it, per lockstep. Not built now because the whole cost so far is three
+PNGs whose bytes move while their meaning does not, in a demo whose actual
+proof for those shots is the litcount and checksum printed beside them.
+
+**How to verify.** Run `demos/1812/tools/evidence.sh` twice and confirm
+`rot-a/b/c.png` come back byte-identical — which today they do not, and which
+is the whole test.
+
+## `demos/1812`'s proof protocol does not sample every criterion it is cited for
+
+**Anchor:** `demos/1812/tools/evidence.sh` — the determinism block, its cannon
+block, and its two `/tmp` intermediates; `demos/1812/SPEC.md` A9 and A7.
+
+**Status:** open. Three defects in one script; the first two are the same
+shape — the protocol is cited as evidence for a criterion it does not actually
+sample.
+
+**What's wrong now.** *A9* says the repeated seed reproduces "identical `rng`,
+**all seven** last-shape bytes, an identical lit-pixel count and an identical
+bitmap checksum". The determinism block prints `lstype`, `lsangle` and `lspat`
+and stops; `lssize`, `lsx`, `lsy` and `lsink` never appear. The canvas checksum
+is strictly stronger evidence so the criterion is still met, but the log does
+not show what the spec says it shows. *A7* is `cannons == 16` at the end of
+section 3; the cannon block stops at `until cannonfire --count 1` and prints
+`cannons=1`, and there is no later sample, so the protocol skips one of the
+criteria it exists to evidence. The audio protocol cannot cover for it either —
+`tools/audio-evidence.sh` rewinds section 3's streams at log frame 0, which
+re-fires shot 1, so `cannons` over-counts there by construction; writing
+iteration 3's Evaluate table meant running the full 170-step `c64 test run`
+(40.9 s) just to read the value. *And* the script writes `/tmp/1812-early.txt`
+and `/tmp/1812-late.json` at fixed paths, so two concurrent runs — or a second
+demo that copies the pattern — silently read each other's persistence sample.
+
+**Fix direction (partly ruled).** The `/tmp` collision is a plain bug: mktemp,
+or a path under `$EV`, with the heredoc taking it as an argument rather than
+hardcoding it. A9 is a choice between adding the four missing `mem get`s and
+rewording A9 to name the three it prints — prefer the former, since the
+criterion is the stronger claim. A7 wants one more `until secchange --count 4`
+plus a `mem read cannons` at the end of the cannon block. The general form,
+which is the interesting one and is **not** ruled: a way to ask a protocol
+script *which* acceptance criteria it samples, so a criterion no artifact
+covers is a build-time complaint rather than something a later prose task
+discovers by hand.
+
+**Why not here.** All three change what the script does, and the only check
+that can fail on them is a full protocol run against VICE.
+
+**How to verify.** Run the script and confirm the determinism block names seven
+bytes, the cannon block reports 16 at the section end, and two concurrent runs
+in separate checkouts do not disturb each other.
+
+## What the CLI prints, a document cannot cite
+
+**Anchor:** `c64 test run --json`, `c64 package --json`, `c64 mem get` — all
+three in `docs/cli.md`.
+
+**Status:** open. Three independent gaps, all discovered while trying to turn a
+command's output into something a tracked document could quote.
+
+**What's wrong now.** *`c64 test run --json`* prints its step details to stdout
+and nowhere else: there is no `--out FILE`, and the payload
+(`{"passed": true, "tests": [{"name", "elapsed", "steps": […]}]}`) carries no
+run id, timestamp, build hash or machine, so a redirect saves a file that
+cannot say which build it ran against. Two runs of `demos/1812/test.yaml` here
+were byte-identical in every `detail` string — the property that made the
+numbers safe to quote — and nothing in the output would have told a later
+reader that. The audit had to be rewritten to quote only values the tracked
+`test.yaml` *asserts*, never one a step merely sampled. *`c64 package --json`*
+reports `{"prg", "image", "title", "run"}` and no labels key, while the
+assembly path rewrites the output's `.lbl` on every invocation; the gap is now
+documented under that command, but the payload still cannot say the file moved,
+and `evidence.sh` depends on the `.lbl` being in step with the `.prg`.
+*`c64 mem get`* prints a 16-bit observable as space-separated little-endian
+decimal — `mem get shapes 2` gives `234 2` — so the headline "746 shapes" that
+`README.md` quotes appears nowhere in the evidence log and a reader has to know
+the byte order and multiply. Same for `frames` (`216 39`) and `rng`.
+
+**Fix direction (proposals, both front ends each).** `--out FILE` on
+`c64 test run` with an `out` argument on `c64_test_run`, plus a header block in
+the payload naming the program, its mtime or hash, the machine model and the
+timestamp — enough that a saved run is evidence and not a transcript. A
+`labels` key in the non-cartridge `c64 package` payload, matching the one the
+cartridge payload already has, surfaced identically by `c64_package`. An opt-in
+`--word`/`--dec16` on `c64 mem get`; its MCP counterpart is a width argument on
+`c64_mem_read`, since `docs/cli.md` records that there is deliberately no
+`c64_mem_get` tool.
+
+**How to verify.** Each: run the command, and confirm the artifact it produces
+answers "which build, on which machine, when" without a human adding it.
+
+## A scored capture cannot be aimed, and no duration survives past ~341 frames
+
+**Anchor:** `c64 audio capture` and `diff_score` in
+`src/c64lib/sid_analysis.py`; `skills/c64-development/references/audio-verification.md`
+(`## Known facts`, where the drift period is now recorded).
+
+**Status:** open. The measurement is done and written down; the two tool gaps
+it exposes are not.
+
+**What's wrong now.** *No origin.* `c64 audio capture` measures what arming
+cost (`lead_in_frames` came back 129 on the probe here) but has no way to aim
+frame 0: `c64 until secchange` leaves the machine stopped at the boundary and
+the arming that follows spends an unpredictable ~130 frames before the log's
+frame 0, while `diff_score` compares event *n* against entry *n* and so needs
+the window's opening tick. The workaround was to rewind the sequencer inside
+the window with `--at-frame 0` and 22 writes reproducing what `loadstreams`
+does — which works, and means every demo wanting a scored capture of a passage
+it cannot restart must reimplement its player's state reset as a poke list.
+*No tolerance.* `diff_score` compares durations with `int(want_frames) !=
+got.frames`, exact equality. A jiffy-paced player and the sid log separate by a
+frame every ~341 log frames, so a 15-second window drifts 2–3 frames and a
+fully-durationed score fails on entries that are musically correct. Omitting
+`frames` is legitimate and is what was done — at the cost of every timing claim
+the score might have made, including *when* a voice enters, which is the whole
+texture arc.
+
+**Fix direction (proposals, both front ends each).** `--at-label REF` on
+`c64 audio capture`, with `at_label` on `c64_audio_capture` — or, better,
+letting `c64 until` hand the stopped machine straight to a capture, so the
+window opens on a label the program itself defines. And a drift tolerance:
+either per entry in the score schema (`frames: 56, tolerance: 2`) or per run
+(`--drift N` / a `drift` argument on the MCP tool), so that a duration can be
+asserted at all over more than a few hundred frames.
+
+**How to verify.** Score a 15-second passage with every `frames` pinned and
+have it pass — which today it cannot, and which is the point.
+
+## The piano roll's pitch axis is unreadable on a wide passage
+
+**Anchor:** `MAX_ROW_LABELS` in `src/c64lib/sid_analysis.py`.
+
+**Status:** open.
+
+**What's wrong now.** The Y labels are thinned to at most twelve, so a passage
+with a wide range comes back labelled every second or third semitone — the
+1812 hymn's 33-semitone range printed `F#5 D5 A#4 F#4 D4 A#3 F#3 D3 A#2 F#2 D2`
+— and a bar sitting between two labels cannot be named from the image. Reading
+`hymn/piano-roll.png` against the claim "the rising fourth and the stepwise
+descent are still here" meant cross-reading the transcription table in
+`report.md` for the pitches and using the roll only for the shape. The roll is
+the artifact a reviewer is pointed at; it should be readable alone.
+
+**Fix direction (two, unranked).** Label every row where the range is small
+enough to fit them, raising the cap rather than fixing it at twelve; or keep
+the cap and draw the unlabelled rows in a second grid tone so the eye can count
+semitones off the nearest label. The second is cheaper and works at any range.
+
+**How to verify.** Generate a roll over a 33-semitone passage and name a bar's
+pitch from the image alone, without opening `report.md`.
+
+## A bare recursive `grep` here cannot be told from one that never ran
+
+**Anchor:** `AGENTS.md`'s "Dogfood post-mortems" section, which is where the
+"quote the file before asserting a gap in it" rule lives; the `grep` shell
+function in `~/.claude/shell-snapshots/snapshot-zsh-*.sh`.
+
+**Status:** open, and it **already cost a false claim in this repo** — a task
+report asserted "nothing in the repo cites `PROMPT.md` by line" and offered the
+failed command as its evidence, in a repo whose own rule is to quote the file.
+
+**What's wrong now.** Two mechanisms, both of which produced an empty result
+that read as "clean". First, the glob never reaches grep:
+`grep -rn "…" --include=*.md .` dies in zsh before the process starts
+(`(eval):1: no matches found: --include=*.md`, exit 1) because the unquoted
+`*.md` is expanded against the cwd — and in the run that mattered no output was
+reported at all, not even the error. Second, the wrapper hides the gitignored
+trees: `type grep` shows a shell function that execs `ugrep` with
+`--ignore-files`, which honours `.gitignore` — and `.superpowers/` and
+`docs/superpowers/` are gitignored, which is exactly where this repo's plans
+and constraint files live. Handed explicit paths, the same pattern found eight
+hits immediately. Only *tracked* files were genuinely clean, and
+`git grep -nI` is the instrument that says so.
+
+**Fix direction (needs a maintainer ruling — it is a house rule).** Add to
+`AGENTS.md` beside the existing evidence rule: "does anything reference X?" is
+answered with `git grep` for tracked files and an explicitly-pathed `grep` for
+the ignored ones, never with a bare recursive `grep` whose empty output cannot
+be told from a crash. The tooling alternative — a wrapper that says on stderr
+when `--ignore-files` suppressed a tree — lives outside this repo, so the rule
+is the part this repo can actually enforce.
+
+**How to verify.** Grep for a string that exists only under `docs/superpowers/`
+and confirm the method used reports it.
+
+## No cycles-per-frame budget anywhere in `skills/`
+
+**Anchor:** `skills/c64-development/references/hardware.md` — the VIC-II
+sections; `docs/cli.md`'s `c64 profile`, which is currently the only place the
+number appears.
+
+**Status:** open. Carried over from the iteration-3 planning notes and verified
+against the tree on 2026-08-12 rather than assumed.
+
+**What's wrong now.** `c64 profile` reports cycles, and `docs/cli.md` supplies
+the denominator inline in its own prose — "25 badlines × ~43 cycles ÷ 17,095"
+and "comfortably inside the 19,656-cycle PAL frame". Nothing in `skills/` does.
+The closest `hardware.md` gets is "VIC stealing 6510 cycles — a screen-blanked
+compute loop runs ~5% faster", which is the effect without a number, and
+`grep -rn 'badline' skills/` returns nothing at all. So an agent working from
+the skill alone can measure a routine and has no way to say what fraction of a
+frame it spent; `demos/1812/AUDIT.md` had to state 17,095 itself.
+
+**Fix direction (ruled by placement, not by content).** A short timing block in
+`hardware.md`'s VIC-II material: cycles per raster line and lines per frame for
+both standards (NTSC 65 × 263 = 17,095; PAL 63 × 312 = 19,656), and the badline
+steal as a fraction rather than as "~5%". No CLI surface changes, so lockstep
+does not apply.
+
+**How to verify.** `grep -rn '17,095\|19,656' skills/` returns the table, and
+`tests/test_docs_skills.py` stays green.
