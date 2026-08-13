@@ -1,9 +1,10 @@
 ; player.s — the laser base, its single shot, and everything the shot hits.
 ;
-; Input comes from $CB, the matrix code of the key held *right now*, which the
-; KERNAL's IRQ scanner refreshes every jiffy.  mainloop latches it into
-; `curkey` as its very first instruction, before any pacing, so a held key
-; poked by `c64 key hold` is still there when this code reads it.
+; Input is the matrix code of the key held *right now*, scanned off the CIA
+; by `keyscan`.  mainloop latches it into `curkey` as its very first
+; instruction, before any pacing, so a held key -- or one `c64 key hold`
+; poked into $CB, which `keyscan` falls back to -- is still there when this
+; code reads it.
 ; GETIN would give buffered keys instead, which stall movement while firing.
 
         .segment "CODE"

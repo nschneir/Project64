@@ -10,7 +10,7 @@
 
 bsstart:
 gstate:   .res 1        ; 0 = title, 1 = play, 2 = game over
-keycode:  .res 1        ; last matrix code seen at $CB (64 = none)
+keycode:  .res 1        ; last matrix code `keyscan` reported (64 = none)
 keyarm:   .res 1        ; the keyboard has been seen empty since this screen
                         ; appeared — see pollkey
 curdir:   .res 1        ; direction of the last move: 0 up 1 down 2 left 3 right
@@ -62,7 +62,7 @@ bssend:
         .segment "RODATA"
 
 ; jiffies per move, by level.  60 Hz, so level 1 is 5 moves/second and level
-; 9 is 30 — the top of what $CB steering can still be aimed at.
+; 9 is 30 — the top of what held-key steering can still be aimed at.
 spdtab:   .byte 12, 10, 8, 7, 6, 5, 4, 3, 2
 
 ; snake colour by level.  Nine distinct hues, none of them the border's

@@ -1,6 +1,7 @@
 ; player.s -- steering, eating, and being caught.
 ;
-; Input is the live matrix code at $CB, latched once at the top of tick.
+; Input is the live matrix code `keyscan` reads off the CIA, latched once at
+; the top of tick.
 ; GETIN would hand back a *buffered* key: hold D and the buffer empties
 ; after one repeat, so she stops dead at the next corner.  Reading the
 ; held-key byte is also what makes `c64 key hold D --at tick` drive her.

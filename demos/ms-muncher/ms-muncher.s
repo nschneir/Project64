@@ -8,8 +8,8 @@
 ; intermission acts, and three-voice SID with every write shadowed in RAM.
 ;
 ; Controls: W/A/S/D steer, SPACE starts and skips an act.  Steering reads
-; the live matrix code at $CB, not GETIN -- a held key must turn you at the
-; next corner, and a buffered key would stall the turn.
+; the keyboard matrix from the CIA, not GETIN -- a held key must turn you at
+; the next corner, and a buffered key would stall the turn (`keyscan`).
 ;
 ;   c64 run demos/ms-muncher/ms-muncher.s
 ;   c64 package demos/ms-muncher/ms-muncher.s \
@@ -31,7 +31,8 @@ SPRPTR  = $07F8
 SPRRAM  = $3000                 ; shape n at SPRRAM + n*64; block = 192 + n
 CHARSET = $3800
 JIFFLO  = $A2                   ; jiffy clock low byte, 60 Hz
-KEYDOWN = $CB                   ; matrix code of the key held right now
+KEYDOWN = $CB                   ; the KERNAL's held-key byte -- read as a
+                                ; fallback only; see `keyscan`
 
 KEY_W   = 9
 KEY_A   = 10
@@ -196,11 +197,11 @@ start:  cld
 
 ; ---- tick: THE frame anchor ---------------------------------------------
 ; Runs exactly once per frame in every state, which is what makes
-; `c64 until tick` and `c64 key hold --at tick` deterministic.  $CB is
-; latched on the first instruction, before any pacing, so a poked matrix
-; code is still live when the state code reads it.
+; `c64 until tick` and `c64 key hold --at tick` deterministic.  The keyboard
+; is read on the first instruction, before any pacing, so a matrix code
+; poked into $CB is still live when the state code reads it.
 tick:
-        lda     KEYDOWN
+        jsr     keyscan
         sta     curkey
         jsr     rnd                     ; turn the generator every frame, so
         lda     curkey                  ; the frame a key arrives on is real
@@ -226,6 +227,68 @@ tickend:
         bne     :+
         inc     frames+1
 :       jmp     tick
+
+; ---- keyscan: the key held right now, as a matrix code (KEY_NONE = none) --
+; Read from the hardware: $DC00 drives one keyboard row low at a time and
+; $DC01 reads the columns back.  It has to be the hardware.  $CB is the
+; Commodore KERNAL's private scratch byte and not a published call, so a
+; clean-room KERNAL has no reason to maintain it -- on MEGA65 open-roms, the
+; ROM the web player boots, $CB reads 0 forever and a keyboard read through
+; it registers nothing at all.  The CIA is the machine either way.
+;
+; Rows are walked 7 down to 0 and the highest column bit wins: that is the
+; order Commodore's own scan resolves two keys held at once, so what this
+; returns is the code $CB would have held, and everything downstream of
+; `curkey` is unchanged.
+;
+; With the matrix idle the KERNAL byte is still consulted, because that is
+; how this program is driven from the CLI: `c64 key hold` re-pokes $CB
+; before each tick and every input step in test.yaml arrives that way.  A
+; $CB of 0 is read as KEY_NONE -- code 0 is INST/DEL, no screen here maps
+; it, and 0 is exactly what a ROM that never writes the byte leaves behind.
+keyscan:
+        php                     ; the KERNAL's IRQ scan drives the same port
+        sei
+        lda     $DC00
+        pha                     ; ... so put it back exactly as found
+        lda     #$FF
+        sta     $DC02           ; port A: outputs, the row drive
+        lda     #$00
+        sta     $DC03           ; port B: inputs, the column sense
+        ldx     #7
+kscan1: lda     ksrows,x
+        sta     $DC00
+        lda     $DC01
+        cmp     #$FF            ; all columns high: nothing down on this row
+        bne     kshit
+        dex
+        bpl     kscan1
+        pla
+        sta     $DC00
+        plp
+        lda     KEYDOWN
+        bne     :+
+        lda     #KEY_NONE
+:       rts
+kshit:  eor     #$FF            ; set bits = the columns pulled low
+        pha
+        txa                     ; matrix code = row*8 + column
+        asl     a
+        asl     a
+        asl     a
+        ora     #7
+        tay
+        pla
+kscan2: asl     a
+        bcs     kscan3
+        dey
+        jmp     kscan2          ; a bit is set, so this always lands
+kscan3: pla
+        sta     $DC00
+        plp
+        tya
+        rts
+ksrows: .byte   $FE, $FD, $FB, $F7, $EF, $DF, $BF, $7F
 
 ; relocart: lift the art block out of the VIC's bank, in whole pages.  It
 ; must run before charsinit or spriteinit, which write over where it loaded.

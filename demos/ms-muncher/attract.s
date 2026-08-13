@@ -1,7 +1,7 @@
 ; attract.s -- the title screen, the cast, the score table, and the demo
 ; that plays itself.
 ;
-; The demo is not a canned recording: demomode simply replaces the $CB read
+; The demo is not a canned recording: demomode simply replaces the keyboard
 ; with demopick, and everything else -- the ghosts, the phases, the fruit,
 ; the speeds -- is the game engine running normally.  That is why watching
 ; the attract screen is a fair advertisement for the game, and why a bug in

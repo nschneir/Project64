@@ -6,8 +6,9 @@
 ; engine, so the speed-up is emergent; three-voice SID with every write
 ; shadowed in RAM.
 ;
-; Controls: A and D held move the laser base, SPACE fires.  Input is the live
-; matrix-code byte at $CB, not GETIN — a held key must move you every frame.
+; Controls: A and D held move the laser base, SPACE fires.  Input is the
+; keyboard matrix read from the CIA, not GETIN — a held key must move you
+; every frame, and a buffered key cannot say what is still down (`keyscan`).
 ;
 ;   c64 run demos/invaders/invaders.s
 ;   c64 package demos/invaders/invaders.s -o demos/invaders/invaders.d64 \
@@ -27,7 +28,8 @@ SPRPTR  = $07F8
 SPRDATA = $3800                 ; block = address/64, so 224..227
 CHARSET = $3000
 JIFFLO  = $A2                   ; jiffy clock low byte, 60 Hz
-KEYDOWN = $CB                   ; matrix code of the key held right now
+KEYDOWN = $CB                   ; the KERNAL's held-key byte -- read as a
+                                ; fallback only; see `keyscan`
 KEY_A   = 10
 KEY_D   = 18
 KEY_SPC = 60
@@ -95,10 +97,11 @@ start:  cld
 ; ---- mainloop: THE frame anchor ------------------------------------------
 ; Executed exactly once per game tick in every state, which is what makes
 ; `c64 until mainloop` and `c64 key hold --at mainloop` deterministic.
-; $CB is latched on the very first instruction, before any pacing delay, so a
-; poked matrix code is still live when the player code reads it.
+; The keyboard is read on the very first instruction, before any pacing
+; delay, so a matrix code poked into $CB is still live when the player code
+; reads it.
 mainloop:
-        lda     KEYDOWN
+        jsr     keyscan
         sta     curkey
         lda     gstate
         beq     mltitle
@@ -135,6 +138,68 @@ waitframe:
 wf1:    cmp     JIFFLO
         beq     wf1
         rts
+
+; ---- keyscan: the key held right now, as a matrix code (KEY_NONE = none) --
+; Read from the hardware: $DC00 drives one keyboard row low at a time and
+; $DC01 reads the columns back.  It has to be the hardware.  $CB is the
+; Commodore KERNAL's private scratch byte and not a published call, so a
+; clean-room KERNAL has no reason to maintain it -- on MEGA65 open-roms, the
+; ROM the web player boots, $CB reads 0 forever and a keyboard read through
+; it registers nothing at all.  The CIA is the machine either way.
+;
+; Rows are walked 7 down to 0 and the highest column bit wins: that is the
+; order Commodore's own scan resolves two keys held at once, so what this
+; returns is the code $CB would have held, and everything downstream of
+; `curkey` is unchanged.
+;
+; With the matrix idle the KERNAL byte is still consulted, because that is
+; how this program is driven from the CLI: `c64 key hold` re-pokes $CB
+; before each tick and every input step in test.yaml arrives that way.  A
+; $CB of 0 is read as KEY_NONE -- code 0 is INST/DEL, no screen here maps
+; it, and 0 is exactly what a ROM that never writes the byte leaves behind.
+keyscan:
+        php                     ; the KERNAL's IRQ scan drives the same port
+        sei
+        lda     $DC00
+        pha                     ; ... so put it back exactly as found
+        lda     #$FF
+        sta     $DC02           ; port A: outputs, the row drive
+        lda     #$00
+        sta     $DC03           ; port B: inputs, the column sense
+        ldx     #7
+kscan1: lda     ksrows,x
+        sta     $DC00
+        lda     $DC01
+        cmp     #$FF            ; all columns high: nothing down on this row
+        bne     kshit
+        dex
+        bpl     kscan1
+        pla
+        sta     $DC00
+        plp
+        lda     KEYDOWN
+        bne     :+
+        lda     #KEY_NONE
+:       rts
+kshit:  eor     #$FF            ; set bits = the columns pulled low
+        pha
+        txa                     ; matrix code = row*8 + column
+        asl     a
+        asl     a
+        asl     a
+        ora     #7
+        tay
+        pla
+kscan2: asl     a
+        bcs     kscan3
+        dey
+        jmp     kscan2          ; a bit is set, so this always lands
+kscan3: pla
+        sta     $DC00
+        plp
+        tya
+        rts
+ksrows: .byte   $FE, $FD, $FB, $F7, $EF, $DF, $BF, $7F
 
 ; ---- state 0: the attract screen ----------------------------------------
 sttitle:

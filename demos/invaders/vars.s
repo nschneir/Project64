@@ -22,7 +22,7 @@ gstate:     .byte 0             ; 0 title, 1 play, 2 base dying, 3 wave clear,
 stinit:     .byte 1             ; 1 = this state has not drawn itself yet
 sttimer:    .word 0             ; generic per-state countdown, in ticks
 tick:       .byte 0             ; free-running frame counter
-curkey:     .byte 64            ; $CB latched at the very top of mainloop
+curkey:     .byte 64            ; the held key, latched at the top of mainloop
 
 score:      .res 6, 0           ; six decimal digits, most significant first
 hiscore:    .res 6, 0           ; survives across games (never cleared)

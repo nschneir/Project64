@@ -17,7 +17,8 @@
 CHARSET  = $3000                ; RAM character set (VIC bank 0)
 SID      = $d400
 JIFFLO   = $a2                  ; low byte of the 60 Hz jiffy clock
-KEYDOWN  = $cb                  ; matrix code of the key held right now
+KEYDOWN  = $cb                  ; the KERNAL's held-key byte — read as a
+                                ; fallback only; see `keyscan`
 PTR      = $fb                  ; screen pointer
 AUX      = $fd                  ; colour pointer, or a borrowed scratch pointer
 
@@ -109,11 +110,11 @@ sdok:   sta     seed
 ; mainloop — one game tick.
 
 mainloop:
-        jsr     pollkey         ; $CB FIRST.  `c64 key hold` pokes the matrix
-                                ; code while the machine sits at this label
-                                ; and the IRQ keyboard scan puts 64 back
-                                ; within a jiffy, so any work before this read
-                                ; loses the keypress.
+        jsr     pollkey         ; THE KEYBOARD FIRST.  `c64 key hold` pokes a
+                                ; matrix code into $CB while the machine sits
+                                ; at this label and the IRQ keyboard scan puts
+                                ; 64 back within a jiffy, so any work before
+                                ; this read loses the keypress.
         lda     gstate
         bne     mlnot0
         jsr     titletick
@@ -129,7 +130,7 @@ mlover: jsr     overtick
 mlpace: jsr     pace
         jmp     mainloop
 
-; pollkey — latch $CB, and note every moment the keyboard is empty.
+; pollkey — latch the held key, and note every moment the keyboard is empty.
 ;
 ; `keyarm` is what stops a key held from BEFORE a screen appeared from
 ; dismissing it: entering the title or the game-over panel clears it, and
@@ -138,7 +139,7 @@ mlpace: jsr     pace
 ; anyone has seen it.  Steering does not consult `keyarm` — a held W has to
 ; keep steering, so it must not need a release first.
 pollkey:
-        lda     KEYDOWN
+        jsr     keyscan
         cmp     #NOKEY
         beq     pkrel
         sta     keycode
@@ -148,6 +149,69 @@ pkrel:  lda     #1
         lda     #NOKEY
         sta     keycode
         rts
+
+; keyscan — the key held right now, as a matrix code, or NOKEY for none.
+;
+; Read from the hardware: $DC00 drives one keyboard row low at a time and
+; $DC01 reads the columns back.  It has to be the hardware.  $CB is the
+; Commodore KERNAL's private scratch byte and not a published call, so a
+; clean-room KERNAL has no reason to maintain it — on MEGA65 open-roms, the
+; ROM the web player boots, $CB reads 0 forever and a keyboard read through
+; it registers nothing at all.  The CIA is the machine either way.
+;
+; Rows are walked 7 down to 0 and the highest column bit wins: that is the
+; order Commodore's own scan resolves two keys held at once, so what this
+; returns is the code $CB would have held, and everything downstream of the
+; read is unchanged.
+;
+; With the matrix idle the KERNAL byte is still consulted, because that is
+; how this program is driven from the CLI: `c64 key hold` re-pokes $CB
+; before each tick and every input step in test.yaml arrives that way.  A
+; $CB of 0 is read as NOKEY — code 0 is INST/DEL, no screen here maps it,
+; and 0 is exactly what a ROM that never writes the byte leaves behind.
+keyscan:
+        php                     ; the KERNAL's IRQ scan drives the same port
+        sei
+        lda     $dc00
+        pha                     ; ... so put it back exactly as found
+        lda     #$ff
+        sta     $dc02           ; port A: outputs, the row drive
+        lda     #$00
+        sta     $dc03           ; port B: inputs, the column sense
+        ldx     #7
+kscan1: lda     ksrows,x
+        sta     $dc00
+        lda     $dc01
+        cmp     #$ff            ; all columns high: nothing down on this row
+        bne     kshit
+        dex
+        bpl     kscan1
+        pla
+        sta     $dc00
+        plp
+        lda     KEYDOWN
+        bne     :+
+        lda     #NOKEY
+:       rts
+kshit:  eor     #$ff            ; set bits = the columns pulled low
+        pha
+        txa                     ; matrix code = row*8 + column
+        asl     a
+        asl     a
+        asl     a
+        ora     #7
+        tay
+        pla
+kscan2: asl     a
+        bcs     kscan3
+        dey
+        jmp     kscan2          ; a bit is set, so this always lands
+kscan3: pla
+        sta     $dc00
+        plp
+        tya
+        rts
+ksrows: .byte   $fe, $fd, $fb, $f7, $ef, $df, $bf, $7f
 
 ; titletick — any key starts a game, once the keyboard has been seen empty.
 titletick:
@@ -175,8 +239,8 @@ otdone: rts
 pace:   sta     pcnt
 paceo:  lda     JIFFLO
         sta     pjlast
-pacew:  jsr     pollkey         ; sampling $CB through the wait keeps a
-                                ; human-held key as responsive as the one
+pacew:  jsr     pollkey         ; sampling the keyboard through the wait keeps
+                                ; a human-held key as responsive as the one
                                 ; `key hold` pokes at the anchor
         lda     pjlast
         cmp     JIFFLO

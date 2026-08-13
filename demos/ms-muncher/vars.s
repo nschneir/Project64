@@ -20,7 +20,8 @@ varsbeg:
 gstate:     .res 1              ; ST_* -- which state handler tick dispatches
 stinit:     .res 1              ; 1 = the state handler must initialise
 sttimer:    .res 1              ; generic per-state countdown
-curkey:     .res 1              ; matrix code latched at the top of tick
+curkey:     .res 1              ; the held key's matrix code, latched at the
+                                ; top of tick
 frames:     .res 2              ; free-running frame counter
 rndstate:   .res 2              ; 16-bit LFSR, stirred by key timing
 board:      .res 1              ; 1-based board number

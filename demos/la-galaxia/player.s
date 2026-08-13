@@ -237,16 +237,28 @@ joydecode:
         rts
 
 ; ---- keydecode -- A = $CB, the matrix code of the key held right now ----
+; Two byte values mean "nothing down", not one.  KEY_NONE is what Commodore's
+; KERNAL leaves; 0 is what a KERNAL that never writes $CB leaves, and the web
+; player boots one -- MEGA65 open-roms, where the byte reads 0 forever.  Read
+; as a key, that 0 pinned `anykey` high every frame, and with it high there
+; was no anykey_edge and the cold open could not be dismissed at all.  Code 0
+; is INST/DEL, which is in neither table, so nothing else here loses a key.
 keydecode:
         sta     tmp1
         lda     #0
         sta     keybits
         lda     tmp1
-        cmp     #KEY_NONE               ; the usual answer, and it is not in
-        beq     kd8                     ; the table: walking all fifteen to
-        ldx     #1                      ; find that out cost 300 cycles
-        stx     anykey                  ; a code here is a key down, mapped
-        ldx     #0                      ; or not (§1a)
+        and     #<~KEY_NONE             ; KEY_NONE is the usual answer and it
+        beq     kd8                     ; is not in the table: walking all
+                                        ; fifteen to find that out cost 300
+                                        ; cycles.  Clearing bit 6 folds the
+                                        ; other "nothing down" value, 0, into
+                                        ; the same branch for the same four
+                                        ; bytes -- and A is dead either way,
+                                        ; because the walk below matches tmp1.
+        ldx     #1                      ; a code here is a key down, mapped
+        stx     anykey                  ; or not (§1a)
+        ldx     #0
 kd1:    lda     keycodes,x
         cmp     #$FF
         beq     kd8
