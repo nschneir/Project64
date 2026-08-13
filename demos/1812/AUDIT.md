@@ -323,11 +323,21 @@ Three protocols produced everything below, and each is re-runnable:
 | A12 hold and restart | `shapes = 746` 120 frames into the hold; the test samples it 4 `seqtick`s into the hold and finds it `unchanged` 120 `seqtick`s later (steps 98, 102); after the keypress `shapes = 1`, `section = 0`, `cannons == 0` (step 109), `rng`/`seed` move from `$27F1`/`$1812` to `$3D22`/`$E91B`, and the first 32 bitmap bytes are zero | PASS |
 | A13 cost is measured | `smul` **111–151** over nine poked cases · `rnd` **29 or 38** blanked · `spanfill` 2,985.4 mean on a poked 160-pixel span · worst-case `drawshape` **480,131 → 467,500.5** (see *Improve*) | PASS |
 | A14 it ships | `c64 package` → `1812.d64`; booted from the image with `disk boot` and stopped at `seqtick` ×300 with `shapes = 5` (`shipped-d64.png`); the program ends at `$1F88`, **120** bytes below `$2000` | PASS |
-| **A15 the arrangement is heard** *(new)* | five captures, five `report.md` **PASS** — 0 diffs, 0 anomalies, `nothing_played` false, 0 clipped samples, each WAV of real duration (18.44 / 15.14 / 10.25 / 15.36 / 15.28 s) | PASS on the machine half; **the maintainer's listen is outstanding** |
+| **A15 the arrangement is heard** *(new)* | *(a)* five captures, five `report.md` **PASS** — 0 diffs, 0 anomalies, `nothing_played` false, 0 clipped samples, each WAV of real duration (18.44 / 15.14 / 10.25 / 15.36 / 15.28 s). *(b)* the maintainer played the five WAVs on 2026-08-12 and answered: *"I listened to the audio and it all sounds very good."* | PASS, both halves — but see the note on (b) |
 | **A16 the piano envelope** *(new)* | at `seqtick` ×900 the test asserts `sidshadow+6 & $F0 == 0` and `sidshadow+13 & $F0 == 0` — both piano hands hold sustain 0 (steps 26, 27) — and `sidshadow+14 == 0000`, so voice 3 has not sounded at all (step 29); all three pass | PASS |
 
 A15 and A16 did not exist before this iteration; they were added to `SPEC.md`
 §12 in it, which is why the first table entry for each is here.
+
+**A15(b) is the one row in this table that is not a machine reading, and it
+must not be read as one.** Its evidence is a person's sentence, dated, about
+the five committed WAVs — not a register, not a counted dump, not a `c64
+audio report` verdict. It settles exactly one question, which is how the
+piece sounds; it is not a review of the code, the evidence or the spec, and
+nothing else in this iteration rests on it. The file's rule at the top —
+*"None comes from reading the source"* — is about where machine verdicts come
+from, and A15(b) is the deliberate exception the criterion was written to
+require, because no measurement can answer the question it answers.
 
 **A7's number does not come from the evidence run, and could not.**
 `tools/evidence.sh` stops at the *first* `cannonfire` and prints `cannons=1`;
@@ -342,8 +352,9 @@ friction log rather than left here as a shrug.
 
 ### Review — as a listener
 
-**This is the first iteration that could listen, and the machine did the
-listening.** Five windows, one per section, each opening on its section's first
+**This is the first iteration that could listen** — the machine does the
+listening through this section, and a human does it at the end.
+Five windows, one per section, each opening on its section's first
 tick; the reference scores were modelled from `voicetick` one frame at a time
 by `tools/genscore.py` and never edited to fit a capture. All five passed on
 the first run.
@@ -396,12 +407,18 @@ and each window was cut so the last modelled event clears its edge. Prose that
 wants to say the tempo is exact has the transcription tables to quote, not
 these verdicts.
 
-**And the listen itself has not happened.** Everything above is a machine's
-account of the arrangement; whether the reduction *sounds* like the Overture is
-a judgement a human with speakers makes. Iteration 2 stated that limit and
-stopped there. This iteration states it as a standing acceptance criterion —
-`SPEC.md` §12 A15 — with the five WAVs named, so the gate is a thing that can
-be met rather than an intention.
+**And then the listen happened.** Everything above is a machine's account of
+the arrangement; whether the reduction *sounds* like the Overture is a
+judgement a human with speakers makes, and on **2026-08-12** the maintainer
+made it against these five committed WAVs:
+
+> I listened to the audio and it all sounds very good.
+
+That answers the question the captures cannot, and only that question: how it
+sounds. Iteration 2 stated the limit and stopped there. This iteration states
+it as a standing acceptance criterion — `SPEC.md` §12 A15, both halves, for
+every iteration after this one as well — and then meets it, so the next
+arrangement change has a gate to pass rather than an intention to inherit.
 
 ### Improve — the texture arc
 
@@ -653,11 +670,13 @@ that `evidence/` is byte-reproducible is false for those three files until a
 - 170-step regression test passes; the demo runs the full 2:50 with
   **746 shapes**, `dropped = 0`, all ten shape types and all eight dither
   patterns used.
-- **The arrangement has been heard by the machine and not yet by a human.**
-  Five captures under `evidence/audio/`, five PASS reports, and `SPEC.md` §12
-  A15 now states both halves of that criterion. The maintainer's listen is the
-  one acceptance criterion this demo has never satisfied, and it is the open
-  item at the close of iteration 3.
+- **The arrangement has been heard — by the machine and by a human.** Five
+  captures under `evidence/audio/`, five PASS reports, and the maintainer's
+  listen on 2026-08-12: *"I listened to the audio and it all sounds very
+  good."* `SPEC.md` §12 A15 keeps both halves as a **standing** requirement,
+  so a later arrangement change re-opens it; what closed at the end of
+  iteration 3 is this iteration's instance of it. The human half is a
+  judgement about how the piece sounds and about nothing else.
 - The one ceiling worth watching: the program ends just below `$2000`, and the
   `$C400` block has its own size assertion. Both are **linker assertions**, so
   growing past either is a build error rather than a demo that quietly paints
