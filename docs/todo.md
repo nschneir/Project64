@@ -760,61 +760,32 @@ for that reason.
 `jQuery._data(window, "events").resize.length` in the console: 3 today, 0 once
 `stop_emu_view()` unregisters.
 
-## `demos/1812` still reads `$CB`, and restarts itself on the play page
-
-**Anchor:** `demos/1812/1812.s:114` (`lda KEYDOWN` in `mlidle`), its
-`KEYDOWN = $CB` equate at `:42`, and the `irqinstall` comment at `:308` that
-says the demo "needs `$CB` live for the restart key".
-
-**Status:** open. The four games were fixed on 2026-08-13 (`keyscan`, reading
-the CIA matrix, with `$CB` kept as the CLI's fallback); 1812 was outside that
-change's scope and still has the original bug.
-
-**What's wrong now.** MEGA65 open-roms, which `play.html` boots, never writes
-`$CB` — it reads 0 forever there, and 0 is not `KEY_NONE`. `mlidle` treats
-anything other than `KEY_NONE` as a key held, so the moment the piece reaches
-section 5 the hold reads a phantom key and `restart` fires, on that tick and
-every tick after it. In the browser the finale cannot hold; the piece relaunches
-itself with a fresh seed instead. Under VICE the Commodore KERNAL keeps `$CB`
-at 64 and the same code is correct, so `c64 test run demos/1812/test.yaml`
-cannot see this.
-
-**Fix direction (not ruled).** The same shape the games took: scan the matrix
-off `$DC00`/`$DC01` and fall back to `$CB` only when the matrix is idle, reading
-a `$CB` of 0 as "no key". `demos/snake/snake.s`'s `keyscan` is a 60-byte copy
-that can be lifted verbatim; note 1812 keeps the KERNAL IRQ chained (`CINV`
-wedge), so the scan must hold interrupts off across itself and put `$DC00` back,
-which that routine already does. Whether 1812 wants a third copy of `keyscan` or
-whether the four copies now in the tree should become one shared include is the
-open design question.
-
-**How to verify.** Serve the repo locally and open
-`play.html?demo=1812`; let it reach section 5 and confirm the canvas holds
-instead of relaunching. `wasm_peek` on `section` and the shape counter through
-the emulator frame shows it directly.
-
-## The play page and four READMEs still advertise `$CB` steering
+## The play page and five READMEs still advertise `$CB` steering
 
 **Anchor:** `play.html:427` (snake's `description`), `index.html:343` (the same
 sentence in the demo table), `demos/snake/README.md:4,36,69`,
 `demos/invaders/README.md:36`, `demos/ms-muncher/README.md:39,66`,
 `demos/la-galaxia/README.md:51`, `demos/1812/README.md:40`.
 
-**Status:** open, and inaccurate as of 2026-08-13 for every line except 1812's.
+**Status:** open, and inaccurate as of 2026-08-13 — every line above, 1812's
+included now that it is fixed too.
 
 **What's wrong now.** Those sentences describe the input path as reading `$CB`.
-The four games now scan the CIA keyboard matrix and consult `$CB` only as a
+All five demos now scan the CIA keyboard matrix and consult `$CB` only as a
 fallback for `c64 key hold`, so "`$CB` held-key steering" names the fallback and
-not the mechanism. The source comments were corrected with the change; this
-prose was left alone because the fix was scoped to the input path and its
-comments, and rewriting shipped narrative text was ruled out of it.
+not the mechanism; 1812's "read as the live matrix code at `$CB` rather than
+through a ROM call" has the sharpest version of the error, because `$CB` *is*
+the ROM call's residue and reading the matrix is what replaced it. The source
+comments were corrected with the change; this prose was left alone because the
+fix was scoped to the input path and its comments, and rewriting shipped
+narrative text was ruled out of it.
 
 **Fix direction (not ruled).** Replace the mechanism with what it now is —
 "keyboard-matrix held-key steering" reads the same length in the page
-description and the table cell. 1812's line stays true until 1812 is fixed.
+description and the table cell.
 
 **How to verify.** `grep -rn '\$CB' play.html index.html demos/*/README.md`
-returns only lines about the fallback, or about 1812.
+returns only lines about the fallback.
 
 ## `la-galaxia`'s fighter-movement assertion is a coin flip
 

@@ -39,8 +39,13 @@ QSH     = $C200                 ; ...and high bytes.  512 entries each, built by
                                 ; .prg — see vars.s on why that matters.
 CINV    = $0314                 ; IRQ RAM vector; default $EA31
 BLNSW   = $CC                   ; nonzero suppresses the KERNAL cursor blink
-KEYDOWN = $CB                   ; matrix code of the key held right now
+KEYDOWN = $CB                   ; the KERNAL's held-key byte -- read as a
+                                ; fallback only; see `keyscan`
 KEY_NONE = 64
+CIA1PRA = $DC00                 ; keyboard matrix: rows out ...
+CIA1PRB = $DC01                 ; ... columns in
+CIA1DDRA = $DC02
+CIA1DDRB = $DC03
 JIFFLO  = $A2
 
 ; The mode bytes, spelled out once (SPEC.md 2.1).
@@ -111,11 +116,77 @@ mainloop:
 mlidle: lda     section
         cmp     #5
         bne     mainloop
-        lda     KEYDOWN         ; the hold: a key restarts with a fresh seed
+        jsr     keyscan         ; the hold: a key restarts with a fresh seed
         cmp     #KEY_NONE
         beq     mainloop
         jsr     restart
         jmp     mainloop
+
+; ==========================================================================
+; keyscan — the key held right now, as a matrix code, or KEY_NONE for none.
+;
+; Read from the hardware: $DC00 drives one keyboard row low at a time and
+; $DC01 reads the columns back.  It has to be the hardware.  $CB is the
+; Commodore KERNAL's private scratch byte and not a published call, so a
+; clean-room KERNAL has no reason to maintain it — on MEGA65 open-roms, the
+; ROM the web player boots, $CB reads 0 forever.  0 is not KEY_NONE, so the
+; hold above read a key that was never pressed and the piece relaunched
+; itself the moment it reached section 5.  The CIA is the machine either way.
+;
+; Rows are walked 7 down to 0 and the highest column bit wins: that is the
+; order Commodore's own scan resolves two keys held at once, so what this
+; returns is the code $CB would have held.
+;
+; With the matrix idle the KERNAL byte is still consulted, because that is
+; how the hold is driven from the CLI: test.yaml re-pokes $CB before each
+; `until`.  A $CB of 0 is read as KEY_NONE — code 0 is INST/DEL, which this
+; demo does not distinguish from any other key anyway, and 0 is exactly what
+; a ROM that never writes the byte leaves behind.
+; ==========================================================================
+
+keyscan:
+        php                     ; the KERNAL's scan runs under the wedge and
+        sei                     ; drives this same port
+        lda     CIA1PRA
+        pha                     ; ... so put it back exactly as found
+        lda     #$FF
+        sta     CIA1DDRA        ; port A: outputs, the row drive
+        lda     #$00
+        sta     CIA1DDRB        ; port B: inputs, the column sense
+        ldx     #7
+kscan1: lda     ksrows,x
+        sta     CIA1PRA
+        lda     CIA1PRB
+        cmp     #$FF            ; all columns high: nothing down on this row
+        bne     kshit
+        dex
+        bpl     kscan1
+        pla
+        sta     CIA1PRA
+        plp
+        lda     KEYDOWN
+        bne     :+
+        lda     #KEY_NONE
+:       rts
+kshit:  eor     #$FF            ; set bits = the columns pulled low
+        pha
+        txa                     ; matrix code = row*8 + column
+        asl     a
+        asl     a
+        asl     a
+        ora     #7
+        tay
+        pla
+kscan2: asl     a
+        bcs     kscan3
+        dey
+        jmp     kscan2          ; a bit is set, so this always lands
+kscan3: pla
+        sta     CIA1PRA
+        plp
+        tya
+        rts
+ksrows: .byte   $FE, $FD, $FB, $F7, $EF, $DF, $BF, $7F
 
 ; ==========================================================================
 ; setmode — the five registers of SPEC.md 2.1, and nothing else.  The VIC
@@ -304,8 +375,8 @@ restart:
 
 ; ==========================================================================
 ; irqinstall — the CINV wedge (cookbook, "IRQ wedge").  Chaining to the old
-; vector keeps the jiffy clock and the keyboard scan alive, and the demo
-; needs $CB live for the restart key.
+; vector keeps the jiffy clock alive, and with it the KERNAL's keyboard scan,
+; which is what keeps `keyscan`'s $CB fallback fed on a Commodore ROM.
 ;
 ; `jmp (oldvec)` would hit the 6502 indirect-jump page bug if oldvec's low
 ; byte were $FF; PLAN task 8 step 3 checks that in the label file.
