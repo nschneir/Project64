@@ -290,6 +290,11 @@
 
   var EMU_BASE      = "https://nschneir.github.io/vc64web.github.io/";
   var PLAYER_SCRIPT = EMU_BASE + "js/vc64web_player.js";
+  /* The player lazy-loads this itself if it is missing (vc64web_player.js:117),
+     and that lazy load is what makes the first mount asynchronous. We fetch it
+     up front instead — see loadPlayerScript(). Tracked in the fork beside the
+     player script. */
+  var JQUERY_SCRIPT = EMU_BASE + "js/jquery-3.7.1.min.js";
   var ROM_BASE      = EMU_BASE + "roms/";
 
   var KERNAL_ROM_URL  = ROM_BASE + "kernal.rom";
@@ -369,10 +374,17 @@
   var attrLinks= document.getElementById("attribution-links");
 
   var activeDemo = null;   // the selected registry entry
-  var playerUp   = false;  // is a player iframe currently mounted?
-  var isTouch    = false;  // set by the first touchstart, consumed by the config
-  var scriptLoad = null;   // memoised Promise<boolean> for PLAYER_SCRIPT
+  var playerUp   = false;  // has a mount been sanctioned and not torn down?
+  var bootGen    = 0;      // bumped by every teardown; a boot that started under
+                           // an older number has been overtaken and must not mount
+  var scriptLoad = null;   // memoised Promise<boolean> for the player + jQuery
 
+  /* The wiki's ontouchstart listener still upgrades this, but it cannot have
+     fired before a Task 3 auto-boot, which would then hand the emulator
+     touch:false on a phone. Seed it from the primary pointer instead: coarse is
+     a phone or a tablet, and — unlike maxTouchPoints — not a laptop that merely
+     has a touchscreen. */
+  var isTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
   document.addEventListener("touchstart", function(){ isTouch = true; },
                             {once:true, passive:true});
 
@@ -464,13 +476,30 @@
     return slot;
   }
 
-  function teardownPlayer(){
-    if(playerUp){
-      try{
-        if(window.vc64web_player) window.vc64web_player.stop_emu_view();
-      }catch(e){ /* the restore is best-effort; ensureSlot() is the guarantee */ }
-      playerUp = false;
+  /* stop_emu_view() clears state_poller but never forgets the id, and it only
+     runs at all if the player thinks something is mounted. A poller started by
+     a mount we did not sanction would otherwise postMessage at a dead iframe
+     every 900 ms, for ever. */
+  function stopPoller(){
+    var player = window.vc64web_player;
+    if(player && player.state_poller != null){
+      clearInterval(player.state_poller);
+      player.state_poller = null;
     }
+  }
+
+  function teardownPlayer(){
+    bootGen++;                       // orphan any boot still in flight
+    var player = window.vc64web_player;
+    if(player){
+      try{
+        /* saved_pic_html is the player's own "I am mounted" flag — trust it as
+           well as ours, so a mount we did not sanction is still unwound. */
+        if(playerUp || player.saved_pic_html != null) player.stop_emu_view();
+      }catch(e){ /* best-effort; ensureSlot() is the guarantee */ }
+    }
+    stopPoller();
+    playerUp = false;
     return ensureSlot();
   }
 
@@ -521,16 +550,31 @@
 
   /* ── loading the player script (and failing honestly if it will not) ───── */
 
-  function loadPlayerScript(){
-    if(scriptLoad) return scriptLoad;
-    scriptLoad = new Promise(function(resolve){
-      if(window.vc64web_player){ resolve(true); return; }
+  function loadScript(url){
+    return new Promise(function(resolve){
       var s = document.createElement("script");
-      s.src = PLAYER_SCRIPT;
+      s.src = url;
       s.async = true;
-      s.onload  = function(){ resolve(!!window.vc64web_player); };
+      s.onload  = function(){ resolve(true); };
       s.onerror = function(){ resolve(false); };
       document.head.appendChild(s);
+    });
+  }
+
+  /* Resolves true only when BOTH the player and jQuery are in the page.
+     Requiring jQuery up front is the point: with window.jQuery already set,
+     vc64web_player.load() calls load_into() inline (vc64web_player.js:111-119)
+     and the iframe is mounted before load() returns. Left to itself the player
+     fetches jQuery lazily and mounts whenever that lands — a window in which
+     the visitor can pick another game, and demo A ends up under demo B's
+     highlight. Everything after this promise runs under a generation check. */
+  function loadPlayerScript(){
+    if(scriptLoad) return scriptLoad;
+    scriptLoad = Promise.all([
+      window.vc64web_player ? Promise.resolve(true) : loadScript(PLAYER_SCRIPT),
+      window.jQuery         ? Promise.resolve(true) : loadScript(JQUERY_SCRIPT)
+    ]).then(function(){
+      return !!window.vc64web_player && !!window.jQuery;
     });
     return scriptLoad;
   }
@@ -538,12 +582,15 @@
   /* ── the two exported behaviours ───────────────────────────────────────── */
 
   function bootPlayer(demo){
+    var gen = bootGen;               // the generation this boot belongs to
     renderMessage(demo, "STARTING THE C64…",
                   "Fetching the emulator and the system ROMs.", false);
 
     loadPlayerScript().then(function(ok){
-      if(demo !== activeDemo) return;          // switched tiles while loading
-      if(!ok || !window.vc64web_player){
+      /* Overtaken while the scripts were in flight: another tile was picked,
+         so this boot is stale and must not touch the DOM at all. */
+      if(gen !== bootGen) return;
+      if(!ok || !window.vc64web_player || !window.jQuery){
         renderMessage(demo, "THE EMULATOR FAILED TO LOAD.",
           "The in-browser C64 could not be reached, so " + demo.title +
           " cannot run here right now. It still runs anywhere else — " +
@@ -592,6 +639,22 @@
     if(boot) bootPlayer(demo);
   }
 
+  /* Last line of defence. Requiring jQuery above means the real player mounts
+     inline, so a mount can no longer land after its generation has passed — but
+     that is a fact about someone else's code. If one ever does land late it
+     would put the wrong game under the right tile, which is worse than a leak.
+     A mount nobody sanctioned (playerUp === false) is removed, the poller it
+     started is stopped, and the current demo's preview goes back. */
+  if(window.MutationObserver){
+    new MutationObserver(function(){
+      if(playerUp) return;
+      if(!frame.querySelector("#player_container")) return;
+      stopPoller();
+      ensureSlot();
+      if(activeDemo) renderPreview(activeDemo);
+    }).observe(frame, {childList:true, subtree:true});
+  }
+
   /* Task 3 (deep links + the sound hint) drives the page through these. */
   window.playPage = {
     DEMOS: DEMOS,
@@ -603,7 +666,10 @@
   buildStrip();
   buildAttribution();
   selectDemo(DEMOS[0].id, false);
-  loadPlayerScript();   // warm it up so the first click is not a cold fetch
+  /* No warm-up fetch: until the fork is live it only buys a 404 in the console
+     on every page load, which would train the eye to ignore the one error that
+     actually means something. The fetch happens on the first boot instead,
+     where a failure has a visible message attached to it. */
 })();
 </script>
 </body>
