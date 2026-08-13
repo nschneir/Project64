@@ -162,6 +162,46 @@ the new witness fails on a voice-1 stream that is silent for the section —
 check it, do not assume it, since that is the failure the current step already
 cannot see.
 
+## `index.html`'s 1812 alt text describes pixels nothing checks
+
+**Anchor:** the three `alt=` strings in `index.html`'s demos section, on
+`demos/1812/evidence/sec1.png`, `cannon.png` and `final.png`
+(`index.html:399,402,405`).
+
+**Status:** open, and **latent rather than live**. All three strings were
+checked against the retaken PNGs on 2026-08-12, by opening the images: the
+Marseillaise capture is blue and red polygons over dithered blue, red and
+white; the cannon capture has a white border around red, orange, yellow and
+blue; the final canvas is blue, yellow, brown and white with a blue star in
+it. Every claim held. What is filed here is the missing guard, not a wrong
+sentence.
+
+**What's wrong now.** The strings make colour and content claims about
+particular pixels, and those pixels are generated: `sections.s`'s `secpal`
+decides the palette and `tools/evidence.sh` rewrites `evidence/` on every
+run. Nothing connects the two ends — `grep -rn 'alt=' tests/` finds nothing,
+and `tests/test_docs_demos.py` reads `index.html` only for the demo roster
+and the description column, never for an image. A palette edit is not
+hypothetical: the finale's has already moved once, and `sections.s:31-37`
+records why. The next one retakes the PNGs and leaves the alt text describing
+the previous ones, silently — and alt text is read by exactly the people who
+cannot look at the image and notice.
+
+**Fix direction (two, unranked).** Either pin the strings to the data — a
+test that maps each 1812 `alt` to the section it captures and fails when it
+names a colour outside that section's `secpal` row plus the sections before
+it, since nothing is ever erased and earlier palettes stay on the canvas; or
+take the colours out of the strings and describe structure instead
+("overlapping dither-filled polygons filling the frame"), which is weaker alt
+text but cannot go stale. The first keeps what makes the current strings
+worth reading.
+
+**How to verify.** Whichever is chosen, prove it fails: flip one byte of
+`secpal`, re-run the guard, and confirm it goes red — a test that passes
+against a palette the page does not describe is the same gap one file over.
+Until then, anyone re-running `tools/evidence.sh` re-reads these three
+strings against the images by hand.
+
 ## A capture staged with `c64 call` cannot be anchored, and its PNG churns
 
 **Anchor:** `demos/1812/tools/evidence.sh` section 9 (`call drawshape`

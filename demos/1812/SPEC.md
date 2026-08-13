@@ -58,7 +58,7 @@ assumes that (`references/hardware.md`, "Video modes").
 ```
 $0000-$00FF  zero page — 14 claimed bytes, §2.3
 $0801-$080C  BASIC stub "10 SYS 2061"
-$080D-$1FFF  CODE / RODATA / DATA / BSS      (7,667 bytes; hard ceiling $2000)
+$080D-$1FFF  CODE / RODATA / DATA / BSS      (6,131 bytes; hard ceiling $2000)
 $0400-$07E7  screen RAM — bit-pair 01 = high nybble, 10 = low nybble
 $2000-$3F3F  the 8,000-byte bitmap
 $C000-$C3FF  quarter-square multiply tables, built at startup by `qsgen`
@@ -73,9 +73,12 @@ rather than a demo that quietly paints over its own canvas. (Both fired
 during the build; that is why they are there.)
 
 `$C000-$CFFF` is the 4 KB BASIC never touches. Nothing there is in the
-`.prg` — with the bitmap at `$2000` the program has only a few hundred bytes
-of headroom, and the tables and arrays are about 900. The VIC-II cannot see
-`$C000`, which does not matter: only the CPU reads them.
+`.prg` — with the bitmap at `$2000` the program has about 120 bytes of
+headroom (`$2000 - (__BSS_LOAD__ + __BSS_SIZE__)`, re-derived from
+`1812.lbl` rather than trusted from here, since it has moved every
+iteration), and the tables and arrays are 1,536: the 1,024 and the 512 of
+the two blocks above. The VIC-II cannot see `$C000`, which does not matter:
+only the CPU reads them.
 
 The VIC-II sees the character ROM image at `$1000-$1FFF` in bank 0, but
 only for character and bitmap fetches; our bitmap is at `$2000` and our

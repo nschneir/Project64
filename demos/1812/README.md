@@ -81,9 +81,9 @@ The arrangement moves with it. The piece opens as a **solo piano** — two hands
 over a byte-identical instrument row, the third voice silent — and gains
 instruments as it builds: a sawtooth reed arrives over the piano's chords and
 bass hand for the Marseillaise, the battle runs all three voices, the cannon
-plays two under the artillery, and the finale is three again over
-ring-modulated bells. The full texture is arrived at rather than merely
-present, and then the hold takes every voice away again.
+plays two under the artillery, and the finale is three again, the
+ring-modulated bells among them. The full texture is arrived at rather
+than merely present, and then the hold takes every voice away again.
 
 Everything about it is settled from registers and state bytes: 746 shapes
 drawn and none dropped, all ten shape types and all eight dither patterns
