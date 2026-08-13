@@ -152,6 +152,25 @@
   th{color:var(--p-bright);letter-spacing:.08em;font-weight:700;background:rgba(138,124,224,.08)}
   .no{color:var(--p-dim)}
 
+  /* ▶ PLAY: the only control in a table otherwise made entirely of links, so
+     it is drawn as a block rather than inheriting the underline every other
+     anchor here carries — underlined text inside a bordered box reads as
+     neither. Green is the logo's own --c64-green, and the hover fill is the
+     same invert the .copy button already uses, so the affordance is one the
+     page has taught before. */
+  .play-btn{display:inline-block;margin-left:.6em;padding:2px 8px;
+    border:1px solid var(--c64-green);color:var(--c64-green);
+    font-family:var(--mono);font-size:.85rem;font-weight:700;letter-spacing:.1em;
+    white-space:nowrap;transition:background .15s,color .15s,box-shadow .15s}
+  .play-btn:hover,.play-btn:focus-visible{background:var(--c64-green);
+    color:var(--room);border-color:var(--c64-green);
+    box-shadow:0 0 12px -3px var(--c64-green);outline:none}
+  /* the same green, so the section's entry point and its per-demo buttons
+     read as one offer rather than two unrelated links */
+  .play-line a{color:var(--c64-green);border-bottom-color:var(--c64-green)}
+  .play-line a:hover,.play-line a:focus-visible{background:var(--c64-green);
+    color:var(--room);border-bottom-color:var(--c64-green)}
+
   /* screen grabs: keep the C64's pixels square rather than smoothed */
   /* inline-block + nowrap (not flex): a table cell only widens for its
      min-content, and a flex row happily squashes instead of asking for room */
@@ -296,6 +315,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
 
     <section class="reveal" id="demos">
       <h2><span class="mk">&#x2500;&#x2500;</span> DEMOS: TRY IT! <span class="mk">&#x2500;&#x2500;</span></h2>
+      <p class="play-line"><a href="play.html">&#x25B6; Play the finished games in your browser</a></p>
       <p>Ready-to-run prompts in three sets: graded <b>test demos</b> that walk
       the toolset from a first BASIC program to a full debugger hunt,
       <b>game demos</b> &mdash; complete builds with sprites, custom
@@ -320,7 +340,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
         <thead><tr><th>Demo</th><th>Language</th><th>Description</th><th>Screens</th></tr></thead>
         <tbody>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a></td><td>6502 assembly</td><td>Arcade Snake on a custom hires charset &mdash; <code>$CB</code> held-key steering, SID sound, nine speeding-up levels</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/snake">Snake</a><a class="play-btn" href="play.html?demo=snake" aria-label="Play Snake in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>Arcade Snake on a custom hires charset &mdash; <code>$CB</code> held-key steering, SID sound, nine speeding-up levels</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/snake/evidence/title.png" title="Title screen: SNAKE in block graphics, one colour per letter">
@@ -336,7 +356,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a></td><td>6502 assembly</td><td>The 1978 arcade original &mdash; sprites and custom charset, the one-invader-per-tick march, three-voice SID</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/invaders">Invaders</a><a class="play-btn" href="play.html?demo=invaders" aria-label="Play Invaders in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>The 1978 arcade original &mdash; sprites and custom charset, the one-invader-per-tick march, three-voice SID</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/invaders/evidence/title.png" title="Attract screen: the name in block graphics and the score advance table">
@@ -352,7 +372,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/ms-muncher">Ms. Muncher</a><a class="play-btn" href="play.html?demo=ms-muncher" aria-label="Play Ms. Muncher in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>A maze chase &mdash; four rotating mazes, per-ghost targeting AI, six sprites, animated cut scenes</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/ms-muncher/evidence/title.png" title="Attract screen: the block-graphics logo, the cast, and the top five">
@@ -368,7 +388,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr>
-            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a></td><td>6502 assembly</td><td>An old school shooter in Spanish with a deliberately off-kilter sound track &mdash; a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing</td>
+            <td><a href="https://github.com/nschneir/Project64/tree/main/demos/la-galaxia">La Galaxia</a><a class="play-btn" href="play.html?demo=la-galaxia" aria-label="Play La Galaxia in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>An old school shooter in Spanish with a deliberately off-kilter sound track &mdash; a 40-enemy formation in character RAM and raster-IRQ sprite multiplexing</td>
             <td class="shotcell">
               <div class="shots">
                 <a class="shot" href="demos/la-galaxia/evidence/transform.png" title="Stage 4: transforming enemies break out of the formation &mdash; a trio mid-morph over the starfield">
@@ -415,7 +435,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       miscellaneous builds) ships its whole solution beside its prompt once it
       has been built &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
-      runnable .d64 for stock VICE; La Galaxia and Fugue are
+      runnable .d64 for stock VICE; Fugue is
       prompt-only so far.</small></p>
     </section>
 
