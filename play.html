@@ -205,8 +205,8 @@
       <a class="backlink" href="index.html">&#x25C2; PROJECT&nbsp;64</a>
       <h1 class="title">PLAY</h1>
       <p class="tag">The game demos, on a real emulated Commodore 64, in this tab.
-        Pick a game, click the screen, and it boots off its own disk &mdash; the same
-        <code>.d64</code> you would hand to VICE.</p>
+        Pick a game, click the screen, and the machine boots and runs it &mdash; the
+        same <code>.prg</code> you would load on real hardware.</p>
     </header>
 
     <div class="rule" aria-hidden="true">&#x2554;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2557;</div>
@@ -236,20 +236,22 @@
         <span class="cap">NO JAVASCRIPT</span>
         <p>The in-browser C64 needs JavaScript &mdash; but every game is a plain file
         you can download and run in <a href="https://vice-emu.sourceforge.io/">VICE</a>
-        (<code>x64sc -ntsc &lt;file&gt;</code>):</p>
+        (<code>x64sc -ntsc &lt;file&gt;</code>). The <code>.prg</code> is the program
+        itself &mdash; the one this page runs; the <code>.d64</code> is the same game
+        as a disk image, for a real drive:</p>
         <ul>
           <li>SNAKE &mdash;
-            <a href="demos/snake/snake.d64">snake.d64</a> &middot;
-            <a href="demos/snake/snake.prg">snake.prg</a></li>
+            <a href="demos/snake/snake.prg">snake.prg</a> &middot;
+            <a href="demos/snake/snake.d64">snake.d64</a></li>
           <li>INVADERS &mdash;
-            <a href="demos/invaders/invaders.d64">invaders.d64</a> &middot;
-            <a href="demos/invaders/invaders.prg">invaders.prg</a></li>
+            <a href="demos/invaders/invaders.prg">invaders.prg</a> &middot;
+            <a href="demos/invaders/invaders.d64">invaders.d64</a></li>
           <li>MS. MUNCHER &mdash;
-            <a href="demos/ms-muncher/ms-muncher.d64">ms-muncher.d64</a> &middot;
-            <a href="demos/ms-muncher/ms-muncher.prg">ms-muncher.prg</a></li>
+            <a href="demos/ms-muncher/ms-muncher.prg">ms-muncher.prg</a> &middot;
+            <a href="demos/ms-muncher/ms-muncher.d64">ms-muncher.d64</a></li>
           <li>LA GALAXIA &mdash;
-            <a href="demos/la-galaxia/la-galaxia.d64">la-galaxia.d64</a> &middot;
-            <a href="demos/la-galaxia/la-galaxia.prg">la-galaxia.prg</a></li>
+            <a href="demos/la-galaxia/la-galaxia.prg">la-galaxia.prg</a> &middot;
+            <a href="demos/la-galaxia/la-galaxia.d64">la-galaxia.d64</a></li>
         </ul>
       </section>
     </noscript>
@@ -259,8 +261,10 @@
     <footer>
       <p>MIT licensed. The emulator running in the frame above is
       <a href="https://vc64web.github.io/">vc64web</a>, a separate WebAssembly
-      project served from its own site &mdash; not bundled. No Commodore ROM code
-      lives in this repo.</p>
+      project served from its own site &mdash; not bundled. It boots on the
+      <a href="https://github.com/MEGA65/open-roms">MEGA65 open-roms</a> KERNAL,
+      BASIC and character ROMs (LGPL-3.0-or-later), not Commodore&rsquo;s: no
+      Commodore ROM code lives in this repo, and none is sent to your browser.</p>
       <p><small>Built primarily by AI (Anthropic&rsquo;s Claude, via Claude Code) under
       human direction &mdash; a working example of AI-built developer tooling.</small></p>
       <div class="links">
@@ -282,9 +286,10 @@
   /* ══════════════════════════════════════════════════════════════════════════
      CONSTANTS — the one and only place these values appear.
 
-     If the ROM question is settled differently (open-source replacement ROMs,
-     other filenames) or the player is handed a program file instead of a disk
-     image, this block is the whole change. Nothing below hard-codes a URL, a
+     The emulator boots on the MEGA65 open-roms KERNAL + BASIC + CHARGEN, with
+     no 1541 drive ROM at all: not a compromise but the better configuration —
+     no Commodore ROM is published anywhere, and all four demos were verified
+     running on it (task-1b-rom-research.md). Nothing below hard-codes a URL, a
      ROM name, or the choice of medium.
      ══════════════════════════════════════════════════════════════════════════ */
 
@@ -297,20 +302,20 @@
   var JQUERY_SCRIPT = EMU_BASE + "js/jquery-3.7.1.min.js";
   var ROM_BASE      = EMU_BASE + "roms/";
 
+  /* Three ROMs, not four. There is deliberately no floppy/1541 ROM: a .prg is
+     flashed straight into RAM and never touches the drive, and the only free
+     drive ROM would be a Commodore one. */
   var KERNAL_ROM_URL  = ROM_BASE + "kernal.rom";
   var BASIC_ROM_URL   = ROM_BASE + "basic.rom";
   var CHARSET_ROM_URL = ROM_BASE + "chargen.rom";
-  var FLOPPY_ROM_URL  = ROM_BASE + "floppy.rom";
 
-  /* Which registry field the player is handed, and the autostart it implies.
-     These two move together: "d64" boots off the drive, so the script LOADs
-     from device 8 and waits for the drive; a program file would not. */
-  var BOOT_MEDIUM = "d64";
-  var AUTOSTART_SCRIPT =
-    'await wasm_ready_after_reset();' +
-    'await action(`\'load"*",8,1\'=>Enter`);' +
-    'await disk_loading_finished();' +
-    'await action(`\'run\'=>Enter`);';
+  /* Which registry field the player is handed. ".prg" is load-bearing: with no
+     drive ROM installed vc64web disables the insert button for .d64/.g64 and
+     warns instead of loading (vc64_ui.js:891-895), while a .prg takes the
+     auto_run + reset_before_load path and needs no drive. The demos' own
+     `10 SYS 2061` BASIC stub is what the auto-typed RUN fires, so there is no
+     autostart script to write — the player does it. */
+  var BOOT_MEDIUM = "prg";
 
   var REPO_TREE = "https://github.com/nschneir/Project64/tree/main/demos/";
 
@@ -594,7 +599,7 @@
         renderMessage(demo, "THE EMULATOR FAILED TO LOAD.",
           "The in-browser C64 could not be reached, so " + demo.title +
           " cannot run here right now. It still runs anywhere else — " +
-          "download the disk image (or the program) and open it in VICE with " +
+          "download the program (or the disk image) and open it in VICE with " +
           "x64sc -ntsc.", true);
         return;
       }
@@ -603,26 +608,44 @@
       var media  = demo[BOOT_MEDIUM];
 
       player.vc64web_url  = EMU_BASE;
+      /* Three ROM keys and the program. `name` is what vc64web branches on —
+         the .prg extension is what selects the no-drive load path — so it must
+         carry the real filename, not the demo id. */
       player.samesite_file = {
-        floppy_rom_url:  FLOPPY_ROM_URL,
-        basic_rom_url:   BASIC_ROM_URL,
         kernal_rom_url:  KERNAL_ROM_URL,
+        basic_rom_url:   BASIC_ROM_URL,
         charset_rom_url: CHARSET_ROM_URL,
         url:  media,
         name: fileName(media)
       };
 
       var config = {
+        /* Keeps the SYSTEM ROMS modal off the first paint. Not cosmetic: the
+           ROMs arrive by postMessage just after boot, and if that modal is open
+           when the program message lands, configure_file_dialog() treats the
+           incoming .prg as a ROM file instead of running it. */
         dialog_on_missing_roms: false,
-        dialog_on_disk: false,
+        /* DO NOT ADD dialog_on_disk HERE. It looks like the obvious companion to
+           the line above, and it is a trap: execute_load() reads it as "loading
+           is done by scripting" and then skips auto-run entirely
+           (vc64_ui.js:3507-3510). The program is flashed into RAM correctly but
+           RUN is never typed, so you get a READY. prompt that looks exactly like
+           an open-ROM incompatibility. It cost the ROM investigation its one
+           failed run. A .prg raises no disk dialog, so it buys nothing either. */
         navbar: false,
         wide: false,
         border: 0.3,
-        touch: isTouch,
-        buttons: [{ run: true, script: AUTOSTART_SCRIPT }]
+        touch: isTouch
+        /* No `buttons` autostart script: vc64web auto-runs a .prg itself —
+           flash to the load address, type RUN — and every demo carries the
+           `10 SYS 2061` stub that RUN fires. */
       };
 
       playerUp = true;
+      /* encodeURIComponent is required, not tidiness: load_into() builds the
+         iframe from an HTML string (src="...#${address}"), so a raw quote in the
+         JSON truncates the attribute and every setting is silently dropped.
+         get_parameter_link() decodes on the way in. */
       player.load(ensureSlot(), encodeURIComponent(JSON.stringify(config)));
     });
   }
@@ -639,12 +662,13 @@
     if(boot) bootPlayer(demo);
   }
 
-  /* Last line of defence. Requiring jQuery above means the real player mounts
-     inline, so a mount can no longer land after its generation has passed — but
-     that is a fact about someone else's code. If one ever does land late it
-     would put the wrong game under the right tile, which is worse than a leak.
-     A mount nobody sanctioned (playerUp === false) is removed, the poller it
-     started is stopped, and the current demo's preview goes back. */
+  /* Last line of defence, against future versions rather than this one.
+     Requiring jQuery above means the player mounts inline, so today a mount
+     cannot land after its generation has passed. That is settled — but it is
+     settled about a dependency we do not control, and if a mount ever did land
+     late it would put the wrong game under the right tile, which is worse than
+     a leak. A mount nobody sanctioned (playerUp === false) is removed, the
+     poller it started is stopped, and the current demo's preview goes back. */
   if(window.MutationObserver){
     new MutationObserver(function(){
       if(playerUp) return;
