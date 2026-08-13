@@ -15,7 +15,12 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
    (every signal listed under **Make it observable** below, each with the
    address and label you picked for it), and the acceptance criteria —
    each one written as an observation a stopped machine can be read for,
-   not as an adjective. The spec states *what* and *why*, with the
+   not as an adjective. That list is what the build gets judged against,
+   so it has to cover everything this prompt asks the demo to be, the
+   arrangement's audio evidence included, even where the proof is a
+   capture rather than a stopped machine: a criterion that lives only in
+   this prompt and never reaches your own PASS list is the one that
+   quietly never gets met. The spec states *what* and *why*, with the
    hardware facts (register values, addresses, cycle budgets) pinned down
    and cited to the reference files below.
 2. **Plan.** Use the `superpowers:writing-plans` skill to turn the spec
@@ -68,7 +73,11 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
   set once. Multicolor bitmap (160×200) is the recommended mode — it
   gives four colors per 4×8 cell and makes the color budget the
   interesting problem — but justify your choice in the spec and state the
-  exact `$D011`/`$D016`/`$D018` values and the memory map you picked.
+  exact `$D011`/`$D016`/`$D018` values and the memory map you picked — as
+  arithmetic that adds up, naming what is left over and where data that
+  exists only at runtime lives. Keep that spare figure current as the
+  build grows: it is the number that later decides whether a faster inner
+  loop or a longer arrangement fits at all.
   Clear the bitmap to black **once** at start.
 - **Accumulation, never a clear.** Every shape is painted over what is
   already there. The canvas only ever gets denser; nothing is erased, no
@@ -105,16 +114,28 @@ the **1812 Overture**. Everything for this demo lives in `demos/1812/`.
   score is public domain but an arrangement of it is not: reduce those
   themes for three voices yourself, as original work composed for this
   demo, rather than transcribing someone else's SID, MIDI, or sheet
-  arrangement. Push the SID to its full potential — real ADSR envelopes,
-  mixed waveforms (pulse with swept width, triangle, sawtooth, noise), and
-  the filter.
+  arrangement. Three voices is a reduction, and a reduction that keeps
+  all three sounding from the first bar to the last reads as a thin
+  orchestra rather than as the Overture: state in the spec how the
+  texture evolves across the piece — where it thins, where it fills — and
+  why that arc is the right one for this music. Push the SID to its full
+  potential — real ADSR envelopes, mixed waveforms (pulse with swept
+  width, triangle, sawtooth, noise), and the filter. Say what each
+  instrument's envelope is *for* — which physical gesture it imitates —
+  and not only which nybbles it holds: an envelope chosen as four numbers
+  rather than as a gesture is how a part ends up reading as an organ
+  however many voices are playing.
   The cannon is filtered noise with a downward cutoff sweep; the finale's
   bells are bright, fast decays. Drive the sequencer from a single raster
   IRQ (or the jiffy clock) at frame rate. **Shadow every SID write in
   RAM** — the SID is write-only, and the shadow bytes are the only
-  testable evidence that sound happened.
+  evidence a stopped machine can give you that sound happened: necessary,
+  and not sufficient.
 - **Music drives the picture.** Note onsets spawn shapes; the section
-  determines the vocabulary, palette, size range, and spawn rate. The
+  determines the vocabulary, palette, size range, and spawn rate. That
+  coupling puts the arrangement inside the frame budget — a busier part is
+  a denser canvas — so say in the spec what gives when the music gets
+  busier, and re-check it whenever the arrangement changes. The
   hymn paints few, large, slow, dark shapes; the battle paints small
   jagged ones fast; each of the sixteen cannon shots flashes the whole
   screen (border included — briefly, then back to black) and throws a
@@ -162,7 +183,11 @@ iterations, each one a full cycle:
    sequencer scrutinized where they contend for a frame, dead code and
    slack removed — then judge the result the way a viewer would, and say
    whether the picture actually looks good and the arrangement actually
-   sounds like the Overture.
+   sounds like the Overture. That second judgment has to come off a
+   capture of the running machine (**Audio evidence** below), because
+   shadow bytes prove only that writes happened and cannot tell you how an
+   arrangement reads; an iteration whose review has to write "I cannot
+   hear this" has not done this step.
 3. **Improve** — fix every FAIL and act on every review finding.
 4. **Re-verify** — prove each fix on the running machine before counting
    it done.

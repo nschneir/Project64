@@ -210,7 +210,7 @@ regenerates all of it in one command, and it should follow these five:
 | One `run`, then `until <anchor> --count N` before every capture | At warp a screenshot of a running machine is a race. `until` parks it on an exact frame, and inspection never advances it — so the same script produces the same frames every time. |
 | Never `wait --mem/--text` straight after an `until` | A wait polls and **does not resume**. After `until`/`step`/`finish`/`wait --break` the machine is stopped, so the wait can only time out. Use another `until`, or `c64 continue` first. |
 | Stage unreachable states by poking the program's own state bytes | Cheaper and far more repeatable than playing to them — and they are the same bytes the YAML spec asserts on, so the evidence and the regression test agree by construction. |
-| Use `c64 call` only as the final action before a capture, then `run` again | The call's fake return address replaces the program's control flow; that run is over. A following `until` will time out on a label nothing executes any more, and it looks exactly like a wedged machine. |
+| Use `c64 call` only as the final action before a capture, then `run` again | The call's fake return address replaces the program's control flow; that run is over. A following `until` will time out on a label nothing executes any more, and it looks exactly like a wedged machine. The cost is the note below: this is the one capture the first rule cannot anchor. |
 | A capture that needs a key uses `key hold KEY --at <anchor>` | `key type` fills the type-ahead buffer, which a game reading the live matrix code at `$CB` never looks at. |
 
 The two helpers are worth stealing verbatim — one line each, and every
@@ -233,6 +233,24 @@ $C call newboard $S >/dev/null     # ... and nothing after this but the shot
 shot maze4
 ```
 
+**A `call`-staged capture is reproducible in the bitmap, not in the PNG.** The
+first rule's promise — "the same script produces the same frames every time" —
+holds for an `until`-anchored capture and does not hold for this one. `c64 call`
+ends at its trap wherever the raster happened to be, and `c64 screen --png`
+returns the emulator's rendered display rather than a re-render of video RAM, so
+a shot taken straight after a call is torn: the top of the image belongs to the
+frame being drawn and the bottom to the one before it. Measured 2026-08-12 on
+`demos/1812`'s three rotation captures — three replays of the same staging
+(same session flags, same seven `mem write`s) produced a **byte-identical
+bitmap** (`lit=6105`, checksum `1c454f03`, the same four vertices) and **three
+different PNGs**, differing only in one horizontal band at the raster split.
+Nothing in the script fixes it: the rule above is why an `until` cannot follow a
+call, and neither front end has a raster-anchored or frame-boundary stop (§6).
+So expect a `call`-staged PNG to churn on every regeneration, and read that
+churn against the rule that committed evidence PNGs are reviewed by eye rather
+than compared programmatically. State the shot's meaning in bytes beside it —
+the litcount and checksum above are what actually carried the claim.
+
 ## 6. Deferred tooling
 
 - **Pixel assertions (golden-image diff) are ruled out** (2026-07-30, on
@@ -251,3 +269,17 @@ shot maze4
   `demos/1812/tools/litcount.py`). `c64 sprite from-png` (24×21 sprites)
   is unaffected. Reopen only if a demo arrives with source imagery it must
   convert, and re-scope from what that demo actually needs.
+- **A frame-boundary stop for post-`call` captures is deferred, not ruled
+  out** (2026-08-12, on `demos/1812` iteration-3 evidence): the churn the note
+  at the end of §5 measures is real, and no existing primitive removes it —
+  `c64 until` needs a label the call has just orphaned, and nothing on either
+  front end stops on a raster line. What it would take is a new operation in
+  `ops.py` surfaced by both front ends (`c64 until --raster N` /
+  `c64_until(raster=N)`, or `c64 screen --png --at-frame-top`), which is a
+  CLI/MCP addition with a spec of its own, not an edit to an evidence script.
+  It is not built because the cost so far is three committed PNGs whose bytes
+  move while their meaning does not, in a demo whose actual proof for those
+  three shots is the litcount and checksum printed beside them. Reopen when a
+  demo needs a `call`-staged capture to be *compared* rather than reviewed, or
+  when a second demo hits the same churn — one instance is an inconvenience,
+  two is a missing primitive. Tracked in `docs/todo.md`.
