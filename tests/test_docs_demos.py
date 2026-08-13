@@ -602,3 +602,117 @@ def test_audit_a13_rnd_table_is_its_own_arithmetic():
         "no clean anchor is parked outside the badline range, so the table does not explain itself"
     assert any(0x30 <= line <= 0xF7 for line, _ in dirty), \
         "no inflated anchor is parked inside the badline range"
+
+
+# --- the play page's registry, pinned to the tree it serves ----------------
+
+PLAY = Path("play.html")
+
+#: Every `DEMOS` field that names a file this repo serves, and the path each
+#: one must have inside its own demo directory. Pinned in full rather than
+#: merely resolved: a tile that points at a real file belonging to a
+#: *different* demo passes an existence check and then ships the wrong game
+#: under the right name — which is what a copied registry entry does.
+PLAY_ASSETS = {
+    "prg": "{demo}.prg",
+    "d64": "{demo}.d64",
+    "image": "evidence/title.png",
+}
+
+
+def _play_registry() -> list[dict[str, str]]:
+    """`play.html`'s `DEMOS` array, one dict of its string fields per entry.
+
+    Read out of the page rather than restated here. That array is the only
+    list of what the play page serves, and a copy of it in this file would be
+    one more surface to keep in step — the thing this module exists to stop.
+    """
+    text = PLAY.read_text()
+    start = text.index("var DEMOS = [")
+    end = text.index("\n  ];", start)
+    entries = [
+        dict(re.findall(r'(\w+):\s*"((?:[^"\\]|\\.)*)"', obj))
+        for obj in re.findall(r"\{(.*?)\n    \}", text[start:end], re.S)
+    ]
+    assert entries, \
+        "play.html's DEMOS array no longer parses — the shape this reads changed"
+    return entries
+
+
+def test_play_page_registry_is_the_game_demos_in_the_roster_order():
+    """`play.html` publishes its own roster and derives it from nothing:
+    `DEMOS` is a hand-written array inside the page. The maintainer ruling that
+    put four demos on it — the games, in `demos/README.md`'s order — makes that
+    array a fourth copy of the roster the three surfaces above already share,
+    so it is held to the same standard. A fifth game demo landing in the tree,
+    a reordering, or a renamed directory should not be able to leave the play
+    page quietly serving the old four.
+
+    1812 is out of the play page and stays out — a music demo rather than a
+    game, and the one demo with no `evidence/title.png` to cut a tile from. It
+    is filed under "Miscellaneous cool stuff", so the tier this reads keeps it
+    out without naming it.
+    """
+    games = [slug for slug, tier in _md_roster(DEMOS_README.read_text()).items()
+             if tier == "game"]
+    ids = [entry["id"] for entry in _play_registry()]
+    assert ids == games, (
+        f"play.html's DEMOS roster is {ids} but demos/README.md's game demos "
+        f"are {games} — both lists are maintained by hand and they have parted")
+    for demo in ids:
+        assert (DEMOS_DIR / demo).is_dir(), \
+            f"play.html serves {demo!r}, which is not a demo directory"
+
+
+def test_every_demo_file_play_html_serves_exists_and_is_tracked():
+    """Nothing else covers a path in `play.html`. The roster's `.prg`, `.d64`
+    and `title.png` live in JavaScript strings, and the `<noscript>` fallback
+    repeats the same two downloads per demo as hand-written links; neither is
+    reachable from the markdown surfaces the tests above compare. GitHub Pages
+    serves the *committed* tree, so a file that is merely present resolves
+    perfectly on the author's disk and 404s for every visitor — which is how a
+    broken play page ships green.
+    """
+    registry = _play_registry()
+    # path -> what points at it, so a failure names the line to go fix.
+    referenced: dict[str, str] = {}
+
+    for entry in registry:
+        demo = entry.get("id")
+        for field, shape in PLAY_ASSETS.items():
+            assert field in entry, f"play.html's {demo!r} entry has no {field}"
+            want = f"demos/{demo}/{shape.format(demo=demo)}"
+            assert entry[field] == want, (
+                f"play.html's {demo!r} tile takes its {field} from "
+                f"{entry[field]!r}, not {want!r} — a tile pointing into another "
+                f"demo's directory resolves fine and ships the wrong game")
+            referenced[entry[field]] = f"DEMOS[{demo}].{field}"
+
+    text = PLAY.read_text()
+    fallback = text[text.index("<noscript>"):text.index("</noscript>")]
+    links = re.findall(r'href="(demos/[^"]+)"', fallback)
+    assert len(links) == 2 * len(registry), (
+        f"the <noscript> fallback offers {len(links)} downloads for "
+        f"{len(registry)} demos — it is written out by hand, one .prg and one "
+        f".d64 per demo, and it is the whole page for a visitor without JS")
+    assert set(links) == {entry[f] for entry in registry for f in ("prg", "d64")}, \
+        "the <noscript> downloads and the DEMOS registry name different files"
+    for href in links:
+        referenced.setdefault(href, "the <noscript> fallback")
+
+    missing = {path: where for path, where in referenced.items()
+               if not Path(path).is_file()}
+    assert not missing, f"play.html points at files that are not there: {missing}"
+
+    # WHY the guard: the claim being made is about what the *published* tree
+    # contains, and only git can answer that. Without git there is no weaker
+    # version of this assertion worth running — a plain existence check is the
+    # one already made above, and it is exactly what cannot catch this.
+    if shutil.which("git") is None:
+        pytest.skip("git is not on PATH, so tracked-ness cannot be established")
+    run = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", *sorted(referenced)],
+        capture_output=True, text=True)
+    assert run.returncode == 0, (
+        "play.html points at files git does not track, so GitHub Pages serves a "
+        f"404 for them however well they resolve locally:\n{run.stderr.strip()}")

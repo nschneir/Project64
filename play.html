@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLAY — Project 64 game demos in your browser</title>
+<meta name="description" content="Play the Project 64 game demos — Snake, Invaders, Ms. Muncher and La Galaxia — on an emulated Commodore 64, in the browser. Every one of them was written by an AI agent.">
+<style>
+  /* Palette and motifs are index.html's, unchanged — same room, same screen,
+     same phosphor, same Commodore rainbow. Nothing new is invented here. */
+  :root{
+    --room:#08061a;
+    --screen:#40318d;      /* C64 power-on blue */
+    --screen-2:#3a2c82;
+    --p:#8a7ce0;           /* light blue text */
+    --p-bright:#cfc8f7;    /* highlight */
+    --p-dim:#6a5cc4;       /* muted */
+    --p-faint:#5041a5;     /* faintest */
+    --glow:0 0 2px rgba(138,124,224,.55), 0 0 10px rgba(138,124,224,.22);
+    --mono:ui-monospace,"Cascadia Mono","Menlo","Consolas","Courier New",monospace;
+    --maxw:1080px;
+
+    --c64-red:#ff4b3b;
+    --c64-orange:#ff8f2e;
+    --c64-yellow:#ffd42e;
+    --c64-green:#5fdd7a;
+    --c64-cyan:#5bc8ff;
+    --c64-purple:#b98bff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--room);color:var(--p);
+    font-family:var(--mono);font-size:16px;line-height:1.5;
+    letter-spacing:.02em;text-shadow:var(--glow);
+    -webkit-font-smoothing:none;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 80% 70% at 50% 30%, rgba(138,124,224,.06), transparent 70%);
+  }
+  a{color:var(--p-bright);text-decoration:none;border-bottom:1px solid var(--p-dim)}
+  a:hover,a:focus-visible{background:var(--p);color:var(--room);border-bottom-color:var(--p);outline:none;text-shadow:none}
+  :focus-visible{outline:2px solid var(--p-bright);outline-offset:2px}
+
+  .screen{
+    position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;
+    min-height:100vh;background:linear-gradient(180deg,var(--screen),var(--screen-2));
+    padding:clamp(14px,3vw,34px);
+    box-shadow:0 0 0 2px #2a2168, 0 0 40px rgba(138,124,224,.10) inset, 0 0 60px rgba(0,0,0,.6);
+    border-radius:14px;
+  }
+  .screen::after{
+    content:"";position:fixed;inset:0;z-index:40;pointer-events:none;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px),
+      radial-gradient(120% 120% at 50% 50%, transparent 62%, rgba(0,0,0,.55) 100%);
+    mix-blend-mode:multiply;
+    animation:flicker 5s steps(60) infinite;
+  }
+  @keyframes flicker{0%,100%{opacity:.96}48%{opacity:.99}50%{opacity:.9}52%{opacity:.99}}
+
+  .wrap{max-width:920px;margin:0 auto}
+
+  .panel{border:2px solid var(--p-dim);padding:clamp(14px,2.4vw,26px);margin:26px 0;position:relative;background:rgba(38,28,110,.35)}
+  .panel > .cap{position:absolute;top:-.75em;left:14px;background:var(--screen-2);padding:0 .5em;color:var(--p-bright);font-size:1rem;letter-spacing:.18em}
+
+  header{padding:6px 0 2px}
+  .backlink{display:inline-block;letter-spacing:.1em;font-size:1rem;border-bottom:none;color:var(--p-dim)}
+  .backlink:hover,.backlink:focus-visible{color:var(--room)}
+  .title{
+    font-weight:700;line-height:.98;margin:.15em 0 0;
+    font-size:clamp(1.9rem,7vw,3.6rem);letter-spacing:.02em;color:var(--p-bright);
+    text-shadow:0 0 4px rgba(207,200,247,.6),0 0 22px rgba(138,124,224,.45);
+  }
+  .tag{margin:.5em 0 .2em;max-width:62ch;color:var(--p);font-size:clamp(1rem,2.6vw,1.1rem)}
+  .rule{color:var(--p-dim);white-space:nowrap;overflow:hidden;user-select:none;margin:22px 0 8px;font-size:1rem}
+  h2{font-size:clamp(1.05rem,3.2vw,1.35rem);color:var(--p-bright);letter-spacing:.12em;margin:.2em 0 .8em}
+  h2 .mk{color:var(--p-dim)}
+  p{margin:.55em 0}
+  small{font-size:1rem}
+
+  /* keys, rendered from the registry's backtick spans */
+  kbd{
+    font-family:var(--mono);font-size:.92em;letter-spacing:.04em;
+    padding:.05em .38em;border:1px solid var(--p-dim);
+    background:rgba(138,124,224,.12);color:var(--p-bright);
+    text-shadow:none;white-space:nowrap;
+  }
+
+  /* ── the demo strip: one tile per registry row, in registry order ───────── */
+  .demo-strip{
+    display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    margin:6px 0 8px;
+  }
+  .demo-tile{
+    --accent:var(--p-bright);
+    display:block;width:100%;padding:0;cursor:pointer;
+    font-family:var(--mono);font-size:1rem;color:var(--p-bright);
+    border:2px solid var(--p-faint);border-bottom-width:5px;
+    background:color-mix(in srgb, var(--accent) 10%, rgba(30,22,92,.78));
+    text-shadow:var(--glow);
+    transition:border-color .15s,transform .15s,box-shadow .15s,background .15s;
+  }
+  .demo-tile img{
+    display:block;width:100%;height:auto;aspect-ratio:8/5;object-fit:contain;
+    background:#000;image-rendering:pixelated;
+    border-bottom:1px solid var(--p-faint);
+  }
+  .demo-tile .tile-name{
+    display:block;padding:.45em .6em;letter-spacing:.1em;color:var(--accent);
+    text-shadow:0 0 10px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 0 rgba(0,0,0,.5);
+  }
+  .demo-tile:hover,.demo-tile:focus-visible{
+    border-color:var(--accent);transform:translateY(-2px);
+    box-shadow:0 0 20px -5px var(--accent);outline:none;
+  }
+  .demo-tile[aria-pressed="true"]{
+    border-color:var(--accent);
+    background:color-mix(in srgb, var(--accent) 24%, rgba(30,22,92,.78));
+    box-shadow:0 0 22px -4px var(--accent), 0 0 0 1px var(--accent) inset;
+  }
+
+  /* ── the player ────────────────────────────────────────────────────────── */
+  #player-frame{margin:14px 0 8px;border:2px solid var(--p-faint);background:#000;padding:0}
+  #player-slot{display:block}
+
+  .preview{
+    position:relative;display:block;width:100%;padding:0;border:0;
+    background:#000;cursor:pointer;font-family:var(--mono);color:var(--p-bright);
+  }
+  .preview img{
+    display:block;width:100%;height:auto;aspect-ratio:8/5;object-fit:contain;
+    background:#000;image-rendering:pixelated;opacity:.55;transition:opacity .15s;
+  }
+  .preview:hover img,.preview:focus-visible img{opacity:.8}
+  /* The affordance is centred over the whole still (the overlay is inset:0), so
+     on all four screenshots it does land on the screen's own text — invaders'
+     score advance table, ms-muncher's cast row, la-galaxia's ESPACIO UN
+     JUGADOR, snake's PRESS ANY KEY TO PLAY. That is accepted: the still is an
+     invitation, not something to read, and the real screen replaces it on the
+     first click. What is defended is the affordance's own legibility over
+     whatever it lands on — the still is dimmed to .55 and the chip carries its
+     own near-opaque backing. */
+  .preview .play-overlay{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:.5em;pointer-events:none;
+  }
+  .preview .play-badge{
+    font-size:clamp(2.6rem,9vw,4.6rem);line-height:1;color:var(--p-bright);
+    text-shadow:0 0 10px rgba(8,6,26,.95),0 0 26px rgba(138,124,224,.7);
+  }
+  .preview .play-cta{
+    letter-spacing:.22em;font-size:1rem;color:var(--p-bright);
+    padding:.35em .9em;border:1px solid var(--p-dim);background:rgba(8,6,26,.82);
+    text-shadow:none;
+  }
+  .preview:hover .play-badge,.preview:focus-visible .play-badge{color:#fff}
+  .preview:hover .play-cta,.preview:focus-visible .play-cta{border-color:var(--p);color:#fff}
+
+  .slot-msg{
+    padding:clamp(18px,4vw,34px);text-align:center;color:var(--p-bright);background:#000;
+  }
+  .slot-msg .msg-head{display:block;letter-spacing:.14em;margin-bottom:.5em}
+  .slot-msg p{max-width:56ch;margin:.5em auto;color:var(--p);font-size:1rem}
+  .slot-msg .dl{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:1em}
+  .btn{display:inline-block;padding:.5em 1em;border:2px solid var(--p);background:transparent;color:var(--p-bright);
+       font-family:var(--mono);font-size:1rem;letter-spacing:.08em;cursor:pointer;text-shadow:var(--glow)}
+  .btn:hover,.btn:focus-visible{background:var(--p);color:var(--room);text-shadow:none;outline:none;border-color:var(--p)}
+
+  .controls-legend{margin:.7em 0 .2em;color:var(--p-bright);font-size:1rem}
+  .controls-legend .lbl{color:var(--p-dim);letter-spacing:.16em;margin-right:.6em}
+  .sound-hint{margin:.2em 0 .6em;color:var(--c64-yellow);font-size:1rem;text-shadow:0 0 10px rgba(255,212,46,.35)}
+  .sound-hint[hidden]{display:none}
+  .now-playing{margin:.2em 0 0;color:var(--p-dim);font-size:1rem}
+
+  /* the player's own CSS hooks, dressed for a dark page */
+  #player_container{background:#000;max-width:100%}
+  #vc64web{border:0;display:block;background:#000}
+  .player_icon_btn{color:var(--p-bright);fill:currentColor;background:transparent;cursor:pointer;opacity:.85}
+  .player_icon_btn:hover{color:#fff;opacity:1}
+  .btn_play{color:var(--p-bright);fill:currentColor;background:transparent;opacity:1}
+
+  .attribution-note b{color:var(--p-bright)}
+  .attribution-note .links{margin-top:.6em}
+
+  noscript{display:block}
+  .noscript-box ul{list-style:none;padding:0;margin:.6em 0}
+  .noscript-box li{margin:.3em 0}
+
+  footer{margin:30px 0 8px;color:var(--p-dim);font-size:1rem}
+  footer .links{display:flex;flex-wrap:wrap;gap:8px 22px;margin:.6em 0}
+  .ready{color:var(--p-bright);margin-top:20px;font-size:1.05rem}
+  .cursor{display:inline-block;width:.62em;height:1.05em;background:var(--p);vertical-align:-.16em;animation:blink 1.06s steps(1) infinite;box-shadow:var(--glow)}
+  @keyframes blink{50%{opacity:0}}
+
+  @media (max-width:560px){
+    .rule{font-size:.7rem}
+    .screen{border-radius:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    .cursor{opacity:1}
+  }
+</style>
+</head>
+<body>
+<div class="screen">
+  <div class="wrap">
+
+    <header>
+      <a class="backlink" href="index.html">&#x25C2; PROJECT&nbsp;64</a>
+      <h1 class="title">PLAY</h1>
+      <p class="tag">The game demos, on a real emulated Commodore 64, in this tab.
+        Pick a game, click the screen, and the machine boots and runs it &mdash; the
+        same <code>.prg</code> you would load on real hardware.</p>
+    </header>
+
+    <div class="rule" aria-hidden="true">&#x2554;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2557;</div>
+
+    <nav class="demo-strip" id="demo-strip" aria-label="Choose a game"></nav>
+
+    <main>
+      <div id="player-frame">
+        <div id="player-slot"></div>
+      </div>
+      <!-- Both of these appear or change under the visitor rather than on a
+           page load — the legend when a tile is picked, the hint when an
+           auto-boot starts — so both announce when that happens. They are the
+           right nodes to carry it because both PERSIST: only their contents,
+           or the `hidden` attribute, change, and a live region announces
+           reliably only if it was already in the document. -->
+      <p class="controls-legend" id="controls-legend"><span class="lbl">CONTROLS</span><span id="controls-text" aria-live="polite"></span></p>
+      <p class="sound-hint" id="sound-hint" role="status" hidden>the C64 is muted until you click &mdash; click the screen for sound</p>
+    </main>
+
+    <section class="panel attribution-note">
+      <span class="cap">RECEIPTS</span>
+      <p><b>Every game here was written by Claude.</b> Each demo folder holds a single
+      prompt. An AI agent was given that prompt and wrote, assembled, debugged,
+      and verified the entire program on an emulated Commodore 64 &mdash; no
+      human-written code. The receipts &mdash; prompt, audit, and evidence &mdash; are in
+      each demo's folder:</p>
+      <p class="links" id="attribution-links"></p>
+    </section>
+
+    <noscript>
+      <section class="panel noscript-box">
+        <span class="cap">NO JAVASCRIPT</span>
+        <p>The in-browser C64 needs JavaScript &mdash; but every game is a plain file
+        you can download and run in <a href="https://vice-emu.sourceforge.io/">VICE</a>
+        (<code>x64sc -ntsc &lt;file&gt;</code>). The <code>.prg</code> is the program
+        itself &mdash; the one this page runs; the <code>.d64</code> is the same game
+        as a disk image, for a real drive:</p>
+        <ul>
+          <li>SNAKE &mdash;
+            <a href="demos/snake/snake.prg">snake.prg</a> &middot;
+            <a href="demos/snake/snake.d64">snake.d64</a></li>
+          <li>INVADERS &mdash;
+            <a href="demos/invaders/invaders.prg">invaders.prg</a> &middot;
+            <a href="demos/invaders/invaders.d64">invaders.d64</a></li>
+          <li>MS. MUNCHER &mdash;
+            <a href="demos/ms-muncher/ms-muncher.prg">ms-muncher.prg</a> &middot;
+            <a href="demos/ms-muncher/ms-muncher.d64">ms-muncher.d64</a></li>
+          <li>LA GALAXIA &mdash;
+            <a href="demos/la-galaxia/la-galaxia.prg">la-galaxia.prg</a> &middot;
+            <a href="demos/la-galaxia/la-galaxia.d64">la-galaxia.d64</a></li>
+        </ul>
+      </section>
+    </noscript>
+
+    <div class="rule" aria-hidden="true">&#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;</div>
+
+    <footer>
+      <p>MIT licensed. The emulator running in the frame above is
+      <a href="https://vc64web.github.io/">vc64web</a>, a separate WebAssembly
+      project, loaded at runtime from a maintainer-owned
+      <a href="https://github.com/nschneir/vc64web.github.io">fork</a> &mdash;
+      not bundled. It boots on the
+      <a href="https://github.com/MEGA65/open-roms">MEGA65 open-roms</a> KERNAL,
+      BASIC and character ROMs &mdash; LGPL-3.0-or-later, with parts of BASIC
+      additionally MIT &copy; Microsoft &mdash; not Commodore&rsquo;s: no
+      Commodore ROM code lives in this repo, and none is sent to your browser.</p>
+      <p><small>Built primarily by AI (Anthropic&rsquo;s Claude, via Claude Code) under
+      human direction &mdash; a working example of AI-built developer tooling.</small></p>
+      <div class="links">
+        <a href="index.html">&#x25B8; Home</a>
+        <a href="https://github.com/nschneir/Project64">&#x25B8; GitHub</a>
+        <a href="https://github.com/nschneir/Project64/tree/main/demos">&#x25B8; Demos</a>
+        <a href="https://github.com/nschneir/Project64/blob/main/LICENSE">&#x25B8; License</a>
+      </div>
+      <p class="ready">READY.<span class="cursor" aria-hidden="true"></span></p>
+    </footer>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     CONSTANTS — the one and only place these values appear.
+
+     The emulator boots on the MEGA65 open-roms KERNAL + BASIC + CHARGEN, with
+     no 1541 drive ROM at all: not a compromise but the better configuration —
+     no Commodore ROM image is hosted or distributed by this repository or the
+     emulator fork, and all four demos were verified reaching a playable frame
+     on it before ship. The standing caveats — chiefly that the demos' own test
+     suites still run on Commodore ROMs — are in docs/todo.md. Nothing below
+     hard-codes a URL, a ROM name, or the choice of medium.
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  var EMU_BASE      = "https://nschneir.github.io/vc64web.github.io/";
+  var PLAYER_SCRIPT = EMU_BASE + "js/vc64web_player.js";
+  /* The player lazy-loads this itself if it is missing (vc64web_player.js:117),
+     and that lazy load is what makes the first mount asynchronous. We fetch it
+     up front instead — see loadPlayerScript(). Tracked in the fork beside the
+     player script. */
+  var JQUERY_SCRIPT = EMU_BASE + "js/jquery-3.7.1.min.js";
+  var ROM_BASE      = EMU_BASE + "roms/";
+
+  /* Three ROMs, not four. There is deliberately no floppy/1541 ROM: a .prg is
+     flashed straight into RAM and never touches the drive, and the only free
+     drive ROM would be a Commodore one. */
+  var KERNAL_ROM_URL  = ROM_BASE + "kernal.rom";
+  var BASIC_ROM_URL   = ROM_BASE + "basic.rom";
+  var CHARSET_ROM_URL = ROM_BASE + "chargen.rom";
+
+  /* Which registry field the player is handed. ".prg" is load-bearing: with no
+     drive ROM installed vc64web disables the insert button for .d64/.g64 and
+     warns instead of loading (vc64_ui.js:891-895), while a .prg takes the
+     auto_run + reset_before_load path and needs no drive. The demos' own
+     `10 SYS 2061` BASIC stub is what the auto-typed RUN fires, so there is no
+     autostart script to write — the player does it. */
+  var BOOT_MEDIUM = "prg";
+
+  /* Settings that must never reach the player, swept immediately before load().
+     A denylist and not an allowlist on purpose: an allowlist — JSON.stringify's
+     array replacer is the tempting one-liner — would also silently drop a
+     legitimate setting added here later, trading one silent failure for
+     another. A key listed here is deleted and announced on the console, so a
+     well-meaning re-addition is both inert and audible.
+
+     dialog_on_disk: execute_load() reads it as "loading is probably done by
+     scripting" and then skips auto-run entirely (vc64_ui.js:3507-3510). The
+     program is flashed into RAM correctly but RUN is never typed, so the
+     machine sits at a READY. prompt that looks exactly like an open-ROM
+     incompatibility — it cost the ROM investigation its one failed run. A .prg
+     raises no disk dialog, so setting it buys nothing even where it is
+     harmless. */
+  var FORBIDDEN_CONFIG = {
+    dialog_on_disk: "it silently disables the player's auto-run (vc64_ui.js:3507-3510)"
+  };
+
+  var REPO_TREE = "https://github.com/nschneir/Project64/tree/main/demos/";
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     DEMO REGISTRY — the roster, in order. `controls` is authored with the key
+     names in `backticks`; renderKeys() turns those into <kbd> elements.
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  var DEMOS = [
+    {
+      id: "snake",
+      title: "SNAKE",
+      accent: "var(--c64-green)",
+      tagline: "Eat apples, don't eat yourself.",
+      d64: "demos/snake/snake.d64",
+      prg: "demos/snake/snake.prg",
+      image: "demos/snake/evidence/title.png",
+      alt: "Snake title screen: SNAKE in large block letters in five colours, a green snake reaching for a red apple, and PRESS ANY KEY TO PLAY",
+      controls: "Any key starts. `W`/`A`/`S`/`D` steer; `SPACE` plays again after game over."
+    },
+    {
+      id: "invaders",
+      title: "INVADERS",
+      accent: "var(--c64-cyan)",
+      tagline: "The classic descending formation.",
+      d64: "demos/invaders/invaders.d64",
+      prg: "demos/invaders/invaders.prg",
+      image: "demos/invaders/evidence/title.png",
+      alt: "Invaders attract screen: INVADERS in large block letters above a score advance table",
+      controls: "Any key starts. Hold `A`/`D` to move, `SPACE` to fire."
+    },
+    {
+      id: "ms-muncher",
+      title: "MS. MUNCHER",
+      accent: "var(--c64-yellow)",
+      tagline: "Four rotating mazes, and every ghost hunts differently.",
+      d64: "demos/ms-muncher/ms-muncher.d64",
+      prg: "demos/ms-muncher/ms-muncher.prg",
+      image: "demos/ms-muncher/evidence/title.png",
+      alt: "Ms. Muncher attract screen: MS MUNCHER in large block letters above the four named ghosts and a table of top scores",
+      controls: "`SPACE` starts. `W`/`A`/`S`/`D` steer; `SPACE` also skips an intermission."
+    },
+    {
+      id: "la-galaxia",
+      title: "LA GALAXIA",
+      accent: "var(--c64-red)",
+      tagline: "A fixed shooter in Spanish, with the full 40-enemy formation.",
+      d64: "demos/la-galaxia/la-galaxia.d64",
+      prg: "demos/la-galaxia/la-galaxia.prg",
+      image: "demos/la-galaxia/evidence/title.png",
+      alt: "La Galaxia attract screen: the game name in yellow over a starfield, framed by a bezel with the Spanish HUD down both sides",
+      controls: "`SPACE` starts one player, `X` starts two. Hold `A`/`D` to move, `SPACE` to fire."
+    }
+  ];
+
+  /* ── small helpers ─────────────────────────────────────────────────────── */
+
+  var strip    = document.getElementById("demo-strip");
+  var frame    = document.getElementById("player-frame");
+  var legend   = document.getElementById("controls-text");
+  var hint     = document.getElementById("sound-hint");
+  var attrLinks= document.getElementById("attribution-links");
+
+  var activeDemo = null;   // the selected registry entry
+  var playerUp   = false;  // has a mount been sanctioned and not torn down?
+  var bootGen    = 0;      // bumped by every teardown; a boot that started under
+                           // an older number has been overtaken and must not mount
+  var scriptLoad = null;   // memoised Promise<boolean> for the player + jQuery
+
+  /* The wiki's ontouchstart listener still upgrades this, but it cannot have
+     fired before a Task 3 auto-boot, which would then hand the emulator
+     touch:false on a phone. Seed it from the primary pointer instead: coarse is
+     a phone or a tablet, and — unlike maxTouchPoints — not a laptop that merely
+     has a touchscreen. */
+  var isTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+  document.addEventListener("touchstart", function(){ isTouch = true; },
+                            {once:true, passive:true});
+
+  function demoById(id){
+    for(var i=0;i<DEMOS.length;i++){ if(DEMOS[i].id === id) return DEMOS[i]; }
+    return null;
+  }
+  function fileName(path){ return path.slice(path.lastIndexOf("/") + 1); }
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+                    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  /* `X` -> <kbd>X</kbd>, everything else escaped. Lets the registry hold the
+     controls copy verbatim instead of as markup. */
+  function renderKeys(text){
+    return esc(text).replace(/`([^`]+)`/g, function(_, k){ return "<kbd>" + k + "</kbd>"; });
+  }
+  function el(tag, cls, text){
+    var n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(text != null) n.textContent = text;
+    return n;
+  }
+  function downloadLink(href, label){
+    var a = el("a", "btn", label);
+    a.href = href;
+    a.setAttribute("download", "");
+    return a;
+  }
+
+  /* ── the tile strip ────────────────────────────────────────────────────── */
+
+  function buildStrip(){
+    DEMOS.forEach(function(demo){
+      var b = el("button", "demo-tile");
+      b.type = "button";
+      b.id = "tile-" + demo.id;
+      b.dataset.demo = demo.id;
+      b.style.setProperty("--accent", demo.accent);
+      b.setAttribute("aria-pressed", "false");
+      /* The name is the button's label; the screenshot keeps its own real
+         description rather than being flattened into the label. */
+      b.setAttribute("aria-label", demo.title + " — " + demo.tagline);
+
+      var img = document.createElement("img");
+      img.src = demo.image;
+      img.alt = demo.alt;
+      img.loading = "lazy";
+      img.decoding = "async";
+
+      b.appendChild(img);
+      b.appendChild(el("span", "tile-name", demo.title));
+      b.addEventListener("click", function(){ selectDemo(demo.id, false); });
+      strip.appendChild(b);
+    });
+  }
+
+  function markTiles(){
+    DEMOS.forEach(function(demo){
+      var b = document.getElementById("tile-" + demo.id);
+      if(b) b.setAttribute("aria-pressed", demo === activeDemo ? "true" : "false");
+    });
+  }
+
+  function buildAttribution(){
+    DEMOS.forEach(function(demo, i){
+      if(i) attrLinks.appendChild(document.createTextNode(" · "));
+      var a = el("a", null, demo.title);
+      a.href = REPO_TREE + demo.id;
+      attrLinks.appendChild(a);
+    });
+  }
+
+  /* ── the player slot ───────────────────────────────────────────────────── */
+
+  /* The player replaces #player-slot's PARENT's innerHTML, and its own
+     stop_emu_view() puts back whatever was there. Either way the slot node is
+     a new element afterwards, so never cache it — ask for it. */
+  function ensureSlot(){
+    var stray = frame.querySelector("#player_container");
+    if(stray && stray.parentNode) stray.parentNode.removeChild(stray);
+    var slot = document.getElementById("player-slot");
+    if(!slot || !frame.contains(slot)){
+      frame.innerHTML = "";
+      slot = document.createElement("div");
+      slot.id = "player-slot";
+      frame.appendChild(slot);
+    }
+    return slot;
+  }
+
+  /* stop_emu_view() clears state_poller but never forgets the id, and it only
+     runs at all if the player thinks something is mounted. A poller started by
+     a mount we did not sanction would otherwise postMessage at a dead iframe
+     every 900 ms, for ever. */
+  function stopPoller(){
+    var player = window.vc64web_player;
+    if(player && player.state_poller != null){
+      clearInterval(player.state_poller);
+      player.state_poller = null;
+    }
+  }
+
+  function teardownPlayer(){
+    bootGen++;                       // orphan any boot still in flight
+    var player = window.vc64web_player;
+    if(player){
+      try{
+        /* saved_pic_html is the player's own "I am mounted" flag — trust it as
+           well as ours, so a mount we did not sanction is still unwound. */
+        if(playerUp || player.saved_pic_html != null) player.stop_emu_view();
+      }catch(e){ /* best-effort; ensureSlot() is the guarantee */ }
+    }
+    stopPoller();
+    playerUp = false;
+    return ensureSlot();
+  }
+
+  /* ── focus, across a slot swap ─────────────────────────────────────────── */
+
+  /* Every swap of the slot destroys the element the visitor is standing on —
+     the preview button that starts the boot, the BACK button, the emulator's
+     own iframe — and focus then falls to <body>, which costs a keyboard or
+     screen-reader visitor their place mid-interaction. So a swap hands focus to
+     whatever replaced what it destroyed. Only when the focus really was in the
+     player area, though: on first paint, and on a tile click, focus belongs
+     exactly where it already is, and moving it would be the same rudeness from
+     the other side. Read BEFORE the swap — afterwards the answer is always
+     <body>. */
+  function slotHasFocus(){
+    var a = document.activeElement;
+    return !!a && a !== document.body && frame.contains(a);
+  }
+  function takeFocus(node){
+    if(!node || !node.focus) return;
+    /* preventScroll where it exists: the visitor is already looking at this
+       region, so there is nothing to scroll to and a jump would be noise. */
+    try{ node.focus({preventScroll:true}); }catch(e){ node.focus(); }
+  }
+
+  /* `focusIt` forces the move for a caller that knows the focus was carried off
+     by something already gone — the emulator iframe, removed before this page
+     could see it hold the focus. */
+  function renderPreview(demo, focusIt){
+    var refocus = focusIt || slotHasFocus();
+    var slot = ensureSlot();
+    slot.innerHTML = "";
+
+    var b = el("button", "preview");
+    b.type = "button";
+    b.setAttribute("aria-label", "Play " + demo.title);
+
+    var img = document.createElement("img");
+    img.src = demo.image;
+    img.alt = demo.alt;
+    img.decoding = "async";
+
+    var overlay = el("span", "play-overlay");
+    overlay.appendChild(el("span", "play-badge", "▶"));
+    overlay.appendChild(el("span", "play-cta", "CLICK TO PLAY"));
+
+    b.appendChild(img);
+    b.appendChild(overlay);
+    b.addEventListener("click", function(){ bootPlayer(demo); });
+    slot.appendChild(b);
+    if(refocus) takeFocus(b);
+  }
+
+  function renderMessage(demo, head, body, withDownloads){
+    var refocus = slotHasFocus();
+    var slot = ensureSlot();
+    slot.innerHTML = "";
+    var box = el("div", "slot-msg");
+    /* The only two things this renders are state — the boot in progress, and
+       the boot that failed — so the box announces itself, and is focusable so
+       that the swap above can land the visitor on the news rather than on
+       <body>. role="status" here rather than a live region around the whole
+       slot on purpose: the slot also holds the preview, whose alt text is a
+       paragraph of screen description, and a live region there would re-read
+       that paragraph on every tile switch. */
+    box.setAttribute("role", "status");
+    box.tabIndex = -1;
+    box.appendChild(el("span", "msg-head", head));
+    box.appendChild(el("p", null, body));
+    if(withDownloads){
+      var dl = el("div", "dl");
+      dl.appendChild(downloadLink(demo[BOOT_MEDIUM], fileName(demo[BOOT_MEDIUM]).toUpperCase()));
+      var other = BOOT_MEDIUM === "d64" ? "prg" : "d64";
+      dl.appendChild(downloadLink(demo[other], fileName(demo[other]).toUpperCase()));
+      box.appendChild(dl);
+      var back = el("button", "btn", "▸ BACK TO THE PREVIEW");
+      back.type = "button";
+      back.addEventListener("click", function(){ renderPreview(demo); });
+      var row = el("div", "dl");
+      row.appendChild(back);
+      box.appendChild(row);
+    }
+    slot.appendChild(box);
+    if(refocus) takeFocus(box);
+  }
+
+  /* ── loading the player script (and failing honestly if it will not) ───── */
+
+  function loadScript(url){
+    return new Promise(function(resolve){
+      var s = document.createElement("script");
+      s.src = url;
+      s.async = true;
+      s.onload  = function(){ resolve(true); };
+      s.onerror = function(){ resolve(false); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* Resolves true only when BOTH the player and jQuery are in the page.
+     Requiring jQuery up front is the point: with window.jQuery already set,
+     vc64web_player.load() calls load_into() inline (vc64web_player.js:111-119)
+     and the iframe is mounted before load() returns. Left to itself the player
+     fetches jQuery lazily and mounts whenever that lands — a window in which
+     the visitor can pick another game, and demo A ends up under demo B's
+     highlight. Everything after this promise runs under a generation check. */
+  function loadPlayerScript(){
+    if(scriptLoad) return scriptLoad;
+    scriptLoad = Promise.all([
+      window.vc64web_player ? Promise.resolve(true) : loadScript(PLAYER_SCRIPT),
+      window.jQuery         ? Promise.resolve(true) : loadScript(JQUERY_SCRIPT)
+    ]).then(function(){
+      return !!window.vc64web_player && !!window.jQuery;
+    });
+    return scriptLoad;
+  }
+
+  /* ── the two exported behaviours ───────────────────────────────────────── */
+
+  function bootPlayer(demo){
+    var gen = bootGen;               // the generation this boot belongs to
+    renderMessage(demo, "STARTING THE C64…",
+                  "Fetching the emulator and the system ROMs.", false);
+
+    loadPlayerScript().then(function(ok){
+      /* Overtaken while the scripts were in flight: another tile was picked,
+         so this boot is stale and must not touch the DOM at all. */
+      if(gen !== bootGen) return;
+      if(!ok || !window.vc64web_player || !window.jQuery){
+        /* A deep link shows the sound hint before the boot is attempted, so on
+           this path the yellow "click the screen for sound" line would sit under
+           a message saying there is no screen to click. Nothing will unlock
+           audio now, so the hint is retracted with the boot. */
+        hideSoundHint();
+        renderMessage(demo, "THE EMULATOR FAILED TO LOAD.",
+          "The in-browser C64 could not be reached, so " + demo.title +
+          " cannot run here right now. It still runs anywhere else — " +
+          "download the program (or the disk image) and open it in VICE with " +
+          "x64sc -ntsc.", true);
+        return;
+      }
+
+      var player = window.vc64web_player;
+      var media  = demo[BOOT_MEDIUM];
+
+      player.vc64web_url  = EMU_BASE;
+      /* Three ROM keys and the program. `name` is what vc64web branches on —
+         the .prg extension is what selects the no-drive load path — so it must
+         carry the real filename, not the demo id. */
+      player.samesite_file = {
+        kernal_rom_url:  KERNAL_ROM_URL,
+        basic_rom_url:   BASIC_ROM_URL,
+        charset_rom_url: CHARSET_ROM_URL,
+        url:  media,
+        name: fileName(media)
+      };
+
+      var config = {
+        /* Keeps the SYSTEM ROMS modal off the first paint. Not cosmetic: the
+           ROMs arrive by postMessage just after boot, and if that modal is open
+           when the program message lands, configure_file_dialog() treats the
+           incoming .prg as a ROM file instead of running it. */
+        dialog_on_missing_roms: false,
+        /* dialog_on_disk is absent on purpose — it looks like the obvious
+           companion to the line above and it silently breaks auto-run. It is on
+           the FORBIDDEN_CONFIG denylist, so adding it back here has no effect
+           beyond a console warning; the full reason is at that constant. */
+        navbar: false,
+        wide: false,
+        border: 0.3,
+        touch: isTouch
+        /* No `buttons` autostart script: vc64web auto-runs a .prg itself —
+           flash to the load address, type RUN — and every demo carries the
+           `10 SYS 2061` stub that RUN fires. */
+      };
+
+      /* The denylist sweep — see FORBIDDEN_CONFIG for why each key is on it.
+         Deliberately after the literal above, so it catches a key however it
+         got there. */
+      Object.keys(FORBIDDEN_CONFIG).forEach(function(key){
+        if(key in config){
+          delete config[key];
+          if(window.console && console.warn){
+            console.warn("play.html: refusing config." + key + " — " +
+                         FORBIDDEN_CONFIG[key]);
+          }
+        }
+      });
+
+      playerUp = true;
+      /* encodeURIComponent is required, not tidiness: load_into() builds the
+         iframe from an HTML string (src="...#${address}"), so a raw quote in the
+         JSON truncates the attribute and every setting is silently dropped.
+         get_parameter_link() decodes on the way in. */
+      player.load(ensureSlot(), encodeURIComponent(JSON.stringify(config)));
+    });
+  }
+
+  /* ── the sound hint ────────────────────────────────────────────────────── */
+
+  /* Shown only for an auto-boot: a visitor who clicked the screen themselves
+     has already made the gesture that unlocks audio, so the hint would be
+     telling them about something they just did. */
+  var hintShown = false;
+
+  function hideSoundHint(){
+    if(!hintShown) return;
+    hintShown = false;
+    hint.hidden = true;
+    frame.removeEventListener("click", hideSoundHint);
+    window.removeEventListener("message", onPlayerMessage);
+  }
+
+  /* The brief's trigger is "the first click anywhere in the player area", and
+     the frame listener below is exactly that. But once the emulator is up, the
+     player area IS a cross-origin-style iframe: a click that lands on the C64
+     screen — the click the hint is asking for — never bubbles to this document,
+     so the frame listener alone would leave the hint up for precisely the
+     visitor it is aimed at. The player relays the emulator's audio state to the
+     parent (vc64web_player.js:104-107) and 'running' is the unlocked state
+     (:351). That is the moment the hint stops being true, so it is the second
+     trigger. */
+  function onPlayerMessage(e){
+    if(!e || !e.data || e.data.msg !== "render_current_audio_state") return;
+    if(e.data.value === "running") hideSoundHint();
+  }
+
+  function showSoundHint(){
+    if(hintShown) return;
+    hintShown = true;
+    hint.hidden = false;
+    frame.addEventListener("click", hideSoundHint);
+    window.addEventListener("message", onPlayerMessage);
+  }
+
+  function selectDemo(id, boot){
+    var demo = demoById(id);
+    if(!demo) return;
+
+    teardownPlayer();
+    activeDemo = demo;
+    markTiles();
+    legend.innerHTML = renderKeys(demo.controls);
+    renderPreview(demo);
+    if(boot) bootPlayer(demo);
+  }
+
+  /* The frame and this page's idea of the frame can disagree in two opposite
+     directions, and the player can cause either one without telling us. Both
+     are read off the live DOM rather than off the mutation records: what
+     matters is the state the visitor is left in, not which edit produced it.
+
+     Because these run in a MutationObserver callback — a microtask delivered
+     after the task that mutated — neither can fire mid-mount. bootPlayer() sets
+     playerUp and calls player.load() in one synchronous run, and load() mounts
+     inline (jQuery is required up front for exactly this reason), so by the
+     time either branch is reached the two are already consistent. */
+  if(window.MutationObserver){
+    new MutationObserver(function(){
+      var mounted = !!frame.querySelector("#player_container");
+
+      /* THE PLAYER LEFT BY ITS OWN HAND. load_into() saves this frame's HTML at
+         MOUNT time (vc64web_player.js:150) and stop_emu_view() puts exactly
+         that back (:362-368) — and what it saved is the "STARTING THE C64…"
+         panel bootPlayer() painted a moment earlier, because the mount happens
+         while that panel is on screen. It tells nobody. The ⏹ that calls it is
+         a control this page deliberately styles (.player_icon_btn), so it is
+         offered rather than incidental, and the player's "open in a new tab"
+         link calls it too. Left alone, playerUp stays true over a dead frame
+         and the visitor sits on a boot message for a boot that is over, with no
+         way back but re-picking a tile. */
+      if(playerUp){
+        if(mounted) return;
+        teardownPlayer();     // playerUp, the generation counter, the poller
+        hideSoundHint();      // no screen left to click for sound
+        /* The focus went with the iframe, so it is already <body> by now and
+           slotHasFocus() cannot see what was lost — hence the forced move. */
+        if(activeDemo) renderPreview(activeDemo, true);
+        return;
+      }
+
+      /* A MOUNT NOBODY SANCTIONED — last line of defence, against future
+         versions rather than this one. Requiring jQuery above means the player
+         mounts inline, so today a mount cannot land after its generation has
+         passed. That is settled — but it is settled about a dependency we do
+         not control, and if a mount ever did land late it would put the wrong
+         game under the right tile, which is worse than a leak. It is removed,
+         the poller it started is stopped, and the current demo's preview goes
+         back. */
+      if(!mounted) return;
+      stopPoller();
+      ensureSlot();
+      if(activeDemo) renderPreview(activeDemo);
+    }).observe(frame, {childList:true, subtree:true});
+  }
+
+  /* ── deep links: play.html?demo=<id> ───────────────────────────────────── */
+
+  /* A known id boots unprompted and gets the sound hint; anything else — an
+     unknown id, an empty value, no query at all — falls back to the first demo,
+     selected but idle. A bad link lands somewhere sensible rather than on an
+     error, which is the whole point of it being an entry point and not state.
+     Nothing here touches history: switching tiles afterwards leaves the URL
+     alone, so the query is where the visitor came in, not where they are. */
+  function initFromQuery(){
+    var requested = null;
+    try{
+      requested = new URLSearchParams(location.search).get("demo");
+    }catch(e){ requested = null; }
+
+    var demo = requested ? demoById(requested) : null;
+    if(demo){
+      showSoundHint();
+      selectDemo(demo.id, true);
+    }else{
+      selectDemo(DEMOS[0].id, false);
+    }
+  }
+
+  /* Tasks 4-5 link to play.html?demo=<id>; this is the contract they rely on. */
+  window.playPage = {
+    DEMOS: DEMOS,
+    selectDemo: selectDemo,
+    bootPlayer: bootPlayer,
+    activeDemo: function(){ return activeDemo; }
+  };
+
+  buildStrip();
+  buildAttribution();
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", initFromQuery, {once:true});
+  }else{
+    initFromQuery();
+  }
+  /* No warm-up fetch: until the fork is live it only buys a 404 in the console
+     on every page load, which would train the eye to ignore the one error that
+     actually means something. The fetch happens on the first boot instead,
+     where a failure has a visible message attached to it. */
+})();
+</script>
+</body>
+</html>

@@ -19,3 +19,35 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Third-party components
+
+The browser play page (play.html) loads the vc64web emulator — a
+WebAssembly port of VirtualC64, licensed GPL-3.0 — at runtime from a
+separate repository (https://github.com/nschneir/vc64web.github.io).
+No emulator code is included or distributed in this repository.
+The system ROM images the emulator boots on are likewise hosted in
+that separate repository, not in this one — and they are not
+Commodore's. They are the KERNAL, BASIC and character ROMs of the
+MEGA65 open-roms project (https://github.com/MEGA65/open-roms), a
+free/libre re-implementation licensed under the GNU Lesser General
+Public License, version 3 or later:
+
+    Copyright Paul Gardner-Stephen, 2019.
+    Copyright Roman Standzikowski (FeralChild64), 2019-2021.
+
+Some of the BASIC sources those binaries are built from are
+additionally under the MIT License, Copyright (c) Microsoft
+Corporation. The PXL font in the character ROM is the work of
+Retrofan, included in open-roms with permission under the LGPL-3.0.
+The full upstream licence text is vendored beside the binaries in the
+separate repository as roms/LICENSE-open-roms.txt, with provenance,
+SHA-256 pins and the corresponding-source pointer in roms/README.md.
+
+No Commodore ROM image is hosted or distributed by either repository —
+the local VICE tooling reads ROM bytes only from the emulator you
+install. There is no 1541 drive ROM in the set at all: each demo is
+served to the play page as a .prg that the emulator flashes straight
+into RAM.

@@ -444,3 +444,309 @@ does not apply.
 
 **How to verify.** `grep -rn '17,095\|19,656' skills/` returns the table, and
 `tests/test_docs_skills.py` stays green.
+
+---
+
+The items below are the browser-play plan's deferrals, filed 2026-08-13 as that
+plan finished. Each carries its evidence inline on purpose: the research that
+produced them lived in `.superpowers/sdd/2026-08-02-browser-playable-demos/`,
+which is deleted with the plan, so an item that merely cited it would resolve to
+nothing — the failure this file's own first entry is about.
+
+## The demos are proved on Commodore ROMs and shipped on open ones
+
+**Anchor:** `demos/{snake,invaders,ms-muncher,la-galaxia}/test.yaml` and
+`c64 test run`; `play.html`'s `KERNAL_ROM_URL` / `BASIC_ROM_URL` /
+`CHARSET_ROM_URL` constants.
+
+**Status:** open, and never mitigated — the ROM research that cleared the open
+ROMs for shipping recorded this as its residual risk with "*mitigation:* none in
+place", and nothing since has supplied one.
+
+**What's wrong now.** Every demo's regression suite runs under VICE, which reads
+ROM bytes from the emulator the developer installed — Commodore's. `play.html`
+boots the same four programs on MEGA65 open-roms instead. Nothing exercises the
+second set. open-roms is not cycle-exact with the Commodore KERNAL and its BASIC
+is deliberately incomplete (that project's own `STATUS.md` says so), so a change
+that starts calling a KERNAL routine these four currently avoid would pass
+`c64 test run` and break the play page silently. Today the four use only `RUN` +
+`SYS` and then take the machine over, which is the whole reason the open ROMs
+work at all; nothing enforces that they keep doing so.
+
+The gap is wider than "CI does not cover it": `.github/workflows/` holds
+`release.yml` and nothing else, so the demo suites are not run by CI at all.
+Whatever closes this has to be a check a person or a hook actually runs.
+
+**Fix direction (not ruled).** Two shapes were considered and neither chosen.
+The cheap one is a documented note that the play page's ROM set differs, so the
+next author at least knows to look. The real one is a smoke check that boots
+each `.prg` to its first playable frame on the open ROMs and asserts the same
+screen the `test.yaml` first step does — which needs the open ROM images
+reachable from a test run, and they deliberately do not live in this repo.
+
+**How to verify.** Whatever is built, the check must fail when a demo starts
+depending on the Commodore KERNAL. A cheap proof it works: point it at a demo
+patched to `JSR` into a KERNAL entry open-roms does not implement, and confirm
+it goes red while `c64 test run` for that demo stays green.
+
+## The play page's system ROMs are an untagged dev build
+
+**Anchor:** `play.html`'s `ROM_BASE` and the three ROM constants; `roms/README.md`
+in the `nschneir/vc64web.github.io` fork, which holds the sha256 pins.
+
+**Status:** open, accepted knowingly at ship. Not a defect — a dependency with no
+stability guarantee, recorded so it is a decision and not a surprise.
+
+**What's wrong now.** The KERNAL, BASIC and CHARGEN images come from
+<https://github.com/MEGA65/open-roms> `master`, directory `bin/`
+(`kernal_generic.rom`, `basic_generic.rom`, `chargen_pxlfont_2.3.rom`). That
+repo has **no tagged releases**. The binaries self-identify at boot as
+`OPEN ROMS GENERIC BUILD / RELEASE DEV.210823.FC.1` — a development build dated
+2021-08-23, while the repo itself is still active. So the play page's system
+software is a five-year-old snapshot of a moving branch, and there is no release
+cadence to follow when picking up a newer one.
+
+What protects us is the vendoring: the bytes are copied into the fork and pinned
+by sha256 there, so upstream rebuilding `bin/` cannot change what a visitor
+boots. What is unprotected is the other direction — if that build turns out to
+have a bug, there is no upstream release to move to, only another untagged
+commit. `bin/README.md` also forbids mixing BASIC and KERNAL from different
+builds, so any refresh has to move both together.
+
+**Fix direction (not ruled).** Nothing to do while the page works. The item
+exists so that a future "just update the ROMs" is done as a matched pair, with
+the sha256 pins and the build string re-recorded in the fork's `roms/README.md`.
+
+**How to verify.** Boot the play page and read the BASIC banner: the build
+string on screen must match the one recorded in the fork's `roms/README.md`.
+If they ever disagree, the pin was bypassed.
+
+## The tile art was rendered on a character ROM the play page does not use
+
+**Anchor:** `play.html`'s `DEMOS` registry `image:` fields —
+`demos/{snake,invaders,ms-muncher}/evidence/title.png`.
+
+**Status:** open as a decision, not as a bug. Cosmetic; layout is identical.
+
+**What's wrong now.** snake, invaders and ms-muncher each copy the full 2 KB
+character ROM into RAM and patch only their own glyphs, so every character they
+did *not* redefine — all their prose text — is drawn from whichever CHARGEN is
+installed. The committed `evidence/*.png` files were captured under VICE on
+Commodore's CHARGEN; the play page runs on open-roms' PXL font. The tile
+thumbnail and the preview still frame therefore show a typeface the visitor will
+not see once the machine boots. Letterforms differ; character cells, colours and
+layout do not, so nothing misleads about the game itself. (la-galaxia is
+unaffected — it builds its charset from scratch.)
+
+**Fix direction (not ruled) — this is the decision to make.** Either accept the
+drift, on the grounds that `evidence/` is the demos' proof-of-work captured on
+the reference machine and should not be re-shot to flatter a web page; or give
+the play page its own tile art captured on the shipping ROM set, kept beside
+`play.html` rather than inside `evidence/`, so the audit trail stays untouched.
+Re-capturing `evidence/` itself is the one option that is wrong: those PNGs are
+cited as evidence by each demo's `AUDIT.md`.
+
+**How to verify.** Open the play page, boot any of the three, and compare the
+running title screen with its own tile: same words in the same cells, different
+letterforms. That is the whole of the defect, and it is the check.
+
+## The play page has never been seen running
+
+**Anchor:** `play.html`; `https://nschneir.github.io/Project64/play.html`;
+the `nschneir/vc64web.github.io` fork.
+
+**Status:** open, and **blocking any claim that browser play works**. Everything
+shipped is verified against the *fallback*, not against a running emulator.
+
+**What's wrong now.** The whole page was built and checked locally against an
+emulator that 404s. As of 2026-08-13 the fork is committed but unpushed and has
+no GitHub Pages, so `https://nschneir.github.io/vc64web.github.io/` — and every
+ROM and script under it — returns 404; and this branch is unpushed, so
+`https://nschneir.github.io/Project64/play.html` returns 404 while
+`https://nschneir.github.io/Project64/` serves fine. A visitor following a
+README play link today gets a 404; a visitor on a local copy gets the graceful
+"THE EMULATOR FAILED TO LOAD" panel with working `.prg`/`.d64` downloads. That
+fallback is verified. Nothing else on the boot path is.
+
+Specifically unverified: that the emulator loads from the fork at all; that any
+demo reaches a playable frame from the published URLs; that a real keyboard
+drives them (the demos poll `$CB` once a tick, so synthetic key events are
+missed by design — automation cannot substitute); that audio unlocks on the
+first gesture and the sound hint then retracts; that a phone works at all —
+touch controls reaching the game, the virtual keyboard, sound after tap. The
+`touch:` flag is seeded from `(pointer: coarse)`, which is false on every
+machine this was tested on, so the touch path has never once been exercised.
+Nothing outside Chrome has been tried.
+
+**Fix direction (ruled — it is a sequence, not a design).** Push the fork and
+enable Pages on it; push this branch and let Project64 Pages rebuild; then repeat
+the local pass against the published URLs, and add the two things only a human
+can do — real-keyboard play of all four demos, and one phone check.
+
+**How to verify.** `curl -sI https://nschneir.github.io/vc64web.github.io/js/vc64web_player.js`
+returns 200, and each of the four
+`https://nschneir.github.io/Project64/play.html?demo=<id>` links boots to its own
+title screen with sound after the first click.
+
+**Both of the design spec's follow-up candidates are moot, not deferred.** The
+spec asked implementation to look for "a warp-during-load config flag as a
+nice-to-have", premised on its own note that "real 1541 loading takes ~15-25 s".
+The shipped page has no 1541: it boots a `.prg` flashed straight into RAM with
+no drive ROM installed at all (`play.html`'s `BOOT_MEDIUM`). There is no load to
+warp through. The spec's other candidate was 1812's `.d64` packaging, "when its
+dogfood run lands" — that run landed and `demos/1812/1812.d64` is tracked, so
+the packaging is done; 1812 is nonetheless off the roster, ruled out as a music
+demo rather than a game, and it is the only demo with no `evidence/title.png` to
+cut a tile from. Both are recorded here because a later reader otherwise cannot
+tell a closed candidate from a forgotten one.
+
+## `play.html`'s audio-state listener trusts any window that posts to it
+
+**Anchor:** `play.html`, `onPlayerMessage()`.
+
+**Status:** open, hardening only. Deferred during the plan with its impact
+measured, not assumed.
+
+**What's wrong now.** The handler checks `e.data.msg` and `e.data.value` and
+never checks `e.origin` or `e.source`, so any frame or opener that can post to
+this window can spoof `{msg:"render_current_audio_state", value:"running"}`.
+The entire consequence is that the yellow "click the screen for sound" hint is
+hidden early — a line of advice, no state, no capability. It is filed because an
+unchecked `message` listener is a pattern worth not leaving in the tree, not
+because this one is exploitable for anything.
+
+**Fix direction (not ruled).** Compare `e.origin` against the origin of
+`EMU_BASE` — which is already a constant one scroll up — and drop anything else.
+`e.source` is the tighter check but needs a handle on the player's iframe
+window, which the player owns rather than this page.
+
+**How to verify.** From the console, `postMessage` that exact payload from the
+page itself and confirm the hint stays up; then boot a demo for real and confirm
+the hint still retracts when audio starts.
+
+## A shipped docstring cites a path that `.gitignore` excludes
+
+**Anchor:** `src/c64lib/audio.py`, the `warp` readback docstring — its pointer
+to `.superpowers/sdd/2026-08-02-sid-audio-verification/wedge-investigation.md`.
+
+**Status:** open. Found 2026-08-13 while sweeping tracked files for citations
+into `.superpowers/`; it was the only other hit, and it is not broken *yet* —
+that plan's workspace still exists on this checkout.
+
+**What's wrong now.** A tracked source file points a reader at an untracked
+path. `.gitignore` excludes `.superpowers/` wholesale and SDD workspaces are
+deleted when their plan finishes, so the reference resolves for whoever happens
+to still have the directory and for nobody else — this file's first item, one
+step later. The docstring is defensive in the right way otherwise: it carries
+its own figures inline ("measured 2026-08-04/05", 39 missing replies in 240
+pin/unpin cycles, a 30 s timeout that still returned nothing), so what is lost
+is the supporting wire traces, not the reason the retry exists.
+
+**Fix direction (not ruled).** Either drop the pointer, since the docstring
+already stands without it, or move the wire traces somewhere `git ls-files`
+reports and cite that.
+
+**How to verify.** `git grep -n '\.superpowers/' -- src/ docs/ skills/ '*.html'`
+returns nothing that a reader outside this checkout could not follow.
+
+## The fork will republish a GPL-3.0 emulator with no licence text
+
+**Anchor:** `LICENSE`'s "Third-party components" section; `play.html`'s
+`EMU_BASE`; the `nschneir/vc64web.github.io` fork — `vc64.wasm` (2,062,000 B)
+and `vc64.js` (198,736 B) at its root.
+
+**Status:** open, **contestable, and the maintainer's call** — filed so the
+call is made rather than inherited. Not introduced by this branch: the fork's
+one local commit (`a5cddb6`) adds `roms/` and nothing else, so everything else
+is upstream's tree as forked.
+
+**What's wrong now.** vc64web is a WebAssembly build of VirtualC64, which is
+GPL-3.0 — this repo's own `LICENSE` is where that is written down. The fork
+carries no copy of that licence: `git ls-tree -r --name-only 5700ccd` (the
+upstream commit the fork sits on) matches **zero** paths against
+`licen|copying|gpl`, and the fork's `README.md` — 33 bytes, "# deployment repo
+of the vc64web" — and its `index.html` mention neither a licence nor a
+copyright holder. The only licence text anywhere in the fork is
+`roms/LICENSE-open-roms.txt`, which we added and which covers the ROMs only.
+Serving `vc64.wasm` from GitHub Pages under this account is distribution of a
+GPL-3.0 binary, and GPL-3.0 §4 asks a distributor to keep the notices intact
+and give recipients a copy of the licence.
+
+What is genuinely there, and cuts the other way: the served `index.html` links
+`https://github.com/vc64web/virtualc64web` — the corresponding source — though
+it does so in a support line ("If you see an issue please contact us at github
+issues"), not as a source offer. So a reader can reach the source from the page;
+what is missing is the licence text and any statement that this build is
+GPL-3.0 and where its source is.
+
+Do not overstate this: the upstream project distributes in exactly this state,
+nothing here has been redistributed yet (the fork is unpushed), and no claim is
+made about whether the omission is material. What makes it *ours* to decide is
+that this branch's `LICENSE` is what points readers at the fork and names the
+GPL-3.0 — we describe the arrangement, so we are on the hook for it being
+describable.
+
+Adjacent, and probably resolved by whatever is decided here: `play.html`'s
+footer says the emulator is "served from its own site — not bundled" and links
+`https://vc64web.github.io/`, while `EMU_BASE` actually serves it from *our*
+fork. `LICENSE` states the arrangement correctly; the footer's "its own site"
+does not. If the ruling below points `EMU_BASE` back at upstream the sentence
+becomes true again, so the two are worth deciding together.
+
+**Fix direction (not ruled — three options, cheapest first).**
+1. Add the GPL-3.0 text as `LICENSE` at the fork root and three lines to the
+   fork's `README.md`: what the binaries are, that they are GPL-3.0, and the
+   upstream source repository with the commit they were built from. Fixes it
+   where the distribution happens and costs nothing here.
+2. Point `EMU_BASE` back at `https://vc64web.github.io/` and keep only `roms/`
+   in the fork — removes this account from the redistribution chain, at the
+   cost of the version pinning and the same-origin ROM hosting the fork exists
+   for. (`play.html`'s ROM constants are already independent of `EMU_BASE`
+   only by convention; both derive from it today.)
+3. Decide the omission is immaterial for a fork of a project's own deployment
+   repo, and record that decision here so it is not re-litigated.
+
+**How to verify.** In the fork, `git ls-tree -r --name-only HEAD | grep -icE
+'licen|copying'` returns at least the root licence, and once Pages is live
+`curl -sI https://nschneir.github.io/vc64web.github.io/LICENSE` returns 200.
+For option 2, `grep -c 'nschneir.github.io/vc64web' play.html` returns 0.
+
+## Every player mount leaks a `resize` and an `orientationchange` handler
+
+**Anchor:** the fork's `js/vc64web_player.js` — `load_into()` at `:208` and
+`:219` against `stop_emu_view()` at `:362-377`; `play.html`'s
+`teardownPlayer()`.
+
+**Status:** open, **upstream residue, and outside what this page can fix.** The
+plan's "switching must not leak" contract was about iframes and it holds —
+measured 0 iframes and 0 `#player_container`s after switching, and the state
+poller is stopped on both teardown paths.
+
+**What's wrong now.** `load_into()` runs `$(window).on('resize', …)` and
+`$(window).on('orientationchange', …)` on *every* mount, and `stop_emu_view()`
+removes only `document`'s `click` listener (`document.removeEventListener
+("click", this.grab_focus)`). Neither `resize` handler is ever taken off, so k
+boots leave k pairs attached to `window`. Each closes over `load_into`'s scope,
+which holds `element` and `emu_container` — the detached preview subtree — so
+this retains DOM, not just duplicate work.
+
+The visible symptom is small and bounded, which is why it is filed rather than
+worked around: `$vc64web` is assigned inside `load_into` **without `var`**, so
+it is one global that each mount overwrites, and all k handlers therefore
+resize the same live iframe. Behaviour stays correct; the cost is k height
+writes and k 130 ms timeouts per window resize, on a page where k is the number
+of games the visitor has tried.
+
+**Fix direction (not ruled).** It belongs in the fork: `$(window).off('resize
+orientationchange')` at the top of `stop_emu_view()`, or — better, since the
+host page may own handlers of its own — namespaced registration
+(`.on('resize.vc64web', …)`) with the matching `.off('.vc64web')`. From
+`play.html` the only reach is `window.jQuery(window).off("resize
+orientationchange")` after each teardown, which drops handlers this page does
+not own; it happens to be safe today because the page registers none through
+jQuery, and it would break silently the day that stops being true. Not taken
+for that reason.
+
+**How to verify.** With the player live, boot and stop three times, then read
+`jQuery._data(window, "events").resize.length` in the console: 3 today, 0 once
+`stop_emu_view()` unregisters.
