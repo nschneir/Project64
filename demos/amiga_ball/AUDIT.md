@@ -949,4 +949,6 @@ measured and is above.
 One item stays open outside this demo and is filed in `docs/todo.md` rather
 than fixed here: `skills/c64-development/references/hardware.md`'s sprite-Y row
 formula measures one high, and correcting it touches `demos/invaders`, which
-reached the opposite conclusion deliberately.
+reached the opposite conclusion deliberately. *(Closed since: the formula was
+corrected with the measurement, and invaders' one-raster offset was re-judged
+by eye 2026-08-14 and kept — its `sprites.s` records the judgement.)*

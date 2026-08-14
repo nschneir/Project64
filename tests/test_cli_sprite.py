@@ -23,12 +23,18 @@ def _vic():
     return bytes(v)
 
 
+#: what the fake emulator answers `palette()` with — deliberately nothing like
+#: sprites.C64_PALETTE, so a PNG's pixels say which table rendered them.
+_LIVE_PALETTE = [(i, 2 * i, 3 * i) for i in range(16)]
+
+
 def _fake(mem=None):
     fake = Mock()
     fake.name, fake.model, fake.labels = "c64", "c64", None
     fake.profile.screen_addr = 0x0400
     fake.profile.screen_cols = 40
     mon = Mock()
+    mon.palette.return_value = _LIVE_PALETTE
     mem = mem or {}
     mem.setdefault(0xDD00, bytes([0b11]))
     mem.setdefault(0xD018, bytes([0x15]))
@@ -104,6 +110,41 @@ def test_sprite_png_writes_file(tmp_path):
     assert out["png"] == str(out_png) and (out["width"], out["height"]) == (48, 42)
     from PIL import Image
     assert Image.open(out_png).size == (48, 42)
+
+
+def test_sprite_png_colors_come_from_the_live_palette(tmp_path):
+    """`c64 sprite png` renders with the palette the emulator is running —
+    the same `mon.palette()` `c64 screen --png` renders from. It used to use
+    sprites.C64_PALETTE, and a reviewer comparing the sprite inspector's PNG
+    with the evidence camera's saw two different reds for the same bytes."""
+    from PIL import Image
+
+    from c64lib.sprites import C64_PALETTE
+    fake, mon = _fake()
+    out_png = tmp_path / "s.png"
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "sprite", "png", "0",
+                                      "-o", str(out_png), "--scale", "1",
+                                      "--block", "$0340"])
+    assert r.exit_code == 0, r.output
+    img = Image.open(out_png).convert("RGB")
+    assert img.getpixel((0, 0)) == _LIVE_PALETTE[7]     # sprite 0's color
+    assert img.getpixel((1, 0)) == _LIVE_PALETTE[6]     # background ($D021)
+    assert img.getpixel((0, 0)) != C64_PALETTE[7]       # not the fallback
+    mon.palette.assert_called()
+
+
+def test_sprite_show_does_not_ask_for_the_palette():
+    """The ASCII inspector is colorless and must stay that way: no palette
+    round trip on a path that cannot spend it."""
+    fake, mon = _fake()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = fake
+        r = CliRunner().invoke(main, ["--json", "sprite", "show", "0",
+                                      "--block", "$0340"])
+    assert r.exit_code == 0, r.output
+    mon.palette.assert_not_called()
 
 
 def test_sprite_bad_index_fails():

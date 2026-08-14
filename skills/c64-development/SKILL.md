@@ -318,6 +318,14 @@ c64 mem get headrow 2         # move 1, deterministically
 The same applies to a level-up, a death screen, or any other transition:
 break on the code path first, then trigger it.
 
+This is a CLI trap specifically — **inside `c64 test run` the runner arms
+each checkpoint before the program has run**, so a spec's first
+`until: {ref: tick, count: 1}` stops at the first arrival and later counts
+are absolute frame numbers (measured: `assert frame == 0` passes there,
+while `c64 run` + `c64 until tick --count 30` from the shell landed on
+frame 3,774). A spec may therefore assert absolute frames; a shell protocol
+must arm-then-run.
+
 **The stopped-state rule.** The machine's run/stop state persists across `c64`
 commands (a per-session monitor daemon holds it). Four commands intentionally
 halt it so you can inspect it: `c64 step`, `c64 finish`, `c64 until`, and

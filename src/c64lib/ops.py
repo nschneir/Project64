@@ -28,7 +28,7 @@ from .protocol import CP_EXEC
 from .romdoc import rom_labels
 from .screen import read_screen_text, screen_base
 from .session import Session, SessionError
-from .sprites import SpriteState, read_sprite_block, read_sprite_states
+from .sprites import SpriteState, read_sprite_block, read_sprite_states, sprite_image
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
 
@@ -1267,6 +1267,35 @@ def sprite_shape(session, index: int, block: str | None = None
         finally:
             mon.release()
     return data, st, shared, addr
+
+
+def render_sprite_png(session, index: int, path: str | Path, scale: int = 1,
+                      block: str | None = None) -> dict:
+    """Write sprite `index`'s shape to `path` as a PNG; the `{png, width,
+    height}` both front ends report.
+
+    Colored from the palette the emulator is actually running, read over the
+    monitor exactly as `save_screenshot_png` reads it. That is the point of
+    this function existing rather than each front end calling `sprite_image`:
+    `c64 sprite png` is the sprite inspector and `c64 screen --png` is the
+    evidence camera, a reviewer is told to look at both, and while this path
+    used the hardcoded `sprites.C64_PALETTE` the two rendered the same color
+    number as two different colors.
+
+    Costs one palette round trip, which is why `c64 sprite show` does not
+    come through here — its ASCII has no color to get wrong.
+
+    Raises what `sprite_shape` raises; presentation belongs to the front ends.
+    """
+    data, st, shared, _ = sprite_shape(session, index, block)
+    with session.monitor() as mon:
+        try:
+            palette = mon.palette()
+        finally:
+            mon.release()          # an inspection read: never resume a halt
+    img = sprite_image(data, st, shared, scale=scale, palette=palette)
+    img.save(path, format="PNG")
+    return {"png": str(path), "width": img.width, "height": img.height}
 
 
 def easyflash_state(session) -> dict:

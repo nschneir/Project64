@@ -134,6 +134,45 @@ def test_sprite_image_multicolor_pairs():
     assert img.getpixel((3, 0)) == img.getpixel((2, 0))  # pair is 2 wide
 
 
+#: a table that is nothing like C64_PALETTE, so "which one did it use?" has
+#: an unambiguous answer at every index (index 0 is the one shared entry —
+#: black is black in both — and no test below reads it).
+_LIVE_PALETTE = [(i, 2 * i, 3 * i) for i in range(16)]
+
+
+def test_sprite_image_renders_with_the_palette_it_is_given():
+    """`palette=` wins over C64_PALETTE. `c64 sprite png` passes the live one
+    (`mon.palette()`), which is what `c64 screen --png` renders from, so the
+    two writers cannot disagree about a color number — they did, red coming
+    out (104, 55, 43) from one and (174, 71, 93) from the other."""
+    from c64lib.sprites import sprite_image
+    data = bytes([0b10000000, 0, 0] + [0] * 60)
+    img = sprite_image(data, _state(color=1), _SHARED, scale=1,
+                       palette=_LIVE_PALETTE)
+    assert img.getpixel((0, 0)) == _LIVE_PALETTE[1]     # set -> sprite color
+    assert img.getpixel((1, 0)) == _LIVE_PALETTE[6]     # clear -> background
+
+
+def test_sprite_image_multicolor_takes_every_pair_from_the_given_palette():
+    from c64lib.sprites import sprite_image
+    data = bytes([0b00011011] + [0] * 62)               # 00 01 10 11
+    img = sprite_image(data, _state(color=7, multicolor=True), _SHARED,
+                       scale=1, palette=_LIVE_PALETTE)
+    assert [img.getpixel((2 * p, 0)) for p in range(4)] == [
+        _LIVE_PALETTE[6], _LIVE_PALETTE[10], _LIVE_PALETTE[7],
+        _LIVE_PALETTE[11]]
+
+
+def test_sprite_image_falls_back_to_c64_palette_without_one():
+    """The session-less paths have no emulator to ask, so the hardcoded table
+    stays reachable — and stays the fallback, not the default in disguise."""
+    from c64lib.sprites import sprite_image
+    data = bytes([0b10000000, 0, 0] + [0] * 60)
+    img = sprite_image(data, _state(color=1), _SHARED, scale=1)
+    assert img.getpixel((0, 0)) == C64_PALETTE[1]
+    assert img.getpixel((1, 0)) == C64_PALETTE[6]
+
+
 def test_from_image_hires_threshold():
     from PIL import Image
 

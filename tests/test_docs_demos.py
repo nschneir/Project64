@@ -557,10 +557,8 @@ def test_demo_prg_is_a_build_of_the_committed_sources(demo, tmp_path):
     differing bytes against its own sources — and nothing failed, because the
     only guard named a different demo. Four other demos had no guard at all.
 
-    The `.d64` is still deliberately not pinned: packaging shells out to c1541
-    and costs seconds where this pass costs a fraction of one, so nothing here
-    checks that the shipped image carries the `.prg` this test just rebuilt —
-    re-package by hand after any rebuild.
+    The `.d64` is pinned by the sibling test below, behind `needs_c1541` —
+    it shells out to c1541, which this fraction-of-a-second pass must not.
 
     The areas and the load address both come from data — `test.yaml` and the
     machine profile — so each spec stays the one place its program's link
@@ -583,8 +581,36 @@ def test_demo_prg_is_a_build_of_the_committed_sources(demo, tmp_path):
     assert built.read_bytes() == (demo_dir / f"{demo}.prg").read_bytes(), (
         f"demos/{demo}/{demo}.prg is not a build of the committed sources — "
         f"re-run `c64 build {source}{flags}` (and `c64 package` the .d64, "
-        "which nothing pins to it)"
+        "which the needs_c1541 sibling test pins to it)"
     )
+
+
+@pytest.mark.needs_c1541
+@pytest.mark.parametrize("demo", _pinnable_demos())
+def test_demo_d64_carries_the_committed_prg(demo):
+    """The other half of the pin above, and the residual its docstring used to
+    concede: a re-packaged image can drift from a rebuilt program with nothing
+    to notice, because `c64 package` and `c64 build` are separate commands run
+    by hand. The image's autostart file — the `*` read, which c1541 resolves
+    to the first directory entry, exactly what `LOAD"*",8,1` runs — must be
+    byte-identical to the committed `.prg` beside it. Behind `needs_c1541`
+    (not in this file's default sweep) because it shells out to c1541;
+    `pytest -m "needs_c1541 and not vice"` is the subset that runs it."""
+    import tempfile
+
+    from c64lib.disk import get_file
+
+    demo_dir = DEMOS_DIR / demo
+    image = demo_dir / f"{demo}.d64"
+    assert image.exists(), \
+        f"{image} is missing while {demo}.prg is committed — package it"
+    with tempfile.TemporaryDirectory() as td:
+        pulled = get_file(image, "*", Path(td) / "auto.prg")
+        assert pulled.read_bytes() == (demo_dir / f"{demo}.prg").read_bytes(), (
+            f"demos/{demo}/{demo}.d64's autostart file is not the committed "
+            f"{demo}.prg — the image was packaged from a different build; "
+            f"re-run `c64 package`"
+        )
 
 
 AUDIT_1812 = Path("demos/1812/AUDIT.md")
@@ -868,3 +894,25 @@ def test_no_demo_takes_its_input_from_the_kernal_alone():
             f"and MEGA65 open-roms does not. It will pass c64 test run under "
             f"VICE and take no input on the play page. Scan the CIA and keep "
             f"$CB as the fallback, the way the other demos do.")
+
+
+def test_graphics_policy_names_the_shell_its_helpers_assume():
+    """The §5 helper block is offered as "worth stealing verbatim", and its
+    unquoted `$S` relies on word splitting — which zsh does not perform on
+    parameter expansions, so pasted into a zsh prompt the session flag
+    arrives as one token and the lookup fails with `no session named
+    ' mmev'`. Every committed evidence script is `#!/bin/sh`, where it works;
+    the doc must say the helpers assume that shell. (Second instance of the
+    class: docs/cli.md lost a zsh driver example the same way in the
+    amiga_ball pass; the fugue pass hit this one.)"""
+    text = GRAPHICS_POLICY.read_text()
+    section = text[text.index("## 5."):text.index("## 6.")]
+    assert "worth stealing verbatim" in section, \
+        "the helper block lost its framing; retarget this test at it"
+    assert "#!/bin/sh" in section and "zsh does not perform" in section, \
+        "the helper block no longer names the shell it assumes"
+    for demo in ("invaders", "ms-muncher", "la-galaxia", "amiga_ball", "fugue"):
+        script = DEMOS_DIR / demo / "tools" / "evidence.sh"
+        assert script.read_text().startswith("#!/bin/sh"), \
+            f"{script} is not the #!/bin/sh the policy says every evidence " \
+            f"script uses"

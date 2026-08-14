@@ -97,6 +97,9 @@ VOICE_COLORS = {1: (255, 64, 64), 2: (64, 220, 64), 3: (80, 120, 255)}
 #: Neutral greys, so nothing but a voice bar is ever channel-dominant.
 ROLL_BACKGROUND = (18, 18, 22)
 ROLL_GRID = (52, 52, 58)
+#: The rows `MAX_ROW_LABELS` leaves unnamed, ruled a step dimmer than the
+#: labelled ones — see `render_piano_roll`.
+ROLL_GRID_UNLABELLED = (32, 32, 37)
 ROLL_TEXT = (208, 208, 212)
 
 #: Pinned minimum size for both rendered PNGs.
@@ -112,6 +115,7 @@ MIN_ROW_HEIGHT = 4
 #: Roll chrome: note-name gutter, right/top padding, legend strip.
 ROLL_GUTTER, ROLL_PAD, ROLL_LEGEND_HEIGHT = 48, 8, 36
 #: Y labels are thinned to at most this many, so a wide range stays readable.
+#: Every row is still ruled — the ones this cap skips in `ROLL_GRID_UNLABELLED`.
 MAX_ROW_LABELS = 12
 
 # --- audio ---------------------------------------------------------------
@@ -548,6 +552,12 @@ def render_piano_roll(events: Sequence[NoteEvent], png_path: str | Path, fps: fl
     eye picks out is exactly what sounded. ``fps`` only labels the legend with
     the capture's duration in seconds — the drawing itself is in frames.
 
+    Every semitone row is ruled, but only ``MAX_ROW_LABELS`` of them are named:
+    over a wide range the names thin out to every second or third semitone, and
+    the dim lines between them are how a bar the labels skip is still named —
+    count rows from the nearest name. Without them a 33-semitone passage could
+    only be read against the transcription table in ``report.md``.
+
     An empty (or all-rest) event list still renders: a labelled, empty grid is
     a truthful answer to "what played?", and downstream report links must not
     dangle.
@@ -579,11 +589,18 @@ def render_piano_roll(events: Sequence[NoteEvent], png_path: str | Path, fps: fl
     def y_of(midi: int) -> int:
         return ROLL_PAD + (high_midi - midi) * row_height
 
+    # Every semitone gets a line; only every `label_stride`-th gets a name and
+    # the brighter tone. The dim lines are what make the cap survivable: a bar
+    # the labels skip is still countable off the nearest name, which is the
+    # whole reading a reviewer does when the range is wider than twelve rows.
     label_stride = max(1, math.ceil(rows / MAX_ROW_LABELS))
-    for midi in range(low_midi, high_midi + 1, label_stride):
+    for midi in range(low_midi, high_midi + 1):
+        labelled = (midi - low_midi) % label_stride == 0
         y = y_of(midi) + row_height - 1
-        draw.line([(ROLL_GUTTER, y), (width - ROLL_PAD, y)], fill=ROLL_GRID)
-        draw.text((4, y - row_height + 1), _midi_name(midi), fill=ROLL_TEXT, font=font)
+        draw.line([(ROLL_GUTTER, y), (width - ROLL_PAD, y)],
+                  fill=ROLL_GRID if labelled else ROLL_GRID_UNLABELLED)
+        if labelled:
+            draw.text((4, y - row_height + 1), _midi_name(midi), fill=ROLL_TEXT, font=font)
 
     for event in events:
         midi = _note_to_midi(event.note)
@@ -738,6 +755,8 @@ def write_report(
     diffs: Sequence[str],
     anomalies: Sequence[str],
     metrics: Mapping | None,
+    *,
+    ref: Mapping | str | Path | None = None,
 ) -> Path:
     """Write ``report.md`` into ``outdir`` and return its path.
 
@@ -746,6 +765,14 @@ def write_report(
     of ``None`` is a render-only run (no audio captured), which is a legitimate
     outcome and not a failure; likewise an empty ``diffs`` list, which is what a
     run with no reference score produces.
+
+    ``ref`` is the reference score those ``diffs`` came from — the path (or the
+    parsed score) a caller handed :func:`diff_score`, and ``None`` for a run
+    that was never scored. It is what the Score-diff section stands on: with it
+    the section names the file and quotes what that score claims, and without
+    it the section says outright that nothing was checked. Passing the diffs
+    alone cannot express the difference, which is the bug — a committed report
+    of an unscored run read exactly like a clean one.
 
     A capture in which nothing sounded at all passes on the same rule — there
     is nothing for a check to disagree with — but says so, under the verdict
@@ -757,9 +784,7 @@ def write_report(
 
     lines = ["# SID audio verification", ""]
     lines += _transcription_section(events)
-    lines += _list_section("Score diff", diffs,
-                           "No differences against the reference score — an empty diff "
-                           "list is also what a run with no reference score produces.")
+    lines += _score_diff_section(diffs, ref)
     lines += _list_section("Anomalies", anomalies, "None found.")
     lines += _metrics_section(metrics)
     lines += _artifacts_section(outdir)
@@ -1206,6 +1231,72 @@ def _transcription_section(events: Sequence[NoteEvent]) -> list[str]:
             )
         lines.append("")
     return lines
+
+
+def _score_diff_section(diffs: Sequence[str], ref: Mapping | str | Path | None) -> list[str]:
+    """The Score-diff section: what was checked, then what it found.
+
+    "What was checked" first and unconditionally, because the section's own
+    findings are ambiguous without it — no diffs is what a matching score
+    produces AND what no score at all produces, and a committed report that
+    could not tell a reviewer which is what this section exists to fix.
+    """
+    lines = ["## Score diff", ""]
+    if ref is None:
+        lines += [
+            "**No reference score supplied.** Nothing below was checked against one, so "
+            "this section is not evidence about which notes played — only the "
+            "reference-free checks under *Anomalies* ran. Re-run with `--ref SCORE.yaml` "
+            "to diff this log against a written score.",
+            "",
+        ]
+    else:
+        named = ("a score supplied inline (not a file)" if isinstance(ref, Mapping)
+                 else f"`{ref}`")
+        lines += _reference_claim(named, ref)
+    if diffs:
+        # Printed even under "no reference supplied" — a combination
+        # `audio.sid_report` cannot produce (it skips the diff outright when
+        # there is no score), so this is for a library caller that diffed
+        # against something it did not name. Its findings are real; dropping
+        # them here would be a worse failure than an odd-reading section.
+        return lines + [f"- {diff}" for diff in diffs] + [""]
+    if ref is None:
+        return lines
+    return lines + ["No differences: every entry above was compared against this capture.",
+                    ""]
+
+
+def _reference_claim(named: str, ref: Mapping | str | Path) -> list[str]:
+    """What the reference score claims, read through `score_summary`.
+
+    The same function `c64 audio score` prints, so the report and that command
+    cannot disagree about a score's counts.
+    """
+    try:
+        summary = score_summary(ref)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        # A score that reached this point has already been read by
+        # `diff_score` — with one gap: that comparison only reaches an entry's
+        # `frames` when the NOTE matched, so a wrong note over a non-numeric
+        # duration diffs cleanly and summarises not at all. Say so rather than
+        # losing a finished report, and its capture, at the last line.
+        return [f"Checked against {named}, which could not be summarised: {exc}.", ""]
+    voices = summary["voices"]
+    lines = [
+        f"Checked against {named} — {_count(len(voices), 'voice')}, "
+        f"{_count(summary['entries'], 'entry', 'entries')}, "
+        f"{_count(summary['frames'], 'frame')}.",
+        "",
+        "| Voice | Entries | Frames | First | Last |",
+        "|---|---|---|---|---|",
+    ]
+    for voice, claim in sorted(voices.items(), key=lambda item: int(item[0])):
+        # A voice the score lists as empty claims silence, and has no first or
+        # last note to print; the dash is that claim, not a missing value.
+        lines.append(f"| {voice} | {claim['entries']} | {claim['frames']} | "
+                     f"{claim['first'] or '-'} | {claim['last'] or '-'} |")
+    return lines + [""]
 
 
 def _list_section(title: str, items: Sequence[str], when_empty: str) -> list[str]:

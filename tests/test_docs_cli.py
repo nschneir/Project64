@@ -627,3 +627,31 @@ def test_cli_md_names_every_machine_profile():
     text = DOC.read_text()
     for name in PROFILES:
         assert f"`{name}`" in text, f"docs/cli.md never names {name}"
+
+
+def test_encode_twins_name_each_others_hires_background():
+    """`c64 charset encode` hires rows are `.#`; `c64 sprite encode` hires
+    rows default the background to a space. The two are documented as twins,
+    so a sheet written in one legend and fed to the other fails — measured:
+    `unknown hires sprite glyph '.'` on the fugue dogfood's glow sheet. Each
+    entry must warn about the other's default."""
+    text = DOC.read_text()
+    sprite = _section(text, "### `c64 sprite encode`")
+    charset = _section(text, "### `c64 charset encode`")
+    assert "needs `--background .`" in sprite, \
+        "sprite encode no longer names the charset legend's mismatch"
+    assert "unknown hires sprite glyph" in charset, \
+        "charset encode no longer warns what its legend does on the twin"
+
+
+def test_test_run_documents_that_the_runner_arms_before_the_program_runs():
+    """The CLI free-runs at warp between `c64 run` and `c64 until` (measured:
+    frame 3,774 instead of 30); the YAML runner arms first, so a spec's first
+    `until` is the program's first arrival and counts are absolute. Only the
+    trap used to be documented; the guarantee is the useful half."""
+    text = DOC.read_text()
+    section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
+    assert "armed before the program has run" in section, \
+        "the runner's arm-first guarantee is undocumented again"
+    assert "3,774" in section, \
+        "the measured CLI counter-example no longer anchors the guarantee"

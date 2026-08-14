@@ -862,7 +862,18 @@
      (:351). That is the moment the hint stops being true, so it is the second
      trigger. */
   function onPlayerMessage(e){
-    if(!e || !e.data || e.data.msg !== "render_current_audio_state") return;
+    /* Only the player's origin may retract the sound hint. The stake is tiny
+       — a line of advice, no state — but an unchecked `message` listener is
+       not a pattern to leave in the tree. EMU_BASE is where the player
+       iframe is served from; `new URL(...).origin` beats string-prefixing
+       the constant, whose trailing slash would never equal an origin. Scope:
+       this drops CROSS-origin posts (a hostile opener or embedded frame).
+       This page happens to share the player's origin, and a same-origin
+       script needs no spoofing — it could call hideSoundHint() itself — so
+       same-origin is the boundary, and e.source pinning would buy nothing
+       against an attacker that is already inside it. */
+    if(!e || e.origin !== new URL(EMU_BASE).origin) return;
+    if(!e.data || e.data.msg !== "render_current_audio_state") return;
     if(e.data.value === "running") hideSoundHint();
   }
 

@@ -14,15 +14,25 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from c64lib import sid_analysis
 from c64lib.sid_analysis import (
+    MAX_ROW_LABELS,
+    MIN_ROW_HEIGHT,
+    NOTE_RANGE_PADDING,
+    ROLL_BACKGROUND,
+    ROLL_GRID,
+    ROLL_GRID_UNLABELLED,
+    ROLL_GUTTER,
     ROLL_LEGEND_HEIGHT,
+    ROLL_PAD,
+    ROLL_TEXT,
     FrameRecord,
     NoteEvent,
     _midi_name,
     _midi_range,
+    _note_to_midi,
     diff_score,
     dominant_partial_hz,
     find_anomalies,
@@ -30,6 +40,7 @@ from c64lib.sid_analysis import (
     parse_log,
     render_piano_roll,
     render_spectrogram,
+    score_summary,
     transcribe,
     wav_metrics,
     write_report,
@@ -1052,6 +1063,117 @@ def test_render_piano_roll_rejects_a_non_positive_fps(tmp_path):
             render_piano_roll([_note(1, "A4", 0, 4)], tmp_path / "roll.png", bad)
 
 
+# --- render_piano_roll: reading the pitch axis off the image ---------------
+#
+# The tests below read a rendered roll the way a reviewer does — grid lines and
+# printed labels, no access to the event list that drew them — because that is
+# the property in question: whether a bar between two labels can be named from
+# the image alone.
+
+#: A 33-semitone passage (D2 to A#4, the 1812 hymn's range), with the bar under
+#: test at F3: 53 - 36 = 17 rows above the bottom of the padded range, which is
+#: not a multiple of the label stride, so F3 is never one of the printed names.
+WIDE_PASSAGE = (_note(1, "D2", 0, 60), _note(2, "A#4", 0, 60), _note(3, "F3", 20, 20))
+UNLABELLED_BAR = "F3"
+
+#: Tall enough for one whole note-name glyph box and short enough that the next
+#: label down cannot reach into the crop.
+GLYPH_HEIGHT = ImageFont.load_default().getbbox("A#-1")[3]
+
+
+def _midi(name):
+    """`_note_to_midi` for a name that is not a rest."""
+    midi = _note_to_midi(name)
+    assert midi is not None, f"{name} is a rest, not a pitch"
+    return midi
+
+
+def _pixels(path):
+    with Image.open(path) as img:
+        return np.asarray(img.convert("RGB"), dtype=int), img.size
+
+
+def _ruled_rows(pixels, width):
+    """``{y: colour}`` for every row ruled clean across the plot area.
+
+    A whole-row match, so a bar or a label can only remove a row from this map,
+    never invent one.
+    """
+    plot = pixels[:, ROLL_GUTTER:width - ROLL_PAD]
+    found = {}
+    for tone in (ROLL_GRID, ROLL_GRID_UNLABELLED):
+        for y in np.flatnonzero((plot == np.array(tone)).all(axis=2).all(axis=1)):
+            found[int(y)] = tone
+    return found
+
+
+def _label_mask(name, height):
+    """The pixels a note name leaves in the gutter, rendered as the roll does."""
+    image = Image.new("RGB", (ROLL_GUTTER, height), ROLL_BACKGROUND)
+    ImageDraw.Draw(image).text((4, 0), name, fill=ROLL_TEXT,
+                               font=ImageFont.load_default())
+    return (np.asarray(image, dtype=int) != np.array(ROLL_BACKGROUND)).any(axis=2)
+
+
+def _read_label(pixels, top):
+    """The note name printed with its top edge at row ``top``, or None.
+
+    Grid lines start at ``ROLL_GUTTER``, so a crop left of it holds nothing but
+    the label's own glyphs and can be matched against a rendering of each
+    candidate name.
+    """
+    crop = pixels[top:top + GLYPH_HEIGHT, :ROLL_GUTTER]
+    mask = (crop != np.array(ROLL_BACKGROUND)).any(axis=2)
+    for midi in range(128):
+        if np.array_equal(mask, _label_mask(_midi_name(midi), GLYPH_HEIGHT)):
+            return _midi_name(midi)
+    return None
+
+
+def test_render_piano_roll_rules_every_semitone_and_still_caps_the_labels(tmp_path):
+    """A 33-semitone passage gets 37 ruled rows and at most MAX_ROW_LABELS
+    names — the cap stays, the rows the cap skips get the second tone."""
+    png = tmp_path / "wide.png"
+    render_piano_roll(list(WIDE_PASSAGE), png, PAL_FPS)
+    pixels, (width, _) = _pixels(png)
+    rows = _midi("A#4") - _midi("D2") + 1 + 2 * NOTE_RANGE_PADDING
+
+    ruled = _ruled_rows(pixels, width)
+    assert len(ruled) == rows, "not every semitone row is ruled"
+    labelled = sorted(y for y, tone in ruled.items() if tone == ROLL_GRID)
+    assert 0 < len(labelled) <= MAX_ROW_LABELS
+    assert len(ruled) > len(labelled), "the unlabelled rows are not drawn"
+
+    spacing = {b - a for a, b in zip(sorted(ruled), sorted(ruled)[1:], strict=False)}
+    assert spacing == {max(spacing)} and max(spacing) >= MIN_ROW_HEIGHT, \
+        "the ruled rows are not evenly spaced, so counting them means nothing"
+
+
+def test_render_piano_roll_lets_an_unlabelled_bar_be_named_by_counting_rows(tmp_path):
+    """The todo item's own test, run on pixels: take the bar the roll never
+    labels, count ruled rows up to the nearest printed name, read that name out
+    of the gutter, and arrive at F3 without the event list."""
+    png = tmp_path / "wide.png"
+    render_piano_roll(list(WIDE_PASSAGE), png, PAL_FPS)
+    pixels, (width, _) = _pixels(png)
+    ruled = _ruled_rows(pixels, width)
+    step = min(b - a for a, b in zip(sorted(ruled), sorted(ruled)[1:], strict=False))
+
+    blue = sorted(_plot_rows(png, 2))
+    assert blue, "voice 3's bar is missing"
+    # The bar sits in the row that ends at the next ruled line below it.
+    bar_row = min(y for y in ruled if y > max(blue))
+    assert ruled[bar_row] == ROLL_GRID_UNLABELLED, \
+        "the bar under test is on a labelled row, so this proves nothing"
+
+    label_row = max(y for y, tone in ruled.items()
+                    if tone == ROLL_GRID and y < bar_row)
+    name = _read_label(pixels, label_row - step + 1)
+    assert name is not None, "no note name is printed beside that ruled row"
+    counted = (bar_row - label_row) // step
+    assert _midi_name(_midi(name) - counted) == UNLABELLED_BAR
+
+
 # --- wav_metrics ----------------------------------------------------------
 
 RATE = 44100
@@ -1373,8 +1495,9 @@ def _metrics(duration_s=1.0, clipped_samples=0, silence_windows=(), profile=(-9.
             "rms_db_profile": list(profile)}
 
 
-def _report(tmp_path, events=(), diffs=(), anomalies=(), metrics=None):
-    return write_report(tmp_path, list(events), list(diffs), list(anomalies), metrics)
+def _report(tmp_path, events=(), diffs=(), anomalies=(), metrics=None, ref=None):
+    return write_report(tmp_path, list(events), list(diffs), list(anomalies), metrics,
+                        ref=ref)
 
 
 SOUNDING = (_note(1, "A4", 0, 25), _note(1, "rest", 25, 25))
@@ -1571,3 +1694,112 @@ def test_write_report_still_says_silent_when_the_recording_really_ran(tmp_path):
     text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
     assert "the recording is silent" in text
     assert "no samples at all" not in text
+
+
+# --- write_report: what the Score-diff section says it checked -------------
+
+#: One sounding entry, one rest, and a voice claiming silence: enough shape for
+#: the summary table to have something to say about each column.
+REF_YAML = """\
+voices:
+  1:
+    - {note: A4, frames: 25}
+    - {note: rest}
+  2: []
+"""
+
+
+def _ref(tmp_path, text=REF_YAML, name="score.yaml"):
+    path = tmp_path / name
+    path.write_text(text)
+    return path
+
+
+def _score_diff_section(text):
+    """The report's Score-diff section, up to the next heading."""
+    assert "## Score diff\n" in text
+    return text.split("## Score diff\n", 1)[1].split("\n## ", 1)[0]
+
+
+def test_write_report_names_the_reference_score_it_diffed_against(tmp_path):
+    ref = _ref(tmp_path)
+    section = _score_diff_section(
+        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=ref).read_text())
+    assert str(ref) in section
+
+
+def test_write_report_quotes_the_reference_scores_own_counts(tmp_path):
+    """Asserted against `score_summary`'s output, not against literals: the
+    report has to be quoting that function rather than counting the file a
+    second time, which is the way the two could ever disagree."""
+    ref = _ref(tmp_path)
+    summary = score_summary(ref)
+    section = _score_diff_section(
+        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=ref).read_text())
+    for voice, claim in summary["voices"].items():
+        assert (f"| {voice} | {claim['entries']} | {claim['frames']} |") in section
+    assert f"{summary['entries']} entries" in section
+    assert f"{summary['frames']} frames" in section
+
+
+def test_write_report_says_when_no_reference_score_was_supplied(tmp_path):
+    """The finding itself: an unscored run must not read as a clean check."""
+    section = _score_diff_section(
+        _report(tmp_path, SOUNDING, metrics=_metrics()).read_text())
+    assert "No reference score supplied" in section
+    assert "No differences" not in section
+
+
+def test_write_report_score_section_differs_with_and_without_a_reference(tmp_path):
+    """The todo item's verification at unit scale: same events, two reports,
+    and the Score-diff sections must not read the same."""
+    ref = _ref(tmp_path)
+    scored = _score_diff_section(
+        _report(tmp_path / "scored", SOUNDING, metrics=_metrics(), ref=ref).read_text())
+    unscored = _score_diff_section(
+        _report(tmp_path / "plain", SOUNDING, metrics=_metrics()).read_text())
+    assert scored != unscored
+    assert str(ref) in scored and str(ref) not in unscored
+
+
+def test_write_report_does_not_hedge_a_clean_diff_that_had_a_reference(tmp_path):
+    """The sentence this replaces — "an empty diff list is also what a run with
+    no reference score produces" — was the whole finding: it made the strongest
+    audio evidence a demo can commit unreadable as evidence."""
+    section = _score_diff_section(
+        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=_ref(tmp_path)).read_text())
+    assert "with no reference score" not in section
+    assert "No differences" in section
+
+
+def test_write_report_lists_the_diffs_under_the_reference_it_names(tmp_path):
+    ref = _ref(tmp_path)
+    text = _report(tmp_path, SOUNDING, diffs=["voice 1 event 1: expected C4, heard A4"],
+                   metrics=_metrics(), ref=ref).read_text()
+    section = _score_diff_section(text)
+    assert str(ref) in section
+    assert "- voice 1 event 1: expected C4, heard A4" in section
+    assert "**FAIL**" in text
+
+
+def test_write_report_does_not_call_an_inline_score_a_file(tmp_path):
+    """A library caller can hand the writer a parsed score; printing a path
+    there would be a citation to a file that does not exist."""
+    section = _score_diff_section(
+        _report(tmp_path, SOUNDING, metrics=_metrics(),
+                ref={"voices": {1: [{"note": "A4", "frames": 25}]}}).read_text())
+    assert "not a file" in section
+    assert "| 1 | 1 | 25 | A4 | A4 |" in section
+
+
+def test_write_report_survives_a_reference_it_cannot_summarise(tmp_path):
+    """`diff_score` only reads an entry's `frames` when its NOTE matched, so a
+    wrong note with a non-numeric duration diffs fine and summarises not at
+    all. Losing the finished report at its last line over that would throw the
+    capture away; the section says what happened instead."""
+    ref = _ref(tmp_path, "voices:\n  1:\n    - {note: C4, frames: soon}\n", "bad.yaml")
+    text = _report(tmp_path, SOUNDING, diffs=["voice 1 event 1: expected C4, heard A4"],
+                   metrics=_metrics(), ref=ref).read_text()
+    assert "could not be summarised" in _score_diff_section(text)
+    assert str(ref) in text
+    assert "**FAIL**" in text

@@ -67,6 +67,7 @@ from .ops import (
     profile_hazard,
     profile_routine_samples,
     reboot_with_cart,
+    render_sprite_png,
     run_until,
     runnable_ext,
     session_labels,
@@ -1213,14 +1214,12 @@ def c64_sprite_png(index: int, path: str, scale: int = 8,
                    block: str | None = None,
                    session: str | None = None) -> dict:
     """Render sprite `index`'s shape to a PNG colored from the live
-    registers. Prefer c64_screenshot for whole-frame evidence; this shows
-    one sprite's shape exactly."""
-    from .sprites import sprite_image
-    s = _attach(session)
-    data, st, shared, _ = sprite_shape(s, index, block)
-    img = sprite_image(data, st, shared, scale=scale)
-    img.save(path, format="PNG")
-    return {"png": path, "width": img.width, "height": img.height}
+    registers, drawn with the emulator's own palette (the same one
+    c64_screenshot uses, so the two agree on every color number). Prefer
+    c64_screenshot for whole-frame evidence; this shows one sprite's shape
+    exactly."""
+    return render_sprite_png(_attach(session), index, path, scale=scale,
+                             block=block)
 
 
 @srv.tool()
@@ -1505,8 +1504,11 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     window is open the sampling loop owns the session, so a
     `c64_mem_write` from elsewhere waits until it closes. An effect shorter
     than the lead-in is otherwise unreachable. Keys are frame numbers as
-    strings; values are `ADDR=VAL` lists, comma-separated, in decimal, `$hex`
-    or `0xhex`.
+    strings; values are `ADDR=VAL` lists, comma-separated. ADDR is any address
+    ref — decimal, `$hex`, `0xhex`, a symbol, `symbol+offset` or `@row,col`,
+    resolved against this session's labels like `c64_mem_write`'s — and VAL is
+    one byte, a number only. An address that resolves to nothing is refused
+    before the window opens.
 
     Returns the artifact paths, the verdict, the score diff, the anomalies,
     and what the capture cost (`frames`, `emulated_s`, `wall_clock_s`,
@@ -1528,9 +1530,10 @@ def c64_audio_capture(seconds: float, outdir: str, ref: str | None = None,
     evidence. The artifacts are complete before the verdict is judged, so the
     raise names them and nothing is lost.
     """
-    # Parsed before the session is touched, and by the CLI's own parser: the
-    # two front ends must reject the same spellings with the same words.
-    writes = parse_frame_writes((at_frame or {}).items())
+    # Parsed by the CLI's own parser, against this session's labels: the two
+    # front ends must accept and reject the same spellings with the same
+    # words. Attaching pins nothing, so a bad schedule still costs no window.
     s = _attach(session)
+    writes = parse_frame_writes((at_frame or {}).items(), session=s)
     return _strict_verdict(
         capture(s, seconds, outdir, ref_path=ref, writes=writes), strict)

@@ -22,12 +22,18 @@ def _vic():
     return bytes(v)
 
 
+#: see test_cli_sprite.py's twin — nothing like sprites.C64_PALETTE, so a
+#: PNG's pixels say which table rendered them.
+_LIVE_PALETTE = [(i, 2 * i, 3 * i) for i in range(16)]
+
+
 def _fake_session():
     s = Mock()
     s.name, s.model, s.labels = "c64", "c64", None
     s.profile.screen_addr = 0x0400
     s.profile.screen_cols = 40
     mon = Mock()
+    mon.palette.return_value = _LIVE_PALETTE
     mem = {0xDD00: bytes([0b11]), 0xD018: bytes([0x15]), 0xD000: _vic(),
            0x07F8: bytes([13, 0x80, 0, 0, 0, 0, 0, 0]),
            0x0340: bytes([0b10000000, 0, 0] + [0] * 60)}
@@ -71,6 +77,28 @@ def test_sprite_png(tmp_path):
     assert (out["width"], out["height"]) == (48, 42)
     from PIL import Image
     assert Image.open(dest).size == (48, 42)
+
+
+def test_sprite_png_colors_come_from_the_live_palette(tmp_path):
+    """The CLI twin's assertion, on the MCP side: both front ends go through
+    ops.render_sprite_png, so both render from `mon.palette()` rather than
+    from the sprites.C64_PALETTE fallback."""
+    from PIL import Image
+
+    from c64lib.sprites import C64_PALETTE
+    s, mon = _fake_session()
+    dest = tmp_path / "s.png"
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_sprite_png",
+                             {"index": 0, "path": str(dest),
+                              "scale": 1, "block": "$0340"})
+    assert err is False
+    img = Image.open(dest).convert("RGB")
+    assert img.getpixel((0, 0)) == _LIVE_PALETTE[7]     # sprite 0's color
+    assert img.getpixel((1, 0)) == _LIVE_PALETTE[6]     # background ($D021)
+    assert img.getpixel((0, 0)) != C64_PALETTE[7]       # not the fallback
+    mon.palette.assert_called()
 
 
 def test_sprite_bad_index_is_error():

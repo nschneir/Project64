@@ -40,6 +40,8 @@ Assembly:
 - [Sprite multiplexer: more objects than sprites](#sprite-multiplexer-more-objects-than-sprites)
 - [Raster event chain: one sorted interrupt list per frame](#raster-event-chain-one-sorted-interrupt-list-per-frame)
 - [Per-frame raster budget: a high-water mark the program keeps](#per-frame-raster-budget-a-high-water-mark-the-program-keeps)
+- [Smooth horizontal scrolling: $D016 fine scroll over a column shift](#smooth-horizontal-scrolling-d016-fine-scroll-over-a-column-shift)
+- [Frame-driven SID player: three voices from one table](#frame-driven-sid-player-three-voices-from-one-table)
 - [Custom character set: copy the ROM charset to RAM and redefine glyphs](#custom-character-set-copy-the-rom-charset-to-ram-and-redefine-glyphs)
 - [Multicolor bitmap: mode, clear, and one masked span](#multicolor-bitmap-mode-clear-and-one-masked-span)
 - [Read the screen code you are moving into (collision by glyph)](#read-the-screen-code-you-are-moving-into-collision-by-glyph)
@@ -2202,6 +2204,15 @@ frame's sprite registers have to be written by anyway, and where the VIC
 steals no badline cycles from the tick being measured.
 `demos/amiga_ball` is the same shape for the same reason.
 
+"Arm it in the top border" is the rule for a **short** tick, and it is
+actively wrong for a redraw that spans most of a frame. The VIC latches a
+text row's matrix and colour on the badline at that row's *first* raster
+(`51 + 8*R`), so a big move may start the moment the last row it touches has
+been latched and use the bottom and top borders together — hardware.md's
+Badlines section states the rule and the arithmetic. `demos/fugue` is the
+worked case: a 1,200-byte column shift, impossible in the 215-raster
+top-border window, fits with 25 lines to spare armed at raster 204.
+
 **One interrupt source, or the mark is fiction.** If the CIA1 timer IRQ is
 left on it enters the same `$0314` vector at whatever line the beam happens
 to be on, and the entry sample is then unrelated to the exit sample. That is
@@ -2396,6 +2407,412 @@ no badline steals a cycle from either, the two are the same quantity in
 different units — so a mark that exceeds what the cycle count predicts is
 exactly the interference `profile` was blind to.
 
+### Smooth horizontal scrolling: $D016 fine scroll over a column shift
+
+Hardware scrolling is two mechanisms that must agree. `$D016` bits 0-2 slide
+the whole picture 0-7 pixels — free, but only within one character cell —
+and when the value wraps, screen **and colour RAM** shift one whole column
+in software while 38-column mode (`$D016` bit 3 **clear**) blanks the edge
+where the new column enters half-formed. Forgetting the colour half is the
+classic bug: the codes move and the colours stay.
+
+The recipe scrolls one row right-to-left at a pixel per frame, feeding a
+message in at hidden column 39, and publishes what a test asserts on: the
+fine-scroll value (`XSC`), the shift count (`SHIFTS`), and a done marker.
+Every other row is blank, which is what lets a whole-frame `$D016` write
+pass unseen; a display with static rows above or below the band splits the
+frame with a second raster event instead (the raster event chain, above).
+
+Two timing rules carry the recipe. The `$D016` write and the column shift
+both happen at raster 10, in the top border — and the shift is safe there
+only because it is small: ~40 cells, finished by raster ~25, while row 12's
+bytes are not latched by the VIC until its badline at `51 + 8*12 = 147`
+(hardware.md, Badlines). A shift too big for that window starts *after* its
+last row's badline instead and uses the two borders together; hardware.md
+has the arithmetic, and `demos/fugue/scroll.s` is a 15-row worked example.
+
+```asm
+; hscroll.s — smooth horizontal scrolling: $D016 fine scroll on top of a
+; column shift of screen AND colour RAM, driven from one raster IRQ.
+;
+; Row 12 scrolls right-to-left at one pixel per frame: the fine scroll walks
+; 7,6,...,0, and on the wrap the whole row moves one character left while the
+; next message character enters at column 39 — which 38-column mode ($D016
+; bit 3 CLEAR) keeps hidden until it is whole. The rest of the screen is
+; blank, so the whole-frame fine scroll moves nothing the eye can see.
+;
+; The tick runs at raster 10, in the top border: the shift is ~40 cells of
+; screen + colour, done by raster ~25, and row 12's bytes are not latched by
+; the VIC until its badline at 51 + 8*12 = 147 (hardware.md, Badlines) — a
+; margin of over 120 raster lines. A shift too big for the top border starts
+; AFTER its last row's badline instead; hardware.md has that arithmetic.
+
+CINV    = $0314
+SCRROW  = $0400 + 12*40
+CLRROW  = $D800 + 12*40
+MSGLEN  = 13
+
+        .segment "LOADADDR"
+        .word   $0801
+
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  sei
+        ldx     #0              ; blank screen, white colour: a fine scroll
+blank:  lda     #32             ;   applied to the whole frame is invisible
+        sta     $0400,x         ;   everywhere nothing is drawn
+        sta     $0500,x
+        sta     $0600,x
+        sta     $06E8,x
+        lda     #1
+        sta     $D800,x
+        sta     $D900,x
+        sta     $DA00,x
+        sta     $DAE8,x
+        inx
+        bne     blank
+
+        lda     #7
+        sta     XSC
+        sta     $D016           ; bit 3 clear = 38 columns, bit 4 clear = not
+                                ;   multicolour; bits 0-2 the fine scroll
+        lda     #$7F
+        sta     $DC0D           ; one interrupt source (the raster), or the
+        lda     $DC0D           ;   tick fires at arbitrary lines too
+        lda     CINV
+        sta     oldvec
+        lda     CINV+1
+        sta     oldvec+1
+        lda     #<irq
+        sta     CINV
+        lda     #>irq
+        sta     CINV+1
+        lda     $D011
+        and     #$7F
+        sta     $D011
+        lda     #10
+        sta     $D012
+        lda     #$01
+        sta     $D01A
+        sta     $D019
+        cli
+loop:   jmp     loop
+
+irq:    lda     #$01
+        sta     $D019           ; ack first, or the RTI re-enters
+        cld
+        inc     FRAMES
+        dec     XSC
+        bpl     put             ; still inside the character: 6,5,...,0
+        jsr     shift           ; wrapped: move the row one column left
+        lda     #7
+        sta     XSC
+put:    lda     XSC
+        sta     $D016
+        lda     FRAMES
+        cmp     #180
+        bne     out
+        lda     oldvec          ; done: unhook, hand the machine back
+        sta     CINV
+        lda     oldvec+1
+        sta     CINV+1
+        lda     #0
+        sta     $D01A
+        lda     #$81
+        sta     $DC0D
+        lda     #$2A
+        sta     DONE
+out:    jmp     $EA81           ; A/X/Y are on the stack; no KERNAL work
+
+; move row 12 one column left — screen AND colour, the half that is easy to
+; forget — then feed the next message character in at the hidden column 39
+shift:  ldx     #0
+shloop: lda     SCRROW+1,x
+        sta     SCRROW,x
+        lda     CLRROW+1,x
+        sta     CLRROW,x
+        inx
+        cpx     #39
+        bne     shloop
+        ldx     MSGIDX
+        lda     msg,x
+        sta     SCRROW+39
+        txa
+        and     #7
+        clc
+        adc     #1              ; colours 1-8, so the shift is visible in
+        sta     CLRROW+39       ;   colour RAM too, not only in the codes
+        inc     MSGIDX
+        ldx     MSGIDX
+        cpx     #MSGLEN
+        bne     shdone
+        ldx     #0
+        stx     MSGIDX
+shdone: inc     SHIFTS
+        rts
+
+; "hello world! " as screen codes, entering one character per shift
+msg:    .byte   8, 5, 12, 12, 15, 32, 23, 15, 18, 12, 4, 33, 32
+
+oldvec: .word   0
+XSC:    .byte   7               ; the $D016 fine-scroll value this frame
+SHIFTS: .byte   0               ; column shifts performed
+MSGIDX: .byte   0               ; next message character to feed in
+FRAMES: .byte   0               ; frames ticked; the run stops at 180
+DONE:   .byte   0               ; $2A once the handler has unhooked
+```
+
+Run it and read the state back, not the pixels: after 180 frames `SHIFTS`
+is 22, `XSC` is 3 (`$D016` reads `$C3` — bits 6-7 are unused and read 1,
+and bit 3 reading 0 *is* the 38-column claim), and row 12 holds the message
+where the arithmetic says: 22 shifts put `msg[0]` ('H', screen code 8) at
+column 18 and the 22nd character — index `21 mod 13 = 8`, 'R' — at column
+39, with its colour `(8 AND 7)+1 = 1` beside it in colour RAM.
+
+### Frame-driven SID player: three voices from one table
+
+The beep recipe (above) plays one gated note; music is the same writes made
+once per frame from an interrupt, with the notes in a table. One row of
+pattern data per voice every `ROWFRMS` frames is the whole of a sequencer:
+`$FF` releases the gate, anything else indexes a note table and re-gates.
+
+Two conventions in it are the ones worth copying. **Every SID write goes
+through one routine that mirrors the byte into a RAM shadow** — the SID is
+write-only on real hardware, so the shadow block is the program's own
+testable evidence that a write happened, and the demo convention this
+repo's specs assert on (`SHADOW+4` holding `$41` *is* "voice 1 is gated,
+pulse"). A shadow cannot prove the note was *right* — it agrees with the
+code by construction — so a demo's committed audio evidence is a capture
+against a reference score instead; references/audio-verification.md has the
+method. And **a new note drops and re-raises the gate inside the same
+tick**, so every note is audibly articulated while a once-per-frame
+register sampler still reads a whole row of gated frames — the trade-offs
+of the alternative (spreading the re-gate across a frame boundary) are in
+audio-verification.md, "A worked example".
+
+```asm
+; sidplayer.s — a frame-driven three-voice SID player: one row of note data
+; per voice every 8 frames, ticked from a raster IRQ, every write mirrored
+; into a RAM shadow.
+;
+; The three voices get three different waveforms — pulse, sawtooth, triangle
+; — so the lines stay separable by ear, and different ADSRs. A row entry is
+; $FF for rest (release the gate) or an index into the note table; a new
+; note writes frequency, then drops and re-raises the gate IN THE SAME TICK,
+; so every note is articulated and a once-per-frame register sampler (the
+; audio-verification reference's transcriber) still reads a whole row of
+; gated frames.
+;
+; EVERY SID WRITE GOES THROUGH sidwr, WHICH MIRRORS IT INTO SHADOW. On real
+; hardware $D400-$D418 is write-only, so the shadow block is the program's
+; own testable evidence that a write happened — and the only evidence that
+; survives off the emulator. It cannot prove the note was RIGHT (it agrees
+; with the code by construction); for that, capture with `c64 audio capture`
+; against a reference score — references/audio-verification.md.
+
+CINV    = $0314
+SID     = $D400
+ROWFRMS = 8                     ; frames per row: 8 at 60 Hz = 16th at 112 BPM
+NROWS   = 8
+
+        .segment "LOADADDR"
+        .word   $0801
+
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  sei
+        ldx     #24             ; zero all 25 registers first: SID keeps its
+        lda     #0              ;   values across a stop, and a left-over
+zero:   jsr     sidwr           ;   gate bit blocks the next note
+        dex
+        bpl     zero
+
+        ldx     #24             ; volume 15, no filter
+        lda     #$0F
+        jsr     sidwr
+        ldx     #2              ; voice 1 pulse width = $0800, a square
+        lda     #$00
+        jsr     sidwr
+        ldx     #3
+        lda     #$08
+        jsr     sidwr
+        ldx     #5              ; voice 1 ADSR: A=0 D=8, S=10 R=6
+        lda     #$08
+        jsr     sidwr
+        ldx     #6
+        lda     #$A6
+        jsr     sidwr
+        ldx     #12             ; voice 2 ADSR: A=1 D=7, S=9 R=5
+        lda     #$17
+        jsr     sidwr
+        ldx     #13
+        lda     #$95
+        jsr     sidwr
+        ldx     #19             ; voice 3 ADSR: A=0 D=9, S=11 R=7
+        lda     #$09
+        jsr     sidwr
+        ldx     #20
+        lda     #$B7
+        jsr     sidwr
+
+        lda     #$7F            ; one interrupt source: CIA timer off,
+        sta     $DC0D           ;   raster on
+        lda     $DC0D
+        lda     CINV
+        sta     oldvec
+        lda     CINV+1
+        sta     oldvec+1
+        lda     #<irq
+        sta     CINV
+        lda     #>irq
+        sta     CINV+1
+        lda     $D011
+        and     #$7F
+        sta     $D011
+        lda     #10
+        sta     $D012
+        lda     #$01
+        sta     $D01A
+        sta     $D019
+        cli
+loop:   jmp     loop
+
+irq:    lda     #$01
+        sta     $D019
+        cld
+        inc     FRAMES
+        lda     FRAMES
+        and     #ROWFRMS-1
+        beq     dorow
+        jmp     $EA81
+dorow:  ldy     ROW
+        cpy     #NROWS
+        beq     stop            ; pattern over: release and unhook
+        ldx     #0              ; voice 0..2
+voice:  stx     VOICE
+        lda     pat1,y          ; pat1/pat2/pat3 are NROWS apart, so one
+        cpx     #0              ;   indexed read per voice
+        beq     havep
+        lda     pat2,y
+        cpx     #1
+        beq     havep
+        lda     pat3,y
+havep:  cmp     #$FF
+        beq     rest
+        tay                     ; note: A = note-table index
+        ldx     VOICE
+        lda     vbase,x
+        tax                     ; X = this voice's register base
+        lda     notelo,y
+        jsr     sidwr           ; frequency lo
+        inx
+        lda     notehi,y
+        jsr     sidwr           ; frequency hi
+        ldy     VOICE
+        lda     vbase,y
+        clc
+        adc     #4
+        tax
+        lda     wave,y
+        jsr     sidwr           ; gate LOW  (wave bits only) ...
+        lda     wave,y
+        ora     #1
+        jsr     sidwr           ; ... and HIGH again, same tick: articulated,
+                                ;   and the once-per-frame sampler never sees
+                                ;   the gap
+        inc     GATEON
+        jmp     nextv
+rest:   ldy     VOICE
+        lda     vbase,y
+        clc
+        adc     #4
+        tax
+        lda     wave,y
+        jsr     sidwr           ; gate off: wave bits, bit 0 clear
+nextv:  ldx     VOICE
+        inx
+        cpx     #3
+        beq     rowdone
+        ldy     ROW
+        jmp     voice
+rowdone:
+        inc     ROW
+        jmp     $EA81
+
+stop:   ldx     #4              ; release all three gates...
+        lda     #$40
+        jsr     sidwr
+        ldx     #11
+        lda     #$20
+        jsr     sidwr
+        ldx     #18
+        lda     #$10
+        jsr     sidwr
+        lda     oldvec          ; ...and hand the machine back
+        sta     CINV
+        lda     oldvec+1
+        sta     CINV+1
+        lda     #0
+        sta     $D01A
+        lda     #$81
+        sta     $DC0D
+        lda     #$2A
+        sta     DONE
+        jmp     $EA81
+
+; sidwr — X = register offset 0..24, A = value. The one door to the chip.
+sidwr:  sta     SID,x
+        sta     SHADOW,x
+        rts
+
+; The note table, NTSC values from hz*16777216/1022727 (hardware.md's own
+; table; an octave down halves the value). For more than a phrase, build the
+; table on the machine at startup instead — hardware.md, "Playing named
+; notes" — or a PAL run is 65 cents flat on every note.
+;              C3    E3    G3    C4    E4    G4    C5
+notelo: .byte  <2146, <2703, <3215, <4292, <5407, <6430, <8584
+notehi: .byte  >2146, >2703, >3215, >4292, >5407, >6430, >8584
+
+; One row per 8 frames; $FF = rest. Voice 1 climbs the arpeggio, voice 2
+; answers a third below, voice 3 walks the roots; every voice rests on the
+; last row so the release is part of the pattern, not only of the shutdown.
+pat1:   .byte   3, 4, 5, 6, 5, 4, 3, $FF          ; C4 E4 G4 C5 G4 E4 C4
+pat2:   .byte   $FF, 1, 2, 3, 2, 1, 0, $FF        ;    E3 G3 C4 G3 E3 C3
+pat3:   .byte   0, $FF, 0, $FF, 0, $FF, 0, $FF    ; C3 pedal, every other row
+
+vbase:  .byte   0, 7, 14        ; voice v's registers start at SID + 7v
+wave:   .byte   $40, $20, $10   ; pulse, sawtooth, triangle — gate bit clear
+
+oldvec: .word   0
+VOICE:  .byte   0               ; the voice the row loop is serving
+ROW:    .byte   0               ; rows played, 0..NROWS
+FRAMES: .byte   0               ; frames ticked
+GATEON: .byte   0               ; gate-on writes: the saturating evidence a
+                                ;   test can assert exactly
+DONE:   .byte   0               ; $2A once released and unhooked
+SHADOW: .res    25              ; $D400-$D418, mirrored in order
+```
+
+The pattern is eight rows at 8 frames each, so the run is deterministic end
+to end: `DONE` goes `$2A` at frame 72 with `ROW` 8 and exactly 17 gate-on
+writes counted, and the shadow holds the shutdown state — `$40/$20/$10` in
+the three control mirrors (waveforms intact, gates released), voice 1's
+last frequency `$10C4` (C4) in `SHADOW+0/+1`, and the volume nybble still
+`$0F` in `SHADOW+24`. Tuning is NTSC; for more than a phrase, build the
+table on the machine at startup from `hz × 16777216 ÷ clock` (hardware.md,
+"Playing named notes") rather than shipping numbers that are 65 cents flat
+on the other machine's clock.
+
 ### Custom character set: copy the ROM charset to RAM and redefine glyphs
 
 Giving a game its own bricks, snake segments or spaceships means pointing
@@ -2520,8 +2937,13 @@ Five more things this encodes:
   is the usual home: inside the bank, above a `.prg` of a few KB. Check
   `load_addr + len - 2` still lands below it every time the code grows (see
   the 6502-assembly skill).
-- **Leave the screen at `$0400`.** The `$D018` high nybble can move it, but
-  the toolset's screen reader assumes `$0400`.
+- **Leave the screen at `$0400` unless something real needs it moved.** Not
+  because the tools require it — `c64 screen` and `@row,col` follow
+  `$DD00`/`$D018` to wherever the VIC-II reads the screen (measured: with
+  `$D018` = `$78` and marker bytes at both addresses, `@0,0` returned
+  `$1C00`'s byte, not `$0400`'s) — but because nothing here needs it moved
+  and a second screen costs 1 KB of bank 0. What never moves is **colour
+  RAM**: `@@row,col` stays at `$D800` wherever the screen goes.
 - **Hand the ROM charset back before returning to BASIC** if the program
   quits for real — `lda #$15 / sta $D018` — or `READY.` and everything the
   user types afterwards is drawn in your glyphs. This demo deliberately

@@ -593,3 +593,77 @@ def test_fixer_exit_code_flags_what_it_left_behind(tmp_path, monkeypatch, capsys
     monkeypatch.setattr("sys.stdin", io.StringIO("nothing to see here\n"))
     assert mod.main([]) == 0
     assert "nothing to do" in capsys.readouterr().out
+
+
+# --- the screen reader follows a relocated screen --------------------------
+#
+# cookbook.md and hardware.md both used to claim the opposite ("the toolset's
+# screen reader assumes $0400") while docs/graphics-and-sprites.md and
+# SKILL.md said reads follow $DD00/$D018. The 2026-08-14 fugue dogfood
+# measured it: reads follow the relocation. These tests keep the corrected
+# claim honest from both ends — the prose and the machine.
+
+COOKBOOK_REF = Path("skills/c64-development/references/cookbook.md")
+HARDWARE_REF = Path("skills/c64-development/references/hardware.md")
+
+
+def test_relocation_claim_is_the_corrected_one():
+    """Neither reference may reassert that screen reads assume `$0400`, and
+    both must state what is actually fixed — colour RAM."""
+    for ref in (COOKBOOK_REF, HARDWARE_REF):
+        prose = " ".join(ref.read_text().split())
+        assert "screen reader assumes" not in prose, \
+            f"{ref} reasserts the claim the fugue dogfood measured false"
+        assert "follow `$DD00`/`$D018`" in prose, \
+            f"{ref} no longer says reads follow the relocated screen"
+    hw = " ".join(HARDWARE_REF.read_text().split())
+    assert "Colour RAM never moves" in hw, \
+        "hardware.md no longer says which half of the pair really is fixed"
+
+
+@pytest.mark.vice
+@pytest.mark.skipif(
+    not (shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC")),
+    reason="x64sc not installed",
+)
+def test_screen_reads_follow_a_relocated_screen_live(session):
+    """The corrected claim, on the machine: marker bytes at `$0400` and
+    `$1C00`, `$D018` = `$78` (screen slot 7 in bank 0), and `screen_base` —
+    the resolver behind `c64 screen` and `@row,col` — must hand back the
+    `$1C00` marker, not the `$0400` one."""
+    from c64lib.screen import screen_base
+
+    s = session
+    with s.monitor() as mon:
+        try:
+            mon.memory_write(0x0400, bytes([9]))
+            mon.memory_write(0x1C00, bytes([5]))
+            mon.memory_write(0xD018, bytes([0x78]))
+            base = screen_base(mon)
+            cell = mon.memory_read(base, 1)[0]
+        finally:
+            mon.release()
+    assert base == 0x1C00, \
+        f"screen_base read ${base:04X} — it did not follow $D018's high nybble"
+    assert cell == 5, \
+        "the resolved base does not hold the $1C00 marker: reads would still " \
+        "be coming from $0400"
+
+
+def test_badline_latch_rule_is_stated_with_its_consequence():
+    """Every badline mention used to be about the cycle steal; the fact a
+    scrolling demo's frame budget actually turns on — a text row is LATCHED
+    at its badline, so writes after `51 + 8*R` cannot affect the current
+    frame — was stated nowhere, and the fugue dogfood derived its whole
+    scroll design the long way around it. Both the hardware reference and
+    the cookbook's budget recipe must now carry it."""
+    hw = " ".join(HARDWARE_REF.read_text().split())
+    assert "on the badline at that row's *first* raster (`51 + 8*R`)" in hw, \
+        "hardware.md no longer states the latch rule with its arithmetic"
+    assert "writes to that row cannot affect the current frame" in hw, \
+        "hardware.md no longer states the latch rule's consequence"
+    assert "the moment the **last** row it touches has been latched" in hw, \
+        "hardware.md no longer draws the late-arm consequence for big redraws"
+    cb = " ".join(COOKBOOK_REF.read_text().split())
+    assert 'rule for a **short** tick, and it is actively wrong for a redraw' in cb, \
+        "the cookbook's budget recipe no longer scopes 'arm in the top border'"

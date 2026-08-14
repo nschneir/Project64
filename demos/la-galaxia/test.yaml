@@ -215,12 +215,54 @@ steps:
   # tools/audio-evidence.sh does to the same window and for the same reason;
   # `enemies_left` is untouched, so the stage does not end. The 100 ticks
   # then carry the respawn the death assertions above have just cost us.
+  #
+  # Clearing the formation is not enough, and for four runs in five it looked
+  # as though it were. `clv3` seeds the LFSR from `$D012`, the live raster, at
+  # startup, so every run plays a different game from the same bytes; measured
+  # 2026-08-13 on untouched `main`, this step passed 4 times in 5 and failed
+  # the fifth as `mem $4187 = 88 not < sample x0=88` — the spawn position,
+  # with `plstate` = 1: the fighter was in a Flagship's tractor beam.
+  # `playertick` returns before the movement code for any `plstate` but 0, so
+  # held `A` moved nothing and the failure read as an input regression (the
+  # 2026-08-13 matrix-scan change was suspected on exactly this evidence).
+  #
+  # So the fighter is STAGED free immediately before the sample, and the
+  # precondition is then asserted rather than hoped for. What has to move:
+  #   - `beamslot` first, and it is the one that is not obvious. Zeroing
+  #     `enemy_state` does not retract a deployed beam: `hitbeam` reads
+  #     `enemy_flags`/`enemy_y` off `beamslot` and never looks at the state,
+  #     and a beam left frozen over the spawn point re-captures the fighter on
+  #     the tick after it is freed. `$FF` is what stage.s, title.s and cold.s
+  #     write for "no beam", and all three readers — `hitbeam`, `beamupdate`
+  #     and the SFX_BEAM re-arm in sound.s — bail on it.
+  #   - `gstate`, because a capture that finished costs a life and parks the
+  #     game in ST_DEAD for 70 frames, and `stdead` does not call `playertick`
+  #     at all: a fighter poked alive in that state is alive and motionless.
+  #     ST_PLAY (3) is safe to enter by hand here — `stinit` does nothing in
+  #     `stplay` but clear itself, and `enemies_left` is untouched above, so
+  #     `sp3` does not end the stage.
+  #   - `plstate`/`plspin`/`plalive`: flying, not spinning, not exploding.
+  #     `plspin` goes with them because `capture` is what zeroes it.
+  #   - `plx`/`plxf`: the spawn X, so 60 pixels of travel cannot clamp at the
+  #     left wall and read as "it did not move".
+  # One tick lets the game digest the lot. A fighter that could not be freed
+  # now fails as "plstate is not 0", not as "held A does not move it".
   - poke:   { addr: "enemy_state", values: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
   - until:  { ref: tick, count: 150 }
+  - poke:   { addr: "beamslot", values: [255] }
+  - poke:   { addr: "gstate", values: [3] }                        # ST_PLAY
+  - poke:   { addr: "plstate", values: [0] }
+  - poke:   { addr: "plspin", values: [0] }
+  - poke:   { addr: "plalive", values: [1] }
+  - poke:   { addr: "plxf", values: [0] }
+  - poke:   { addr: "plx", values: [88, 0] }
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: "gstate", equals: 3 }
   - assert: { mem: "plalive", equals: 1 }
+  - assert: { mem: "plstate", equals: 0 }
   - sample: { mem: "plx", as: x0 }
   - poke:   { addr: "$CB", values: [10] }
   - until:  { ref: tick, count: 40 }

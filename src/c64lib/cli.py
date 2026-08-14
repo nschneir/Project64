@@ -68,6 +68,7 @@ from .ops import (
     profile_hazard,
     profile_routine_samples,
     reboot_with_cart,
+    render_sprite_png,
     run_until,
     runnable_ext,
     session_labels,
@@ -2300,14 +2301,14 @@ def sprite_show(ctx, index, block):
                    "sprite's current pointer target.")
 @click.pass_context
 def sprite_png(ctx, index, out_path, scale, block):
-    """Render a sprite's shape to a PNG (colors from the live registers)."""
-    from .sprites import sprite_image
+    """Render a sprite's shape to a PNG (colors from the live registers, drawn
+    with the emulator's own palette — the same one `c64 screen --png` uses)."""
     s = attach(ctx)
-    data, st, shared, _ = _sprite_shape(ctx, s, index, block)
-    img = sprite_image(data, st, shared, scale=scale)
-    img.save(out_path, format="PNG")
-    emit(ctx, {"png": out_path, "width": img.width, "height": img.height},
-         f"wrote {out_path} ({img.width}x{img.height})")
+    try:
+        out = render_sprite_png(s, index, out_path, scale=scale, block=block)
+    except (KeyError, ValueError) as e:
+        fail(ctx, str(e))
+    emit(ctx, out, f"wrote {out_path} ({out['width']}x{out['height']})")
 
 
 @sprite.command("from-png")
@@ -2758,7 +2759,9 @@ def audio_score(ctx, file):
               help="Perform these memory writes at frame N of the capture "
                    "window — the only way to trigger something inside it, "
                    "since nothing else may drive the session while it is "
-                   "open. Repeatable; repeats of one frame merge in order.")
+                   "open. ADDR is $hex/0x/decimal, a symbol, symbol+offset "
+                   "or @row,col; VAL is one byte. Repeatable; repeats of one "
+                   "frame merge in order.")
 @click.option("--strict", is_flag=True, help=STRICT_HELP)
 @click.pass_context
 def audio_capture(ctx, seconds, outdir, ref_path, at_frames, strict):
@@ -2796,17 +2799,22 @@ def audio_capture(ctx, seconds, outdir, ref_path, at_frames, strict):
     session, so a poke from another command is queued behind it. Use
     `--at-frame N 'ADDR=VAL'` — the writes happen while the machine is halted
     just before frame N runs, so frame N is the first logged frame that shows
-    them: `--at-frame 30 '$d404=$81'` gates a voice 30 frames in.
+    them: `--at-frame 30 '$d404=$81'` gates a voice 30 frames in. ADDR takes
+    a symbol like every other address argument (`--at-frame 30 'freeze=0'`),
+    resolved against the session's label file before anything is pinned.
 
     Check the score with `c64 audio score` before you get here. A typo'd voice
     key costs nothing to find there and the whole window to find here.
     """
+    s = attach(ctx)
+    # Attached first because ADDR may be a symbol, and resolving one needs the
+    # session's label file. Still resolved BEFORE `capture`: attaching pins
+    # nothing, so a schedule naming an unknown symbol costs no capture window.
     try:
-        writes = parse_frame_writes(at_frames)
+        writes = parse_frame_writes(at_frames, session=s)
     except ValueError as e:
         fail(ctx, f"audio capture --at-frame: {e}")
         return
-    s = attach(ctx)
     try:
         out = capture(s, seconds, outdir, ref_path=ref_path, writes=writes)
     except (RuntimeError, OSError, ValueError, MonitorError, SessionError) as e:

@@ -235,13 +235,20 @@ class PinnedStopError(AudioError):
         super().__init__("; ".join(parts))
 
 
-def parse_frame_writes(specs) -> dict[int, list[tuple[int, int]]]:
+def parse_frame_writes(specs, session=None) -> dict[int, list[tuple[int, int]]]:
     """`--at-frame N 'ADDR=VAL[,ADDR=VAL…]'` tokens as `{frame: [(addr, val)]}`.
 
     `specs` is an iterable of `(frame, spec)` pairs — Click's `nargs=2`
     option tuples, and the MCP tool's `{frame: spec}` items — so both front
-    ends read one parser and cannot drift. Numbers are `ops.parse_number`'s:
-    decimal, `$d404`, or `0xd404`.
+    ends read one parser and cannot drift.
+
+    ADDR is a full address ref when `session` is given — `ops.session_ref`,
+    the same resolver `mem write`, `until`, `break add` and `watch add` use,
+    so a symbol, `symbol+offset` or `@row,col` works here exactly as it does
+    there. Without a session (a library caller with no symbols to consult)
+    only the literal forms parse. VAL is always a number, and one byte: it is
+    a value, not an address, so a name on the right is a mistake.
+    Numbers on both sides are `ops.parse_number`'s: decimal, `$d404`, `0xd404`.
 
     Repeats of a frame MERGE, in the order given, because two `--at-frame 6`
     flags mean two writes at frame 6 and not "the second one wins". Order
@@ -249,9 +256,21 @@ def parse_frame_writes(specs) -> dict[int, list[tuple[int, int]]]:
     the gate bit is normally written after the frequency.
 
     Every rejection here is a mistake that would otherwise be found after
-    the capture window closed, which is the most expensive moment for it.
+    the capture window closed, which is the most expensive moment for it —
+    so callers resolve the whole schedule before pinning anything.
     """
-    from .ops import parse_number
+    from .ops import parse_number, session_ref
+
+    def address(text: str) -> int:
+        # KeyError (unknown symbol, with candidates) and ValueError (nothing
+        # parses) both mean "this is not an address"; the caller's front end
+        # reports one exception type, so they arrive as one here.
+        if session is None:
+            return parse_number(text)
+        try:
+            return session_ref(session, text)
+        except KeyError as e:
+            raise ValueError(e.args[0] if e.args else str(e)) from e
 
     out: dict[int, list[tuple[int, int]]] = {}
     for raw_frame, raw_spec in specs:
@@ -270,9 +289,16 @@ def parse_frame_writes(specs) -> dict[int, list[tuple[int, int]]]:
                     f"--at-frame needs ADDR=VAL, got {token.strip()!r}: "
                     f"e.g. '$d404=$11' or '53280=1,53281=0'")
             try:
-                addr, value = parse_number(addr_s), parse_number(val_s)
+                addr = address(addr_s)
             except ValueError as e:
-                raise ValueError(f"{token.strip()!r} is not a number "
+                raise ValueError(
+                    f"address in {token.strip()!r} is not a number or a known "
+                    f"symbol ({e}); use decimal, $hex, 0xhex, or a symbol from "
+                    f"the session's label file") from e
+            try:
+                value = parse_number(val_s)
+            except ValueError as e:
+                raise ValueError(f"value in {token.strip()!r} is not a number "
                                  f"({e}); use decimal, $hex, or 0xhex") from e
             if not 0 <= addr <= 0xFFFF:
                 raise ValueError(f"address {addr} in {token.strip()!r} is "
@@ -515,9 +541,9 @@ class _TextMonitor:
         The query is RE-SENT once when no reply arrives, and that retry is
         load-bearing — do not simplify it away. VICE does not lose this
         reply, it withholds it until more input arrives on the socket:
-        measured 2026-08-04/05 (see
-        `.superpowers/sdd/2026-08-02-sid-audio-verification/wedge-investigation.md`
-        for the wire traces), the missing `Warp mode is on.` line turned up
+        measured 2026-08-04/05 on raw wire traces (taken in a since-deleted
+        dev workspace; the figures here are the surviving record), the
+        missing `Warp mode is on.` line turned up
         only after the next byte was written, and a run with the timeout
         raised to 30 s waited the full 30.1 s and still got nothing. So
         waiting longer does not work; asking again does. Across 240
@@ -1400,7 +1426,11 @@ def sid_report(log_path, outdir, wav_path=None, ref_path=None, *,
     roll = outdir / PIANO_ROLL
     sid_analysis.render_piano_roll(events, roll, timing["fps"])
     # After the renders: the report links the artifacts that exist beside it.
-    report = sid_analysis.write_report(outdir, events, diffs, anomalies, metrics)
+    # `ref=ref_path` and not the parsed score: the report names the file a
+    # reviewer can open months later, and `None` is what makes it say the run
+    # was never scored at all.
+    report = sid_analysis.write_report(outdir, events, diffs, anomalies, metrics,
+                                       ref=ref_path)
 
     verdict, failures = _read_verdict(report)
     out = {

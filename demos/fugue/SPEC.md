@@ -110,7 +110,8 @@ sentence). **Both are wrong, measured on this session:** with `$D018` set to
 `$78` and marker bytes at `$0400` and `$1C00`, `c64 mem read '@0,0'` returned
 `1c00: 05` and `c64 screen --codes` read the relocated screen. That agrees
 with `docs/graphics-and-sprites.md` §3 and `SKILL.md`:209, which both say
-reads follow `$DD00`/`$D018`. Filed in `docs/todo.md`; noted here because the
+reads follow `$DD00`/`$D018`. Filed in `docs/todo.md` and landed 2026-08-14
+(both skill files now state the measured behaviour); noted here because the
 double-buffer fallback in §5 would have depended on it.
 
 The link is `c64 build --area 'CHARS=$2000:$0800' --area 'SPRITES=$2800:$0100'`.

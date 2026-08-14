@@ -147,9 +147,10 @@ therefore `50 + 8*R`** — a sprite at Y=50 starts exactly *on* row 0's first
 line, not above it. Off by one raster line is invisible until a sprite lands
 next to text; the invaders dogfood shipped its UFO a line high through a whole
 audit iteration, then corrected it to `51 + 8*R`, which is one line the other
-way. That demo's constants are unchanged and it reads acceptably, but the rule
-it states in `demos/invaders/invaders.s` is this one, not that one — see
-`docs/todo.md`.
+way. That demo keeps its constants at `51 + 8*R` deliberately — re-judged by
+eye against its `evidence/ufo.png` after this rule was corrected, the
+one-raster offset keeps the UFO clear of the HUD and reads right — and its
+`sprites.s` says so at the constants.
 
 A multicolor sprite (`$D01C` bit set) trades horizontal resolution for color:
 each color-pixel is 2 data bits and 2 screen-pixels wide (12×21) and each pair picks a color — `00` transparent,
@@ -202,6 +203,20 @@ border** (rasters 0-50) pays no badline steal at all, so a tick armed there and
 finished before line 51 is both cheaper and easier to measure than the same
 work done mid-screen.
 
+**The badline is also when the row's bytes are latched, and that decides
+every redraw deadline.** The VIC fetches a text row's whole 40-byte character
+matrix and its colour nybbles on the badline at that row's *first* raster
+(`51 + 8*R`), so after that raster, writes to that row cannot affect the
+current frame — and before it, they can. Two consequences a screen-moving
+effect lives or dies by: a row's redraw deadline is `51 + 8*R`, not the row's
+last scanline; and a redraw may begin the moment the **last** row it touches
+has been latched, which for a large move is late in the display, not in the
+top border. The fugue demo's 1,200-byte column shift cannot fit the
+top-border window at all (≥ 10,800 cycles of a 17,095-cycle frame); armed at
+raster 204 — immediately after its last row's badline at 203 — it has the
+bottom and top borders together, 263 raster lines instead of 215, and
+measures 25 lines to spare.
+
 ## Video modes (VIC-II)
 
 - `$D011` — mode bits (bitmap enable bit 5, extended color bit 6, screen
@@ -211,8 +226,13 @@ work done mid-screen.
 - `$D016` — multicolor bit 4, 38/40-column bit 3, horizontal scroll 0-2.
 - `$D018` — memory setup: screen and charset/bitmap base within the VIC
   bank (bit-fields under "VIC bank and interrupts" below). Power-on `$15`:
-  screen `$0400`, uppercase charset. **Leave the screen at `$0400`** — the
-  toolset's screen reader assumes it.
+  screen `$0400`, uppercase charset. Moving the screen is fully observable —
+  `c64 screen` and `@row,col` follow `$DD00`/`$D018` to the relocated base
+  (measured: markers at `$0400` and `$1C00`, `$D018` = `$78`, and `@0,0`
+  read `$1C00`'s byte) — so leave it at `$0400` for the ordinary reasons
+  (nothing needs it moved; a second screen costs 1 KB of the VIC bank), not
+  because the tools require it. Colour RAM never moves: `@@row,col` is
+  `$D800` regardless.
 - `$D012` — raster line (read current / write compare for raster IRQ).
   **It wraps at the end of the frame** (263 lines NTSC, 312 PAL), so code that
   measures its own cost by subtracting two reads of `$D012` must run where it

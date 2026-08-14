@@ -32,6 +32,16 @@ EV="$DEMO/evidence"
 LIT="python3 $DEMO/tools/litcount.py"
 S=ev1812
 
+# The two intermediates of section 7 used to be /tmp/1812-early.txt and
+# /tmp/1812-late.json at fixed paths, so two runs — two checkouts, or one
+# checkout and a second demo copying this pattern — silently read each other's
+# persistence sample.  They are per-run now, and passed to the heredoc as
+# arguments rather than hardcoded inside it.
+TMPD=$(mktemp -d "${TMPDIR:-/tmp}/1812-evidence.XXXXXX")
+trap 'rm -rf "$TMPD"' EXIT INT TERM
+EARLY="$TMPD/early.txt"
+LATE="$TMPD/late.json"
+
 mkdir -p "$EV"
 "$C" -s $S session stop 2>/dev/null || true
 "$C" session start --name $S --warp --headless >/dev/null
@@ -76,8 +86,16 @@ for n in 0 1 2 3; do
   echo "  end of section $n: frames=$(get frames 2) shapes=$(get shapes 2) dropped=$(get dropped)"
   echo "                     $(lit)"
   shot "sec$n.png"
+  if [ "$n" = "3" ]; then
+    # A7 is `cannons == 16` at the END of section 3, and the single shot the
+    # cannon block below samples is not that claim.  This stop is the fourth
+    # `secchange` — the top of nextsec at the end of section 3, before
+    # `inc section` — so it is the last frame on which the counter can be
+    # read as the section's own total.
+    echo "                     cannons=$(get cannons) at the end of section 3 (A7 wants 16)"
+  fi
   if [ "$n" = "0" ]; then
-    "$C" -s $S mem read '$2000' 8000 --json | $LIT --sample 64 > /tmp/1812-early.txt
+    "$C" -s $S mem read '$2000' 8000 --json | $LIT --sample 64 > "$EARLY"
     echo "  sampled 64 lit bitmap addresses for the persistence check"
   fi
   if [ "$n" = "2" ]; then
@@ -85,7 +103,9 @@ for n in 0 1 2 3; do
     echo "== 5. a cannon shot: the flash and the SID shadow =================="
     "$C" -s $S until cannonfire --count 1 --timeout 120 >/dev/null
     step 1
-    echo "  cannons=$(get cannons) flash=$(get flash)"
+    echo "  cannons=$(get cannons) flash=$(get flash)   (the FIRST shot; A7's"
+    echo "                                       count of 16 is read at the end"
+    echo "                                       of the section, in 4. above)"
     echo "  \$D020/\$D021 during the flash = $("$C" -s $S mem get '$D020' 2)  (& \$0F must be 1)"
     echo "  sidshadow \$D400-\$D418 mid-cannon:"
     echo "    $(get sidshadow 25)"
@@ -117,12 +137,13 @@ shot final.png
 
 echo
 echo "== 7. nothing is ever cleared ======================================="
-"$C" -s $S mem read '$2000' 8000 --json > /tmp/1812-late.json
-python3 - "$SHAPES_AT_END" <<'PY'
+"$C" -s $S mem read '$2000' 8000 --json > "$LATE"
+python3 - "$EARLY" "$LATE" <<'PY'
 import json, sys
-late = json.load(open('/tmp/1812-late.json'))['bytes']
+early_path, late_path = sys.argv[1], sys.argv[2]
+late = json.load(open(late_path))['bytes']
 still = tot = 0
-for line in open('/tmp/1812-early.txt'):
+for line in open(early_path):
     line = line.strip()
     if not line:
         continue
@@ -196,8 +217,12 @@ for seedpair in "18:12" "99:77"; do
     "$C" -s $S key type "run
 " >/dev/null
     "$C" -s $S until shapedone --count 400 --timeout 300 >/dev/null
-    echo "  seed \$$hi$lo pass $pass @400 shapes: frames=$(get frames 2) rng=$(get rng 2) \
-lstype=$(get lstype) lsangle=$(get lsangle) lspat=$(get lspat)  $(lit)"
+    # ALL SEVEN last-shape bytes, which is what A9 claims: lstype/lsangle/lspat
+    # alone left lssize, lsx, lsy and lsink unprinted, so the log did not show
+    # what the criterion says it shows.
+    echo "  seed \$$hi$lo pass $pass @400 shapes: frames=$(get frames 2) rng=$(get rng 2)  $(lit)"
+    echo "    last shape: lstype=$(get lstype) lssize=$(get lssize) lsx=$(get lsx) \
+lsy=$(get lsy) lsangle=$(get lsangle) lspat=$(get lspat) lsink=$(get lsink)"
   done
 done
 

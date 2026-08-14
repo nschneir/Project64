@@ -199,6 +199,21 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
 
 ## Plans
 
+- **A plan's deliverables leave the SDD workspace before it is deleted**
+  (maintainer ruling, after a 2026-08-12 loss). `.superpowers/sdd/*` is
+  strictly scratch — the finish step `rm -rf`s it — so anything a plan
+  *owes* is written, at the moment it is produced, into a path **git
+  actually tracks**: the repo's docs, a demo's `AUDIT.md`/`SPEC.md`/
+  `README.md`, `CHANGELOG.md`, or `docs/todo.md` for friction.
+  `docs/superpowers/` is no better a home: `.gitignore` excludes it
+  wholesale, so a report filed there dies with the checkout — usable as a
+  shelf for raw measurement data a *tracked* document quotes with the
+  figures carried over, never as something a tracked file cites as if the
+  reader could follow the reference. Before any workspace `rm -rf`, list
+  what the plan owed and confirm each artifact exists where the deletion
+  cannot reach — `git ls-files <path>` naming the file, not merely `ls`
+  finding it. A prerequisite run for a sibling plan writes into the
+  sibling's workspace, never the caller's.
 - A plan an agent executes itself specifies *interfaces*, not code bodies:
   exact label/function names, byte-level variable tables, memory maps and
   allocations, and one verification command per task. Do not transcribe

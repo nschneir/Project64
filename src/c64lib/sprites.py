@@ -16,7 +16,14 @@ from typing import NamedTuple
 from .basic_tokens import MAX_LINE_NUMBER
 from .charset import parse_block_header
 
-# Pepto palette (colodore lineage) — index = C64 color number.
+#: Pepto palette (colodore lineage), index = C64 color number — the
+#: **fallback**, for the paths that have no emulator to ask. Anything holding
+#: a monitor renders from `mon.palette()` instead, the way `save_screenshot_png`
+#: does: VICE's palette is configurable and its default is not this table
+#: (color 2 is (174, 71, 93) there against (104, 55, 43) here), so a renderer
+#: that hardcodes it disagrees with `c64 screen --png` about a color number.
+#: What is left on this table is `sprite_from_image`, which quantizes an
+#: arbitrary PNG with no session in sight.
 C64_PALETTE = [
     (0, 0, 0), (255, 255, 255), (104, 55, 43), (112, 164, 178),
     (111, 61, 134), (88, 141, 67), (53, 40, 121), (184, 199, 111),
@@ -438,20 +445,29 @@ def render_sheet(sprites: Sequence[bytes | EncodedSprite], fmt: str = "asm",
         for i, block in enumerate(blocks)) + "\n"
 
 
-def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
-    """Render a 63-byte shape to a PIL image (24x21 logical pixels)."""
+def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1,
+                 palette: Sequence[tuple[int, int, int]] | None = None):
+    """Render a 63-byte shape to a PIL image (24x21 logical pixels).
+
+    `palette` is the 16-entry RGB table to color it with; pass the live one
+    (`mon.palette()`), which is what `save_screenshot_png` renders from, so
+    the sprite inspector and the evidence camera cannot disagree about a
+    color number. `ops.render_sprite_png` is the caller that does — both
+    front ends go through it. Omitted, it falls back to `C64_PALETTE`.
+    """
     from PIL import Image
 
+    pal = C64_PALETTE if palette is None else palette
     img = Image.new("RGB", (24, 21))
-    bg = C64_PALETTE[shared["background"]]
+    bg = pal[shared["background"]]
     # None = hires; the shared mc_* entries are only read in multicolor mode,
     # so a caller rendering a hires sprite need not supply them.
     pair_colors = None
     if state.multicolor:
         pair_colors = {0: bg,
-                       1: C64_PALETTE[shared["mc_color1"]],
-                       2: C64_PALETTE[state.color],
-                       3: C64_PALETTE[shared["mc_color2"]]}
+                       1: pal[shared["mc_color1"]],
+                       2: pal[state.color],
+                       3: pal[shared["mc_color2"]]}
     for y in range(21):
         bits = _row_bits(data, y)
         if pair_colors is not None:
@@ -460,7 +476,7 @@ def sprite_image(data: bytes, state: SpriteState, shared: dict, scale: int = 1):
                 img.putpixel((2 * p, y), c)
                 img.putpixel((2 * p + 1, y), c)
         else:
-            fg = C64_PALETTE[state.color]
+            fg = pal[state.color]
             for x in range(24):
                 img.putpixel((x, y), fg if bits & (1 << (23 - x)) else bg)
     if scale > 1:

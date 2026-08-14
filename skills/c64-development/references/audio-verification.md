@@ -58,7 +58,7 @@ the same:
 | `sid-log.jsonl` | A clock stamp on line 1 (`{"machine", "clock_hz", "fps"}`), then one line per frame: `{"frame": <int>, "regs": [25 ints]}`, `regs[0]` = `$D400`. The raw evidence — everything else is derived from it, and the stamp is what lets `c64 audio report` re-score it later without a session to name the machine. |
 | `piano-roll.png` | Transcribed notes per voice over time. |
 | `spectrogram.png` | The WAV's frequency content over time — where the filter and the noise live. |
-| `report.md` | Transcription, score diff, anomalies, WAV metrics, and the overall verdict. |
+| `report.md` | Transcription, the reference score it was checked against (path, per-voice entry and frame counts — or an explicit "no reference score supplied"), score diff, anomalies, WAV metrics, and the overall verdict. |
 
 The verdict is PASS only when the score diff is empty, no anomalies were
 found, and the WAV shows no clipping and no unexpected silence. Anything
@@ -458,6 +458,11 @@ X axis is frames, Y axis is pitch. The voice colors are pinned so rolls
 compare across runs and across demos: **voice 1 red, voice 2 green, voice 3
 blue**. Read it like a screenshot — deliberately, against what you claimed,
 not for a general impression of health.
+
+Every semitone row is ruled; only about a dozen are named, so on a wide
+passage the names thin to every second or third semitone. A bar between two
+names is read by counting the dim lines from the nearest one — the axis is a
+staff, not just a label list.
 
 | What you see | What it usually is |
 |---|---|

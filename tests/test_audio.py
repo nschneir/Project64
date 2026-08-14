@@ -180,13 +180,18 @@ VICE_DEFAULTS = {"MonitorServerAddress": "ip4://127.0.0.1:6510",
                  "MonitorServer": 0, "Speed": 100}
 
 
-def _fake_session(speed: int = 100, pid: int = 4242, **resources):
+def _fake_session(speed: int = 100, pid: int = 4242, labels=None, **resources):
     """A Session whose monitor() hands out one Mock. Resources behave like
     VICE's: they start at their factory defaults, and what was set is what
     reads back — so a second capture sees the text monitor the first one
-    actually switched on."""
+    actually switched on.
+
+    `labels` is the session's registered .lbl path (None = no symbols), set
+    explicitly because a Mock's auto-attribute is not a str and would read
+    as "no label file" only by accident."""
     s = Mock()
     s.name, s.model, s.socket, s.pid = "c64", "c64", None, pid
+    s.labels = labels
     mon = Mock()
     values = {**VICE_DEFAULTS, "Speed": speed, **resources}
     mon.resource_get.side_effect = lambda n: values[n]
@@ -1317,6 +1322,41 @@ def test_parse_frame_writes_rejects_what_it_cannot_aim(spec, complaint):
         parse_frame_writes([spec])
 
 
+def _labelled_session(tmp_path, **labels):
+    """A fake session with a registered .lbl file, for the symbol tests."""
+    lbl = tmp_path / "p.lbl"
+    lbl.write_text("".join(f"al C:{a:04x} .{n}\n" for n, a in labels.items()))
+    s, _ = _fake_session(labels=str(lbl))
+    return s
+
+
+def test_parse_frame_writes_resolves_an_address_symbol(tmp_path):
+    """The repo-wide convention: a symbol is accepted anywhere an address is,
+    including `symbol+offset`, and a literal still parses beside it."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    assert parse_frame_writes([("12", "freeze=0"), ("12", "freeze+1=$ff"),
+                               ("6", "$d404=$11")], session=s) == {
+        6: [(0xD404, 0x11)], 12: [(0x4000, 0), (0x4001, 0xFF)]}
+
+
+def test_parse_frame_writes_names_an_address_that_is_neither(tmp_path):
+    """A name that resolves to no symbol and parses as no number fails here —
+    before the caller pins anything — and the message lists what IS known."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    with pytest.raises(ValueError) as e:
+        parse_frame_writes([("12", "frozen=0")], session=s)
+    assert "unknown symbol 'frozen'" in str(e.value)
+    assert "freeze" in str(e.value)              # the candidate list
+
+
+def test_parse_frame_writes_reads_a_value_as_a_number_only(tmp_path):
+    """A symbol is an ADDRESS form: the right-hand side stays one byte, so a
+    name there is a mistake and says so rather than resolving."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    with pytest.raises(ValueError, match="value .* is not a number"):
+        parse_frame_writes([("12", "freeze=freeze")], session=s)
+
+
 def test_sid_log_performs_a_scheduled_write_before_the_frame_it_names(tmp_path):
     """Frame N is the first LOGGED frame that shows the effect: the write
     lands while the machine is halted, then the resume runs frame N with it
@@ -1567,6 +1607,27 @@ def test_sid_report_fails_on_a_reference_score_that_does_not_match(tmp_path):
     assert out["verdict"] == "FAIL"
     assert out["diffs"] and "C4" in out["diffs"][0]
     assert any("reference score" in reason for reason in out["failures"])
+
+
+def test_sid_report_writes_the_reference_score_into_the_report(tmp_path):
+    """The score is the run's evidence, so the durable artifact has to name it:
+    a committed `report.md` whose Score-diff section reads the same scored and
+    unscored cannot say whether it checked anything."""
+    log = tmp_path / "sid-log.jsonl"
+    _log(log, [_voice1()] * 30)
+    ref = tmp_path / "score.yaml"
+    ref.write_text("voices:\n  1:\n    - {note: A4, frames: 30}\n")
+    scored = audio.sid_report(log, tmp_path / "scored", ref_path=ref,
+                              timing=audio.report_timing_for("c64"))
+    plain = audio.sid_report(log, tmp_path / "plain",
+                             timing=audio.report_timing_for("c64"))
+    scored_text = Path(scored["report"]).read_text()
+    plain_text = Path(plain["report"]).read_text()
+    assert scored["verdict"] == plain["verdict"] == "PASS"
+    assert str(ref) in scored_text
+    assert "1 entry" in scored_text and "30 frames" in scored_text
+    assert "No reference score supplied" in plain_text
+    assert str(ref) not in plain_text
 
 
 def test_sid_report_reports_anomalies_from_the_register_log(tmp_path):
@@ -2164,6 +2225,34 @@ def test_mcp_audio_capture_aims_writes_at_a_frame():
     assert cap.call_args.kwargs["writes"] == {6: [(0xD404, 0x11), (0xD418, 15)]}
 
 
+def test_mcp_audio_capture_aims_a_write_at_a_symbol(tmp_path):
+    """CLI/MCP lockstep for the symbol form too: the same session labels,
+    resolved by the same parser."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture",
+               return_value={"verdict": "PASS"}) as cap:
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture",
+                             {"seconds": 1.0, "outdir": "/tmp/o",
+                              "at_frame": {"12": "freeze=0,$d404=$11"}})
+    assert err is False
+    assert cap.call_args.kwargs["writes"] == {12: [(0x4000, 0), (0xD404, 0x11)]}
+
+
+def test_mcp_audio_capture_refuses_an_address_that_is_no_symbol(tmp_path):
+    """The same complaint the CLI gives, before anything is pinned."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    with patch("c64lib.mcp_server.Session") as S, \
+         patch("c64lib.mcp_server.capture") as cap:
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_capture",
+                             {"seconds": 1.0, "outdir": "/tmp/o",
+                              "at_frame": {"12": "frozen=0"}})
+    assert err is True and "unknown symbol 'frozen'" in str(out)
+    cap.assert_not_called()
+
+
 def test_mcp_audio_capture_reports_a_write_it_cannot_parse():
     """The same complaint the CLI gives, before anything is pinned."""
     s, _ = _fake_session()
@@ -2364,6 +2453,35 @@ def test_cli_audio_capture_aims_writes_at_a_frame():
     assert r.exit_code == 0, r.output
     assert cap.call_args.kwargs["writes"] == {6: [(0xD404, 0x11)],
                                               12: [(0xD404, 0x10)]}
+
+
+def test_cli_audio_capture_aims_a_write_at_a_symbol(tmp_path):
+    """`--at-frame` takes an address, and an address may be a symbol — the
+    convention every other address argument honours."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    with patch("c64lib.cli.Session") as S, \
+         patch("c64lib.cli.capture",
+               return_value={"verdict": "PASS", "report": "/tmp/o/report.md",
+                             "diffs": [], "anomalies": [], "frames": 60,
+                             "emulated_s": 1.0, "wall_clock_s": 2.8}) as cap:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
+                                      "--at-frame", "12", "freeze=0"])
+    assert r.exit_code == 0, r.output
+    assert cap.call_args.kwargs["writes"] == {12: [(0x4000, 0)]}
+
+
+def test_cli_audio_capture_refuses_an_address_that_is_no_symbol(tmp_path):
+    """Still fails before anything is pinned, and names the symbols there are."""
+    s = _labelled_session(tmp_path, freeze=0x4000)
+    with patch("c64lib.cli.Session") as S, patch("c64lib.cli.capture") as cap:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["audio", "capture", "1", "/tmp/o",
+                                      "--at-frame", "12", "frozen=0"])
+    assert r.exit_code == 1
+    assert "--at-frame" in r.output and "unknown symbol 'frozen'" in r.output
+    assert "freeze" in r.output
+    cap.assert_not_called()
 
 
 def test_cli_audio_capture_reports_a_write_it_cannot_parse():

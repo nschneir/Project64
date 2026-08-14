@@ -1566,7 +1566,9 @@ JSON: `{"rows", "block_addr", "multicolor"}`. Machine state preserved.
 ### `c64 sprite png`
 
 Render a sprite's shape to a PNG, colored from the live registers
-(sprite color, background, multicolor shared colors).
+(sprite color, background, multicolor shared colors) and drawn with the
+emulator's own palette — the same `mon.palette()` `c64 screen --png` uses,
+so the two writers agree on every colour number.
 
 - `INDEX` — sprite number 0-7.
 - `-o, --out PATH` (required) — output PNG.
@@ -1628,7 +1630,10 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   sprite-color pixels and is kept as art.
 - `--hires` — encode as hires (1 bit/pixel, 24 chars/row) instead of the
   default multicolor pairs (12 chars/row). It is the mode a bare `name:`
-  header takes; a block that names its own mode overrides it.
+  header takes; a block that names its own mode overrides it. Note the
+  legend difference from the twin: **here hires background is a space by
+  default** (`' #'`), while `c64 charset encode`'s hires rows are `.#` —
+  a sprite sheet written in the charset legend needs `--background .`.
 - `--background CHAR` (default a space) — the character that means
   background (pair `00`). `--background .` is the conventional visible
   alternative: every pixel of the art is then a printing character, so a
@@ -1709,9 +1714,12 @@ twin of `c64 sprite encode`. Needs no session.
   cell's own color — the multicolor-*text* order, which is **not** the
   sprite legend's (sprites order their pairs differently, so the two
   commands deliberately do not share a legend). Hires rows are 8
-  characters of `.#`. Blank lines and `#` comments are ignored (a comment
-  cannot consist solely of legend characters at exactly row width). Block
-  order is screen-code order.
+  characters of `.#` — and that differs from the twin too: `c64 sprite
+  encode`'s hires background is a **space** unless `--background .` is
+  passed, so a charset-style `.` sheet fed to the sprite command fails
+  with `unknown hires sprite glyph '.'`. Blank lines and `#` comments are
+  ignored (a comment cannot consist solely of legend characters at exactly
+  row width). Block order is screen-code order.
 - A header may name its own mode: `wall:multicolor`, `letter:hires`. Row
   width then follows that block — 4 characters of `.123` or 8 of `.#` — so
   a multicolor playfield charset and a hires HUD font live in one sheet and
@@ -1885,11 +1893,19 @@ into OUTDIR.
 - `SECONDS` — how much **emulated** time to capture.
 - `OUTDIR` — where the five artifacts go (created if needed).
 - `--ref PATH` — reference score YAML to diff the transcription against.
+  The report names the score it diffed against and quotes its per-voice
+  entry and frame counts; without one it says so outright, so a committed
+  report can never be mistaken for a check that ran.
 - `--at-frame N ADDR=VAL[,ADDR=VAL...]` — perform those memory writes at
   frame N of the window. Repeatable; two flags naming the same frame merge in
-  the order given, as do the writes inside one flag. Numbers are decimal,
-  `$hex`, or `0xhex`; a value is one byte. A frame the window never reaches
-  is refused before anything is pinned, like a malformed `--ref`.
+  the order given, as do the writes inside one flag. ADDR is an address like
+  any other in this file — decimal, `$hex`, `0xhex`, a symbol,
+  `symbol+offset` or `@row,col`, resolved against the session's label file —
+  and a value is one byte, a number only. An ADDR that is neither a number
+  nor a known symbol, and a frame the window never reaches, are both refused
+  before anything is pinned, like a malformed `--ref`. Where the program has
+  labels registered, the address is its own name:
+  `c64 audio capture 1 out/ --at-frame 12 'freeze=0'`.
 - `--strict` — also exit 1 when nothing played, not only when the verdict is
   FAIL. Off by default; see **A capture in which nothing played still passes**
   below.
@@ -1974,13 +1990,19 @@ The WAV covers slightly *more* than the log does, and it is emulated time
 either way — the recording in that run was 2.0887 s against the log's 2.000 s.
 The machine free-runs between arming the recorder and the first sample, and
 again after the last sample until the recorder is disarmed. That bracket
-measured 0.086-0.103 s across captures of 0.5 s, 1 s, and 2 s; it does not
-scale with capture length, though the spread at a single length is as wide as
-the spread across lengths, so a small proportional term cannot be ruled out.
-Because only the bracket's total was measured and never its split between the
-two ends, the WAV is *rate*-aligned to the register log and not
-*offset*-aligned: durations and pitches read off the two together agree, but a
-WAV timestamp locates a log frame only to within about 0.1 s.
+measured 0.086-0.103 s across captures of 0.5 s, 1 s, and 2 s on the host it
+was first taken on — **and the figure is host-dependent, not a constant of
+the tool**: the amiga_ball dogfood (2026-08-14) measured 0.238 s of bracket
+on both of its 1.5 s captures on the same machine under different load, with
+the impact's WAV onset 0.135 s after its log frame's nominal position. It
+does not scale with capture length, though the spread at a single length is
+as wide as the spread across lengths, so a small proportional term cannot be
+ruled out. Because only the bracket's total was measured and never its split
+between the two ends, the WAV is *rate*-aligned to the register log and not
+*offset*-aligned: durations and pitches read off the two together agree, but
+a WAV timestamp locates a log frame only to within the bracket your host
+actually produces — read `wav_bytes` against `frames` × the sample rate on
+the capture in hand rather than trusting either figure above.
 
 The alignment itself was verified against the audio and not only its length: a
 tone the registers predict at 440.00 Hz landed in the WAV's FFT bin holding
@@ -2028,9 +2050,12 @@ new capture only when the *program* changes.
 - `--wav PATH` — the recording captured alongside LOG. Without it the report
   is register-only: no level metrics and no spectrogram, which is a
   legitimate mode rather than a failure.
-- `--ref PATH` — reference score YAML. Without one the transcription is still
-  checked for everything a score is not needed for, and an empty diff is a
-  legitimate pass. Those reference-free checks are:
+- `--ref PATH` — reference score YAML. The report names the score it diffed
+  against and quotes its per-voice entry and frame counts; without one it
+  says **no reference score supplied** outright, so a committed report can
+  never be mistaken for a check that ran. Without one the transcription is
+  still checked for everything a score is not needed for, and an empty diff
+  is a legitimate pass. Those reference-free checks are:
   - a gate held over a zero frequency for more than 50 frames (a stuck gate);
   - a note more than 15 cents off pitch for at least 25 frames — **pitched
     waveforms only**, since noise is an LFSR whose frequency register sets its
@@ -2160,6 +2185,18 @@ JSON: `{"voices": {"1": {"entries", "frames", "first", "last"}, …},
 Run one declarative YAML test. The runner boots its own fresh session
 (headless + warp), loads the program, executes the steps fail-fast, and
 reports pass/fail per step — capturing the screen at the point of failure.
+
+**The runner arms each `until:` checkpoint itself, and the first one is
+armed before the program has run** — so a spec whose first step is
+`until: {ref: tick, count: 1}` stops at the program's *first* arrival, and
+every `count: N` after it is an absolute count from there. Measured on
+`demos/fugue`: `until tick` then `assert frame == 0` passes, and frame
+N is `count: N` exactly. This is deliberately better than the CLI sequence
+it resembles: `c64 run` followed by `c64 until tick` free-runs at warp in
+the gap between the two commands (the same measurement landed on frame
+3,774), which is why hand-driven protocols arm `c64 break add` before
+`c64 run` instead — see the skill's "Catching the first frame of a state
+you just triggered".
 
 - `YAML_FILE` — the test file.
 - `--allow-stale` — run even when the artifact and the label file it takes

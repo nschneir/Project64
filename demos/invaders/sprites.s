@@ -51,8 +51,10 @@ sicp:   lda     sprite0,x
         ; row is Y = 50 + 8*R; the constants below are 51 + 8*R and therefore
         ; sit one raster lower, which is what keeps the UFO clear of the HUD's
         ; bottom pixel row.  Deliberate, and not the general rule —
-        ; hardware.md's Sprites section has that, and docs/todo.md has why
-        ; this demo differs.
+        ; hardware.md's Sprites section has that.  Re-judged by eye against
+        ; evidence/ufo.png after the rule was corrected (2026-08-14): the UFO
+        ; sits clear of the HUD with no clipping and the placement reads
+        ; right, so the one-raster offset stays.
         lda     #BASESPY
         sta     $D001                   ; base Y: text row 22
         lda     #UFOSPY

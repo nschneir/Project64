@@ -299,6 +299,46 @@ LIVE_RECIPES = [
         # ...and the latch really is re-set on the way out (179 of 180 frames)
         {"assert": {"mem": "RELATCH", "at_least": 1}},
     ]),
+    ("asm-hscroll", "asm", "hscroll.s", [
+        # 180 frames at a pixel per frame, then the handler unhooks
+        {"wait": {"mem": "DONE", "equals": "$2a", "timeout": 30 * timeout_scale()}},
+        {"assert": {"mem": "FRAMES", "equals": 180}},
+        # 180 frames / 8-pixel period = 22 whole column shifts, 4 left over
+        {"assert": {"mem": "SHIFTS", "equals": 22}},
+        {"assert": {"mem": "XSC", "equals": 3}},
+        # $D016 low nybble: fine scroll 3 AND bit 3 clear = 38 columns —
+        # masking with $0f makes bit 3's clearness part of the equality
+        {"assert": {"mem": "$D016", "mask": {"and": "$0f", "equals": [3]}}},
+        # 22 shifts put msg[0] 'H' at column 39-21=18, and the 22nd
+        # character (index 21 mod 13 = 8, 'R') at the entry column
+        {"assert": {"mem": "@12,17", "equals": 32}},
+        {"assert": {"mem": "@12,18", "equals": 8}},
+        {"assert": {"mem": "@12,19", "equals": 5}},
+        {"assert": {"mem": "@12,28", "equals": 4}},
+        {"assert": {"mem": "@12,39", "equals": 18}},
+        # ...and the colours shifted WITH the codes: shift 18 entered
+        # msg index 4, colour (4 AND 7)+1 = 5, now at column 35
+        {"assert": {"mem": "@@12,35", "mask": {"and": "$0f", "equals": [5]}}},
+        {"assert": {"mem": "@@12,33", "mask": {"and": "$0f", "equals": [3]}}},
+    ]),
+    ("asm-sid-player", "asm", "sidplayer.s", [
+        # 8 rows x 8 frames, released and unhooked at frame 72
+        {"wait": {"mem": "DONE", "equals": "$2a", "timeout": 30 * timeout_scale()}},
+        {"assert": {"mem": "FRAMES", "equals": 72}},
+        {"assert": {"mem": "ROW", "equals": 8}},
+        # every non-$FF pattern entry gated once: 7 + 6 + 4
+        {"assert": {"mem": "GATEON", "equals": 17}},
+        # the shadow holds the shutdown state: waveforms intact, gates off
+        {"assert": {"mem": "SHADOW+4", "equals": "$40"}},
+        {"assert": {"mem": "SHADOW+11", "equals": "$20"}},
+        {"assert": {"mem": "SHADOW+18", "equals": "$10"}},
+        # voice 1's last note was C4 = 4292 = $10C4; voice 3's C3 = $0862
+        {"assert": {"mem": "SHADOW", "equals": [196, 16]}},
+        {"assert": {"mem": "SHADOW+14", "equals": [98, 8]}},
+        # ADSR and volume as initialised, mirrored through the same door
+        {"assert": {"mem": "SHADOW+5", "equals": ["$08", "$A6"]}},
+        {"assert": {"mem": "SHADOW+24", "equals": "$0f"}},
+    ]),
     ("asm-custom-charset", "asm", "charset.s", [
         {"wait": {"mem": "@5,0", "equals": 96}},       # the patched glyph is shown
         {"assert": {"mem": "@5,1", "equals": 97}},

@@ -248,13 +248,30 @@ written to play, on the instrument it was written for:
 
 | Frame | Section | Voice 1 | Voice 2 | Voice 3 | Filter |
 |---|---|---|---|---|---|
-| 40 | hymn | E4 triangle | B3 triangle | E2 pulse | off, vol 15 |
-| 2600 | Marseillaise | **D5** pulse | C4 sawtooth | D3 pulse | off, vol 15 |
+| 40 | hymn | **E4 pulse**, gated | silent — `$40`, freq `0000` | silent — `$10`, freq `0000` | off, vol 15 |
+| 2600 | Marseillaise | **D5 sawtooth** | C4 pulse | silent — `$40`, freq `0000` | off, vol 15 |
 | 4600 | battle | G4 sawtooth | B4 narrow pulse | D3 sawtooth | **`$F1` route v1, `$2F` band-pass** |
 | 6200 | cannon | E4 triangle | B3 sawtooth | **C2 noise, gated** | **`$F4` route v3, `$1F` low-pass** |
 | 8300 | finale | A5 pulse | B4 sawtooth | **E4 `$15` triangle + ring mod** | off, vol 15 |
 
-The pitches are the scored ones — the hymn's opening E minor triad, the
+**The first two rows were re-taken on 2026-08-14**, after iteration 3's
+texture arc (below) rewrote sections 0 and 1; the other three are iteration 2's
+readings, re-read at the same three frames on the same date and still decoding
+to exactly what they record. The arc is what the two new rows record: at frame
+40 the hymn is one
+gated voice and the other two have never sounded (the left hand enters on
+section 0's tick 849, well past this stop), and at frame 2600 the Marseillaise
+is the sawtooth reed over the piano's chords with the bass hand still to come
+on section 1's tick 495 — `secframe` reads 200 here. Raw `sidshadow` at the two
+stops, `mem get sidshadow 25` on a machine parked at `seqtick`:
+
+```
+                         voice 1 (+0..+6)  voice 2 (+7..+13)  voice 3 (+14..+20)  filter (+21..+24)
+frame   40  (section 0)  31 21 0 11 65 10 2   0 0 0 8 64 10 2   0 0 0 0 16 0 0      0 0 0 15
+frame 2600  (section 1)  163 37 0 0 33 24 162 196 16 0 8 65 8 2 0 0 0 8 64 9 2      0 0 0 15
+```
+
+The pitches are the scored ones — the hymn's opening E4 alone, the
 Marseillaise's held D5, the finale's melody an octave up — and the three
 effects the prompt names are all present in the register bytes: the battle's
 band-passed sawtooth, the cannon's gated noise under a low-pass whose cutoff

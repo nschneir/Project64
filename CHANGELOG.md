@@ -8,6 +8,44 @@ commit).
 
 ## [Unreleased]
 
+A landing pass (2026-08-14) closed seventeen `docs/todo.md` items in one
+change. The toolchain half: `c64 sprite png` now renders with the emulator's
+own palette — the same `mon.palette()` `c64 screen --png` uses — keeping the
+hardcoded Pepto table only as the session-less fallback, with a live test
+that renders one sprite through both writers and fails if they diverge;
+`c64 audio capture --at-frame` accepts a symbol anywhere it accepted a number,
+resolved against the session's label file like every other address argument;
+an audio `report.md` now names the reference score it diffed against with its
+per-voice entry and frame counts, or says "no reference score supplied"
+outright, so a committed report can no longer be mistaken for a check that
+ran; and the piano roll rules every semitone row, so a bar between two
+thinned labels can be named by counting lines. The reference half: the
+"toolset's screen reader assumes `$0400`" claim in two skill files was
+measured false and corrected (reads follow `$DD00`/`$D018`; colour RAM is
+what never moves), the badline row-latch rule that decides every redraw
+deadline is now stated in `hardware.md` and scoped into the cookbook's budget
+recipe, and the cookbook gained two live-tested recipes it had long promised
+— smooth horizontal scrolling and a frame-driven three-voice SID player.
+`c64 test run`'s arm-before-run guarantee (a spec's first `until` is the
+program's first arrival) is documented against the measured CLI
+counter-example, the two encode twins now name each other's hires background,
+the evidence-helper snippet names the `#!/bin/sh` it assumes, and the
+WAV/log bracket figure is marked host-dependent with a second measurement.
+Demo maintenance: `demos/1812`'s audit register table was re-taken on the
+machine, its wrap-prone voice-1 witness replaced, and its evidence protocol
+now prints all seven determinism bytes and the section-3 cannon count from
+collision-free temp files; `demos/la-galaxia`'s fighter-movement flake is
+staged free before it samples (5/5 green, and still red under a sabotaged
+`keydecode`); `demos/invaders`' one-raster sprite offset was re-judged by eye
+and kept, with the judgement recorded at the constants. Shipping a demo is
+now a checklist in `demos/README.md` rather than a red suite, and a new
+`needs_c1541` test pins every shipped `.d64`'s autostart file to the
+committed `.prg` beside it. Measured along the way and recorded in the
+graphics policy: `until`-anchored evidence PNGs churn bytes across runs just
+as `call`-staged ones do (the raster phase at a label is not fixed), so the
+frame-top capture primitive's reopen condition is met and the remaining open
+items — with the judgement each survived on — are in `docs/todo.md`.
+
 The demos are playable in a browser. `play.html` embeds vc64web — a
 WebAssembly port of VirtualC64 — loaded at runtime from a maintainer-owned
 fork, with ▶ PLAY links from the landing page and both READMEs. It boots five

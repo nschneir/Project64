@@ -124,14 +124,19 @@ Two channels, used for different things:
   case: its ball measures 96 × 72 raster pixels and
   `96 × 0.7435 / 72 = 0.991`, which is the claim, while every committed frame
   of it looks like an ellipse.
-- **`c64 sprite png` and `c64 screen --png` do not agree on the palette.**
-  The first renders from a hardcoded table (`src/c64lib/sprites.py`'s
-  `C64_PALETTE`, Pepto lineage); the second asks the emulator over the binary
-  monitor (`src/c64lib/screen.py`, `mon.palette()`) and renders with whatever
-  palette VICE is configured with. Measured on one demo's two committed
-  artifacts of the same sprite: red is `(104, 55, 43)` from `sprite png` and
-  `(174, 71, 93)` from `screen --png`. Compare shapes between them, not
-  colours, until `docs/todo.md`'s item on this lands.
+- **`c64 sprite png` and `c64 screen --png` agree on the palette.** Both ask
+  the emulator over the binary monitor for it (`mon.palette()`) and render
+  with whatever palette VICE is actually configured with, so one colour
+  number is one RGB in both: compare colours between the two, not only
+  shapes. They did not always. `c64 sprite png` rendered from a hardcoded
+  table (`src/c64lib/sprites.py`'s `C64_PALETTE`, Pepto lineage) and put red
+  at `(104, 55, 43)` where `screen --png` put it at `(174, 71, 93)` — a dark
+  brick against a rose, measured on two committed artifacts of the same
+  sprite. `C64_PALETTE` is now only the fallback for the paths that have no
+  emulator to ask (`c64 sprite from-png`'s quantizer), and
+  `tests/test_integration_vice.py::test_sprite_png_and_screen_png_agree_on_every_color`
+  renders one sprite through both writers on a live machine and fails if
+  they diverge.
 
 ## 4. Testing policy
 
@@ -226,7 +231,7 @@ regenerates all of it in one command, and it should follow these five:
 
 | Rule | Why |
 |---|---|
-| One `run`, then `until <anchor> --count N` before every capture | At warp a screenshot of a running machine is a race. `until` parks it on an exact frame, and inspection never advances it — so the same script produces the same frames every time. |
+| One `run`, then `until <anchor> --count N` before every capture | At warp a screenshot of a running machine is a race. `until` parks it on an exact frame, and inspection never advances it — so the same script produces the same machine state every time. The PNG's *bytes* are weaker than that: see the churn note after this table. |
 | Never `wait --mem/--text` straight after an `until` | A wait polls and **does not resume**. After `until`/`step`/`finish`/`wait --break` the machine is stopped, so the wait can only time out. Use another `until`, or `c64 continue` first. |
 | Stage unreachable states by poking the program's own state bytes | Cheaper and far more repeatable than playing to them — and they are the same bytes the YAML spec asserts on, so the evidence and the regression test agree by construction. |
 | Use `c64 call` only as the final action before a capture, then `run` again | The call's fake return address replaces the program's control flow; that run is over. A following `until` will time out on a label nothing executes any more, and it looks exactly like a wedged machine. The cost is the note below: this is the one capture the first rule cannot anchor. |
@@ -234,7 +239,12 @@ regenerates all of it in one command, and it should follow these five:
 | Step **one more tick** immediately before every capture | `c64 screen --png` returns the emulator's rolling scanline buffer, not a re-render of video RAM: lines the beam has swept show the current partial frame and lines below it show the **previous** one — arbitrarily stale after a warped or free-running phase. One extra `until <anchor> --count 1` flushes them. `demos/la-galaxia/tools/evidence.sh` learned this by shipping a capture with boot-screen light blue under the program's own border, and `demos/amiga_ball` needed it again; build it into the `shot()` helper so it cannot be forgotten. |
 
 The two helpers are worth stealing verbatim — one line each, and every
-capture in the file reads as a single verb:
+capture in the file reads as a single verb. They assume the `#!/bin/sh`
+every committed evidence script uses: the unquoted `$S` relies on word
+splitting, which **zsh does not perform** on parameter expansions, so pasted
+into a zsh prompt the session flag arrives as one token and the lookup fails
+with a puzzling `no session named ' mmev'`. Put them in a `sh` script, not
+in your shell.
 
 ```sh
 C=".venv/bin/c64"; S="-s mmev"
@@ -253,23 +263,28 @@ $C call newboard $S >/dev/null     # ... and nothing after this but the shot
 shot maze4
 ```
 
-**A `call`-staged capture is reproducible in the bitmap, not in the PNG.** The
-first rule's promise — "the same script produces the same frames every time" —
-holds for an `until`-anchored capture and does not hold for this one. `c64 call`
-ends at its trap wherever the raster happened to be, and `c64 screen --png`
-returns the emulator's rendered display rather than a re-render of video RAM, so
-a shot taken straight after a call is torn: the top of the image belongs to the
-frame being drawn and the bottom to the one before it. Measured 2026-08-12 on
-`demos/1812`'s three rotation captures — three replays of the same staging
-(same session flags, same seven `mem write`s) produced a **byte-identical
-bitmap** (`lit=6105`, checksum `1c454f03`, the same four vertices) and **three
-different PNGs**, differing only in one horizontal band at the raster split.
-Nothing in the script fixes it: the rule above is why an `until` cannot follow a
-call, and neither front end has a raster-anchored or frame-boundary stop (§6).
-So expect a `call`-staged PNG to churn on every regeneration, and read that
-churn against the rule that committed evidence PNGs are reviewed by eye rather
-than compared programmatically. State the shot's meaning in bytes beside it —
-the litcount and checksum above are what actually carried the claim.
+**Every capture is reproducible in the machine state, and no capture is
+reproducible in the PNG's bytes.** This note used to scope the churn to
+`call`-staged shots and promise that an `until`-anchored capture's PNG came
+back byte-identical; the second half was false, and was measured false on
+2026-08-14. `c64 screen --png` returns the emulator's rendered display rather
+than a re-render of video RAM, so every shot carries a seam where the beam
+was — and the raster phase at a given program label is **not** fixed across
+runs (it depends on where the load and RUN landed), so the seam moves.
+Measured both ways on `demos/1812`: three replays of the `call`-staged
+rotation shots (2026-08-12, same session flags, same seven `mem write`s) gave
+a **byte-identical bitmap** (`lit=6105`, checksum `1c454f03`, the same four
+vertices) and three different PNGs; and three fresh sessions each running
+`run` → `until shapedone --count 1` → `screen --png` (2026-08-14) gave
+byte-identical state and litcount/checksum and **three different PNGs**,
+differing only in a band at y≈454-458. The difference between the two capture
+classes is degree, not kind: an `until`-anchored shot's seam sits in a
+narrow band, a `call`-staged one's sits wherever the trap fired. Neither
+front end has a raster-anchored or frame-boundary stop (§6). So expect any
+committed evidence PNG to churn bytes on regeneration while its meaning holds,
+read that churn against the rule that evidence PNGs are reviewed by eye rather
+than compared programmatically, and state the shot's meaning in bytes beside
+it — the litcount and checksum above are what actually carried the claim.
 
 ## 6. Deferred tooling
 
@@ -297,9 +312,12 @@ the litcount and checksum above are what actually carried the claim.
   `ops.py` surfaced by both front ends (`c64 until --raster N` /
   `c64_until(raster=N)`, or `c64 screen --png --at-frame-top`), which is a
   CLI/MCP addition with a spec of its own, not an edit to an evidence script.
-  It is not built because the cost so far is three committed PNGs whose bytes
-  move while their meaning does not, in a demo whose actual proof for those
-  three shots is the litcount and checksum printed beside them. Reopen when a
-  demo needs a `call`-staged capture to be *compared* rather than reviewed, or
-  when a second demo hits the same churn — one instance is an inconvenience,
-  two is a missing primitive. Tracked in `docs/todo.md`.
+  The reopen condition this deferral originally set — "one instance is an
+  inconvenience, two is a missing primitive" — **has been met** (2026-08-14):
+  the churn is not confined to `call`-staged shots, `until`-anchored PNGs in
+  the same demo churn by the same mechanism (§5's note has both
+  measurements), so every committed evidence PNG in the tree is a moving
+  byte pattern with a fixed meaning. The primitive is unchanged from the
+  original sketch — `c64 until --raster N` / `c64_until(raster=N)`, or
+  `c64 screen --png --at-frame-top` — and is now queued work rather than a
+  watch item. Tracked in `docs/todo.md`.

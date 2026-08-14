@@ -170,8 +170,9 @@ steps:
   # The other end of the arc from the hymn's solo piano, and the last frame of
   # the battle: `secchange` is the label at the TOP of nextsec, before
   # `inc section` (music.s:216-218), so section 2's state is still the state
-  # here — including `noteidx`, which nextsec zeroes four lines further down
-  # (music.s:222).
+  # here — including the three `vnote` bytes, which the `loadstreams` call at
+  # the end of nextsec (music.s:230) zeroes for all three voices
+  # (music.s:172-179).
   #
   # THE BAR EACH READ HAS TO CLEAR is that it FAILS IF A BATTLE VOICE GOES
   # SILENT — if any of s2v1/s2v2/s2v3 became a rest-only stream.  Three reads
@@ -184,17 +185,25 @@ steps:
   # (music.s:268-281) and two of these three voices are in that gap right now.
   #
   # So each voice gets the witness that is exact FOR IT:
-  # - v1: `noteidx` counts voice 1's PITCHED events only — vtrest branches
-  #   away before the `inc` (music.s:313-320) — and nextsec zeroed it at the
-  #   3900 boundary, so a non-zero value here is voice 1 sounding in THIS
-  #   section.  A rest-only s2v1 leaves it at 0.  The CONVERSE does not
-  #   hold, and saying so is the point: `noteidx` is one byte (vars.s:20)
-  #   and `inc` wraps at 256, so a voice-1 stream whose section-2 event
-  #   count were an exact multiple of 256 would read 0 here and fail this
-  #   step while sounding.  s2v1 fires 300 of them (2100 frames at 7 real
-  #   ticks an event) and so reads 44, which means it is the margin and not
-  #   the logic that keeps this green — the same latent false failure that
-  #   the `differs` witness below had to be checked by hand against.
+  # - v1: s2v1 is thirty-two pitched events and NO rests (music.s:693-701),
+  #   so — exactly as v3 below — its `vnote` holds a pitch, 1..72
+  #   (music.s:19-20), at every frame of the section.  `vnote` is not a
+  #   counter but the note byte voicetick stored at its last fetch
+  #   (music.s:301), written on EVERY fetch including rests, and a rest
+  #   stores 0 (REST = 0, music.s:42) while a cannon stores $FD — both
+  #   outside the range.  A rest-only s2v1 therefore reads 0 here and fails
+  #   this step, which is the bar.  And it is section 2's own note: the
+  #   `loadstreams` at the 3900 boundary zeroed all three `vnote` bytes
+  #   (music.s:172-179), so a value in range can only have been written by a
+  #   section-2 fetch.
+  #   THIS READ REPLACES `noteidx above 0`, which passed on margin and not on
+  #   logic.  `noteidx` counts voice 1's pitched events, it is one byte
+  #   (vars.s:20) and `inc` wraps at 256, so a voice-1 stream whose section-2
+  #   event count were an exact multiple of 256 would have read 0 here and
+  #   failed the step WHILE SOUNDING; s2v1 fires 300 of them (2100 frames at 7
+  #   real ticks an event) and read 44, which is a margin any lengthening of
+  #   the stream walks toward.  A note byte cannot wrap, so no length of
+  #   stream can walk this read into that false failure.
   # - v2: its stream rests every other event by design, so it is read across
   #   the section instead: `differs` against the byte sampled at 3900 says it
   #   gated a note of a different pitch somewhere inside the battle.  A
@@ -204,7 +213,8 @@ steps:
   #   so its `vnote` is a pitch — 1..72 (music.s:19-20) — at every frame of
   #   the section.  A rest stores 0 there (REST = 0, music.s:42) and a cannon
   #   $FD, so both fall outside the range.
-  - assert: { mem: noteidx, above: 0 }                # v1, the running figures
+  - assert: { mem: vnote, between: { min: 1, max: 72 } }       # v1, the running
+                                                      # chromatic figures
   - assert: { mem: "sidshadow+8", differs: v2f }      # v2, the off-beat stabs
   - assert: { mem: "vnote+2", between: { min: 1, max: 72 } }   # v3, the octave
                                                       # bass — the voice the

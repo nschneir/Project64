@@ -6,8 +6,8 @@ your agent and watch it write, run, and debug real Commodore 64 software on
 the emulated machine.
 
 **The catalogue lives in the [main README](../README.md#demos--try-it-with-your-ai-agent)**
-— full descriptions, screenshots, and ▶ Play links for the five that are
-built. This page is the map of the directory itself.
+— full descriptions, screenshots, and ▶ Play links for the built ones.
+This page is the map of the directory itself.
 
 ## Test demos
 
@@ -56,3 +56,37 @@ Every demo outside that tier keeps everything: sources, plan, `AUDIT.md`,
 `evidence/`, and the artefact the prompt asked for, so `invaders.d64`,
 `snake.d64`, `ms-muncher.d64`, `la-galaxia.d64`, `1812.d64`, `amiga_ball.d64`
 and `fugue.d64` all run in stock VICE without a checkout of this toolset.
+
+## Shipping a new demo
+
+A demo prompt's "Ship it" section tells its author to `c64 package` the demo
+and write a `README.md`. **Committing the `.prg` that step produces obliges
+more than the prompt says**, and every obligation below is enforced by a test
+in `tests/test_docs_demos.py` — this list exists so the author meets it as a
+checklist rather than as a red suite, one failure at a time (the demo that
+prompted it tripped all five):
+
+1. **A `play.html` `DEMOS` entry.** The roster test counts every demo
+   directory with a committed `.prg`; a new one must appear on the play page
+   in the roster's order
+   (`test_play_page_registry_is_the_runnable_demos_in_the_roster_order`).
+2. **A second, hand-written entry in `play.html`'s `<noscript>` fallback** —
+   one `.prg` and one `.d64` link per demo
+   (`test_every_demo_file_play_html_serves_exists_and_is_tracked`, which also
+   requires every served file to be git-tracked).
+3. **A description byte-identical to `index.html`'s** for the same demo
+   (`test_play_page_describes_each_game_the_way_the_landing_page_does`), and
+   a row in the main `README.md`'s catalogue — the three markdown surfaces
+   share one roster (`test_demo_roster_matches_across_readme_site_and_demos_readme`).
+4. **Tile art under the demo's own `evidence/`** — the play entry's `image:`
+   must name a committed file.
+5. **If the demo captures audio:** the scored/silent split is counted and
+   phrased by `test_exactly_one_captured_audio_score_lists_no_sounding_note`
+   and `test_the_sites_the_failure_message_names_still_say_it` — read both
+   docstrings before committing `evidence/audio/`.
+
+Also standing, for every demo with a `test.yaml` naming an `.s` source and a
+committed `.prg`: the binary must be byte-identical to a rebuild of the
+committed sources (`test_demo_prg_is_a_build_of_the_committed_sources`), so
+rebuild and re-run the demo's spec after any source edit, however cosmetic
+it looks.
