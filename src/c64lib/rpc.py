@@ -2,8 +2,9 @@
 
 One JSON object per line in each direction. Values JSON can't carry are
 tagged: bytes -> {"__bytes__": base64}; Checkpoint / StopInfo -> tagged
-field dicts. Exceptions cross as {"err": TypeName, "msg": str} and
-re-raise client-side via raise_remote()."""
+field dicts. Exceptions cross as {"err": TypeName, "msg": str} — plus an
+optional {"code": ...} for the one failure a client must be able to
+recognize structurally — and re-raise client-side via raise_remote()."""
 
 from __future__ import annotations
 
@@ -15,6 +16,45 @@ from .monitor import MonitorError, StopInfo
 from .protocol import Checkpoint
 
 PROTOCOL_VERSION = 1
+
+#: The `code` an error line carries when the daemon has no such method. The
+#: one machine-readable failure on this wire, because it is the one a client
+#: must be able to tell from every other failure of the same call.
+UNKNOWN_METHOD = "unknown_method"
+
+
+class UnknownDaemonMethod(ValueError):
+    """The daemon does not implement the method that was called.
+
+    The old-daemon handshake: a client that grew a daemon-side loop
+    (`run_until`, `profile_samples`, `sid_log`, `sid_log_at`) calls it first
+    and falls back to its own loop on this — so it is the ONE remote failure
+    a fallback may catch. It has its own type because falling back re-runs
+    the work: a genuine ValueError from a method the daemon *does* have (an
+    out-of-range scheduled write) used to be indistinguishable from this and
+    bought a second helping of side effects on top of a refused first one.
+
+    A ValueError subclass on purpose, and not only for compatibility with
+    callers that have not adopted the type: an unknown method IS a bad
+    argument to the dispatcher, which is what `daemon._dispatch` raises it
+    as.
+    """
+
+
+def error_payload(exc: BaseException) -> dict:
+    """The wire form of a daemon-side exception: `err`, `msg`, and `code`
+    where there is one.
+
+    `err` stays `"ValueError"` for `UnknownDaemonMethod` — true of the type,
+    and it is what an unknown method has always crossed as. A client too old
+    to read `code` therefore behaves exactly as it does today (the message
+    match below is its whole discrimination) instead of falling into
+    `raise_remote`'s RuntimeError catch-all, which would break the very
+    fallback this code exists to make reliable.
+    """
+    if isinstance(exc, UnknownDaemonMethod):
+        return {"err": "ValueError", "code": UNKNOWN_METHOD, "msg": str(exc)}
+    return {"err": type(exc).__name__, "msg": str(exc)}
 
 _CHECKPOINT_FIELDS = ("number", "hit", "start", "end", "stop", "enabled",
                       "op", "temporary", "hit_count", "ignore_count",
@@ -61,8 +101,17 @@ def send_line(f, obj: dict) -> None:
     f.flush()
 
 
-def raise_remote(name: str, msg: str):
+def raise_remote(name: str, msg: str, code: str | None = None):
     """Re-raise a daemon-side exception as the closest local type."""
+    if code == UNKNOWN_METHOD or (
+            # The pre-`code` spelling, and the reason this string match is
+            # here rather than at a caller: the fallback exists FOR daemons
+            # older than the code, so their bare ValueError has to arrive as
+            # the typed error too. One place matches it — every caller sees
+            # the type. Retire this arm only once no daemon in the wild
+            # predates `code`.
+            name == "ValueError" and msg.startswith("unknown daemon method")):
+        raise UnknownDaemonMethod(msg)
     if name == "TimeoutError":
         raise TimeoutError(msg)
     if name == "ConnectionError":

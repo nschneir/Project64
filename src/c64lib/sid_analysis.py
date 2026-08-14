@@ -137,6 +137,13 @@ RMS_WINDOW_S = 0.1
 SILENCE_DB = -60.0
 #: Silence shorter than this is a musical gap, not a dropout.
 MIN_SILENCE_S = 0.25
+#: How far the decoded samples may fall short of what the RIFF header claims
+#: before `wav_metrics` calls the file truncated. One RMS window, because that
+#: is the resolution silence is measured at: a shortfall under it cannot move a
+#: window boundary, and the partial frame `_read_wav` drops is orders of
+#: magnitude smaller again. Nothing the verdict computes rests on this
+#: tolerance — `duration_s` is the DECODED length whether or not the flag fires.
+TRUNCATION_TOLERANCE_S = RMS_WINDOW_S
 #: Digital silence is -inf dBFS; floored so the profile stays JSON-serializable
 #: (an MCP tool returns this dict, and `Infinity` is not valid JSON).
 MIN_DB = -120.0
@@ -630,12 +637,29 @@ def render_piano_roll(events: Sequence[NoteEvent], png_path: str | Path, fps: fl
 def wav_metrics(wav_path: str | Path) -> dict:
     """Level metrics for a captured WAV: clipping, silence, and an RMS profile.
 
-    Returns ``duration_s``, ``clipped_samples`` (samples at or above
-    ``CLIP_THRESHOLD`` of the FORMAT's positive full scale — see that
-    constant — counted across every channel before the mixdown, because
-    clipping is a per-channel event), ``silence_windows``
-    (``(start_s, end_s)`` pairs) and ``rms_db_profile`` (dBFS per
-    ``RMS_WINDOW_S``).
+    Returns ``duration_s``, ``header_duration_s``, ``truncated``,
+    ``clipped_samples`` (samples at or above ``CLIP_THRESHOLD`` of the FORMAT's
+    positive full scale — see that constant — counted across every channel
+    before the mixdown, because clipping is a per-channel event),
+    ``silence_windows`` (``(start_s, end_s)`` pairs) and ``rms_db_profile``
+    (dBFS per ``RMS_WINDOW_S``).
+
+    **``duration_s`` is the length of the samples this decoded, not the length
+    the RIFF header claims**, and every other number here covers exactly that
+    span. The two are the same for a finished recording and differ for one
+    whose header outruns its data — which is not a corner case: VICE leaves
+    both size fields at the placeholder ``llll`` until the recorder's close is
+    serviced, `audio._await_finalized` waits that out on the capture path, and
+    the re-score paths (`c64 audio report --wav`, MCP `c64_sid_report`) read
+    whatever is on disk. Measuring coverage against the claim while measuring
+    silence against the samples is what let 1 s of dead audio under a 30 s
+    header clear ``ALL_SILENT_COVERAGE`` and report PASS.
+
+    The claim is kept rather than discarded: ``header_duration_s`` is what the
+    header says, and ``truncated`` is true when it exceeds the decoded length
+    by more than ``TRUNCATION_TOLERANCE_S``. That disagreement is a finding in
+    its own right — the artifact set is a partial recording of a run — so
+    :func:`write_report` fails on it and names both figures.
 
     Silence is found on the RMS profile rather than on a separate sweep, so its
     resolution is the profile's: a run must cover enough whole windows to reach
@@ -648,8 +672,12 @@ def wav_metrics(wav_path: str | Path) -> dict:
     window = max(1, round(RMS_WINDOW_S * audio.rate))
     profile = [_rms_db(audio.mono[start:start + window])
                for start in range(0, len(audio.mono), window)]
+    decoded_s = len(audio.mono) / audio.rate
+    header_s = audio.frames / audio.rate
     return {
-        "duration_s": audio.frames / audio.rate,
+        "duration_s": decoded_s,
+        "header_duration_s": header_s,
+        "truncated": header_s - decoded_s > TRUNCATION_TOLERANCE_S,
         "clipped_samples": clipped,
         "silence_windows": _silence_windows(profile, window, len(audio.mono), audio.rate),
         "rms_db_profile": profile,
@@ -761,7 +789,8 @@ def write_report(
     """Write ``report.md`` into ``outdir`` and return its path.
 
     The verdict is PASS only when there are no score diffs, no anomalies, and —
-    when a WAV was measured — no clipping and no unexpected silence. ``metrics``
+    when a WAV was measured — the recording is whole (see ``truncated`` in
+    :func:`wav_metrics`), unclipped, and not unexpectedly silent. ``metrics``
     of ``None`` is a render-only run (no audio captured), which is a legitimate
     outcome and not a failure; likewise an empty ``diffs`` list, which is what a
     run with no reference score produces.
@@ -1116,6 +1145,11 @@ class _Audio(NamedTuple):
     ``positive_full_scale`` is the largest value this format can actually
     encode — 127/128 at 8 bits, 32767/32768 at 16 — which is what clipping is
     measured against. See ``CLIP_THRESHOLD``.
+
+    ``frames`` is the frame count the RIFF header CLAIMS, which is not always
+    the number of frames that were read: ``len(mono)`` is the decoded length,
+    and `wav_metrics` reports both. See its docstring for why the header is
+    not trusted for the length.
     """
 
     samples: np.ndarray
@@ -1138,6 +1172,13 @@ def _read_wav(path: str | Path) -> _Audio:
                          f"(need {supported}-bit PCM)")
     if rate <= 0:
         raise ValueError(f"{path}: sample rate is {rate}, expected a positive rate")
+    # `readframes` returns what is THERE, which for a file whose header outruns
+    # its data is short and can end inside a frame — mid-sample even. Neither
+    # `frombuffer` (a buffer that is not a whole number of samples) nor the
+    # stereo reshape below accepts a partial frame, so both would come out of a
+    # re-score as a traceback; the partial frame is dropped and `wav_metrics`
+    # reports the shortfall against the header instead.
+    raw = raw[:len(raw) // (width * channels) * (width * channels)]
     samples = np.frombuffer(raw, dtype=dtype).astype(np.float64)
     # 8-bit WAV is unsigned with a 128 midpoint; every wider format is signed.
     # Either way the divisor is the NEGATIVE rail, so the code for silence maps
@@ -1318,10 +1359,20 @@ def _metrics_section(metrics: Mapping | None) -> list[str]:
     rms = (f"{min(profile):.1f} / {statistics.median(profile):.1f} / {max(profile):.1f} dBFS "
            f"over {_count(len(profile), 'window')} of {RMS_WINDOW_S:g} s"
            if profile else "no samples")
-    return lines + [
+    duration = float(metrics.get("duration_s") or 0.0)
+    lines += [
         "| Metric | Value |",
         "|---|---|",
-        f"| Duration | {float(metrics.get('duration_s') or 0.0):.2f} s |",
+        f"| Duration | {duration:.2f} s |",
+    ]
+    # Only when the two disagree. A finished capture's header says exactly what
+    # its samples do, and a row repeating the duration on every report would
+    # train a reader to skip the one place this row means something.
+    if metrics.get("truncated"):
+        claimed = float(metrics.get("header_duration_s") or 0.0)
+        lines.append(f"| Header duration | {claimed:.2f} s — "
+                     f"{claimed - duration:.2f} s of it is not in the file |")
+    return lines + [
         f"| Clipped samples | {int(metrics.get('clipped_samples') or 0)} |",
         f"| Silence windows | {silence} |",
         f"| RMS min / median / max | {rms} |",
@@ -1342,12 +1393,40 @@ def _all_silent(metrics: Mapping) -> bool:
 
     ``ALL_SILENT_COVERAGE`` of its duration under ``SILENCE_DB`` — or no
     duration to cover, which is the WAV with a header and no frames.
+
+    ``duration_s`` being the DECODED length is what makes the coverage
+    fraction mean anything: measured against a header's claim, a file holding
+    a second of silence out of the thirty it advertises covers 3% and passes
+    for audible. See :func:`wav_metrics`.
     """
     duration = float(metrics.get("duration_s") or 0.0)
     if duration <= 0.0:
         return True
     silent = sum(end - start for start, end in metrics.get("silence_windows") or [])
     return silent >= duration * ALL_SILENT_COVERAGE
+
+
+def _truncation_failure(metrics: Mapping) -> str | None:
+    """Why a recording's header outrunning its samples fails the verdict.
+
+    Unconditional — unlike the silence failures below, this one does not wait
+    for the log to claim something sounded. What is wrong is the ARTIFACT: the
+    file holds part of a run, so every metric beside it, the spectrogram and
+    the score diff all describe a fragment, and a PASS over that says the run
+    was verified when only its beginning was. `wav_metrics` measures whatever
+    landed rather than refusing — a partial recording is still evidence — but
+    it is evidence about a partial recording.
+    """
+    if not metrics.get("truncated"):
+        return None
+    return (f"the recording is truncated: its header claims "
+            f"{float(metrics.get('header_duration_s') or 0.0):.2f} s but only "
+            f"{float(metrics.get('duration_s') or 0.0):.2f} s of samples are in the "
+            f"file — VICE patches the header when the recorder's close is serviced, "
+            f"so this WAV was either measured before the capture was finalized or "
+            f"lost its tail; every level metric in this report covers only the part "
+            f"that landed, so re-capture, or re-score once the file has settled, "
+            f"before reading them as a result")
 
 
 def _silence_failure(events: Sequence[NoteEvent], metrics: Mapping) -> str | None:
@@ -1413,6 +1492,11 @@ def _verdict_failures(
     if anomalies:
         failures.append(f"{_count(len(anomalies), 'anomaly', 'anomalies')} in the register log")
     if metrics is not None:
+        # First of the recording's reasons: it is the one that says the others
+        # only cover part of the run.
+        truncated = _truncation_failure(metrics)
+        if truncated is not None:
+            failures.append(truncated)
         clipped = int(metrics.get("clipped_samples") or 0)
         if clipped:
             failures.append(f"{_count(clipped, 'clipped sample')} in the recording")

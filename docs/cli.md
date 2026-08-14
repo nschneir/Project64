@@ -140,7 +140,11 @@ and ask for a session restart). `C64_TOOLS_NO_DAEMON=1` disables it.
 
 Attach to a running session, or start one if none exists. Idempotent:
 exits 0 either way and reports which happened — the safe bootstrap for
-scripts and the recovery step after a dead daemon.
+scripts and the recovery step after a dead daemon. A session record the
+registry cannot parse is an error here rather than a reason to start
+something: the name asked for may belong to that record. The message names
+the file; `c64 session stop --all` discards it and reports what it
+discarded.
 
 - `--model MODEL` — model to boot if starting (default `c64`).
 - `--name/-s NAME` — session name to look for / start.
@@ -947,10 +951,16 @@ Two consequences worth knowing before you reach for it:
   costs nothing and keeps the file the size of the program.
 - **Areas must be contiguous and above the load address.** A gap between two
   areas would shift everything above it, so it is rejected with the size to
-  raise; so are an area at or below the load address, a zero size, an
-  overlap, and a name that would redefine one of the config's own
-  (`ZP`, `HEADER`, `MAIN`, `ZEROPAGE`, `LOADADDR`, `EXEHDR`, `CODE`,
-  `RODATA`, `DATA`, `BSS`).
+  raise; so are an area at or below the load address, a zero or negative
+  size, an overlap, an area that starts or ends outside `$0000-$FFFF`, a
+  repeated name, a name that is not a linker identifier (letters, digits
+  and underscores, starting with a letter or underscore), and a name that
+  would redefine one of the config's own (`ZP`, `HEADER`, `MAIN`,
+  `ZEROPAGE`, `LOADADDR`, `EXEHDR`, `CODE`, `RODATA`, `DATA`, `BSS`). Each
+  rejection quotes the `--area` token it came from — ld65 would report
+  several of these against a line of a generated config in a temporary
+  directory that no longer exists, and accepts the out-of-range ones
+  outright (`--area 'HIGH=$12000:$100'` links a 71,679-byte `.prg`).
 
 Each area is declared `define = yes`, so `__NAME_LOAD__` and `__NAME_SIZE__`
 exist for a link-time `.assert` — the ceiling check is worth writing, because
@@ -1165,8 +1175,13 @@ mapped at power-on — so `c64 run game.crt` stops the current session and boots
 a fresh one of the same name and model with the cartridge attached (with no
 session running it boots a `c64` — and so does a `--session NAME` that matches
 nothing, which is the one verb where an unknown name is not an error; check
-`c64 session list` if a boot lands somewhere unexpected). A `.lbl` beside the
-`.crt` is registered on the new session, so symbols work straight away.
+`c64 session list` if a boot lands somewhere unexpected). The exception is a
+registry it cannot read: if any session record fails to parse, an unknown
+name is no longer *known* to be unknown, so the boot is refused with the
+record named rather than launching a second emulator beside a session that
+may still be running. Clear it with `c64 session stop --all`. A `.lbl`
+beside the `.crt` is registered on the new session, so symbols work
+straight away.
 
 Only the name and the model survive the relaunch — the **launch flags do
 not**. The CLI always reboots windowed and at normal speed, even if the
@@ -1214,7 +1229,15 @@ Copy a file off a disk image to the host.
 
 - `IMAGE` — the image file.
 - `NAME` — the CBM filename.
-- `DEST` (optional) — output path (defaults to `NAME.prg`).
+- `DEST` (optional) — output path, used exactly as given. Without it the
+  file lands in `NAME.prg` in the current directory, spelled the way you
+  typed NAME except that `/`, `\`, `*` and `?` each become `_`: a CBM name
+  may legally hold all four (only `":,=` and sub-$20 bytes are barred), and
+  none of them may steer a host path. So `c64 disk get game.d64 '*'` — the
+  wildcard that fetches a disk's first entry, i.e. its autostart program —
+  writes `_.prg` rather than failing with c1541's `cannot create output
+  file '*.prg'`, and an entry named `../../x` writes `.._.._x.prg` beside
+  you rather than two directories up.
 
 JSON: `{"image", "name", "dest"}`.
 
@@ -1623,7 +1646,11 @@ alongside `c64 sprite from-png` (image input) and the inverse of
   block's header comment (`; sprite 5 (captured), …`) and reported in
   errors and in `--json`; the emitted label stays positional (`sprite5:`).
   Names must be unique, and an unrecognized suffix is rejected by name:
-  `sprite sheet line 12: unknown mode 'mono' — use 'hires' or 'multicolor'`.
+  `sprite sheet line 12: unknown mode 'mono' — use 'hires' or 'multicolor',
+  or write the header as \`name: drone:mono\` if the colon is part of the
+  name`. That last clause is the escape hatch for a namespaced name: a bare
+  `hud:ship` header is read as a mode typo, while `name: hud:ship` names
+  the block `hud:ship`.
 - **`#` comments** — ignored, *except* that `#` is also a legend character,
   so a line counts as a comment only when it holds something the legend
   does not. An all-`#` line at exactly row width is a solid row of
@@ -1725,7 +1752,13 @@ twin of `c64 sprite encode`. Needs no session.
   a multicolor playfield charset and a hires HUD font live in one sheet and
   come out of one invocation, and the design picks the mode rather than the
   tool. A bare `name:` takes the file's mode. An unrecognized suffix is
-  rejected by name: `unknown mode 'mono' — use 'hires' or 'multicolor'`.
+  rejected by name: `unknown mode 'mono' — use 'hires' or 'multicolor', or
+  write the header as \`name: wall:mono\` if the colon is part of the
+  name`. A glyph name may itself hold a colon under that `name:` prefix —
+  `name: hud:score` is one block called `hud:score` — which is how a mode
+  typo stays an error while a namespaced name stays legal. A trailing
+  `:hires`/`:multicolor` still wins after the prefix, so a glyph cannot be
+  *called* `hud:hires`.
 - `--hires` — make hires (1 bit/pixel, 8 chars/row, `.#`) the *file's* mode
   instead of multicolor pairs. It is the default a bare `name:` header
   takes; a block that names its own mode overrides it.
@@ -1792,7 +1825,11 @@ above for the reference.
 Record the emulated SID to a WAV file. Give exactly one of:
 
 - `--start PATH` — arm VICE's WAV recorder on PATH (made absolute; a
-  relative path resolves against the current directory, never VICE's).
+  relative path resolves against the current directory, never VICE's). The
+  path travels as a length-prefixed UTF-8 string over VICE's binary monitor
+  — measured round-tripping byte-identically, so accents are fine — and 255
+  bytes is the wire's hard ceiling. A path it cannot carry is refused with
+  the path and the limit named, before anything is pinned.
 - `--stop` — disarm the recorder, finalizing the WAV, and unpin the speed.
 
 Recording holds the machine at real time — warp off, `Speed` 100 — for the
@@ -1870,11 +1907,13 @@ host-dependent (round-trip latency sets it), so there is no figure to
 assert — the useful signal is the size of the gap: that same 200-frame log
 measured ~22/s pinned against ~425/s warped on one idle host.
 
-The *warning* does not use the session's frame rate. Its threshold is fixed
-at 63/s — 60 fps, the fastest machine here, plus a 5% margin — so a PAL
-session sampling between 50 and 63/s goes unflagged even though it has
-already proved the machine outran 50 fps. Read `sample_rate_hz` against the
-machine's own rate yourself whenever the timeline matters.
+The *warning* uses the session's own frame rate: its threshold is that rate
+plus a 5% margin — 63/s on NTSC, 52.5/s on PAL — so any rate above it proves
+the machine outran real time. It was a fixed 63/s until 2026-08-14, which
+left a PAL session sampling between 50 and 63/s unflagged even though it had
+already proved the machine outran 50 fps. A rate *below* the threshold still
+proves nothing, which is what makes the check one-sided; pinning real time
+is what settles a timeline.
 
 JSON: `{"path", "frames", "requested", "seconds", "sample_rate_hz",
 "warning"}` — `frames` is what landed, `requested` what was asked for (they
@@ -2130,8 +2169,15 @@ JSON: `{"outdir", "report", "verdict", "failures", "log", "wav",
 `nothing_played` is true when no voice sounded and the recording (if there
 was one) agrees, `events` counts note events (rests included) against
 `notes` for the ones that sounded, and
-`metrics` is null without a WAV (it carries `duration_s`, `clipped_samples`,
-and `silence_windows`; the full RMS profile stays in the report).
+`metrics` is null without a WAV (it carries `duration_s`,
+`header_duration_s`, `truncated`, `clipped_samples`, and `silence_windows`;
+the full RMS profile stays in the report). `duration_s` is the length of the
+samples that decoded, **not** what the RIFF header claims —
+`header_duration_s` is the claim, and `truncated` is true when it outruns
+the samples by more than 0.1 s. That is a FAIL on its own: VICE patches both
+header size fields when the recorder's close is serviced, so a WAV re-scored
+before it settled describes only the part of the run that landed, and so
+does every metric beside it.
 
 ### `c64 audio score`
 

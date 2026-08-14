@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import click
+import yaml
 
 from . import __version__
 from .audio import (
@@ -257,6 +258,10 @@ INPUT_ERRORS: tuple[type[Exception], ...] = (
     ProtocolError,
     SessionError,
     TestError,
+    yaml.YAMLError,      # every YAML the CLI reads is user input — a spec, a
+                         #   score, a manifest — so a parse failure is a user
+                         #   error, not a defect; per-command handlers stay
+                         #   load-bearing for the actionable wording
 )
 
 
@@ -1659,12 +1664,14 @@ def disk_put(ctx, image, file, name):
                 type=click.Path(dir_okay=False, path_type=Path))
 @click.pass_context
 def disk_get(ctx, image, name, dest):
-    """Extract file NAME from IMAGE to DEST (defaults to NAME.prg).
+    """Extract file NAME from IMAGE to DEST (defaults to NAME.prg in the
+    current directory, with `/ \\ * ?` replaced by `_`).
 
     Offline; no session.
     """
     try:
-        out = get_file(image, name, dest)   # get_file defaults DEST to NAME.prg
+        out = get_file(image, name, dest)   # get_file defaults DEST to a
+                                            #   sanitized NAME.prg in the cwd
     except DiskError as e:
         fail(ctx, str(e))
         return
@@ -2500,13 +2507,15 @@ def audio_record(ctx, start_path, stop):
             out = pinned_record_stop(s)
             human = (f"stopped; {out['wav']} is {out['bytes']} bytes"
                      if out["wav"] else "stopped; no pinned recording was active")
-    except (RuntimeError, OSError, MonitorError, SessionError) as e:
+    except (RuntimeError, OSError, ValueError, MonitorError, SessionError) as e:
         # Wider than AudioError (which is a RuntimeError) on purpose: a
         # capture drives two monitors, and a MonitorError or the TimeoutError
         # a busy daemon raises is a report, not a traceback. SessionError is
         # in the list for the same reason and is NOT covered by RuntimeError
         # (it derives straight from Exception): every `session.monitor()` here
-        # can raise it from a failed daemon respawn.
+        # can raise it from a failed daemon respawn. ValueError is what a
+        # path the binary monitor cannot carry raises (over 255 bytes — see
+        # `protocol.RESOURCE_MAX_BYTES`), refused before anything is pinned.
         fail(ctx, f"audio record: {e}")
         return
     emit(ctx, out, human)
@@ -2537,19 +2546,20 @@ def audio_sidlog(ctx, frames, path):
     frame rate it proves the session was not at real time, below it proves
     nothing.
 
-    The WARNING's threshold is a fixed 63/s — 60 fps, the fastest machine
-    here, plus a 5% margin — not the session's own frame rate. On a PAL
-    session that leaves 50 to 63/s unflagged even though it already proves
-    the machine outran 50 fps, so apply the machine's own rate yourself when
-    the timeline matters.
+    The WARNING's threshold is this session's own frame rate plus a 5%
+    margin — 63/s on NTSC, 52.5/s on PAL — so a rate above it proves the
+    machine outran real time and a rate below it still proves nothing.
     """
     s = attach(ctx)
     try:
         out = sid_log_detail(s, frames, path)
-    except (RuntimeError, OSError, MonitorError, SessionError) as e:
+    except (RuntimeError, OSError, ValueError, MonitorError, SessionError) as e:
         # As wide as `audio record`, and for the same reason: a busy daemon's
         # TimeoutError — or the SessionError a failed respawn raises — is a
-        # report, not a traceback.
+        # report, not a traceback. ValueError is in the list because this
+        # command's own bounds check raises it (a frame count past
+        # MAX_SID_LOG_FRAMES), which is the one argument error a caller can
+        # make here and used to arrive as a traceback over empty --json.
         fail(ctx, f"audio sidlog: {e}")
         return
     human = f"wrote {out['frames']} frames to {out['path']}"
@@ -2727,10 +2737,19 @@ def audio_score(ctx, file):
     """
     # Imported here for the reason `audio report` imports its own: numpy and
     # Pillow come with the module and double the startup of every command.
+    # (yaml itself is top-level now — INPUT_ERRORS names yaml.YAMLError — and
+    # was already in every CLI process transitively via the testing module.)
     from .sid_analysis import score_summary
     try:
         out = score_summary(file)
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        # YAMLError is neither an OSError nor a ValueError, and a score that
+        # will not parse at all — a tab where YAML wants spaces — is the most
+        # ordinary way this command is used wrong. Without it here the one
+        # error this command exists to find escaped as a traceback over an
+        # empty `--json` stdout. `sid_analysis.score_summary` is the reader,
+        # so the translation belongs to its callers, exactly as
+        # `audio._check_reference` does it for the capture path.
         fail(ctx, f"audio score: {e}")
         return
     lines = []

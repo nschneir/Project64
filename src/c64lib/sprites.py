@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .basic_tokens import MAX_LINE_NUMBER
-from .charset import parse_block_header
+from .charset import is_block_header, parse_block_header
 
 #: Pepto palette (colodore lineage), index = C64 color number — the
 #: **fallback**, for the paths that have no emulator to ask. Anything holding
@@ -182,11 +182,14 @@ def parse_sprite_sheet(text: str, multicolor: bool = True,
     sprites. Rows are kept exactly as written (no stripping); with the
     default space background, trailing spaces are significant.
 
-    A header is `fighter:hires`, `drone:multicolor` or a bare `drone:`,
+    A header is `fighter:hires`, `drone:multicolor`, a bare `drone:` or the
+    explicit `name: hud:ship` (the form that lets a name hold a colon),
     spelled and parsed exactly as a charset sheet's (`charset.
-    parse_block_header` is the one parser). A bare header takes the file's
-    mode, so `--hires` still means what it meant; a named one sets its own,
-    so a game's hires ship and its multicolor aliens are one sheet.
+    is_block_header` and `charset.parse_block_header` are the one pair, so
+    the two commands cannot drift over what a colon means). A bare header
+    takes the file's mode, so `--hires` still means what it meant; a named
+    one sets its own, so a game's hires ship and its multicolor aliens are
+    one sheet.
 
     `#` starts a comment — but `#` is also a legend character, so a line
     counts as a comment only when it holds something the legend does not.
@@ -250,7 +253,8 @@ def parse_sprite_sheet(text: str, multicolor: bool = True,
             # width right makes the line a row again — the row branch above
             # runs first.
             continue
-        if ":" in stripped:
+        if is_block_header(stripped, (_row_width(block_mc), 24),
+                           legends[block_mc]):
             close()
             no_art_yet()
             name, block_mc = parse_block_header(

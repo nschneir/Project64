@@ -276,8 +276,49 @@ def advance_body(count: int, step_over: bool) -> bytes:
     return struct.pack("<BH", int(step_over), count)
 
 
+#: The longest a resource name or string value may be on this wire: both are
+#: length-prefixed with ONE byte. Probed against x64sc 3.10 on 2026-08-14 —
+#: 200, 254 and 255-byte values all set and read back byte-identical — so 255
+#: is the protocol's ceiling and not a guess about VICE's own storage.
+RESOURCE_MAX_BYTES = 255
+
+
+def _resource_bytes(what: str, text: str, encoding: str) -> bytes:
+    """One length-prefixed field's payload, or a ValueError a user can act on.
+
+    Both failures used to escape as encoder internals — `UnicodeEncodeError`
+    from `str.encode`, or `bytes([309])`'s bare "bytes must be in range" —
+    naming neither the resource nor the value, and reaching a caller that had
+    already taken its session off warp to arm a recorder.
+    """
+    try:
+        raw = text.encode(encoding)
+    except UnicodeEncodeError as e:
+        raise ValueError(
+            f"{what} {text!r} cannot be encoded as {encoding}: "
+            f"{e.reason} at position {e.start}") from e
+    if len(raw) > RESOURCE_MAX_BYTES:
+        raise ValueError(
+            f"{what} {text!r} is {len(raw)} bytes, over the "
+            f"{RESOURCE_MAX_BYTES} the binary monitor can carry: the field is "
+            f"length-prefixed with one byte. Use a shorter path or name")
+    return raw
+
+
+def check_resource_value(name: str, value: str | int) -> None:
+    """Raise what `resource_set_body` would raise, without sending anything.
+
+    For a caller that must find an unusable value BEFORE it pins state on the
+    outcome — `audio.pinned_record_start` takes the machine off warp and only
+    then arms the recorder on the path it was given. Deliberately the encoder
+    itself and not a second copy of the rule: nothing can pass here and fail
+    on the wire.
+    """
+    resource_set_body(name, value)
+
+
 def resource_get_body(name: str) -> bytes:
-    raw = name.encode("ascii")
+    raw = _resource_bytes("resource name", name, "ascii")
     return bytes([len(raw)]) + raw
 
 
@@ -296,12 +337,22 @@ def resource_set_body(name: str, value: str | int) -> bytes:
 
     An empty string travels as a single NUL: VICE rejects a zero-length value
     with INVALID_LENGTH, but reads the value as a C string, so one NUL clears
-    the resource (that is how `SoundRecordDeviceName` stops a recording)."""
-    raw = name.encode("ascii")
+    the resource (that is how `SoundRecordDeviceName` stops a recording).
+
+    String values travel as UTF-8, not ASCII. VICE 3.10 takes the value as
+    raw bytes and hands the same bytes back — probed 2026-08-14 on
+    `SoundRecordDeviceArg` with `/Users/josé/out/capture.wav` and
+    `/tmp/音/capture.wav`, both byte-identical through RESOURCE_SET /
+    RESOURCE_GET, and a recorder armed on the second created the file. So an
+    accented character in a capture path is a working capture; it used to be
+    a `UnicodeEncodeError` traceback from a session already off warp. The
+    name stays ASCII — every VICE resource name is."""
+    raw = _resource_bytes("resource name", name, "ascii")
     if isinstance(value, int):
         vtype, encoded = 1, value.to_bytes(4, "little", signed=value < 0)
     else:
-        vtype, encoded = 0, value.encode("ascii") or b"\x00"
+        vtype = 0
+        encoded = _resource_bytes(f"{name} value", value, "utf-8") or b"\x00"
     return bytes([vtype, len(raw)]) + raw + bytes([len(encoded)]) + encoded
 
 
@@ -309,5 +360,10 @@ def parse_resource(body: bytes) -> str | int:
     rtype, length = body[0], body[1]
     value = body[2 : 2 + length]
     if rtype == 0:
-        return value.decode("ascii")
+        # UTF-8, matching what `resource_set_body` sends; `replace` rather
+        # than a raise because this is a READBACK — a resource set outside
+        # this tree (a VICE command line, a vicerc) can hold any bytes, and
+        # losing `resource_get` to a decode error would take `_TextMonitor`'s
+        # `MonitorServer` probe with it.
+        return value.decode("utf-8", "replace")
     return int.from_bytes(value, "little")

@@ -400,6 +400,26 @@ def test_wait_pair_on_the_raster_is_flagged():
     assert "Pace a BASIC loop to the frame" in text
 
 
+def test_wait_pair_through_a_named_register_is_flagged():
+    """W160 resolved a WAIT's register through _literal_scalars while W150
+    resolved it through _literal alone, so the two warnings disagreed about
+    what a resolvable address is: the same `d=53265` that makes a SID loop
+    count as frame-synced left the double-WAIT invisible. Holding the
+    register in a variable is what the cookbook recipe itself does — a
+    literal address costs about 4.7 ms per statement — so this is the
+    spelling the rule most needs to see."""
+    src = "5 d=53265\n10 wait d,128 : wait d,128,128\n20 end\n"
+    assert _rule(src, "W150") == [(10, "warning", "W150")]
+
+
+def test_a_wait_pair_on_an_unresolvable_register_is_not_flagged():
+    """The resolver may not start guessing: a swept or twice-assigned name
+    has no provable value, and W150 stays quiet rather than warn about a
+    register it cannot name."""
+    src = "5 d=53265\n6 d=53266\n10 wait d,128 : wait d,128,128\n20 end\n"
+    assert _rule(src, "W150") == []
+
+
 def test_wait_pair_is_flagged_across_two_lines():
     """Adjacency is in statement order, not within a line: splitting the pair
     over two lines changes nothing about why it fails."""
@@ -508,6 +528,33 @@ def test_a_named_address_reaches_the_range_check():
     resolver, which is why the address is what this pins.)"""
     assert _rule("10 sc=70000\n20 poke sc,32\n30 end\n", "E150") == \
         [(20, "error", "E150")]
+
+
+def test_a_variable_rebound_without_an_equals_does_not_resolve():
+    """INPUT, READ and GET rebind a name with no `=` in sight, so the single
+    literal assignment the resolver saw is not the value the program holds —
+    and a READ-driven table is the idiom the resolver exists for. A hard
+    E150 on a value the program never necessarily holds fails the lint of a
+    correct program."""
+    for rebind in ("20 input n", "20 read n", "20 get n",
+                   "20 input#1,n", "20 print: input \"how many\";n"):
+        src = f"10 n=1000\n{rebind}\n30 poke 1024,n\n40 end\n"
+        assert _rule(src, "E150") == [], src
+
+
+def test_reading_an_array_element_also_drops_the_same_named_scalar():
+    """`read a(1)` fills the ARRAY a, which V2 keeps in a namespace of its
+    own, so the scalar `a` is untouched and could in principle still resolve.
+    The resolver drops it anyway rather than reason about subscripts — it
+    under-reports by design, and silence on `a` costs nothing while a wrong
+    E150 costs a correct program its exit code. Pinned so the choice is a
+    decision and not an accident."""
+    src = ("10 a=70000\n20 dim a(3)\n30 read a(1)\n40 poke a,0\n"
+           "50 data 1\n60 end\n")
+    assert _rule(src, "E150") == []
+    # …and DIM alone, which binds nothing, does not drop it.
+    assert _rule("10 a=70000\n20 dim a(3)\n30 poke a,0\n40 end\n",
+                 "E150") == [(30, "error", "E150")]
 
 
 def test_the_range_check_still_ignores_an_unresolvable_address():

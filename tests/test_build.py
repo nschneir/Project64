@@ -127,6 +127,74 @@ def test_parse_areas_rejects_zero_size():
         parse_areas(["HIGH=$4000:$0"], _BASIC_START)
 
 
+def test_parse_areas_rejects_negative_size():
+    """Size 0 was rejected and -1 was not, though `linker_config` renders it
+    as `size = $-001` — `Hex digit expected` from ld65 V2.18, pointing at a
+    line in a config the user never sees and cannot open, the failure mode
+    this whole function exists to keep off the screen."""
+    with pytest.raises(ValueError, match=(
+            r"^--area 'HIGH=\$4000:-1' has size -1 — a size must be "
+            r"positive$")):
+        parse_areas(["HIGH=$4000:-1"], _BASIC_START)
+
+
+def test_parse_areas_rejects_a_start_outside_the_address_space():
+    """The half ld65 does NOT catch: measured against V2.18, `start = $12000`
+    links without a word into a 71,679-byte .prg — 7 KB longer than the
+    machine's whole address space, because MAIN is filled up to the area —
+    and nothing says so until the load fails on a real C64."""
+    with pytest.raises(ValueError, match=(
+            r"^--area HIGH starts at 73728, outside the 16-bit address space "
+            r"\(\$0000-\$FFFF\)$")):
+        parse_areas(["HIGH=$12000:$100"], _BASIC_START)
+    with pytest.raises(ValueError, match=r"outside the 16-bit address space"):
+        parse_areas(["HIGH=-1:$100"], _BASIC_START)
+
+
+def test_parse_areas_rejects_an_area_running_off_the_top_of_memory():
+    """A start inside the machine and a size that leaves it. ld65 V2.18
+    accepts this too and emits whatever the segment holds, so a full $2000
+    at $F000 is a .prg the KERNAL loads off the top of memory."""
+    with pytest.raises(ValueError, match=(
+            r"^--area HIGH=\$F000:\$2000 ends at \$10FFF, past the top of "
+            r"memory \(\$FFFF\)$")):
+        parse_areas(["HIGH=$F000:$2000"], _BASIC_START)
+
+
+def test_parse_areas_rejects_a_duplicate_name():
+    """Each area renders one MEMORY entry AND one same-named segment, so a
+    repeated name is two definitions of both. The gap/overlap checks below
+    do not catch it — two areas that touch are legal — and ld65 V2.18's own
+    `Memory area 'HIGH' defined twice` names a line of the generated config
+    rather than either `--area` that collided."""
+    with pytest.raises(ValueError, match=(
+            r"^--area HIGH=\$6000:\$1000 reuses the name HIGH, already given "
+            r"by --area 'HIGH=\$4000:\$2000' — each --area defines one MEMORY "
+            r"area and one segment, so the names must differ$")):
+        parse_areas(["HIGH=$4000:$2000", "HIGH=$6000:$1000"], _BASIC_START)
+
+
+def test_parse_areas_rejects_a_name_that_is_not_an_identifier():
+    """The name is pasted straight into the config as `MEMORY { <name>: … }`
+    and as a segment loading into it: measured against ld65 V2.18, `MY-AREA`,
+    `HI SCORE` and `hi.score` are `':' expected` and `2ND` is `'}' expected`
+    — syntax errors in a file the user cannot see."""
+    for bad in ("MY-AREA", "2ND", "HI SCORE", "hi.score"):
+        with pytest.raises(ValueError, match=(
+                r"is not usable as a linker identifier")) as e:
+            parse_areas([f"{bad}=$4000:$100"], _BASIC_START)
+        assert repr(bad) in str(e.value), "the message never quotes the name"
+
+
+def test_parse_areas_keeps_accepting_the_names_the_toolset_documents():
+    """The identifier rule must not narrow what already works: underscores,
+    digits after the first character and lowercase all reach ld65 fine."""
+    names = ("HIGH", "_hidden", "sprites2", "Level_1")
+    assert [a.name for a in
+            parse_areas([f"{n}=${0x4000 + i * 0x100:04X}:$100"
+                         for i, n in enumerate(names)], _BASIC_START)] == list(names)
+
+
 def test_parse_areas_rejects_overlap():
     with pytest.raises(ValueError, match=(
             r"^--area TOP starts at \$5000, inside --area HIGH=\$4000:\$2000 "

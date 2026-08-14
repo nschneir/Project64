@@ -269,6 +269,29 @@ def put_file(image: str | Path, src: str | Path, name: str | None = None) -> str
     return cbm_name
 
 
+# Characters a CBM name may legally hold that must not reach a host path.
+# cbm_lookup_name accepts everything in $20-$5D except `":,=`, which leaves
+# both directory separators (`/` on POSIX, `\` on Windows — `../../x` is a
+# legal CBM name, and MCP's c64_disk_get hands NAME through from its caller)
+# and the CBM wildcards `*`/`?`, which name a directory entry but no host
+# file. Every other CBM-legal character is already a fine filename character
+# on both platforms, so the default destination stays spelled the way the
+# caller typed it.
+_HOST_UNSAFE_RE = re.compile(r"[/\\*?]")
+
+
+def default_dest(name: str) -> Path:
+    """The local file `get_file(image, NAME)` reads into with no DEST given.
+
+    A basename in the cwd, always: each unsafe character becomes `_`, so
+    `../../x` lands in `.._.._x.prg` beside you rather than two directories
+    up, and the documented `disk get game.d64 '*'` autostart extraction lands
+    in `_.prg` instead of dying on c1541's `cannot create output file
+    '*.prg'`. Anything already a plain basename is untouched.
+    """
+    return Path(f"{_HOST_UNSAFE_RE.sub('_', str(name).strip())}.prg")
+
+
 def get_file(image: str | Path, name: str, dest: str | Path | None = None) -> Path:
     """Read NAME off IMAGE into DEST, defaulting to `NAME.prg`. Returns DEST.
 
@@ -276,7 +299,10 @@ def get_file(image: str | Path, name: str, dest: str | Path | None = None) -> Pa
     c64_disk_get cannot drift over where a file lands. It is built from NAME
     as GIVEN — before cbm_lookup_name cases it for the lookup — so a caller
     asking for `ALPHA` still gets `ALPHA.prg` on the host, spelled the way
-    they typed it.
+    they typed it; see default_dest for the one thing it does change, which
+    is the characters that would make NAME something other than a file in the
+    cwd. An explicit DEST is used exactly as given: where a caller's own path
+    points is the caller's business.
 
     NAME goes through cbm_lookup_name for the same reason the write paths do.
     Measured: `c1541 img -read 'zed,alpha' out` exits 0 and returns *zed* — the
@@ -291,7 +317,7 @@ def get_file(image: str | Path, name: str, dest: str | Path | None = None) -> Pa
     `-read '*'` fetches the first directory entry (measured), which is how a
     disk's autostart program is pulled back off an image.
     """
-    dest = Path(dest) if dest is not None else Path(f"{name}.prg")
+    dest = Path(dest) if dest is not None else default_dest(name)
     name = cbm_lookup_name(name)
     _run([str(image), "-read", name, str(dest)])
     if not dest.exists():

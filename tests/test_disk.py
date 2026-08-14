@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from c64lib.disk import (
@@ -115,6 +117,76 @@ def test_c1541_failure_raises_disk_error(tmp_path, monkeypatch):
     monkeypatch.setattr(disk.subprocess, "run", fail)
     with pytest.raises(disk.DiskError, match="bad image"):
         disk.list_files(tmp_path / "x.d64")
+
+
+def test_default_dest_cannot_escape_the_cwd(tmp_path, monkeypatch):
+    """`/` is legal in a CBM name — cbm_lookup_name bars only `":,=` and
+    sub-$20 — so a directory entry called `../../x` steered the *default*
+    host destination two levels above the cwd, and MCP's c64_disk_get passes
+    NAME straight through from the caller.
+
+    Driven through a fake c1541 that writes whatever path it is handed: the
+    point is which path get_file computes, not whether a disk holds that
+    entry."""
+    import subprocess
+
+    from c64lib import disk
+
+    def writes_its_dest(cmd, capture_output, text):
+        Path(cmd[-1]).write_bytes(b"\x01\x08")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    monkeypatch.setenv("C64_TOOLS_C1541", "c1541")
+    monkeypatch.setattr(disk.subprocess, "run", writes_its_dest)
+    work = tmp_path / "a" / "b"
+    work.mkdir(parents=True)
+    monkeypatch.chdir(work)
+
+    out = disk.get_file(tmp_path / "x.d64", "../../x")
+    assert out == Path(".._.._x.prg")
+    assert (work / ".._.._x.prg").exists()
+    assert not (tmp_path / "x.prg").exists(), "wrote outside the cwd"
+
+
+def test_default_dest_survives_a_wildcard_name(tmp_path, monkeypatch):
+    """`c64 disk get game.d64 '*'` is the autostart-extraction workflow
+    get_file's own docstring documents, and the wildcard has no business in
+    the host path: c1541 answers `cannot create output file '*.prg'`."""
+    import subprocess
+
+    from c64lib import disk
+
+    def writes_its_dest(cmd, capture_output, text):
+        Path(cmd[-1]).write_bytes(b"\x01\x08")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    monkeypatch.setenv("C64_TOOLS_C1541", "c1541")
+    monkeypatch.setattr(disk.subprocess, "run", writes_its_dest)
+    monkeypatch.chdir(tmp_path)
+
+    assert disk.get_file(tmp_path / "x.d64", "*") == Path("_.prg")
+    assert disk.get_file(tmp_path / "x.d64", "al?") == Path("al_.prg")
+
+
+@needs_c1541
+def test_get_file_reads_a_wildcard_with_no_dest(tmp_path, monkeypatch):
+    """The documented autostart extraction, end to end on a real c1541."""
+    img = create_image(tmp_path / "w.d64", label="w", disk_id="01")
+    src = tmp_path / "p.prg"
+    src.write_bytes(b"\x01\x08ALPHA")
+    put_file(img, src, "alpha")
+    monkeypatch.chdir(tmp_path)
+    assert get_file(img, "*").read_bytes() == src.read_bytes()
+
+
+@needs_c1541
+def test_default_dest_still_spells_an_ordinary_name_as_typed(
+        tmp_path, monkeypatch):
+    """Sanitizing must not touch a name that is already a plain basename."""
+    img = create_image(tmp_path / "s.d64", label="s", disk_id="01")
+    src = tmp_path / "p.prg"
+    src.write_bytes(b"\x01\x08body")
+    put_file(img, src, "alpha")
+    monkeypatch.chdir(tmp_path)
+    assert get_file(img, "ALPHA") == Path("ALPHA.prg")
 
 
 def test_get_file_missing_output_raises(tmp_path, monkeypatch):

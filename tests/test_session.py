@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from c64lib.session import (
+    RegistryError,
     Session,
     SessionError,
     _kill_proc,
@@ -78,11 +79,78 @@ def test_attach_default_requires_exactly_one(home):
         p2.kill()
 
 
+def test_attach_by_name_reads_past_another_records_corruption(home):
+    """Finding one session reads them all, so one unreadable record used to
+    make every session invisible: `_from_record` raises for the file it
+    cannot read and the exception left `attach('alpha')` saying "no session
+    named 'alpha'" while 'alpha' was up. `ops.reboot_with_cart` reads that
+    answer as "nothing is running" and boots a second, unnamed emulator over
+    the live one — the swap it pre-binds the name and model to prevent.
+    """
+    proc = _live_pid()
+    try:
+        _write_record("alpha", proc.pid)
+        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+        assert Session.attach("alpha").pid == proc.pid
+    finally:
+        proc.kill()
+
+
+def test_attach_separates_an_unreadable_registry_from_an_absent_session(home):
+    """When the wanted record is the unreadable one there is no answer to
+    give, and the two possible wrong answers are opposites: callers that
+    react to absence by starting something must not be told "absent" about a
+    session that may be running. Hence the distinct type — still a
+    `SessionError`, so every existing handler reports it unchanged.
+    """
+    sessions_dir().mkdir(parents=True, exist_ok=True)
+    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+    with pytest.raises(RegistryError) as e:
+        Session.attach("alpha")
+    msg = str(e.value)
+    assert isinstance(e.value, SessionError), "existing handlers would stop catching it"
+    assert "alpha" in msg, "the message never says which session was asked for"
+    assert "truncated.json" in msg and "port" in msg, \
+        "the message never says which record is unreadable, or how"
+    assert "c64 session stop --all" in msg, "no way out of the state"
+
+
+def test_attach_without_a_name_will_not_guess_past_an_unreadable_record(home):
+    """The no-name shortcut answers "the one session running", which is a
+    count — and a record that will not parse is a session that cannot be
+    counted, so the shortcut has nothing to stand on."""
+    proc = _live_pid()
+    try:
+        _write_record("alpha", proc.pid)
+        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+        with pytest.raises(RegistryError, match="truncated.json"):
+            Session.attach()
+    finally:
+        proc.kill()
+
+
 def test_list_all(home):
     proc = _live_pid()
     try:
         _write_record("only", proc.pid)
         assert [s.name for s in Session.list_all()] == ["only"]
+    finally:
+        proc.kill()
+
+
+def test_list_all_still_refuses_to_skip_an_unreadable_record(home):
+    """`attach` reads past a broken record; the listing must not. `session
+    list` is where the registry's state is reported, so a listing that
+    quietly omitted the file would be the one place the user could never
+    find it — and `stop --all`, the command that clears it, reports it too.
+    (tests/test_cli_session.py asserts the `--json` payload this becomes.)
+    """
+    proc = _live_pid()
+    try:
+        _write_record("only", proc.pid)
+        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+        with pytest.raises(SessionError, match="truncated.json"):
+            Session.list_all()
     finally:
         proc.kill()
 

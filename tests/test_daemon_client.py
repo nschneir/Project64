@@ -11,10 +11,12 @@ from unittest.mock import Mock, call
 
 import pytest
 
+from c64lib import rpc
 from c64lib.daemon import STOPPED, PetDaemon
 from c64lib.daemon_client import DaemonMonitorClient
 from c64lib.monitor import MonitorClient, MonitorError, StopInfo
 from c64lib.protocol import CP_EXEC, Checkpoint, Command, ErrorCode
+from c64lib.rpc import UnknownDaemonMethod
 
 
 @pytest.fixture
@@ -295,7 +297,7 @@ def test_run_until_timeout_leaves_running_and_deletes_checkpoint(served):
     c, mon, d = served
     mon.checkpoint_set.return_value = _ck()
     mon.wait_for_stop.return_value = None           # never arrives
-    mon.checkpoint_list.return_value = [_ck()]      # durable flag never set
+    mon.checkpoint_list.return_value = [_ck()]      # never arrives here either
     out = c.run_until(0x0419, 0.3, 2)
     assert out["registers"] is None
     assert out["reached"] == 0 and out["count"] == 2
@@ -305,16 +307,55 @@ def test_run_until_timeout_leaves_running_and_deletes_checkpoint(served):
 
 def test_run_until_durable_flag_fallback(served):
     """A lost STOPPED event must not lose the arrival: the checkpoint's
-    hit/hit_count flags are the durable source of truth (same contract as
-    the old client-side loop)."""
+    `hit_count` is what survives it (same contract as the old client-side
+    loop). `hit=False` here is not an omission — it is what VICE 3.10 lists,
+    even while the machine sits stopped on that very checkpoint (probed
+    2026-08-14: `hit=False hit_count=1`), so a fixture with `hit=True` would
+    be testing a response VICE does not produce."""
     c, mon, d = served
     mon.checkpoint_set.return_value = _ck()
     mon.wait_for_stop.return_value = None           # event lost
-    mon.checkpoint_list.return_value = [_ck(hit=True, hit_count=1)]
+    mon.checkpoint_list.return_value = [_ck(hit=False, hit_count=1)]
     mon.registers.return_value = {"PC": 0x0419}
     out = c.run_until(0x0419, 5.0, 1)
     assert out["reached"] == 1 and out["registers"] == {"PC": 0x0419}
     assert d.state == STOPPED
+
+
+# --- the old-daemon handshake, end to end over a real socket -----------------
+
+def test_an_unknown_method_arrives_as_unknown_daemon_method(served):
+    """What every daemon-side loop's fallback catches, through the whole
+    stack: dispatch, the wire, and the client's re-raise."""
+    c, _, _ = served
+    with pytest.raises(UnknownDaemonMethod):
+        c._call("sid_log_in_c", 3, 1.0)
+
+
+def test_a_pre_code_daemon_still_triggers_the_fallback(served, monkeypatch):
+    """The other direction, which is the one the fallback EXISTS for: a
+    daemon older than the `code` field answers a bare ValueError whose
+    message is the handshake. `rpc.raise_remote` recognizes that spelling, so
+    a current client falls back against an old daemon exactly as before."""
+    # The pre-code daemon's error line, verbatim: it raised a bare ValueError
+    # and marshalled it as `{"err": type(e).__name__, "msg": str(e)}` — no
+    # `code`, and the type name of a plain ValueError.
+    monkeypatch.setattr(rpc, "error_payload",
+                        lambda e: {"err": "ValueError", "msg": str(e)})
+    c, _, _ = served
+    with pytest.raises(UnknownDaemonMethod):
+        c._call("sid_log_in_c", 3, 1.0)
+
+
+def test_a_daemon_side_value_error_stays_a_plain_value_error(served):
+    """And the bug the type was introduced for: `_frame_writes` refusing an
+    out-of-range scheduled write must not read as "old daemon", because the
+    caller's fallback re-runs the whole capture window."""
+    c, _, _ = served
+    with pytest.raises(ValueError) as e:
+        c.sid_log(3, 1.0, writes={1: [(0xD404, 999)]})
+    assert not isinstance(e.value, UnknownDaemonMethod)
+    assert "out of range" in str(e.value)
 
 
 # --- sid_log: the per-frame sampling loop also lives daemon-side --------------
@@ -386,7 +427,7 @@ def test_profile_samples_timeout_leaves_running_with_what_it_measured(served):
     c, mon, d = served
     mon.checkpoint_set.return_value = _ck()
     mon.wait_for_stop.return_value = None           # never arrives
-    mon.checkpoint_list.return_value = [_ck()]      # durable flag never set
+    mon.checkpoint_list.return_value = [_ck()]      # never arrives here either
     mon.registers.return_value = {"SP": 0xF9, "FL": 0x20, "PC": 0x1234}
     out = c.profile_samples(0xC000, 0.3, 2, False, 0x0400)
     assert out["fired"] is False and out["raw"] == []

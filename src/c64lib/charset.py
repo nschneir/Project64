@@ -16,6 +16,7 @@ order their colors differently anyway. Legend: '.123' multicolor,
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -49,6 +50,36 @@ def _shape(multicolor: bool) -> tuple[int, dict[str, int]]:
     return (4, _MC_LEGEND) if multicolor else (8, _HIRES_LEGEND)
 
 
+#: A `:mode` suffix, the only tail a header has that is not part of its name.
+_MODE_SUFFIX_RE = re.compile(rf":\s*({'|'.join(BLOCK_MODES)})\s*$", re.IGNORECASE)
+
+
+def is_block_header(stripped: str, widths: Sequence[int],
+                    legend: Iterable[str]) -> bool:
+    """Is this non-row line a block header rather than a mis-typed pixel row?
+
+    The three spellings that are a header whatever else they look like: the
+    explicit `name:` prefix, a trailing bare `:`, and a known `:mode` suffix.
+    Any other colon-bearing line is a header too — `wall:mono` has to reach
+    `parse_block_header` to be rejected as a mode typo — *unless* it is
+    shaped like a mis-typed row: at one of the block's row `widths` and made
+    of nothing but `legend` characters and the stray colon. That carve-out is
+    what tells `.1:3` from `wall:mono`, and without it the mis-typed row
+    opened a block, so the sheet was reported as the PREVIOUS glyph having
+    too few rows rather than as an illegal legend character on the line that
+    has one. `widths` and `legend` have no defaults for that reason: both
+    sheet parsers know their block's own mode at the line they are reading,
+    and a default would quietly restore the rule this exists to replace.
+    """
+    if (stripped.startswith("name:") or stripped.endswith(":")
+            or _MODE_SUFFIX_RE.search(stripped) is not None):
+        return True
+    if ":" not in stripped:
+        return False
+    return not (len(stripped) in widths
+                and set(stripped) <= set(legend) | {":"})
+
+
 def parse_block_header(stripped: str, lineno: int, file_multicolor: bool,
                        kind: str = "charset",
                        error: type[ValueError] = CharsetError) -> tuple[str, bool]:
@@ -59,17 +90,36 @@ def parse_block_header(stripped: str, lineno: int, file_multicolor: bool,
     `fighter:hires`), so there is one parser and one rejection message.
     `kind` and `error` only name the caller in that message and pick the
     exception its own callers already catch.
+
+    A colon is both the mode separator and a character a glyph name may hold
+    (`hud:score` encoded fine before modes existed), and the two are told
+    apart by the `name:` prefix, not by guessing:
+
+    - `wall:multicolor`, `wall:hires` — mode, in either spelling.
+    - `wall:` — bare header, the file's mode.
+    - `wall:mono` — no prefix and no known mode, so it is a mode TYPO and is
+      rejected. The alternative rule ("anything unknown is name") would take
+      a mis-typed mode silently, and the block would encode in the file's
+      mode instead of the one the author asked for.
+    - `name: hud:score` — the prefix says where the name starts, so the rest
+      is the name; the rejection above names this spelling as the way to
+      write a colon into a name. A trailing `:mode` still wins after the
+      prefix, so a glyph cannot be *called* `hud:hires`.
     """
-    body = stripped.removeprefix("name:").strip()
-    name, sep, mode = body.rpartition(":")
-    if not sep:
-        name, mode = body, ""
-    mode = mode.strip().lower()
-    if mode and mode not in BLOCK_MODES:
+    explicit = stripped.startswith("name:")
+    body = (stripped.removeprefix("name:") if explicit else stripped).strip()
+    m = _MODE_SUFFIX_RE.search(body)
+    if m:
+        return body[:m.start()].strip(), BLOCK_MODES[m.group(1).lower()]
+    if body.endswith(":"):
+        return body[:-1].strip(), file_multicolor
+    if not explicit and ":" in body:
+        mode = body.rpartition(":")[2].strip().lower()
         raise error(
             f"{kind} sheet line {lineno}: unknown mode {mode!r} — "
-            f"use 'hires' or 'multicolor'")
-    return name.strip(), BLOCK_MODES.get(mode, file_multicolor)
+            f"use 'hires' or 'multicolor', or write the header as "
+            f"`name: {body}` if the colon is part of the name")
+    return body, file_multicolor
 
 
 def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
@@ -86,6 +136,8 @@ def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
     block by naming one — `wall:multicolor`, `letter:hires` — so a game
     whose maze charset is multicolor and whose HUD glyphs are hires is one
     sheet and one invocation. Row width follows the block's own mode.
+    A name may itself hold a colon under the `name:` prefix — see
+    `parse_block_header`, which is where a header's colons are read.
     """
     glyphs: list[Glyph] = []
     seen: set[str] = set()
@@ -121,7 +173,7 @@ def parse_charset(text: str, multicolor: bool = True) -> list[Glyph]:
             # deliberate in both, and the width check below is unreachable
             # for a line that starts with `#`.
             continue
-        if not is_row_shaped and ":" in stripped:
+        if not is_row_shaped and is_block_header(stripped, (width,), legend):
             close(lineno)                       # reads the OLD block's mode
             name, block_mc = parse_block_header(stripped, lineno, multicolor)
             if name in seen:

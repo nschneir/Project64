@@ -26,8 +26,9 @@ from .cartridge import EF_MODES
 from .daemon_client import DaemonMonitorClient
 from .protocol import CP_EXEC
 from .romdoc import rom_labels
+from .rpc import UnknownDaemonMethod
 from .screen import read_screen_text, screen_base
-from .session import Session, SessionError
+from .session import RegistryError, Session, SessionError
 from .sprites import SpriteState, read_sprite_block, read_sprite_states, sprite_image
 from .symbols import load_labels, nearest, resolve
 from .text import ascii_to_petscii
@@ -99,6 +100,12 @@ def parse_number(s) -> int:
     return int(s, 10)
 
 
+#: What ld65 reads as a MEMORY/SEGMENTS identifier in the config
+#: `linker_config` generates — measured, one rejection per character class;
+#: see `parse_areas` for the errors each of them produces.
+_AREA_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def _area_spelling(a: Area) -> str:
     """The NAME=START:SIZE form, for error messages that quote the area back."""
     return f"{a.name}=${a.start:04X}:${a.size:X}"
@@ -120,8 +127,25 @@ def parse_areas(values, basic_start: int) -> list[Area]:
     the user typed. The gap check is the load-bearing one: a `.prg` is a flat
     file, so a hole between two areas would shift everything above it down by
     the size of the hole and land nothing where it was asked for.
+
+    The rest are what `linker_config` does with a name and two numbers, each
+    checked against ld65 V2.18 rather than assumed, and they split the two
+    ways the sentence above describes:
+
+    - the name is pasted in as an identifier twice — a MEMORY area and the
+      segment loaded into it — so `MY-AREA`, `HI SCORE` and `hi.score` come
+      back as `':' expected`, `2ND` as `'}' expected`, and a second `HIGH` as
+      `Memory area 'HIGH' defined twice`. A negative size renders
+      `size = $-001` and is `Hex digit expected`. Every one of them names a
+      line of a config inside a TemporaryDirectory that no longer exists by
+      the time the message is read.
+    - a start or end outside the address space is the *accepted* half: ld65
+      takes `start = $12000` without a word and links a 71,679-byte .prg —
+      7 KB longer than the machine's entire address space — because MAIN is
+      filled up to the area's start.
     """
     areas: list[Area] = []
+    seen: dict[str, str] = {}
     for raw in values:
         token = str(raw).strip()
         name, sep, rest = token.partition("=")
@@ -133,18 +157,46 @@ def parse_areas(values, basic_start: int) -> list[Area]:
         except ValueError:
             raise ValueError(
                 f"--area needs NAME=START:SIZE, got {token!r}") from None
+        if not _AREA_NAME.match(name):
+            raise ValueError(
+                f"--area name {name!r} is not usable as a linker identifier "
+                f"— use letters, digits and underscores, starting with a "
+                f"letter or underscore")
         if name.upper() in RESERVED_AREA_NAMES:
             listed = (", ".join(RESERVED_AREA_NAMES[:-1])
                       + f" and {RESERVED_AREA_NAMES[-1]}")
             raise ValueError(
                 f"--area name {name!r} is reserved — {listed} cannot be reused")
         area = Area(name, start, size)
+        if name in seen:
+            # Not reachable from the overlap/gap checks below: two areas may
+            # legally touch, and two definitions of one name are a config
+            # error whatever their addresses are.
+            raise ValueError(
+                f"--area {_area_spelling(area)} reuses the name {name}, "
+                f"already given by --area {seen[name]!r} — each --area "
+                f"defines one MEMORY area and one segment, so the names "
+                f"must differ")
         if size == 0:
             raise ValueError(f"--area {_area_spelling(area)} has size 0")
+        if size < 0:
+            # Decimal, and the token as typed: `_area_spelling` would render
+            # this as the `$-1` that is the problem in the first place.
+            raise ValueError(
+                f"--area {token!r} has size {size} — a size must be positive")
+        if not 0 <= start <= 0xFFFF:
+            raise ValueError(
+                f"--area {name} starts at {start}, outside the 16-bit "
+                f"address space ($0000-$FFFF)")
         if start <= basic_start:
             raise ValueError(
                 f"--area {name} starts at ${start:04X}, at or below the load "
                 f"address ${basic_start:04X} — an area must sit above the program")
+        if start + size > 0x10000:
+            raise ValueError(
+                f"--area {_area_spelling(area)} ends at ${start + size - 1:04X}, "
+                f"past the top of memory ($FFFF)")
+        seen[name] = token
         areas.append(area)
     areas.sort(key=lambda a: a.start)
     for below, above in zip(areas, areas[1:], strict=False):
@@ -376,7 +428,9 @@ def reboot_with_cart(session_name: str | None, crt: str | Path, *,
 
     "No session to reboot" and "no session by that name" are the same case:
     both boot an unnamed default `c64` with the cartridge rather than failing.
-    Raises `SessionError` when a session IS there and will not stop.
+    Raises `SessionError` when a session IS there and will not stop, and when
+    the registry cannot be read — an unreadable record is not an absent
+    session, and this is the caller that would act on the difference.
 
     Returns `{"cart", "session", "model", "symbols"}`; `symbols` is the
     sibling `.lbl` registered on the new session, or None.
@@ -393,6 +447,13 @@ def reboot_with_cart(session_name: str | None, crt: str | Path, *,
     model = "c64"
     try:
         old = Session.attach(session_name)
+    except RegistryError as e:
+        # The registry could not be read, so "nothing by that name" was never
+        # established: the named session may be up, and the no-session branch
+        # below would boot an unnamed default-model machine beside it —
+        # exactly the swap the pre-binding guards against, reached through a
+        # failure to read rather than a failure to stop.
+        raise SessionError(f"cannot boot {crt}: {e}") from e
     except SessionError:
         old = None
     if old is not None:
@@ -671,16 +732,28 @@ def wait_for_idle(session, timeout: float = 30.0, samples: int = 3,
 
 def wait_for_break(session, timeout: float = 30.0,
                    number: int | None = None) -> dict:
-    """Checkpoint-hit wait, robust under warp.
+    """Checkpoint-hit wait: the STOPPED event, with a CHECKPOINT_LIST poll
+    between slices.
 
-    The hit flag on a stopped checkpoint is the durable source of truth:
-    a stop=True checkpoint freezes the machine until a client resumes it,
-    and the flag is visible in CHECKPOINT_LIST even when the STOPPED event
-    was lost (Plan 03 verified; the connect-stop/resume race destroys queued
-    events, which is what made event-only waiting flaky under --warp).
-    The STOPPED event is kept as a fast-path only; every loop iteration
-    re-polls the flags, so a missed event costs at most one poll slice.
-    Timeout leaves the machine RUNNING (the documented contract)."""
+    The poll was built as the durable source of truth — "the hit flag is
+    visible in CHECKPOINT_LIST even when the STOPPED event was lost" (Plan
+    03; the connect-stop/resume race destroys queued events, which is what
+    made event-only waiting flaky under --warp). VICE 3.10 does not report
+    it that way. Measured 2026-08-14, over the daemon and over a direct
+    connection: `currently hit` is set in the CHECKPOINT_GET response VICE
+    pushes with the stop — the byte `MonitorClient.wait_for_stop` reads to
+    name the checkpoint that fired — and is 0 in every CHECKPOINT_LIST
+    entry, including one listed while the machine sat stopped on that very
+    checkpoint (hit_count did increment, 0 -> 1). With the event genuinely
+    gone (checkpoint fired with no client attached, fresh connection after)
+    this call times out, flag poll and all.
+
+    So on 3.10 the event is not a fast path, it is the whole mechanism, and
+    what keeps that from being the old flakiness is the session daemon: its
+    single long-lived connection is never the reconnect that dropped the
+    events. `hit_count` is the field that survived — see `call_routine`, and
+    the loops that re-reach a checkpoint, which count on it rather than on
+    `hit`. Timeout leaves the machine RUNNING (the documented contract)."""
     start = time.monotonic()
     deadline = start + timeout
 
@@ -767,7 +840,19 @@ def call_routine(session, addr: int, a: int | None = None, x: int | None = None,
             cur = next((c for c in mon.checkpoint_list()
                         if c.number == ck.number), None)
             if cur is not None and (cur.hit or cur.hit_count > 0):
-                break                    # durable flag caught a lost event
+                # hit_count is the whole fallback; `hit` is not a second,
+                # durable source of truth. Measured on VICE 3.10, an exec
+                # checkpoint reached once by a program that then spun
+                # elsewhere forever: CHECKPOINT_LIST reported hit=False with
+                # hit_count=1 *while the machine was stopped on it*, and the
+                # same after the resume. `currently hit` is set in the
+                # CHECKPOINT_GET response VICE pushes with the stop — that
+                # byte is how `wait_for_stop` names the checkpoint that fired
+                # — and never in the enumeration. `cur.hit` stays as the
+                # protocol's flag for versions that do fill it in: it can
+                # only report an arrival happening now, never a stale one.
+                # Pinned live by test_checkpoint_list_hit_flag_is_not_latched.
+                break
             mon.resume()                 # the list stopped the machine
         out = mon.registers()
         mon.checkpoint_delete(ck.number)
@@ -810,9 +895,9 @@ def profile_samples_loop(mon, addr: int, n: int, timeout: float,
 
     Re-reaching the routine between samples is `until --count`'s shape: one
     persistent checkpoint at `trap` for the whole run, one resume per
-    arrival, the durable hit/hit_count fallback for a lost STOPPED event —
-    and the bracket re-armed in place (stack, SP, flags, PC, timers) rather
-    than a fresh profile round trip per sample. Each arrival is re-armed from
+    arrival, the hit_count fallback for a lost STOPPED event — and the
+    bracket re-armed in place (stack, SP, flags, PC, timers) rather than a
+    fresh profile round trip per sample. Each arrival is re-armed from
     the ENTRY SP, so a routine that leaves the stack unbalanced cannot walk
     the pointer down across samples. Flags differ by mode, exactly as they do
     at n == 1: the default rewrites the WHOLE FL byte from the entry snapshot
@@ -877,7 +962,13 @@ def profile_samples_loop(mon, addr: int, n: int, timeout: float,
             cur = next((c for c in mon.checkpoint_list()
                         if c.number == ck.number), None)
             if cur is not None and (cur.hit or cur.hit_count > i):
-                break                    # durable flag caught a lost event
+                # `> i`, not `> 0`: i arrivals have been priced when sample i
+                # starts, so this is "the count moved past the PREVIOUS
+                # sample" — the check that keeps a slow arrival from being
+                # read off the last one. hit_count carries it; see
+                # call_routine for what CHECKPOINT_LIST's `hit` was measured
+                # to do (nothing — it never reads True there).
+                break
             mon.resume()                 # the list stopped the machine
             if abort is not None and abort():
                 # Client gone (Ctrl-C mid-profile): same half-undone state as
@@ -977,13 +1068,11 @@ def profile_routine_samples(session, addr: int, n: int = 1,
         if isinstance(mon, DaemonMonitorClient):
             try:
                 loop = mon.profile_samples(addr, timeout, n, with_irq, trap)
-            except ValueError as e:
-                # Narrower than run_until's blanket `except ValueError`, on
-                # purpose: falling back RUNS THE ROUTINE AGAIN, so a ValueError
-                # that is not the old-daemon handshake must not silently buy a
-                # second helping of side effects on top of a partial run.
-                if "unknown daemon method" not in str(e):
-                    raise
+            except UnknownDaemonMethod:
+                # Typed on purpose: falling back RUNS THE ROUTINE AGAIN, so a
+                # ValueError that is not the old-daemon handshake must not
+                # silently buy a second helping of side effects on top of a
+                # partial run. rpc.raise_remote is what separates the two.
                 loop = None       # old daemon: do the loop on this side
         if loop is None:
             loop = profile_samples_loop(mon, addr, n, timeout, with_irq, trap)
@@ -1021,14 +1110,17 @@ def run_until(session, addr: int, timeout: float = 30.0, count: int = 1) -> dict
         if isinstance(mon, DaemonMonitorClient):
             try:
                 return mon.run_until(addr, timeout, count)
-            except ValueError:
-                pass          # old daemon: unknown method — do it client-side
+            except UnknownDaemonMethod:
+                pass          # old daemon: unknown method — do it client-side.
+                              #   Typed, so a daemon-side ValueError from a
+                              #   known verb propagates instead of silently
+                              #   re-running the span client-side.
         return _run_until_client(mon, addr, timeout, count)
 
 
 def _run_until_client(mon, addr: int, timeout: float, count: int) -> dict:
     """The pre-daemon-verb loop: one resume + wait round-trip per arrival,
-    with the same durable hit/hit_count fallback as wait_for_break."""
+    with the same hit_count fallback as wait_for_break."""
     deadline = time.monotonic() + timeout
     ck = mon.checkpoint_set(addr, op=CP_EXEC, temporary=False)
     for i in range(count):
@@ -1045,7 +1137,10 @@ def _run_until_client(mon, addr: int, timeout: float, count: int) -> dict:
             cur = next((c for c in mon.checkpoint_list()
                         if c.number == ck.number), None)
             if cur is not None and (cur.hit or cur.hit_count > i):
-                break                        # durable flag caught it
+                # `> i` = past the previous arrival's count; hit_count is what
+                # catches a lost STOPPED event (see call_routine's note on
+                # what `hit` was measured to report, which is never True).
+                break
             mon.resume()                     # the list stopped the machine
     regs = mon.registers()
     mon.checkpoint_delete(ck.number)

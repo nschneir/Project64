@@ -918,7 +918,10 @@ def c64_disk_put(image: str, file: str, name: str | None = None) -> dict:
 @srv.tool()
 def c64_disk_get(image: str, name: str, dest: str | None = None) -> dict:
     """Copy a file off a disk image to the host. dest defaults to NAME.prg —
-    the same default `c64 disk get` applies, spelled the way you typed NAME —
+    the same default `c64 disk get` applies, spelled the way you typed NAME
+    except that `/`, `\\`, `*` and `?` each become `_`, so the default is
+    always a plain file in the working directory (a CBM name may legally
+    hold all four) —
     and a relative dest lands in THIS SERVER PROCESS's working directory,
     which is wherever the server was launched and not something a client can
     see or change. Pass an absolute dest to choose where the file goes."""
@@ -1350,11 +1353,10 @@ def c64_sid_log(frames: int, path: str, session: str | None = None) -> dict:
     warped): above the frame rate it proves the session was not at real
     time, below it proves nothing.
 
-    The warning's own threshold is a fixed 63/s — 60 fps, the fastest machine
-    here, plus a 5% margin — not the session's frame rate, so a PAL session
-    sampling between 50 and 63/s goes unflagged although it already proves
-    the machine outran 50 fps. Apply the machine's own rate yourself when the
-    timeline matters. Leaves the machine running.
+    The warning's own threshold is this session's frame rate plus a 5% margin
+    — 63/s on NTSC, 52.5/s on PAL — so a rate above it proves the machine
+    outran real time, and a rate below it still proves nothing. Leaves the
+    machine running.
     """
     s = _attach(session)
     return sid_log_detail(s, frames, path)

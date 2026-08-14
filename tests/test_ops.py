@@ -1,3 +1,4 @@
+import time
 from itertools import chain, repeat
 from unittest.mock import Mock, call, patch
 
@@ -358,12 +359,16 @@ def test_run_until_delegates_to_daemon_client():
 
 
 def test_run_until_falls_back_on_old_daemon():
-    """A pre-run_until daemon answers 'unknown daemon method' (ValueError);
-    the client-side loop must take over transparently."""
+    """A pre-run_until daemon's 'unknown daemon method' reaches ops as the
+    typed UnknownDaemonMethod (rpc.raise_remote converts both the coded and
+    the legacy spelling); the client-side loop must take over transparently.
+    A plain daemon-side ValueError must NOT trigger this fallback — that is
+    the sibling test below."""
     from c64lib.daemon_client import DaemonMonitorClient
+    from c64lib.rpc import UnknownDaemonMethod
     s = Mock()
     mon = DaemonMonitorClient.__new__(DaemonMonitorClient)
-    mon.run_until = Mock(side_effect=ValueError("unknown daemon method 'run_until'"))
+    mon.run_until = Mock(side_effect=UnknownDaemonMethod("unknown daemon method 'run_until'"))
     for name in ("checkpoint_set", "wait_for_stop", "registers",
                  "checkpoint_delete", "resume", "checkpoint_list"):
         setattr(mon, name, Mock())
@@ -1144,14 +1149,43 @@ def test_profile_samples_delegates_to_the_daemon():
                                                 CALL_TRAP)
 
 
-def test_profile_samples_falls_back_on_an_old_daemon():
-    """A pre-profile_samples daemon answers 'unknown daemon method'
-    (ValueError); the client-side loop must take over transparently."""
+def test_a_daemon_side_value_error_does_not_buy_a_client_side_rerun():
+    """The other direction of the two fallback tests around this one, and the
+    reason UnknownDaemonMethod exists: a daemon that KNOWS the method and
+    refuses its arguments raises a plain ValueError, and falling back would
+    re-run the whole span client-side — for profile, running the routine
+    again on top of a partial run. The typed handshake must let it through."""
+    import pytest
+
     from c64lib.daemon_client import DaemonMonitorClient
-    from c64lib.ops import profile_routine_samples
+    from c64lib.ops import profile_routine_samples, run_until
     s = Mock()
     mon = DaemonMonitorClient.__new__(DaemonMonitorClient)
-    mon.profile_samples = Mock(side_effect=ValueError(
+    mon.run_until = Mock(side_effect=ValueError("count must be positive"))
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    with pytest.raises(ValueError, match="count must be positive"):
+        run_until(s, 0x1000, 9.0, 4)
+
+    mon2 = DaemonMonitorClient.__new__(DaemonMonitorClient)
+    mon2.profile_samples = Mock(side_effect=ValueError("bad trap address"))
+    s2 = Mock()
+    s2.monitor.return_value.__enter__ = Mock(return_value=mon2)
+    s2.monitor.return_value.__exit__ = Mock(return_value=False)
+    with pytest.raises(ValueError, match="bad trap address"):
+        profile_routine_samples(s2, 0x1000, timeout=5.0, n=2)
+
+
+def test_profile_samples_falls_back_on_an_old_daemon():
+    """A pre-profile_samples daemon's 'unknown daemon method' reaches ops as
+    the typed UnknownDaemonMethod; the client-side loop must take over
+    transparently."""
+    from c64lib.daemon_client import DaemonMonitorClient
+    from c64lib.ops import profile_routine_samples
+    from c64lib.rpc import UnknownDaemonMethod
+    s = Mock()
+    mon = DaemonMonitorClient.__new__(DaemonMonitorClient)
+    mon.profile_samples = Mock(side_effect=UnknownDaemonMethod(
         "unknown daemon method 'profile_samples'"))
     for name in ("checkpoint_set", "wait_for_stop", "registers", "memory_read",
                  "memory_write", "set_register", "checkpoint_delete", "resume",
@@ -1293,3 +1327,92 @@ def test_disk_labels_path_is_silent_when_c1541_is_unusable(tmp_path):
     img.write_bytes(b"x")
     with patch("c64lib.disk.list_files", side_effect=DiskError("no c1541")):
         assert disk_labels_path(img) is None
+
+
+def test_reboot_with_cart_refuses_an_unreadable_registry(tmp_path):
+    """"No session by that name" and "the registry would not parse" are the
+    same `SessionError` to an `except` that catches the base class, and
+    reboot_with_cart's no-session branch boots an unnamed default-NTSC `c64`
+    — so one truncated record used to launch a second emulator while the
+    named session it was asked about kept running. That is the model/name
+    swap the pre-binding above the attach exists to prevent, arriving through
+    the other door.
+    """
+    from c64lib.session import RegistryError, SessionError
+    crt = tmp_path / "game.crt"
+    crt.write_bytes(b"C64 CARTRIDGE   ")
+    with patch("c64lib.ops.Session") as S:
+        S.attach.side_effect = RegistryError(
+            "1 session record(s) could not be read: session record "
+            "/r/snake.json is unreadable: missing 'port'")
+        with pytest.raises(SessionError) as e:
+            ops.reboot_with_cart("snake", crt, headless=True, warp=True)
+    S.launch.assert_not_called()   # a session it could not rule out is still a session
+    msg = str(e.value)
+    assert "snake.json" in msg, "the message never says which record is unreadable"
+    assert str(crt) in msg, "the message never says which boot was refused"
+
+
+def test_reboot_with_cart_still_boots_a_default_when_nothing_is_running(tmp_path):
+    """The other half: a plain "no session" is still the boot-a-default case,
+    which is what makes `c64 run game.crt` work from a cold machine."""
+    from c64lib.session import SessionError
+    crt = tmp_path / "game.crt"
+    crt.write_bytes(b"C64 CARTRIDGE   ")
+    with patch("c64lib.ops.Session") as S:
+        S.attach.side_effect = SessionError("no C64 session running")
+        S.launch.return_value = Mock(name="new", model="c64")
+        S.launch.return_value.name = "c64"
+        out = ops.reboot_with_cart(None, crt, headless=True, warp=True)
+    S.launch.assert_called_once_with(model="c64", name=None, headless=True,
+                                     warp=True, cart=str(crt))
+    assert out["session"] == "c64"
+
+
+@pytest.mark.vice
+def test_checkpoint_list_hit_flag_is_not_latched(session):
+    """What CHECKPOINT_LIST's `hit` actually reports, pinned live.
+
+    Three loops (`call_routine`, `profile_samples_loop`, `_run_until_client`)
+    fall back to `cur.hit or cur.hit_count > i` when a STOPPED event does not
+    arrive, and a `hit` left standing from the PREVIOUS arrival would end a
+    sample early — reading the CIA timers mid-flight for a bogus low cycle
+    count. Measured on VICE 3.10: it is never set here at all. The program
+    reaches the checkpoint exactly once and then spins somewhere else, so
+    every `hit` below is read with no arrival in progress except the first,
+    where the machine is stopped ON the checkpoint.
+
+    `hit_count` is what carries the fallback; if a later VICE starts filling
+    the flag in, this test is where that shows up — and `cur.hit` in those
+    three conditions is what has to be re-examined.
+    """
+    with session.monitor() as mon:
+        mon.memory_write(0xC000, bytes([0xEA, 0x4C, 0x01, 0xC0]))  # NOP; JMP $C001
+        mon.memory_write(0xC010, bytes([0x4C, 0x00, 0xC0]))        # JMP $C000
+        ck = mon.checkpoint_set(0xC000, op=CP_EXEC, temporary=False)
+        try:
+            def cur():
+                return next(c for c in mon.checkpoint_list() if c.number == ck.number)
+
+            assert (cur().hit, cur().hit_count) == (False, 0)
+            # Entered from $C010, not resumed from $C000: VICE does not
+            # re-trigger a checkpoint at the PC it is continuing from.
+            mon.set_register("PC", 0xC010)
+            mon.resume()
+            info = mon.wait_for_stop(10.0)
+            assert info is not None and info.checkpoint == ck.number, \
+                "the pushed CHECKPOINT_GET is where `currently hit` IS set"
+            stopped_on_it = cur()
+            assert mon.registers()["PC"] == 0xC000, "not stopped on the checkpoint"
+            assert stopped_on_it.hit_count == 1
+            assert stopped_on_it.hit is False, \
+                "VICE now reports `currently hit` in CHECKPOINT_LIST — the " \
+                "three `cur.hit or ...` fallbacks can end a sample early"
+            mon.resume()                     # spins at $C001, never returns to $C000
+            time.sleep(0.2)
+            after = cur()
+            assert (after.hit, after.hit_count) == (False, 1), \
+                "a hit flag surviving the resume is the mid-flight-read hazard"
+        finally:
+            mon.checkpoint_delete(ck.number)
+            mon.resume()

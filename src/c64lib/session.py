@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +48,40 @@ def audio_pin_path(name: str) -> Path:
 
 class SessionError(Exception):
     pass
+
+
+class RegistryError(SessionError):
+    """The registry could not be read whole — at least one `*.json` record in
+    the sessions directory did not parse.
+
+    A subclass, so every existing `except SessionError` keeps reporting it
+    unchanged; a distinct type because "the registry is unreadable" and "no
+    session by that name" are opposite instructions to a caller that reacts
+    to absence by starting something. `ops.reboot_with_cart` boots a fresh
+    unnamed default when there is nothing to reboot, and `Session.ensure`
+    launches: one unreadable record used to send both down that path with
+    the named session still running.
+    """
+
+
+def _unreadable_registry(bad: Sequence[SessionError],
+                         wanted: str | None = None) -> str:
+    """The `RegistryError` message: what could not be read, and the one
+    command that clears it.
+
+    `stop --all` is named rather than "delete the file" because it is the
+    command that discards an unreadable record *and* reports it — and an
+    unreadable record is exactly where an orphaned emulator hides, so the
+    caller is being sent to the command that goes looking.
+    """
+    detail = "; ".join(str(e) for e in bad)
+    lead = (f"no session named {wanted!r}, and {len(bad)} session record(s) "
+            f"could not be read — one of them may be it"
+            if wanted is not None else
+            f"{len(bad)} session record(s) could not be read, so what is "
+            f"running cannot be determined")
+    return (f"{lead}: {detail}. Clear the unreadable record(s) with: "
+            f"c64 session stop --all")
 
 
 def _pid_alive(pid: int) -> bool:
@@ -291,7 +326,10 @@ class Session:
         `attach`, `list_all` and `launch`'s duplicate-name check all do — and
         MOST of their callers already handle `SessionError` by reporting it,
         so one truncated or older-format record now exits 1 with a message
-        from them instead of escaping as a traceback.
+        from them instead of escaping as a traceback. What that record must
+        NOT do is answer for the records next to it: `attach` reads through
+        `_scan_records`, which keeps this error per file, and reports a
+        `RegistryError` only where the answer would have depended on it.
 
         Not all of them: `cli.py`'s `session list` calls `Session.list_all()`
         bare, outside any try. Widening the type never reached that, and
@@ -321,10 +359,24 @@ class Session:
             ) from None
 
     @staticmethod
-    def _load_all() -> list[Session]:
-        out = []
+    def _scan_records() -> tuple[list[Session], list[SessionError]]:
+        """Every live session record, plus one error per record that would
+        not parse — the registry read that does not let one bad file stand
+        for the whole directory.
+
+        Dead records are pruned as they are read, exactly as `_load_all`
+        does; an unreadable one is left on disk, because nothing here knows
+        whether it describes a running emulator. `stop_all` is what discards
+        it, and it is the command the errors point the caller at.
+        """
+        out: list[Session] = []
+        bad: list[SessionError] = []
         for f in sorted(sessions_dir().glob("*.json")):
-            s = Session._from_record(f)
+            try:
+                s = Session._from_record(f)
+            except SessionError as e:
+                bad.append(e)
+                continue
             if s.is_alive():
                 out.append(s)
             else:
@@ -337,6 +389,24 @@ class Session:
                 # `<name>.audio` outlives every session whose name is never
                 # reused.
                 audio_pin_path(s.name).unlink(missing_ok=True)
+        return out, bad
+
+    @staticmethod
+    def _load_all() -> list[Session]:
+        """The live sessions, or the first unreadable record's error.
+
+        The strict read, and what `list_all` and `launch`'s duplicate-name
+        check want: a listing that silently dropped a record it could not
+        parse would hide the file from `session list`, one of the three
+        commands that report it (`session start` and `stop --all` are the
+        others), and a duplicate-name check cannot clear a name it could not
+        read.
+        Lookups that must not read "unreadable" as "absent" go through
+        `_scan_records` — see `attach` and `RegistryError`.
+        """
+        out, bad = Session._scan_records()
+        if bad:
+            raise bad[0]
         return out
 
     # --- lifecycle --------------------------------------------------------
@@ -471,20 +541,40 @@ class Session:
         """
         try:
             return cls.attach(name), False
+        except RegistryError:
+            # Not an absent session: launching here would put a second
+            # emulator behind a name that may already be up, and the
+            # duplicate-name check in `launch` reads the same registry, so it
+            # cannot catch what it could not parse either.
+            raise
         except SessionError:
             return cls.launch(model=model, name=name, headless=headless,
                               warp=warp), True
 
     @classmethod
     def attach(cls, name: str | None = None) -> Session:
-        live = cls._load_all()
+        """The session `name` names, or the only one running.
+
+        Reads through `_scan_records`, so a record this cannot parse costs
+        only itself: the session asked for is returned if ITS record is
+        readable. Where the answer would depend on the unreadable file — the
+        name was not found among the rest, or the no-name shortcut is
+        counting sessions — the failure is a `RegistryError` rather than the
+        absence report, because a caller that starts something on absence
+        would start it alongside a session that may be running.
+        """
+        live, bad = cls._scan_records()
         if name is not None:
             for s in live:
                 if s.name == name:
                     return s
+            if bad:
+                raise RegistryError(_unreadable_registry(bad, wanted=name))
             raise SessionError(
                 f"no session named {name!r}. Start one with: c64 session start"
             )
+        if bad:
+            raise RegistryError(_unreadable_registry(bad))
         if not live:
             raise SessionError(
                 "no C64 session running. Start one with: c64 session start"

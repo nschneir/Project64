@@ -419,8 +419,49 @@ def test_charset_rejects_unknown_mode():
     from c64lib.charset import CharsetError, parse_charset
     with pytest.raises(CharsetError, match=(
             r"^charset sheet line 3: unknown mode 'mono' — "
-            r"use 'hires' or 'multicolor'$")):
+            r"use 'hires' or 'multicolor'")):
         parse_charset("# a sheet\n\nwall:mono\n" + ".123\n" * 8)
+
+
+def test_charset_name_may_hold_a_colon_under_the_name_prefix():
+    """`name: hud:score` encoded cleanly at v0.9.5 and started raising
+    "unknown mode 'score'" when the mode suffix arrived: the split
+    rpartitions on the LAST colon, so a namespaced glyph name lost its tail
+    to the mode field. The `name:` prefix says where the name starts, so
+    everything after it that is not one of the two known mode words is
+    name."""
+    from c64lib.charset import parse_charset
+    glyphs = parse_charset("name: hud:score\n" + ".123\n" * 8)
+    assert [(g.name, g.multicolor) for g in glyphs] == [("hud:score", True)]
+    # The mode suffix still works with the prefix, and still wins.
+    assert parse_charset("name: hud:score:hires\n" + "##......\n" * 8) == \
+        [("hud:score", ["##......"] * 8, False)]
+    # A trailing bare colon is a bare header, colons in the name or not.
+    assert [g.name for g in parse_charset("hud:score:\n" + ".123\n" * 8)] == \
+        ["hud:score"]
+
+
+def test_charset_unknown_mode_names_the_escape():
+    """A bare `wall:mono` is still an error — that is what tells a mode typo
+    from a name — so the message has to say how to spell the other intent."""
+    import pytest
+
+    from c64lib.charset import CharsetError, parse_charset
+    with pytest.raises(CharsetError, match=r"`name: wall:mono`"):
+        parse_charset("wall:mono\n" + ".123\n" * 8)
+
+
+def test_charset_a_pixel_row_with_a_colon_is_reported_as_a_bad_row():
+    """Header detection was widened to "the line holds a colon", which read a
+    mistyped row as a header — so the sheet was reported as a glyph with the
+    wrong row count, at the wrong line, instead of the illegal legend
+    character at the line that has it."""
+    import pytest
+
+    from c64lib.charset import CharsetError, parse_charset
+    with pytest.raises(CharsetError, match=(
+            r"glyph 'g' line 3: illegal legend characters \[':'\]")):
+        parse_charset("name: g\n.123\n.1:3\n" + ".123\n" * 6)
 
 
 def _sprite_rows(n: int) -> str:
@@ -514,8 +555,16 @@ def test_sprite_sheet_rejects_an_unknown_mode():
     from c64lib.sprites import encode_sheet
     with pytest.raises(ValueError, match=(
             r"^sprite sheet line 2: unknown mode 'mono' — "
-            r"use 'hires' or 'multicolor'$")):
+            r"use 'hires' or 'multicolor'")):
         encode_sheet("# a sheet\ndrone:mono\n" + ("#" * 12 + "\n") * 21)
+
+
+def test_sprite_sheet_name_may_hold_a_colon_under_the_name_prefix():
+    """Sprite headers go through charset.parse_block_header, so the colon
+    rule is literally the same function and this is the same regression."""
+    from c64lib.sprites import parse_sprite_sheet
+    blocks = parse_sprite_sheet("name: hud:ship\n" + ("#" * 12 + "\n") * 21)
+    assert [(b.name, b.multicolor) for b in blocks] == [("hud:ship", True)]
 
 
 def test_sprite_sheet_rejects_a_duplicate_name():

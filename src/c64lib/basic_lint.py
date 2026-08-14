@@ -513,6 +513,12 @@ def _args(stmt: list[Token], k: int) -> list[list[Token]]:
     return [g for g in groups if g]
 
 
+# Statement heads that store into a variable with no `=` on the line, so a
+# rule counting equals signs cannot see the write. GET# is not here because
+# V2 has no GET# token: `get#1,a$` tokenizes as GET then `#1`, head `get`.
+_REBINDING_HEADS = ("input", "input#", "read", "get")
+
+
 def _literal_scalars(prog: Program) -> dict[str, int]:
     """name -> value for scalars that provably hold one integer literal.
 
@@ -523,7 +529,7 @@ def _literal_scalars(prog: Program) -> dict[str, int]:
     4.7 ms per POKE, so a literal-only rule goes quiet exactly as authors
     improve.
 
-    A name qualifies only when all four hold; anything else is simply absent:
+    A name qualifies only when all five hold; anything else is simply absent:
 
     1. It is followed by ``=`` exactly once in the whole program. Two and the
        value is a guess — and this counts every occurrence, so an assignment
@@ -535,14 +541,29 @@ def _literal_scalars(prog: Program) -> dict[str, int]:
     4. The name is never a ``for`` control variable. This is what keeps the
        SID-clear idiom `for m=54272 to 54296:poke m,0:next m` out — its
        address is swept, and no resolver may call that constant.
+    5. The name is never rebound by a statement that assigns without an ``=``:
+       INPUT, INPUT#, READ and GET. Condition 1 counts equals signs and sees
+       none of them, so `10 n=1000 : 20 input n : 30 poke 1024,n` used to
+       raise a hard E150 for a value the program never necessarily holds, and
+       a READ-driven table is the idiom this resolver exists for. The other
+       two heads that take a variable list are deliberately not here: ``next``
+       only rebinds a ``for`` control variable, which condition 4 already
+       drops, and ``dim`` binds an array, which V2 keeps in a namespace of its
+       own and which no scalar lookup can reach. A subscripted target
+       (`read a(1)`) does drop the scalar `a` even so — this table
+       under-reports rather than reason about subscripts.
     """
     seen: dict[str, int] = {}
     value_at: dict[str, int | None] = {}
     for_vars: set[str] = set()
+    rebound: set[str] = set()
     depth = 0
     for line in prog.lines:
         for stmt in line.statements:
             head, depths = _head(stmt), _depths(stmt)
+            if head in _REBINDING_HEADS:
+                rebound.update(t.text for k, t in enumerate(stmt)
+                               if t.kind == "IDENT" and depths[k] == 0)
             for k, t in enumerate(stmt):
                 if t.kind == "IDENT" and depths[k] == 0 \
                         and k + 1 < len(stmt) and stmt[k + 1].kind == "OP" \
@@ -568,7 +589,8 @@ def _literal_scalars(prog: Program) -> dict[str, int]:
             value_at[stmt[first].text] = (
                 None if depth or v is None or v != int(v) else int(v))
     return {n: v for n, v in value_at.items()
-            if v is not None and seen.get(n) == 1 and n not in for_vars}
+            if v is not None and seen.get(n) == 1
+            and n not in for_vars and n not in rebound}
 
 
 def _value(arg: list[Token], scalars: dict[str, int]) -> float | None:
@@ -842,9 +864,17 @@ def _check_timing(prog: Program) -> list[LintIssue]:
     hold the rate that something outside the program is counting.
     """
     out: list[LintIssue] = []
+    scalars = _literal_scalars(prog)
     # W150: two adjacent WAITs polling the same raster register. Adjacency is
     # in statement order, so splitting the pair across two lines is the same
     # bug. A triple reports twice, which is what it is.
+    #
+    # The address resolves through _value, the same resolver W160 uses below:
+    # the two rules read the same argument of the same statement, and reading
+    # it two ways meant one `d=53265` was a raster sync to W160 and an unknown
+    # address to W150. Holding the register in a variable is what the recipe
+    # this rule points at does, a literal address costing about 4.7 ms per
+    # statement, so the named spelling is the one W150 most needs to see.
     prev: float | None = None
     for line in prog.lines:
         for stmt in line.statements:
@@ -852,7 +882,7 @@ def _check_timing(prog: Program) -> list[LintIssue]:
                 prev = None
                 continue
             args = _args(stmt, 0)
-            addr = _literal(args[0]) if args else None
+            addr = _value(args[0], scalars) if args else None
             if prev is not None and addr == prev:
                 out.append(LintIssue(
                     line.number, "warning", "W150",
@@ -870,8 +900,9 @@ def _check_timing(prog: Program) -> list[LintIssue]:
     # between a drifting sequencer and a correct one with a one-shot TI
     # lead-in, and the reason the corpus stays quiet. Reported once, at the
     # first offending POKE: the finding is about how the program keeps time,
-    # not about each of the ten writes it makes per tick.
-    scalars = _literal_scalars(prog)
+    # not about each of the ten writes it makes per tick. Shares W150's
+    # `scalars` above — one table, so the two rules cannot disagree about
+    # which addresses are known.
     synced: set[int] = set()                  # loops whose body holds a sync
     found: list[tuple[int, tuple[int, ...]]] = []   # (line, enclosing loops)
     stack: list[int] = []

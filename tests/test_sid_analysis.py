@@ -37,6 +37,7 @@ from c64lib.sid_analysis import (
     dominant_partial_hz,
     find_anomalies,
     freq_to_note,
+    nothing_played,
     parse_log,
     render_piano_roll,
     render_spectrogram,
@@ -1342,6 +1343,74 @@ def test_wav_metrics_rejects_an_unsupported_sample_width(tmp_path):
         wav_metrics(path)
 
 
+# --- wav_metrics: a header that outruns the samples ------------------------
+
+def _claim_frames(path, frames, width=2, channels=1):
+    """Rewrite a finished WAV's RIFF and data sizes to claim `frames` frames.
+
+    What VICE leaves on disk until the recorder's close is serviced: both size
+    fields are placeholders, so `wave` reports a frame count the file does not
+    hold (`audio._wav_finalized` is the check that spots it). The capture path
+    waits it out; `c64 audio report --wav` and MCP `c64_sid_report` read the
+    file exactly as it is. Canonical 44-byte PCM header — what the `wave`
+    writer these fixtures use emits, and what VICE writes.
+    """
+    raw = bytearray(Path(path).read_bytes())
+    data = frames * width * channels
+    raw[4:8] = (data + 36).to_bytes(4, "little")
+    raw[40:44] = data.to_bytes(4, "little")
+    Path(path).write_bytes(bytes(raw))
+    return path
+
+
+def _truncated_metrics(tmp_path, seconds=1.0, claimed_s=30.0):
+    """`wav_metrics` of `seconds` of digital silence under a header claiming
+    `claimed_s` — the 1.0.0 review's reproduction, measured end to end."""
+    path = _write_wav(tmp_path / "cut.wav", np.zeros(int(seconds * RATE)))
+    return wav_metrics(_claim_frames(path, int(claimed_s * RATE)))
+
+
+def test_wav_metrics_measures_the_samples_not_the_header_claim(tmp_path):
+    """1 s of samples under a header claiming 30 s. `duration_s` is the
+    DECODED length because every verdict divides by it; the header's claim is
+    kept beside it, since the two disagreeing is itself the finding."""
+    metrics = _truncated_metrics(tmp_path)
+    assert metrics["duration_s"] == pytest.approx(1.0)
+    assert metrics["header_duration_s"] == pytest.approx(30.0)
+    assert metrics["truncated"] is True
+
+
+def test_wav_metrics_calls_a_finalized_capture_untruncated(tmp_path):
+    """The regression half: a normal capture's two durations agree exactly,
+    and nothing about it is flagged."""
+    metrics = wav_metrics(_write_wav(tmp_path / "tone.wav", _tone(1.0)))
+    assert metrics["truncated"] is False
+    assert metrics["header_duration_s"] == metrics["duration_s"] == pytest.approx(1.0)
+
+
+def test_wav_metrics_silence_covers_a_truncated_file_end_to_end(tmp_path):
+    """Silence was always measured on the samples while `duration_s` came off
+    the header, so 1 s of silence under a 30 s claim covered 3% of the
+    "duration" and could never reach `ALL_SILENT_COVERAGE`."""
+    metrics = _truncated_metrics(tmp_path)
+    assert metrics["silence_windows"] == [pytest.approx((0.0, 1.0))]
+    covered = sum(end - start for start, end in metrics["silence_windows"])
+    assert covered >= metrics["duration_s"] * sid_analysis.ALL_SILENT_COVERAGE
+
+
+def test_wav_metrics_reads_a_wav_cut_mid_frame(tmp_path):
+    """A file that lost its tail can end inside a sample: `frombuffer` refuses
+    a buffer that is not a whole number of samples, so a re-score of one used
+    to come out as a traceback. The partial frame is dropped instead — and
+    three lost bytes are not a truncated capture."""
+    path = _write_wav(tmp_path / "cut.wav", np.zeros(RATE))
+    raw = path.read_bytes()
+    path.write_bytes(raw[:-3])
+    metrics = wav_metrics(path)
+    assert metrics["duration_s"] == pytest.approx(44098 / RATE)
+    assert metrics["truncated"] is False
+
+
 # --- dominant_partial_hz --------------------------------------------------
 
 def test_dominant_partial_hz_finds_a_synthesized_tone(tmp_path):
@@ -1694,6 +1763,57 @@ def test_write_report_still_says_silent_when_the_recording_really_ran(tmp_path):
     text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
     assert "the recording is silent" in text
     assert "no samples at all" not in text
+
+
+# --- write_report: a WAV whose header outruns its samples ------------------
+
+def test_nothing_played_is_not_defeated_by_a_lying_header(tmp_path):
+    """Silence coverage is measured against the samples that exist, so a dead
+    capture reads as dead however long its header says it is."""
+    assert nothing_played(ALL_REST, _truncated_metrics(tmp_path)) is True
+
+
+def test_write_report_fails_dead_audio_under_a_lying_header(tmp_path):
+    """The 1.0.0 review's reproduction: a header claiming 30 s over 1 s of
+    silent samples. Coverage was measured against the header's 30 s, so 1 s of
+    silence cleared the 99% test, `nothing_played` came back false, and a
+    capture with no audio in it at all was reported **PASS** with no notice."""
+    text = _report(tmp_path, ALL_REST, metrics=_truncated_metrics(tmp_path)).read_text()
+    assert "**FAIL**" in text
+    assert "- the recording is truncated" in text
+    assert "**Nothing played.**" in text
+
+
+def test_write_report_names_both_durations_for_a_truncated_capture(tmp_path):
+    """Asserted as whole rendered cells: the measured length is the one the
+    other metrics cover, and the header's claim is shown beside it rather than
+    quietly replaced."""
+    text = _report(tmp_path, ALL_REST, metrics=_truncated_metrics(tmp_path)).read_text()
+    assert "| Duration | 1.00 s |" in text
+    assert "| Header duration | 30.00 s — 29.00 s of it is not in the file |" in text
+
+
+def test_write_report_metrics_table_omits_the_header_duration_when_finished(tmp_path):
+    """A finalized capture's table and verdict are untouched by any of this."""
+    metrics = wav_metrics(_write_wav(tmp_path / "tone.wav", _tone(1.0)))
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    assert "| Duration | 1.00 s |" in text
+    assert "Header duration" not in text
+    assert "truncated" not in text
+    assert "**PASS**" in text
+
+
+def test_write_report_names_a_header_only_wav_read_through_the_rescore_path(tmp_path):
+    """The warp signature — a placeholder header over zero frames — reaching
+    `wav_metrics` with nobody having waited for VICE to finalize. Measured off
+    the header it was 30 s of audio nobody had examined and produced no
+    failure at all; measured off the samples it is the recording that never
+    happened, which is the sentence that names the speed pin."""
+    text = _report(tmp_path, SOUNDING,
+                   metrics=_truncated_metrics(tmp_path, seconds=0.0)).read_text()
+    assert "**FAIL**" in text
+    assert "no samples at all" in text
+    assert "- the recording is truncated" in text
 
 
 # --- write_report: what the Score-diff section says it checked -------------

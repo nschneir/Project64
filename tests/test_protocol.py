@@ -11,12 +11,15 @@ from c64lib.protocol import (
     FrameDecoder,
     ProtocolError,
     Response,
+    check_resource_value,
     encode_command,
     memory_get_body,
     memory_set_body,
     op_name,
     parse_display_get,
     parse_memory_get,
+    parse_resource,
+    resource_get_body,
     resource_set_body,
 )
 
@@ -94,6 +97,62 @@ def test_resource_set_body_non_negative_ints_are_unchanged_by_the_sign_fix():
     assert resource_set_body("X", 0)[-4:] == b"\x00\x00\x00\x00"
     assert resource_set_body("X", 2**31 - 1)[-4:] == b"\xff\xff\xff\x7f"
     assert resource_set_body("X", 2**32 - 1)[-4:] == b"\xff\xff\xff\xff"
+
+
+def test_resource_set_body_carries_a_non_ascii_value_as_utf8():
+    """VICE 3.10 takes a resource string as raw bytes and hands the same
+    bytes back — probed live 2026-08-14 on `SoundRecordDeviceArg`:
+    `/Users/josé/out/capture.wav` (28 bytes) and `/tmp/音/capture.wav`
+    (20 bytes) both round-tripped byte-identical through RESOURCE_SET /
+    RESOURCE_GET, and a recorder armed on a non-ASCII path created the file.
+    So the wire is bytes, and an ASCII-only encoder was our limit, not VICE's.
+    """
+    body = resource_set_body("SoundRecordDeviceArg", "/tmp/josé.wav")
+    value = "/tmp/josé.wav".encode()
+    assert body == bytes([0, 20]) + b"SoundRecordDeviceArg" + \
+        bytes([len(value)]) + value
+    assert len(value) == 14        # é is two bytes: the LENGTH is bytes, not chars
+    # And the read side agrees: VICE hands those same bytes back in a
+    # type/length/value body, which used to decode as ASCII and raise.
+    assert parse_resource(bytes([0, len(value)]) + value) == "/tmp/josé.wav"
+
+
+def test_resource_set_body_names_the_value_when_it_is_too_long():
+    """One length byte is the whole ceiling (255 bytes probed good, 256
+    unrepresentable), and a 400-character path used to reach it as a bare
+    `bytes([len(encoded)])` ValueError naming neither the resource nor the
+    path — after a capture had already taken the session off warp."""
+    path = "/tmp/" + "a" * 300 + ".wav"
+    with pytest.raises(ValueError) as e:
+        resource_set_body("SoundRecordDeviceArg", path)
+    assert "SoundRecordDeviceArg" in str(e.value)
+    assert "309" in str(e.value) and "255" in str(e.value)
+    assert path in str(e.value)
+
+
+def test_resource_set_body_accepts_the_longest_value_the_wire_can_carry():
+    """255 bytes is a value, not an overflow — probed good against x64sc
+    3.10, which read all 255 back."""
+    value = "a" * 255
+    assert resource_set_body("X", value)[-256:] == bytes([255]) + value.encode()
+
+
+def test_resource_get_body_names_an_unencodable_resource_name():
+    """The name side of the same rule. A resource name is always ASCII in
+    VICE, so this is a caller's mistake — it just has to read as one."""
+    with pytest.raises(ValueError, match="resource name"):
+        resource_get_body("Sound★")
+    with pytest.raises(ValueError, match="resource name"):
+        resource_set_body("Sound★", 1)
+
+
+def test_check_resource_value_answers_before_anything_is_sent():
+    """What a caller asks BEFORE it pins a session: the same rule, no body.
+    `audio.record_start` arms the recorder after the machine is off warp, so
+    an unencodable path found there costs the whole capture window."""
+    check_resource_value("SoundRecordDeviceArg", "/tmp/josé.wav")     # fine
+    with pytest.raises(ValueError, match="255"):
+        check_resource_value("SoundRecordDeviceArg", "x" * 300)
 
 
 def _resp_frame(rtype, err, rid, body):

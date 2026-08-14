@@ -44,6 +44,7 @@ from c64lib.build import build_asm
 from c64lib.cli import main
 from c64lib.daemon_client import DaemonMonitorClient
 from c64lib.ops import wait_for_mem
+from c64lib.rpc import UnknownDaemonMethod
 from c64lib.session import Session, SessionError
 from tests.test_mcp_scaffold import call_tool
 from tests.vice_helpers import timeout_scale
@@ -245,6 +246,46 @@ def test_record_stop_clears_the_device_name():
     s, mon = _fake_session()
     record_stop(s)
     assert mon.resource_set.call_args_list == [call("SoundRecordDeviceName", "")]
+
+
+#: 300 bytes of path, which is past the one length byte a RESOURCE_SET value
+#: has. Non-ASCII is NOT in this list: VICE takes those bytes fine (probed
+#: 2026-08-14, see `test_resource_set_body_carries_a_non_ascii_value_as_utf8`),
+#: so a `josé` in a path is a working capture, not a refusal.
+LONG_WAV = "/tmp/" + "a" * 300 + ".wav"
+
+
+def test_record_start_refuses_a_path_the_wire_cannot_carry(tmp_path):
+    """A RESOURCE_SET value is length-prefixed with one byte, so a 300-byte
+    path used to reach the caller as `bytes([309])`'s bare ValueError, naming
+    neither the resource nor the path."""
+    s, mon = _fake_session()
+    with pytest.raises(ValueError) as e:
+        record_start(s, LONG_WAV)
+    assert "SoundRecordDeviceArg" in str(e.value) and "255" in str(e.value)
+    mon.resource_set.assert_not_called()
+
+
+def test_record_start_arms_a_non_ascii_path(tmp_path):
+    """Probed against x64sc 3.10: the monitor carries the bytes unchanged and
+    the recorder creates the file. A `josé` in the path is not an error."""
+    s, mon = _fake_session()
+    wav = tmp_path / "josé.wav"
+    assert record_start(s, str(wav)) == str(wav)
+    assert mon.resource_set.call_args_list[0] == call("SoundRecordDeviceArg",
+                                                      str(wav))
+
+
+def test_pinned_record_start_checks_the_path_before_it_pins(vice_text):
+    """The whole point of checking early: arming happens AFTER the machine is
+    off warp, so a path VICE cannot be told about used to cost the pin, the
+    unwarp and a raw traceback. Nothing may be pinned when it is refused."""
+    s, mon = _fake_session()
+    with _port(vice_text), pytest.raises(ValueError, match="255"):
+        pinned_record_start(s, LONG_WAV)
+    assert vice_text.warp is True                  # never taken off warp
+    assert _names(mon) == []                       # and Speed never touched
+    assert not audio._pin_path(s).exists()
 
 
 # --- pin_realtime / restore_speed -------------------------------------------
@@ -808,6 +849,30 @@ def test_cli_audio_record_needs_exactly_one_of_start_and_stop():
         assert "--start" in r.output
 
 
+def test_cli_audio_record_reports_an_unusable_path_as_an_error():
+    """A ValueError is a report like any other here: the message names the
+    resource, the limit and the path, and the command names itself rather
+    than falling through to `JsonAwareGroup.invoke`'s last-chance funnel."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["--json", "audio", "record",
+                                      "--start", LONG_WAV])
+    assert r.exit_code == 1, r.output
+    error = json.loads(r.stdout)["error"]
+    assert error.startswith("audio record: ") and "255" in error
+    assert "Traceback" not in r.stderr
+
+
+def test_mcp_audio_record_reports_an_unusable_path_as_an_error():
+    s, _ = _fake_session()
+    with patch("c64lib.mcp_server.Session") as S:
+        S.attach.return_value = s
+        err, out = call_tool("c64_audio_record",
+                             {"action": "start", "path": LONG_WAV})
+    assert err is True and "255" in str(out)
+
+
 def test_cli_audio_record_reports_a_capture_failure():
     s, _ = _fake_session()
     with patch("c64lib.cli.Session") as S, \
@@ -1082,6 +1147,37 @@ def test_sid_log_never_reports_a_non_finite_rate(tmp_path):
     assert "inside the clock's resolution" in detail["warning"]
 
 
+@pytest.mark.parametrize("model,fps,warns", [
+    ("c64pal", 50, True),     # 55/s is already proof a 50 fps machine warped
+    ("c64", 60, False),       # the same rate is under NTSC's own ceiling
+])
+def test_sid_log_judges_the_rate_against_the_machines_own_frame_rate(
+        tmp_path, model, fps, warns):
+    """The ceiling is the SESSION's frame rate, not the fastest machine this
+    build supports. A PAL capture sampling 55/s cannot have been at real time
+    — nothing samples more than once per frame — and a fixed NTSC 63/s ceiling
+    called that clean.
+
+    55 frames over 1.0 s of clock, with the loop mocked out: `sid_log_detail`
+    reads the clock once at each end of the sampling loop and the daemon
+    branch reads it not at all, so the rate is exactly 55/s on both machines."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.return_value = [bytes(25)] * 55
+    s = Mock()
+    s.name, s.model, s.socket, s.pid = "c64", model, "/tmp/sock", 4242
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    with patch("c64lib.audio.time.monotonic", side_effect=[0.0, 1.0]):
+        detail = sid_log_detail(s, 55, str(tmp_path / "sid.jsonl"))
+    assert detail["sample_rate_hz"] == pytest.approx(55.0)
+    if not warns:
+        assert detail["warning"] is None
+        return
+    assert detail["warning"] is not None
+    assert f"at most {fps:g} frames/s" in detail["warning"]
+    assert "sampled 55 frames/s" in detail["warning"]
+
+
 def test_sid_log_keeps_the_frames_it_got_when_it_runs_out_of_time(tmp_path):
     """A short log beats no log, but the shortfall is never silent."""
     out = tmp_path / "sid.jsonl"
@@ -1168,10 +1264,14 @@ def test_sid_log_refuses_a_frame_count_past_the_sanity_ceiling(tmp_path):
 
 
 def test_sid_log_falls_back_to_the_client_loop_on_an_older_daemon(tmp_path):
-    """An unknown method is a ValueError from the daemon — the same
-    daemon-first-else-local shape `ops.run_until` uses."""
+    """An unknown method is `UnknownDaemonMethod` from the daemon — the same
+    daemon-first-else-local shape `ops.run_until` uses. A pre-code daemon
+    answers the bare ValueError spelling and `rpc.raise_remote` turns it into
+    this same type, which `tests/test_rpc.py` pins; here the client sees only
+    what raise_remote produces."""
     mon = Mock(spec=DaemonMonitorClient)
-    mon.sid_log.side_effect = ValueError("unknown daemon method 'sid_log'")
+    mon.sid_log.side_effect = UnknownDaemonMethod(
+        "unknown daemon method 'sid_log'")
     mon.memory_read.return_value = bytes([9] + [0] * 24)
     out = tmp_path / "sid.jsonl"
     assert sid_log(_machine_session(mon), 2, str(out)) == 2
@@ -1246,6 +1346,26 @@ def test_cli_audio_sidlog_json_still_carries_the_whole_warning():
                                       "/tmp/s.jsonl"])
     assert r.exit_code == 0, r.output
     assert json.loads(r.stdout)["warning"] == SIDLOG_WARNING
+
+
+def test_cli_audio_sidlog_reports_a_refused_frame_count():
+    """`sid_log_detail`'s own bounds check raises ValueError, and this
+    command's except tuple did not list it — so the one argument error a
+    caller can make here fell through to `JsonAwareGroup.invoke`'s
+    last-chance funnel: the right exit code and a parseable payload, but the
+    unprefixed exception text and a traceback on stderr. The funnel is the
+    floor, not the ceiling; this command names itself like every other."""
+    s, _ = _fake_session()
+    with patch("c64lib.cli.Session") as S:
+        S.attach.return_value = s
+        r = CliRunner().invoke(main, ["--json", "audio", "sidlog",
+                                      str(audio.MAX_SID_LOG_FRAMES + 1),
+                                      "/tmp/s.jsonl"])
+    assert r.exit_code == 1, r.output
+    assert r.exception is None or isinstance(r.exception, SystemExit)
+    error = json.loads(r.stdout)["error"]
+    assert error.startswith("audio sidlog: ") and "at most 36000" in error
+    assert "Traceback" not in r.stderr
 
 
 def test_cli_audio_sidlog_reports_a_capture_failure():
@@ -1384,11 +1504,13 @@ def test_sid_log_sends_scheduled_writes_to_the_daemon_in_one_round_trip(tmp_path
 
 
 def test_sid_log_falls_back_to_the_client_loop_when_the_daemon_cannot_aim(tmp_path):
-    """A daemon too old for scheduled writes answers ValueError, exactly as
-    it does for the whole `sid_log` method — and the writes must still land,
-    so the client loop takes over rather than the schedule being dropped."""
+    """A daemon too old for scheduled writes answers `UnknownDaemonMethod`,
+    exactly as it does for the whole `sid_log` method — and the writes must
+    still land, so the client loop takes over rather than the schedule being
+    dropped."""
     mon = Mock(spec=DaemonMonitorClient)
-    mon.sid_log.side_effect = ValueError("unknown daemon method 'sid_log_at'")
+    mon.sid_log.side_effect = UnknownDaemonMethod(
+        "unknown daemon method 'sid_log_at'")
     machine = FakeMachine(_states(3))
     mon.resume.side_effect = machine.resume
     mon.memory_read.side_effect = machine.memory_read
@@ -1399,6 +1521,29 @@ def test_sid_log_falls_back_to_the_client_loop_when_the_daemon_cannot_aim(tmp_pa
     s.monitor.return_value.__exit__ = Mock(return_value=False)
     sid_log_detail(s, 3, str(tmp_path / "sid.jsonl"), writes={0: [(0xD404, 0x11)]})
     assert machine.calls[0] == ("write", 0xD404, b"\x11")
+
+
+def test_sid_log_does_not_rerun_the_window_when_the_daemon_refuses_the_writes(
+        tmp_path):
+    """A ValueError from a method the daemon HAS is not the old-daemon
+    handshake, and falling back on it re-runs the whole frame window on this
+    side — performing the writes the daemon just refused, with the WAV
+    recorder still armed. `daemon._frame_writes` raises exactly this."""
+    mon = Mock(spec=DaemonMonitorClient)
+    mon.sid_log.side_effect = ValueError(
+        "sid_log_at write $d404=999 is out of range "
+        "(address 0-65535, value 0-255)")
+    s = Mock()
+    s.name, s.model, s.socket, s.pid = "c64", "c64", "/tmp/sock", 4242
+    s.monitor.return_value.__enter__ = Mock(return_value=mon)
+    s.monitor.return_value.__exit__ = Mock(return_value=False)
+    out = tmp_path / "sid.jsonl"
+    with pytest.raises(ValueError, match="out of range"):
+        sid_log_detail(s, 3, str(out), writes={1: [(0xD404, 0x11)]})
+    mon.memory_write.assert_not_called()
+    mon.memory_read.assert_not_called()
+    mon.resume.assert_not_called()
+    assert not out.exists()
 
 
 def test_module_exposes_only_the_capture_surface():
@@ -3144,6 +3289,33 @@ def test_audio_score_names_the_entry_that_has_no_note(tmp_path):
     r = CliRunner().invoke(main, ["audio", "score", _score_file(tmp_path, text)])
     assert r.exit_code == 1
     assert "voice 1 event 2" in r.output + r.stderr
+
+
+#: A tab where YAML wants indentation — the commonest way a hand-written
+#: score fails to parse at all, before any of its contents are read.
+UNPARSEABLE_SCORE = "voices:\n  1:\n\t- {note: E4}\n"
+
+
+def test_audio_score_reports_unparseable_yaml_as_an_error(tmp_path):
+    """`score_summary` raises `yaml.YAMLError`, which is neither an OSError
+    nor a ValueError: it escaped this command as a raw traceback over empty
+    `--json` stdout. Every other malformed score here exits 1 with a message,
+    and a file that will not parse is the most ordinary of them."""
+    r = CliRunner().invoke(main, ["--json", "audio", "score",
+                                  _score_file(tmp_path, UNPARSEABLE_SCORE)])
+    assert r.exit_code == 1, r.output
+    assert r.exception is None or isinstance(r.exception, SystemExit)
+    assert "audio score" in json.loads(r.stdout)["error"]
+
+
+def test_mcp_audio_score_surfaces_the_parse_failure(tmp_path):
+    """The MCP twin lets it surface with its message intact — the house rule
+    for every other yaml-reading tool — rather than crashing the server. The
+    parser's own complaint is the message, and it points at the line."""
+    err, out = call_tool("c64_audio_score",
+                         {"file": _score_file(tmp_path, UNPARSEABLE_SCORE)})
+    assert err is True
+    assert "cannot start any token" in str(out) and "line 3" in str(out)
 
 
 def test_audio_score_needs_no_session(tmp_path):

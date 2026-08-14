@@ -17,6 +17,7 @@ from c64lib.daemon import RUNNING, STOPPED, PetDaemon, _connect_vice, main
 from c64lib.daemon_client import DaemonMonitorClient
 from c64lib.monitor import StopInfo
 from c64lib.protocol import Command, ResponseType
+from c64lib.rpc import UNKNOWN_METHOD, UnknownDaemonMethod, raise_remote
 from tests.fake_vice import FakeVice, resp_frame
 
 
@@ -84,6 +85,34 @@ def test_unknown_method_rejected():
     b, f, t, _ = _talk(d)
     resp = _rpc(f, "os_system", "rm -rf /")
     assert resp["err"] == "ValueError"
+    b.close(); t.join(timeout=2)
+
+
+def test_unknown_method_carries_the_structural_code():
+    """A client falls back to its own loop on this and only this. The `code`
+    is what says so — the message stays for a client too old to read it."""
+    d, _ = _daemon()
+    b, f, t, _ = _talk(d)
+    resp = _rpc(f, "no_such_method")
+    assert resp["code"] == UNKNOWN_METHOD
+    assert "unknown daemon method" in resp["msg"]
+    with pytest.raises(UnknownDaemonMethod):
+        raise_remote(resp["err"], resp["msg"], resp.get("code"))
+    b.close(); t.join(timeout=2)
+
+
+def test_a_refused_scheduled_write_is_not_the_unknown_method_handshake():
+    """`_frame_writes` rejects an out-of-range write with a ValueError, and a
+    client that read that as "old daemon" would re-run the whole capture
+    window locally — performing the writes the daemon just refused."""
+    d, _ = _daemon()
+    b, f, t, _ = _talk(d)
+    resp = _rpc(f, "sid_log_at", 3, 1.0, {"1": [[0xD404, 999]]})
+    assert resp["err"] == "ValueError" and "code" not in resp
+    assert "out of range" in resp["msg"]
+    with pytest.raises(ValueError) as e:
+        raise_remote(resp["err"], resp["msg"], resp.get("code"))
+    assert not isinstance(e.value, UnknownDaemonMethod)
     b.close(); t.join(timeout=2)
 
 

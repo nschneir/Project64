@@ -61,7 +61,8 @@ class DaemonMonitorClient:
         if resp.get("id") != rid:
             raise ConnectionError("session daemon protocol desync")
         if "err" in resp:
-            rpc.raise_remote(resp["err"], resp.get("msg", ""))
+            rpc.raise_remote(resp["err"], resp.get("msg", ""),
+                             resp.get("code"))
         return rpc.decode_value(resp.get("ok"))
 
     def close(self) -> None:
@@ -166,7 +167,8 @@ class DaemonMonitorClient:
 
     def run_until(self, addr: int, timeout: float, count: int = 1) -> dict:
         """Daemon-side frame stepping: the whole count loop is one RPC.
-        Raises ValueError against a pre-run_until daemon (caller falls back)."""
+        Raises `rpc.UnknownDaemonMethod` against a pre-run_until daemon
+        (caller falls back)."""
         return self._call("run_until", addr, timeout, count,
                           _timeout=timeout + 5.0)
 
@@ -176,24 +178,28 @@ class DaemonMonitorClient:
         routine costs ~15 monitor commands, so per-sample round trips would
         dominate the measurement's wall clock, exactly as they did for
         `run_until`). Returns RAW counter deltas — `ops` adds the start slack
-        and owns the zero-raw guard. Raises ValueError against a
-        pre-profile_samples daemon (caller falls back to the local loop)."""
+        and owns the zero-raw guard. Raises `rpc.UnknownDaemonMethod` against
+        a pre-profile_samples daemon (caller falls back to the local loop)."""
         return self._call("profile_samples", addr, timeout, n, with_irq, trap,
                           _timeout=timeout + 5.0)
 
     def sid_log(self, frames: int, timeout: float, writes=None) -> list[bytes]:
         """Daemon-side per-frame SID sampling: the whole log is one RPC.
         Returns one 25-byte `$D400-$D418` block per captured frame — fewer
-        than `frames` if the daemon's deadline passed. Raises ValueError
-        against a pre-sid_log daemon (caller falls back).
+        than `frames` if the daemon's deadline passed. Raises
+        `rpc.UnknownDaemonMethod` against a pre-sid_log daemon (caller falls
+        back).
 
         `writes` — `{frame: [(addr, value), …]}` — schedules memory writes
         inside the window, and travels as the separate `sid_log_at` method so
-        a daemon too old for it raises that same ValueError instead of
-        ignoring the schedule: extra positional args are dropped silently,
+        a daemon too old for it raises that same UnknownDaemonMethod instead
+        of ignoring the schedule: extra positional args are dropped silently,
         and a capture that looks aimed and is not is the worst outcome
-        available. JSON has no integer keys, so the frames go over as
-        strings and `daemon._frame_writes` puts them back."""
+        available. A schedule a CURRENT daemon refuses (an out-of-range
+        write) raises a plain ValueError instead, which is the distinction
+        that keeps the caller from re-running the window. JSON has no integer
+        keys, so the frames go over as strings and `daemon._frame_writes`
+        puts them back."""
         if not writes:
             return self._call("sid_log", frames, timeout, _timeout=timeout + 5.0)
         schedule = {str(frame): [[addr, value] for addr, value in pairs]

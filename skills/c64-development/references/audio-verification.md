@@ -483,12 +483,14 @@ at that frame in the roll, and read forward from it, before touching code.
 
 ## WAV metrics and what they catch
 
-`wav_metrics` reports four things about `capture.wav`, and each catches a
+`wav_metrics` reports six things about `capture.wav`, and each catches a
 class of bug the register log is blind to:
 
 | Metric | What it catches |
 |---|---|
-| `duration_s` | That the capture really ran as long as you asked. Far short means the speed pin did not hold or the session died mid-capture — the whole artifact set is then suspect. |
+| `duration_s` | That the capture really ran as long as you asked — measured on the samples that decoded, not on the RIFF header. Far short means the speed pin did not hold or the session died mid-capture; the whole artifact set is then suspect. |
+| `header_duration_s` | What the file's header claims. Kept beside the measured length because the two disagreeing is itself the finding. |
+| `truncated` | True when the header outruns the samples by more than 0.1 s, and a FAIL by itself. VICE leaves both header size fields at a placeholder until the recorder's close is serviced — `audio capture` waits that out, but `c64 audio report --wav` and `c64_sid_report` read whatever is on disk, so this is what a WAV re-scored too early looks like. Every other metric then covers only the part that landed. |
 | `clipped_samples` | Three voices at volume 15 sum past full scale. Clipping is a mixing bug; every register in the log is perfect while the output crunches. |
 | `silence_windows` | The audio stopped. Cross-check with the roll: registers changing while the WAV is silent means `$D418` volume is 0 or the filter is swallowing the voices; registers static too means the sequencer or its IRQ died. A window sitting *under* a note the roll draws is the third anomaly above, and the report makes that cross-check for you. |
 | `rms_db_profile` | Level over time — an effect that drowns the music because nothing ducks it, a fade that never fades, a heartbeat that is supposed to grow and does not. |
@@ -587,12 +589,12 @@ every WAV finding with the roll before naming a cause.
   nothing, since the pinned rate is set by host latency. The separation is
   wide enough to be useful anyway: that same 200-frame log measured ~22/s
   pinned against ~425/s warped.
-- **The warning's threshold is fixed, and it is the NTSC one.** It fires
-  above 63/s — 60 fps plus a 5% margin — whatever machine the session is.
-  On a PAL session that leaves 50 to 63/s unflagged, although a 50 fps
-  machine cannot sample above 50/s either. Apply the machine's own frame
-  rate to `sample_rate_hz` yourself when the timeline matters; the built-in
-  warning is a backstop, not the check.
+- **The warning's threshold is the session's own frame rate.** It fires
+  above that rate plus a 5% margin — 63/s on an NTSC machine, 52.5/s on a
+  PAL one — so a PAL session sampling 55/s is flagged, which the fixed NTSC
+  ceiling (the rule until 2026-08-14) let through. It stays one-sided:
+  above the threshold proves the machine outran real time, below it proves
+  nothing. Pinning real time is the check; the warning is the backstop.
 
 Related: `references/hardware.md` for the SID register, ADSR and note
 tables; `references/cookbook.md` for working sound recipes; and, in the

@@ -49,8 +49,10 @@ ALLOWED = frozenset({
     # a SEPARATE method name rather than a third argument on purpose: an older
     # daemon ignores extra positional args, so a schedule sent that way would
     # be dropped without a word and the capture would look aimed and not be.
-    # An unknown method name is a ValueError the client can fall back on —
-    # the same mechanism `run_until` and `sid_log` were introduced with.
+    # An unknown method name is an `rpc.UnknownDaemonMethod` the client can
+    # fall back on — the same mechanism `run_until` and `sid_log` were
+    # introduced with, and told apart on the wire from the ValueError
+    # `_frame_writes` raises for a schedule this daemon refuses.
     "sid_log", "sid_log_at",
 })
 
@@ -186,8 +188,7 @@ class PetDaemon:
                                         rpc.decode_value(req.get("kwargs", {})))
                 resp["ok"] = rpc.encode_value(result)
             except Exception as e:              # marshalled to the client
-                resp["err"] = type(e).__name__
-                resp["msg"] = str(e)
+                resp.update(rpc.error_payload(e))
                 rpc.send_line(f, resp)
                 if isinstance(e, ConnectionError):
                     self._quitting = True       # x64sc died; nothing to restore
@@ -201,7 +202,11 @@ class PetDaemon:
     def _dispatch(self, client: socket.socket, method: str,
                   args: list, kwargs: dict):
         if method not in ALLOWED:
-            raise ValueError(f"unknown daemon method {method!r}")
+            # Its own type, not a bare ValueError: this is the handshake a
+            # client's fallback catches, and falling back re-runs the work.
+            # `rpc.error_payload` gives it the wire `code` that tells it apart
+            # from a ValueError raised by a method we DO have.
+            raise rpc.UnknownDaemonMethod(f"unknown daemon method {method!r}")
         if method == "status":
             return {"state": self.state}
         if method == "release":
@@ -254,10 +259,10 @@ class PetDaemon:
         (frame-stepping was ~0.5 s per arrival through per-hit RPCs).
 
         Same contract as the client-side loop it replaces: a persistent
-        checkpoint, the durable hit/hit_count fallback for lost STOPPED
-        events, machine STOPPED at the final arrival; on timeout (or the
-        client vanishing) the checkpoint is deleted and the machine is left
-        RUNNING with registers None."""
+        checkpoint, the hit_count fallback for lost STOPPED events (see the
+        comment on it below), machine STOPPED at the final arrival; on
+        timeout (or the client vanishing) the checkpoint is deleted and the
+        machine is left RUNNING with registers None."""
         deadline = time.monotonic() + timeout
         ck = self.mon.checkpoint_set(addr, op=CP_EXEC, temporary=False)
         for i in range(count):
@@ -276,7 +281,17 @@ class PetDaemon:
                 cur = next((c for c in self.mon.checkpoint_list()
                             if c.number == ck.number), None)
                 if cur is not None and (cur.hit or cur.hit_count > i):
-                    break                        # durable flag caught it
+                    # `hit_count` is the whole working half. CHECKPOINT_LIST's
+                    # `currently hit` byte is never set on VICE 3.10 — probed
+                    # 2026-08-14 on a direct monitor connection: a checkpoint
+                    # the machine was STOPPED on listed `hit=False
+                    # hit_count=1`, on two consecutive reads and again after a
+                    # resume. VICE fills that flag only in the CHECKPOINT_GET
+                    # response it pushes with the STOPPED event, which is the
+                    # very thing this branch exists because we lost. `cur.hit`
+                    # stays as a free upgrade if some later VICE starts
+                    # filling it in; it has never fired here.
+                    break
                 self.mon.resume()                # the list stopped the machine
                 r, _, _ = select.select([client], [], [], 0)
                 if r and client.recv(1, socket.MSG_PEEK) == b"":

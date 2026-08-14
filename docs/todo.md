@@ -21,7 +21,9 @@ acceptance are in `play.html`'s constants comment; the capture-aiming item
 was dropped as defused (fugue's `--align-log`, and `audio-verification.md`
 already records pin-or-omit as the standing duration tradeoff); and
 la-galaxia's `tick_overrun` flake was fixed outright by scoping both
-lifetime-mark asserts to their windows. Four items remain, all real work.
+lifetime-mark asserts to their windows. The 1.0.0 pre-release review then
+added one item of its own (`wait_for_break`, at the end of this file), so
+five items remain, all real work.
 
 ## No capture can be anchored to the frame top, and every evidence PNG churns
 
@@ -213,3 +215,45 @@ Leak: with the player live, boot and stop three times, then read
 `jQuery._data(window, "events").resize.length` in the console — 3 today, 0
 once `stop_emu_view()` unregisters. Footer: the sentence names where
 `EMU_BASE` actually points.
+
+## `wait_for_break`'s lost-event fallback can never fire on VICE 3.10
+
+**Anchor:** `src/c64lib/ops.py:732` (`wait_for_break`, the `ck.hit` poll);
+`src/c64lib/daemon.py` (`_run_until`'s equivalent expression); the corrected
+comments at ops.py's three `hit_count > i` sites, which carry the
+measurement.
+
+**Status:** filed 2026-08-14 by the 1.0.0 pre-release review's probe of a
+*different* (refuted) finding — the probe that cleared `profile_samples_loop`
+convicted this site instead.
+
+**What's wrong now.** `wait_for_break` polls CHECKPOINT_LIST's `hit` flag as
+its fallback for a lost STOPPED event, and its docstring claimed the flag
+stays "visible in CHECKPOINT_LIST even when the STOPPED event was lost".
+Measured on VICE 3.10 (direct monitor connection, once-reached checkpoint):
+**the `currently hit` byte is never set in a CHECKPOINT_LIST entry — not
+even while the machine sits stopped on that exact checkpoint.** VICE sets it
+only in the CHECKPOINT_GET response pushed with the stop event. Reproduced
+end to end: checkpoint hit with no client attached, fresh connection reads
+`hit=False, hit_count=1`, and `wait_for_break(timeout=3)` times out on a
+checkpoint that had already been hit. Nothing fails in the field only
+because the session daemon's single long-lived connection never loses the
+STOPPED event — the fallback is dead code guarding a case it cannot catch.
+The docstring was corrected to state the measurement; the behaviour was
+deliberately left alone.
+
+**Fix direction (not ruled — it is a redesign, not a patch).** Polling
+`hit_count` against a baseline taken at entry would detect a hit that
+happened while disconnected, but silently drops the "machine is already
+stopped at the breakpoint when the wait starts" case the flag poll was meant
+to catch; distinguishing the two needs the machine's stopped/running state
+read alongside the count. Whatever lands must keep `c64 wait --break`'s
+documented semantics (resumes, stops at the NEXT hit) and land on both front
+ends. A regression test now exists to catch the other direction:
+`tests/test_ops.py::test_checkpoint_list_hit_flag_is_not_latched` fails
+loudly if a future VICE starts filling the flag in.
+
+**How to verify.** With a checkpoint already hit and no event in hand (fresh
+connection), `wait_for_break` must report the hit rather than time out — the
+measured reproduction above is the test's shape — and the already-stopped
+case must still return immediately.

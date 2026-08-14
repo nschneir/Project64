@@ -121,6 +121,8 @@ from pathlib import Path
 from .daemon_client import DaemonMonitorClient
 from .machines import get_profile
 from .monitor import MonitorError
+from .protocol import check_resource_value
+from .rpc import UnknownDaemonMethod
 from .session import audio_pin_path
 
 #: VICE's recorder: the output path (set FIRST — arming with no arg drops a
@@ -168,12 +170,12 @@ _MAX_LEAD_IN_JIFFIES = round(JIFFY_HZ * 600)
 #: measuring it would cost another round trip — i.e. another frame.
 _LEAD_IN_LOOP_FRAMES = 1
 
-#: The fastest frame rate a supported machine has at real time (NTSC 60; PAL
-#: is 50). The sampling loop takes at most one sample per frame, so an
-#: observed rate above this is proof the session is running faster than real
-#: time — the only regime in which the loop drops frames.
-REALTIME_MAX_FPS = 60.0
-#: Slack on that comparison, so a machine at exactly real time never warns.
+#: Slack on the rate comparison, so a machine at exactly real time never
+#: warns. The rate is judged against the SESSION's own frame rate
+#: (`report_timing_for(session.model)["fps"]`) — a fixed NTSC 60 here left
+#: 50-63 samples/s unflagged on a PAL session, though nothing samples more
+#: than once per frame and 55/s already proves a 50 fps machine outran real
+#: time.
 WARP_RATE_MARGIN = 1.05
 
 #: Wall clock the sampling loop allows itself per requested frame, and its
@@ -631,8 +633,14 @@ def record_start(session, wav_path) -> str:
     Does NOT pin the speed: compose it with `pin_realtime`, or use
     `pinned_record_start`. Samples only accumulate while the machine runs,
     so the machine is left running.
+
+    A path the monitor cannot carry (over 255 bytes — see
+    `protocol.RESOURCE_MAX_BYTES`) is refused before the connection is
+    opened. Non-ASCII is not such a path: the value travels as UTF-8 and
+    VICE hands the same bytes back.
     """
     path = _abs(wav_path)
+    check_resource_value(REC_ARG, path)
     with session.monitor() as mon:
         try:
             mon.resource_set(REC_ARG, path)      # arg first, always
@@ -799,13 +807,13 @@ def sid_log_detail(session, frames: int, jsonl_path,
     assert; the useful separation is the size of the gap, ~22/s pinned
     against ~425/s warped for that same 200-frame log.
 
-    The warning's own ceiling is FIXED at `REALTIME_MAX_FPS` (60, the fastest
-    supported machine) times `WARP_RATE_MARGIN`, so it fires above 63/s and
-    nowhere else. On a PAL session that leaves a real gap: 50 to 63 samples a
-    second is already proof the machine was not running at 50 fps, and
-    nothing here says so. A caller that knows the machine model should apply
-    that model's frame rate as its own ceiling — always as a falsifier, never
-    as a target.
+    The warning's own ceiling is THIS machine's frame rate — the session
+    model's `fps`, times `WARP_RATE_MARGIN` — so it fires above 63/s on NTSC
+    and above 52.5/s on PAL. It was a fixed 60 until 2026-08-14, which left a
+    real gap on a PAL session: 50 to 63 samples a second is already proof the
+    machine was not running at 50 fps, and nothing said so. Read it as a
+    falsifier either way, never as a target: under the ceiling proves
+    nothing.
 
     `sample_rate_hz` is None when the whole log fit inside the clock's
     resolution — a rate no wall clock here can express, so there is no number
@@ -869,7 +877,7 @@ def sid_log_detail(session, frames: int, jsonl_path,
     # is not JSON. Reachable only if the whole log fit inside the clock's
     # resolution — which the warning then has to phrase without a number.
     rate = len(samples) / seconds if seconds > 0 else None
-    warning = _sid_log_warning(len(samples), frames, rate)
+    warning = _sid_log_warning(len(samples), frames, rate, clock["fps"])
     if warning is not None:
         # Library code writing to stderr, deliberately: the controller's rule
         # for this feature is "return payload AND stderr", because a warning
@@ -888,15 +896,24 @@ def _sample_frames(mon, frames: int, timeout: float,
     """Daemon-side loop when there is a daemon, client-side when there is
     not — `ops.run_until`'s shape, for `ops.run_until`'s reason: a per-frame
     RPC costs about 0.5 s, which would make a 50-frame log take half a
-    minute. A pre-sid_log daemon answers ValueError; take the local loop.
+    minute. A pre-sid_log daemon answers `UnknownDaemonMethod`; take the
+    local loop.
 
     `writes` travels WITH the loop for the same reason the loop is one RPC:
     a client that stepped in at frame N to poke would spend two round trips
     doing it, and at real time that is frames the log never sees. A daemon
-    too old for scheduled writes answers ValueError from the `sid_log_at`
-    method it does not have, and the fallback below performs them properly
-    rather than dropping them — a silently unaimed capture is worse than a
-    slow one.
+    too old for scheduled writes answers the same UnknownDaemonMethod from
+    the `sid_log_at` method it does not have, and the fallback below performs
+    them properly rather than dropping them — a silently unaimed capture is
+    worse than a slow one.
+
+    ONLY that error falls back, and the narrowness is the point: the local
+    loop re-runs the WHOLE frame window with the recorder still armed, so
+    taking it after a daemon-side ValueError — `daemon._frame_writes`
+    refusing an out-of-range scheduled write — would perform the writes the
+    daemon just refused, double the recorded window, and destroy the
+    log/WAV rate alignment this module's docstring rests on. A refused
+    schedule is the caller's error and propagates as one.
 
     Each branch leaves the machine running on its own, so the caller adds no
     resume of its own: a second one would cost a round trip and let two more
@@ -904,7 +921,7 @@ def _sample_frames(mon, frames: int, timeout: float,
     if isinstance(mon, DaemonMonitorClient):
         try:
             return mon.sid_log(frames, timeout, writes=writes)
-        except ValueError:
+        except UnknownDaemonMethod:
             pass
     return _sample_frames_client(mon, frames, timeout, writes)
 
@@ -934,8 +951,8 @@ def _sample_frames_client(mon, frames: int, timeout: float,
     return out
 
 
-def _sid_log_warning(written: int, requested: int,
-                     rate: float | None) -> str | None:
+def _sid_log_warning(written: int, requested: int, rate: float | None,
+                     fps: float) -> str | None:
     """The one thing the JSONL cannot say for itself: that its frame numbers
     may not be the machine's.
 
@@ -944,6 +961,12 @@ def _sid_log_warning(written: int, requested: int,
     caller who needs the other half. A `rate` of None means the log fit
     inside the clock's resolution, which is faster than any real-time machine
     can go and is said in words, there being no number to print.
+
+    `fps` is THIS machine's frame rate, from the session's own profile: the
+    loop samples at most once per frame, so it is the ceiling a rate has to
+    beat to prove anything, and it is the only honest one. A fixed 60 here
+    (the fastest supported machine) let a PAL capture sample 50-63 frames a
+    second and report nothing.
     """
     if written < requested:
         # Three causes reach here and only two of them are the caller's: the
@@ -954,12 +977,12 @@ def _sid_log_warning(written: int, requested: int,
         return (f"sid log stopped after {written} of {requested} frames; "
                 f"raise the timeout, check that the machine is running, or — "
                 f"if the command was interrupted — run it again")
-    if rate is not None and rate <= REALTIME_MAX_FPS * WARP_RATE_MARGIN:
+    if rate is not None and rate <= fps * WARP_RATE_MARGIN:
         return None
     how_fast = (f"sampled {rate:.0f} frames/s" if rate is not None else
                 f"sampled all {written} frames inside the clock's resolution")
     return (f"{how_fast}, faster than real time (a machine at 1x runs at most "
-            f"{REALTIME_MAX_FPS:g} frames/s): this session is warped, where an "
+            f"{fps:g} frames/s): this session is warped, where an "
             f"emulated frame is about as short as one sampling round trip, so "
             f"a frame can be dropped between records (200 samples covered 202 "
             f"elapsed frames when measured warped on an idle host, and more "
@@ -1086,6 +1109,11 @@ def pinned_record_start(session, wav_path) -> dict:
     measured, and neither's evidence is superseded by removing the
     dependency."""
     path = _abs(wav_path)
+    # BEFORE the pin, not inside `record_start`'s own check: arming happens
+    # after the machine is off warp, so a path the monitor cannot carry would
+    # otherwise cost the pin, the unwarp and a rollback to find out. Same
+    # reasoning as `_check_reference` and `_check_frame_writes`.
+    check_resource_value(REC_ARG, path)
     saved = pin_realtime(session)
     earlier = _read_pin(session)
     if earlier is not None:
@@ -1609,8 +1637,13 @@ def capture(session, seconds: float, outdir, ref_path=None, writes=None) -> dict
         _check_reference(ref_path)
     _check_frame_writes(writes, frames)
     outdir = Path(_abs(outdir))
-    outdir.mkdir(parents=True, exist_ok=True)
     wav, log = outdir / CAPTURE_WAV, outdir / CAPTURE_LOG
+    # Third of the pre-window checks, for `_check_reference`'s reason: an
+    # `outdir` so deep that the WAV's path outruns the monitor's one-byte
+    # length field is a capture that cannot be armed, and finding that out
+    # after the pin costs the whole window.
+    check_resource_value(REC_ARG, str(wav))
+    outdir.mkdir(parents=True, exist_ok=True)
 
     started = time.monotonic()
     jiffy_before = _read_jiffy(session)
