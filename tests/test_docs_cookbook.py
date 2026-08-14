@@ -248,6 +248,42 @@ LIVE_RECIPES = [
         {"assert": {"mem": "$D000", "equals": [32, 60, 80, 62, 128, 64, 48, 66,
                                                160, 68, 96, 70, 144, 72, 64, 74]}},
     ]),
+    ("asm-fixed88", "asm", "fixed88.s", [
+        # 162 frames of jiffy-paced motion, then the marker
+        {"wait": {"mem": "DONE", "equals": "$2a", "timeout": 30 * timeout_scale()}},
+        {"assert": {"mem": "FRAMES", "equals": 162}},
+        # the whole claim is that the step is 1.75 px and not 1 or 2: one
+        # frame moves the integer by 1 and banks $C0 of the next pixel, and
+        # 60 frames move it 145-40 = 105 px. Both are exact, not sampled.
+        {"assert": {"mem": "X1I", "equals": 41}},
+        {"assert": {"mem": "X1F", "equals": "$c0"}},
+        {"assert": {"mem": "X60I", "equals": 145}},
+        # one reversal by two's-complement negation: vx $01C0 -> $FE40
+        {"assert": {"mem": "BOUNCES", "equals": 1}},
+        {"assert": {"mem": "vx", "equals": [0x40, 0xFE]}},
+        # and the fraction the register never saw is still there at the end
+        {"assert": {"mem": "xi", "equals": 77}},
+        {"assert": {"mem": "xf", "equals": "$80"}},
+        {"assert": {"mem": "$D000", "equals": 77}},   # the integer byte only
+        {"assert": {"mem": "$D015", "equals": 1}},
+    ]),
+    ("asm-raster-highwater", "asm", "rasterhwm.s", [
+        # 180 frames in two windows, then the handler hands over and stops
+        {"wait": {"mem": "DONE", "equals": "$2a", "timeout": 30 * timeout_scale()}},
+        # the window the marks are scoped to actually ran
+        {"assert": {"mem": "FRAMES", "at_least": 180}},
+        # A mark is read with at_most/at_least, never equals: it is a ceiling
+        # or a floor claim, and the exact line count moves with the cycles
+        # per raster line of the model under test. Measured on `c64`
+        # (NTSC): HWMCHEAP 4, HWMBUSY 23.
+        {"assert": {"mem": "HWMCHEAP", "at_least": 1}},
+        {"assert": {"mem": "HWMCHEAP", "at_most": 8}},
+        {"assert": {"mem": "HWMBUSY", "at_least": 15}},
+        {"assert": {"mem": "HWMBUSY", "at_most": 40}},
+        # ...and the reason the mark exists: LAST is what a sampler reads,
+        # and 15 frames in 16 it reads the cheap frame instead of the spike.
+        {"assert": {"mem": "LAST", "at_most": 8}},
+    ]),
     ("asm-raster_chain", "asm", "rasterchain.s", [
         # 180 chain-driven ticks, then the handler unhooks itself
         {"wait": {"mem": "DONE", "equals": "$2a", "timeout": 30 * timeout_scale()}},

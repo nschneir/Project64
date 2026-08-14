@@ -133,11 +133,23 @@ Both CIAs expose the same 16 registers, at an offset from `$DC00` (CIA1) or
 
 Data pointers live at screen+`$3F8` (`$07F8-$07FF` for the default screen);
 pointer value = data address / 64. Visible X range starts at 24, Y at 50
-(a sprite at X<24 is partly off the left edge). Sprite Y for **text row R
-is `51 + 8*R`** — the 25-row display window spans rasters 51-250, so a
-sprite at Y=50 sits one raster line *above* row 0. Off by one raster line
-is invisible until a sprite lands next to text; the invaders dogfood
-shipped its UFO a line high through a whole audit iteration this way.
+(a sprite at X<24 is partly off the left edge).
+
+**A sprite whose Y register is `V` shows its first row on raster `V+1`.** The
+VIC fetches a sprite's data on the line where the raster reaches its Y and
+displays it on the next one, so the 21 rows occupy `V+1` through `V+21`.
+Measured: a solid 24×21 hires sprite (63 bytes of `$FF`, unexpanded) at
+`$D00D` = 100 occupies rasters **101-121**, exactly 21 rows.
+
+The 25-row display window spans rasters 51-250, so text row R's first raster is
+`51 + 8*R`, and **sprite Y for a sprite flush with the top of text row R is
+therefore `50 + 8*R`** — a sprite at Y=50 starts exactly *on* row 0's first
+line, not above it. Off by one raster line is invisible until a sprite lands
+next to text; the invaders dogfood shipped its UFO a line high through a whole
+audit iteration, then corrected it to `51 + 8*R`, which is one line the other
+way. That demo's constants are unchanged and it reads acceptably, but the rule
+it states in `demos/invaders/invaders.s` is this one, not that one — see
+`docs/todo.md`.
 
 A multicolor sprite (`$D01C` bit set) trades horizontal resolution for color:
 each color-pixel is 2 data bits and 2 screen-pixels wide (12×21) and each pair picks a color — `00` transparent,
@@ -161,6 +173,35 @@ Priority and collision gotchas:
 - For **multicolor** sprites, only bit-pairs `10` and `11` collide; `00`/`01`
   count as transparent for collision.
 
+## Frame budget (VIC-II)
+
+`c64 profile` reports cycles; this is the denominator. Without it a measured
+routine has no fraction-of-a-frame to be quoted as.
+
+| | NTSC (`c64`) | PAL (`c64pal`) |
+|---|---:|---:|
+| cycles per raster line | 63 | 63 |
+| raster lines per frame | 263 | 312 |
+| **cycles per frame** | **17,095** | **19,656** |
+| frames per second | 60 | 50 |
+| visible display lines | 51-250 | 51-250 |
+
+(NTSC's line is 65 cycles on the 6567R8; 63 × 263 and 65 × 263 are both quoted
+in the wild. 17,095 is the figure `docs/cli.md` measures against and the one to
+use here.)
+
+**Badlines.** On every eighth display line the VIC fetches the character matrix
+and stalls the 6510 for ~40-43 cycles. Twenty-five of them per frame, so the
+steal is roughly `25 × 43 ÷ 17,095` ≈ **6%** of an NTSC frame — which is why a
+screen-blanked compute loop (`$D011` bit 4 clear) runs about 5% faster, and why
+`c64 profile`'s wall-cycle counts are larger inside the display than in the
+border. `docs/cli.md` records the measured scale-back factor (×1.067).
+
+The practical consequence for a per-frame interrupt: work done in the **top
+border** (rasters 0-50) pays no badline steal at all, so a tick armed there and
+finished before line 51 is both cheaper and easier to measure than the same
+work done mid-screen.
+
 ## Video modes (VIC-II)
 
 - `$D011` — mode bits (bitmap enable bit 5, extended color bit 6, screen
@@ -173,6 +214,10 @@ Priority and collision gotchas:
   screen `$0400`, uppercase charset. **Leave the screen at `$0400`** — the
   toolset's screen reader assumes it.
 - `$D012` — raster line (read current / write compare for raster IRQ).
+  **It wraps at the end of the frame** (263 lines NTSC, 312 PAL), so code that
+  measures its own cost by subtracting two reads of `$D012` must run where it
+  cannot straddle the wrap — arm the interrupt in the top border and finish
+  before the display begins, and the subtraction is always positive.
 - `$D020` / `$D021` — border / background color (0-15). **These registers
   are 4 bits wide: reads return the unused high nybble set**, so after
   `POKE 53280,0` a read of `$D020` gives `$F0`, not `$00`. Mask with

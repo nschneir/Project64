@@ -113,6 +113,25 @@ Two channels, used for different things:
   (text) only decodes screen RAM — sprites and bitmap pixels are invisible
   to it, so a sprite demo must never claim "verified" from text output
   alone.
+- **The PNG has square pixels; the machine does not.** `c64 screen --png`
+  writes the raw raster, one PNG pixel per C64 pixel, with **no aspect
+  correction** and no flag to ask for one. A C64 pixel is about 0.74 as wide
+  as it is tall on NTSC (≈0.94 on PAL), so **a shape that is genuinely round
+  on a television reads as a 4:3-wide ellipse in the capture, and one that
+  looks round in the capture is ~29% too tall on the machine.** Never judge a
+  circle, a square, or any aspect claim by eye off an evidence PNG — measure
+  the bounding box and do the arithmetic. `demos/amiga_ball` is the worked
+  case: its ball measures 96 × 72 raster pixels and
+  `96 × 0.7435 / 72 = 0.991`, which is the claim, while every committed frame
+  of it looks like an ellipse.
+- **`c64 sprite png` and `c64 screen --png` do not agree on the palette.**
+  The first renders from a hardcoded table (`src/c64lib/sprites.py`'s
+  `C64_PALETTE`, Pepto lineage); the second asks the emulator over the binary
+  monitor (`src/c64lib/screen.py`, `mon.palette()`) and renders with whatever
+  palette VICE is configured with. Measured on one demo's two committed
+  artifacts of the same sprite: red is `(104, 55, 43)` from `sprite png` and
+  `(174, 71, 93)` from `screen --png`. Compare shapes between them, not
+  colours, until `docs/todo.md`'s item on this lands.
 
 ## 4. Testing policy
 
@@ -212,6 +231,7 @@ regenerates all of it in one command, and it should follow these five:
 | Stage unreachable states by poking the program's own state bytes | Cheaper and far more repeatable than playing to them — and they are the same bytes the YAML spec asserts on, so the evidence and the regression test agree by construction. |
 | Use `c64 call` only as the final action before a capture, then `run` again | The call's fake return address replaces the program's control flow; that run is over. A following `until` will time out on a label nothing executes any more, and it looks exactly like a wedged machine. The cost is the note below: this is the one capture the first rule cannot anchor. |
 | A capture that needs a key uses `key hold KEY --at <anchor>` | `key type` fills the type-ahead buffer, which a game reading the live matrix code at `$CB` never looks at. |
+| Step **one more tick** immediately before every capture | `c64 screen --png` returns the emulator's rolling scanline buffer, not a re-render of video RAM: lines the beam has swept show the current partial frame and lines below it show the **previous** one — arbitrarily stale after a warped or free-running phase. One extra `until <anchor> --count 1` flushes them. `demos/la-galaxia/tools/evidence.sh` learned this by shipping a capture with boot-screen light blue under the program's own border, and `demos/amiga_ball` needed it again; build it into the `shot()` helper so it cannot be forgotten. |
 
 The two helpers are worth stealing verbatim — one line each, and every
 capture in the file reads as a single verb:

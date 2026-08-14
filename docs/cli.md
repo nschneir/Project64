@@ -96,7 +96,11 @@ Boot a fresh emulated C64.
   straight into it; there is nothing to load afterwards. A sibling `.lbl` of
   the cartridge's stem is registered as the session's symbols if it is there.
 
-**Unattended `--headless` work on macOS belongs under `caffeinate -dimsu`.**
+**Any `--headless` session that may run while the machine is idle belongs under
+`caffeinate -dimsu`** — which, when an agent is driving rather than a person, is
+all of them. The trigger is the *machine* being idle, not the run being
+detached: an interactive session wedges just as readily while nobody is touching
+the keyboard, and a dogfood run spent real time on exactly that.
 A headless session is a minimized background process, and macOS idle-throttles
 one once the machine sits without user activity: the emulation loop slows until
 binary-monitor calls time out, while `x64sc` is still alive at ~2% CPU with its
@@ -104,8 +108,15 @@ ports still answering — so it presents as a wedged emulator rather than a slow
 one. The A/B that attributed it (three smokes wedging identically under the
 throttle, the same code clean the moment it was wrapped) is in `CHANGELOG.md`
 under the audio-pin work. Put the wrapper outside the whole detached run —
-`nohup caffeinate -dimsu /bin/zsh driver.sh &` — so it covers every child, and
+`nohup caffeinate -dimsu /bin/sh driver.sh &` — so it covers every child, and
 on each `c64` call as well if the command lines are being recorded as evidence.
+**`/bin/sh`, not `/bin/zsh`:** the `C=`/`S=` helper idiom
+`docs/graphics-and-sprites.md` §5 hands you relies on word splitting, and zsh
+does not word-split unquoted parameter expansions — under it the whole
+`-s NAME` arrives as a single argument and the failure reads
+`error: no session named ' NAME'`, which looks like a session problem rather
+than a quoting one. Every shipped `demos/*/tools/*.sh` carries `#!/bin/sh` for
+this reason.
 
 Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
@@ -610,6 +621,19 @@ Measure the cycle cost of one routine: a fake JSR at `REF` exactly like
 `c64 call`, with CIA#2 timers A+B cascaded into a 32-bit hardware cycle
 counter across the run. Reports the cycles from the routine's first
 instruction through its own RTS.
+
+**It cannot price an interrupt handler in situ, and the fix is how you write
+the handler.** A fake JSR needs a callable entry ending in `RTS`; a raster
+handler entered through `$0314` has neither, and `--with-irq` leaves interrupts
+live during a measurement of something else rather than measuring the handler.
+So structure the handler as a thin wrapper — acknowledge `$D019`, `jsr` the
+job, exit — and put the whole per-frame job in a subroutine ending in `rts`.
+`c64 profile <job>` then prices exactly the work the frame does.
+`demos/amiga_ball` is built this way (`tick`) and reads 450-480 cycles mean.
+Pair it with a **program-kept raster high-water mark**, which is the only
+instrument that sees the cost `profile` cannot — `profile` masks interrupts, so
+it never observes the frame where the handler collides with anything else. The
+cookbook has the mark; `docs/graphics-and-sprites.md` §4 has the policy.
 
 - `REF` — address or symbol of a subroutine ending in RTS.
 - `--samples N` (default `1`) — price N consecutive arrivals and report the

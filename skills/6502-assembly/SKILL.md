@@ -218,10 +218,12 @@ the `c64-development` skill's hardware reference, "Sprites" section.
    wrong 63 bytes.
 4. X is in the visible range **24-343** (X > 255 needs its bit set in
    `$D010`, one bit per sprite).
-5. Y is in the visible range **50-249**. To align with text, sprite Y for
-   text row R is `51 + 8*R` — the 25-row window spans rasters 51-250, so
-   Y=50 is one raster line *above* row 0 (see the hardware reference's
-   Sprites section).
+5. Y is in the visible range **50-249**. A sprite whose Y register is `V`
+   shows its first row on raster **`V+1`** (measured: a solid sprite at
+   Y=100 occupies rasters 101-121). The 25-row window spans rasters 51-250,
+   so text row R starts at `51 + 8*R` and sprite Y for a sprite flush with
+   it is `50 + 8*R` — Y=50 starts exactly *on* row 0, not above it (see the
+   hardware reference's Sprites section).
 6. Nothing has overwritten the sprite's own 63 bytes of data — a program
    that grew into its data region is a common cause (below).
 

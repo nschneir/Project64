@@ -17,14 +17,23 @@ friction log kept while the work happened rather than remembered after it.
 Every proposal below names **both front ends**, because a CLI proposal without
 an MCP counterpart is not a proposal (`AGENTS.md`, "Code quality").
 
-Everything from *`c64 screen --png` writes uncorrected raster* onward is the
-**amiga_ball dogfood's** post-mortem (2026-08-14), kept the same way. Its
-through-line is worth stating once: all twelve are about the *instruments*
-rather than about the C64. The demo's own defects were caught by the machine
-within minutes each; what cost time was evidence that looks conclusive and is
-not — a PNG that makes a round ball elliptical, a report that cannot say
-whether it checked anything, two renderers that disagree about a colour, and a
-shipping checklist that exists only as a red suite.
+Everything from *`c64 sprite png` and `c64 screen --png` disagree about the
+palette* onward is what remains of the **amiga_ball dogfood's** post-mortem
+(2026-08-14), kept the same way. It filed thirteen; **eight landed on
+2026-08-14** and were deleted per the rule above — the uncorrected-raster
+caveat and the palette divergence are now in `docs/graphics-and-sprites.md` §3,
+the scanline-flush rule is a sixth row of its §5 table, `hardware.md` gained a
+frame-budget table and the `$D012` wrap constraint, `docs/cli.md` gained the
+`c64 profile`-cannot-price-an-IRQ note and lost its zsh driver example, and the
+cookbook gained two live-tested recipes (the per-frame raster high-water mark
+and 8.8 fixed-point motion).
+
+The through-line is worth keeping even as the items go: nearly all of them were
+about the *instruments* rather than about the C64. The demo's own defects were
+caught by the machine within minutes each; what cost time was evidence that
+looks conclusive and is not — a PNG that makes a round ball elliptical, a
+report that cannot say whether it checked anything, two renderers that disagree
+about a colour, and a shipping checklist that exists only as a red suite.
 
 ## A plan deliverable was destroyed by the SDD workspace cleanup
 
@@ -393,33 +402,7 @@ semitones off the nearest label. The second is cheaper and works at any range.
 **How to verify.** Generate a roll over a 33-semitone passage and name a bar's
 pitch from the image alone, without opening `report.md`.
 
-## No cycles-per-frame budget anywhere in `skills/`
-
-**Anchor:** `skills/c64-development/references/hardware.md` — the VIC-II
-sections; `docs/cli.md`'s `c64 profile`, which is currently the only place the
-number appears.
-
-**Status:** open. Carried over from the iteration-3 planning notes and verified
-against the tree on 2026-08-12 rather than assumed.
-
-**What's wrong now.** `c64 profile` reports cycles, and `docs/cli.md` supplies
-the denominator inline in its own prose — "25 badlines × ~43 cycles ÷ 17,095"
-and "comfortably inside the 19,656-cycle PAL frame". Nothing in `skills/` does.
-The closest `hardware.md` gets is "VIC stealing 6510 cycles — a screen-blanked
-compute loop runs ~5% faster", which is the effect without a number, and
-`grep -rn 'badline' skills/` returns nothing at all. So an agent working from
-the skill alone can measure a routine and has no way to say what fraction of a
-frame it spent; `demos/1812/AUDIT.md` had to state 17,095 itself.
-
-**Fix direction (ruled by placement, not by content).** A short timing block in
-`hardware.md`'s VIC-II material: cycles per raster line and lines per frame for
-both standards (NTSC 65 × 263 = 17,095; PAL 63 × 312 = 19,656), and the badline
-steal as a fraction rather than as "~5%". No CLI surface changes, so lockstep
-does not apply.
-
-**How to verify.** `grep -rn '17,095\|19,656' skills/` returns the table, and
-`tests/test_docs_skills.py` stays green.
-
+## The demos are proved on Commodore ROMs and shipped on open ones
 ---
 
 The items below are the browser-play plan's deferrals, filed 2026-08-13 as that
@@ -428,7 +411,7 @@ produced them lived in `.superpowers/sdd/2026-08-02-browser-playable-demos/`,
 which is deleted with the plan, so an item that merely cited it would resolve to
 nothing — the failure this file's own first entry is about.
 
-## The demos are proved on Commodore ROMs and shipped on open ones
+
 
 **Anchor:** `demos/{snake,invaders,ms-muncher,la-galaxia}/test.yaml` and
 `c64 test run`; `play.html`'s `KERNAL_ROM_URL` / `BASIC_ROM_URL` /
@@ -727,75 +710,6 @@ an unchanged tree and count. Today that is not 5/5; whatever lands must make it
 5/5, and must still fail if `keydecode` is broken on purpose (poke a `rts` over
 its first byte and confirm the step goes red).
 
-## `c64 screen --png` writes uncorrected raster, and nothing says so
-
-**Anchor:** `src/c64lib/screen.py`'s `screenshot`; `c64 screen --png` in
-`docs/cli.md`; `docs/graphics-and-sprites.md` §3 ("Screenshots are evidence")
-and §5 (committed PNGs are "load-bearing for review").
-
-**What's wrong now.** The capture is the raw NTSC raster at one PNG pixel per
-raster pixel — verified: a sphere measuring 96×72 raster px came out as a
-176×136 red-checker bbox at `--scale 2`. The machine's pixel aspect ratio is
-≈0.7435 (320 px across ≈430 dots of a 52.6 µs active line; 200 lines of ≈240
-active). So **a shape that is genuinely round on a television necessarily reads
-as a 4:3-wide ellipse in the committed PNG, and one that looks round there is
-29% too tall on the machine.**
-
-`c64 screen --help` lists `--png`, `--scale`, `--border`, `--codes`, `--style`,
-`--ansi-reverse`, `--numbered`, `--json`: no aspect option.
-`git grep -nI -i aspect -- docs skills` finds nothing about display aspect —
-the only hits are `demos/1812` prose about the *multicolor* 2:1 pixel, which is
-a different thing.
-
-This is not hypothetical. `demos/amiga_ball`'s central claim is that its ball is
-round; its `SPEC.md` originally asked reviewers to judge that off the evidence
-frames, which would have got the wrong answer every time. The demo now carries
-the rule as §13.1 B and scores roundness as a measured 96×72 bounding box
-(criterion 28) instead.
-
-**Fix direction (not ruled).** Either is a real fix; the second is the cheap one.
-
-- Both front ends: `c64 screen --png --aspect` / `c64_screenshot(aspect=True)`,
-  resampling to square *picture* pixels using the session model's PAR. Take the
-  number from the machine profile in `machines.py` (NTSC ≈0.7435, PAL ≈0.936),
-  not from the call site.
-- Or one sentence in `docs/cli.md`'s `c64 screen` entry and in
-  `docs/graphics-and-sprites.md` §3 saying the capture is uncorrected raster and
-  that circles are judged by bounding box, not by eye.
-
-**How to verify.** Capture any known-round sprite and measure its bbox: it must
-be ≈1.345× wider than tall in the PNG. With `--aspect`, width and height must
-come out equal for the same sprite, and a PAL session must produce a different
-correction than an NTSC one from the same program.
-
-## The screenshot flush rule is a demo's private knowledge, not the policy's
-
-**Anchor:** `docs/graphics-and-sprites.md` §5, "The shape of an evidence
-script" — the five-rule table; `demos/la-galaxia/tools/evidence.sh` rule 2.
-
-**What's wrong now.** `c64 screen --png` returns the emulator's rolling
-scanline buffer rather than a re-render of video RAM: lines the beam has swept
-show the current partial frame and lines below it show the *previous* one,
-which after a warped or free-running phase is arbitrarily stale. The fix is one
-extra `until tick --count 1` immediately before every capture.
-
-That rule is not among the five. `git grep -nI -e "rolling scanline" -e flush
--- docs skills` returns nothing relevant (the `flush` hits are the keyboard
-buffer at `$C6`). It exists only inside `demos/la-galaxia/tools/evidence.sh`,
-which states it as its own rule 2 with the symptom recorded: "the first capture
-ever taken here had boot-screen light blue under the program's own border".
-
-`demos/amiga_ball` is the second demo to need it, which is this file's own
-"one instance is an inconvenience, two is a missing primitive" test (§6 of the
-graphics policy) coming due.
-
-**Fix direction (ruled: doc change, not code).** Promote it to a sixth row of
-the §5 table. The one-tick flush works; nothing needs building.
-
-**How to verify.** `git grep -nI "flush" docs/graphics-and-sprites.md` names the
-rule, and a new demo's evidence script written only from the policy produces
-byte-identical PNGs across two runs from a cold session.
-
 ## `c64 sprite png` and `c64 screen --png` disagree about the palette
 
 **Anchor:** `src/c64lib/sprites.py:19-25` (`C64_PALETTE`);
@@ -943,145 +857,6 @@ else, run `pytest tests/test_docs_demos.py -m "not vice"`, and count how many
 failures name a file the prompt never mentioned. The checklist is correct when
 that count is zero because the author was told first.
 
-## No reference shows the per-frame raster mark the graphics policy requires
-
-**Anchor:** `docs/graphics-and-sprites.md` §4 ("A per-frame budget is measured
-by the program, not by the harness"); `skills/c64-development/references/cookbook.md`;
-`skills/c64-development/SKILL.md:513-522`.
-
-**What's wrong now.** The policy makes the instrument mandatory —
-
-> If the quantity resets every frame … then the *program* keeps the high-water
-> mark and the test reads that mark
-
-— and gives La Galaxia's numbers as the worked case (a sampler read 4 against a
-mark of 88). No reference shows how to build one. `git grep -nI -i "high-water"
--- skills docs` returns three hits: the two policy sentences above, and
-`SKILL.md:515`, which offers "a bitmask of the events seen so far, or a
-high-water mark" purely as a *testing* substitute for BASIC programs with no
-label to anchor on. Neither the cookbook's raster-chain recipe nor any other
-shows the four instructions, and the raster-chain recipe measures a different
-thing (`OVERRUN`/`MIDFRAME` counters, not a cost mark).
-
-`demos/amiga_ball` wrote it from scratch: sample `$D012` at handler entry,
-subtract at exit, keep the max. It also had to discover the constraint that
-makes the number meaningful — `$D012` wraps at 263, so the interrupt must fire
-where the tick cannot straddle the wrap (this demo arms at raster 10 and
-finishes inside the top border, before the display starts at 51).
-
-**Fix direction (not ruled).** A short cookbook recipe: the four instructions,
-the wrap constraint, the fact that `c64 profile` cannot substitute (below), and
-the zero-it-then-scope-the-window discipline §4 already demands.
-
-**How to verify.** The recipe assembles and runs as the cookbook's live-recipe
-tests require, and its mark tracks a deliberately inflated frame.
-
-## `c64 profile` cannot price an interrupt handler in situ
-
-**Anchor:** `c64 profile` in `docs/cli.md`; `skills/c64-development/SKILL.md`'s
-one-line mention.
-
-**What's wrong now.** `c64 profile REF` is a fake JSR at a label with the I flag
-set, so it prices a *routine*. A raster handler entered through `$0314` has no
-callable entry, and `--with-irq` leaves interrupts live during a measurement of
-something else rather than measuring the handler. So the one command that
-reports cycles cannot answer "what does my per-frame interrupt cost", which is
-the question every demo with a raster IRQ actually has.
-
-There is a good workaround and it is written down nowhere: make the handler a
-thin wrapper that acknowledges, calls, and exits, and put the whole job in a
-subroutine ending in `rts`. `c64 profile tick` then prices the job exactly.
-`demos/amiga_ball` is built this way and measures 481 cycles mean over 16
-arrivals.
-
-**Fix direction (ruled: document, don't build).** One paragraph in `c64
-profile`'s `docs/cli.md` entry, and a line in the raster-interrupt material,
-saying the handler-as-wrapper shape is what makes an IRQ measurable — and
-pairing it with the program-kept mark above, which is what catches the cost
-`profile` cannot see because it masked the interrupts.
-
-**How to verify.** The docs name the shape; a demo following them can report
-both a `c64 profile` figure and a program-kept raster mark for the same tick.
-
-## Nothing in `skills/` covers fixed-point motion
-
-**Anchor:** `skills/c64-development/references/cookbook.md`;
-`skills/6502-assembly/SKILL.md`.
-
-**What's wrong now.** Smooth motion at sub-pixel velocity is the standard C64
-technique and no recipe covers it. `git grep -nI -i -e "8\.8" -e "fixed.point"
--e "sub-?pixel" -- skills docs` returns two hits, both the LFSR's *mathematical*
-fixed point ("0 is the LFSR's fixed point"), which is a different sense of the
-words. The cookbook has a signed multiply by quarter squares and a jiffy-paced
-sweep that moves whole pixels; there is nothing on a fractional accumulator.
-
-`demos/amiga_ball`'s prompt asks for "a constant-velocity sweep in 8.8 fixed
-point" by name, so the demo invented it: a two-byte position, a signed two-byte
-velocity, `clc`/`adc` on the low byte then the high, and reversal by two's
-complement negation of both velocity bytes.
-
-**Fix direction (not ruled).** A cookbook recipe: the accumulator, the carry
-discipline, negation for reversal, and the one trap — that the integer byte is
-what the sprite register takes, so a bound is tested on the integer while the
-fraction keeps accumulating.
-
-**How to verify.** The recipe assembles and runs under the cookbook's live
-tests, and a sprite driven by it advances by a non-integer number of pixels per
-frame measured over 60 frames.
-
-## `docs/cli.md` sends a driver to zsh; the graphics policy hands it `sh`-only helpers
-
-**Anchor:** `docs/cli.md:107` (`nohup caffeinate -dimsu /bin/zsh driver.sh &`);
-`docs/graphics-and-sprites.md:219-223`, the helper snippet it calls "worth
-stealing verbatim".
-
-**What's wrong now.** The helpers are
-
-```sh
-C=".venv/bin/c64"; S="-s mmev"
-shot()  { $C screen --png "$OUT/$1.png" --scale 2 $S >/dev/null; … }
-```
-
-`$S` unquoted relies on word splitting, and **zsh does not word-split unquoted
-parameter expansions**. Under `/bin/zsh` the whole `-s mmev` arrives as one
-argument and click reads the session name as `" mmev"`. Hit verbatim during the
-amiga_ball dogfood: `error: no session named ' ball'` — a message that reads as
-a session problem rather than a quoting one, which is what makes it expensive.
-
-The two are reconciled today only by accident: all seven shipped
-`demos/*/tools/*.sh` carry `#!/bin/sh` and each documents itself as `sh
-demos/<name>/tools/…`. A reader who follows cli.md's line loses that.
-
-**Fix direction (not ruled).** Make cli.md's example `/bin/sh`, or make the
-policy's helpers shell-agnostic by dropping `$S` for `-s "$SESSION"` at each
-call site. One-line change either way.
-
-**How to verify.** Run any demo's evidence script under `zsh` explicitly; it
-must either work or fail with a message naming the shell, not a session.
-
-## "Unattended" undersells when the idle throttle bites
-
-**Anchor:** `docs/cli.md:99`, under `c64 session start`.
-
-**What's wrong now.** The heading is "**Unattended `--headless` work on macOS
-belongs under `caffeinate -dimsu`.**" The mechanism the same paragraph then
-describes is macOS idle-throttling a minimized background process "once the
-machine sits without user activity" — which is not the same predicate. A
-headless session wedges whenever *the human* stops touching the Mac, detached or
-not.
-
-An amiga_ball implementer hit it during ordinary interactive work and lost real
-time to a session that "presents as a wedged emulator rather than a slow one",
-exactly as documented — while reading a heading that says the warning was for
-someone else. When an agent is driving, essentially every session qualifies.
-
-**Fix direction (ruled: reword).** Change the trigger from "unattended" to any
-headless session that may run while the machine is idle, and say that an
-agent-driven session is always that.
-
-**How to verify.** The paragraph's first sentence states the predicate the rest
-of it describes.
-
 ## The WAV/log bracket is wider than `docs/cli.md` records
 
 **Anchor:** the capture bracket figures in `docs/cli.md`'s `c64 audio capture`
@@ -1103,66 +878,34 @@ narrower than it holds.
 **How to verify.** `c64 audio capture` on two hosts, comparing `wav_bytes`
 against `frames` × the sample rate; the documented figure must bracket both.
 
-## The sprite-Y row formula is one high, in the paragraph warning about it
+## `demos/invaders` places its sprites a raster below flush, unre-judged
 
-**Anchor:** `skills/c64-development/references/hardware.md:137`;
-`skills/6502-assembly/SKILL.md:222`; `demos/invaders/invaders.s:51`,
-`sprites.s:50`, `test.yaml:47`, `AUDIT.md:108`.
+**Anchor:** `demos/invaders/invaders.s`'s `TOPRASTER` block and
+`sprites.s`'s comment above `BASESPY`/`UFOSPY`; `demos/invaders/test.yaml:47`
+(`$D001` = 227); `skills/c64-development/references/hardware.md`, Sprites.
 
-**Status:** measured, **not acted on** — it contradicts a deliberate earlier
-finding in five places and wants a ruling, not a patch.
+**Status:** narrowed. **The general rule is fixed** — a sprite whose Y register
+is `V` shows its first row on raster `V+1`, so flush with text row R is
+`50 + 8*R`, and both `hardware.md` and `skills/6502-assembly/SKILL.md` now say
+so with the measurement (a solid 24×21 hires sprite at `$D00D` = 100 occupies
+rasters 101-121, exactly 21 rows). Both invaders sites that stated the rule
+wrongly are corrected and now describe what that demo actually does. Its
+constants are untouched and `invaders.prg` is byte-identical, so its tests and
+evidence frames are unaffected.
 
-**What's wrong now.** `hardware.md` says:
+**What's left.** `BASESPY`/`UFOSPY` are `51 + 8*R`, one raster below flush.
+That is now *documented* as deliberate — it keeps the UFO clear of the HUD's
+bottom pixel row, which is what that demo's audit judged by eye — but nobody
+has re-judged it since the rule was corrected. It may be exactly right, and one
+raster on a 21-row sprite is at the edge of visible; it is recorded so the next
+person to look at those constants knows they are a choice rather than the rule.
 
-> Sprite Y for **text row R is `51 + 8*R`** — the 25-row display window spans
-> rasters 51-250, so a sprite at Y=50 sits one raster line *above* row 0.
+**Fix direction (not ruled).** Either confirm the placement by eye against
+`demos/invaders/evidence/ufo.png` and delete this item, or move both constants
+to `50 + 8*R`, which changes `test.yaml`'s 227 to 226 and re-takes the evidence
+frames.
 
-Measured on VICE, decisively and with nothing inferred from art that might have
-a blank top row: a **solid** 24×21 hires sprite (63 bytes of `$FF`, unexpanded,
-`$D01C` bit clear) with `$D00D` = 100 occupies rasters **101-121** — exactly 21
-rows. So a sprite whose Y register is `V` displays its first row on raster
-**`V+1`**.
-
-The same capture pins the other half: the wall grid's horizontal rules, which
-`demos/amiga_ball/tools/gen_room.py` puts on the *top scanline* of text rows 0,
-3, 6, 9 and 12, measured at rasters **51, 75, 99, 123, 147** — so text row R's
-top raster really is `51 + 8R`.
-
-Put together, aligning a sprite's first row with the top of text row R needs
-`Y = 50 + 8R`, and a sprite at Y=50 starts exactly **on** row 0's first raster
-rather than one line above it. Both sentences are one high.
-
-Independently confirmed on `demos/amiga_ball` itself: `$D001` = 158 puts the
-checkers at rasters 167-234, and they are inset one rim texel, so the sphere
-spans 165-236 and the sprite's row 0 sits at 159 = 158 + 1. Solving the
-top and bottom edges together gives the sphere's first and last checker texel
-rows as 4 and 37 — symmetric about 20.5, as the generator draws them — which
-is the consistency check that rules out an off-by-one in the reading.
-
-**Why this is not simply a doc fix.** `demos/invaders` reached the opposite
-conclusion on purpose and encoded it four times, including
-`sprites.s:50` — "text row R is `51 + 8*R` — not `50 + 8*R`. One line out and
-the UFO…" — and `test.yaml:47`, which asserts `$D001` = 227 for text row 22.
-Under the measurement above those sprites sit one raster **low**. That may be
-what its audit judged to look right by eye, in which case the demo is fine and
-only the *general rule* stated in `skills/` is wrong; or the correction
-overshot. Nobody should decide that from a spectrogram of someone else's
-screenshot.
-
-The irony is worth recording: the sentence in question is the one warning that
-"the invaders dogfood shipped its UFO a line high".
-
-**Fix direction (not ruled).** Re-measure with the solid-sprite method above,
-then either (a) correct both `skills/` sentences to `50 + 8*R` and leave the
-demos alone as a deliberate one-line-low placement, saying so where they assert
-it; or (b) correct the sentences *and* the demos, which moves
-`demos/invaders`'s sprite positions, its `test.yaml` constants and its evidence
-frames. (a) is much the cheaper and is probably right, since what a game wants
-is what looks right rather than what is arithmetically flush.
-
-**How to verify.** The experiment is four commands and needs no demo: poke 63
-bytes of `$FF` into a free 64-byte block, point a disabled sprite's pointer at
-it, set its Y, enable it, and read the first and last raster it occupies off
-`c64 screen --png` (inner capture: PNG row 0 is raster 51, PNG column 0 is
-sprite X 24). Whatever lands must make that experiment and the `skills/`
-sentence agree.
+**How to verify.** Whichever way it goes, `demos/invaders/sprites.s`'s comment
+and `hardware.md`'s Sprites section must still agree about the general rule,
+and `c64 build demos/invaders/invaders.s` must reproduce the committed
+`invaders.prg` (`tests/test_docs_demos.py::test_demo_prg_is_a_build_of_the_committed_sources`).

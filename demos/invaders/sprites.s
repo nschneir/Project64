@@ -46,9 +46,13 @@ sicp:   lda     sprite0,x
         sta     $D01D                   ; no horizontal expand
         sta     $D01B                   ; sprites in front of the characters
         sta     $D015                   ; nothing enabled until a state asks
-        ; The 25-row display window starts at raster 51, so the sprite Y for
-        ; text row R is 51 + 8*R — not 50 + 8*R. One line out and the UFO
-        ; clips the bottom pixel row of the HUD.
+        ; The 25-row display window starts at raster 51, so text row R starts
+        ; at 51 + 8*R.  A sprite's first row shows on Y+1, so FLUSH with that
+        ; row is Y = 50 + 8*R; the constants below are 51 + 8*R and therefore
+        ; sit one raster lower, which is what keeps the UFO clear of the HUD's
+        ; bottom pixel row.  Deliberate, and not the general rule —
+        ; hardware.md's Sprites section has that, and docs/todo.md has why
+        ; this demo differs.
         lda     #BASESPY
         sta     $D001                   ; base Y: text row 22
         lda     #UFOSPY

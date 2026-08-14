@@ -36,8 +36,10 @@ Assembly:
 - [Time a routine and print the jiffies (LINPRT)](#time-a-routine-and-print-the-jiffies-linprt)
 - [IRQ wedge: run code 60×/second behind BASIC](#irq-wedge-run-code-60second-behind-basic)
 - [Sprite setup and movement](#sprite-setup-and-movement)
+- [Smooth sub-pixel motion: 8.8 fixed point](#smooth-sub-pixel-motion-88-fixed-point)
 - [Sprite multiplexer: more objects than sprites](#sprite-multiplexer-more-objects-than-sprites)
 - [Raster event chain: one sorted interrupt list per frame](#raster-event-chain-one-sorted-interrupt-list-per-frame)
+- [Per-frame raster budget: a high-water mark the program keeps](#per-frame-raster-budget-a-high-water-mark-the-program-keeps)
 - [Custom character set: copy the ROM charset to RAM and redefine glyphs](#custom-character-set-copy-the-rom-charset-to-ram-and-redefine-glyphs)
 - [Multicolor bitmap: mode, clear, and one masked span](#multicolor-bitmap-mode-clear-and-one-masked-span)
 - [Read the screen code you are moving into (collision by glyph)](#read-the-screen-code-you-are-moving-into-collision-by-glyph)
@@ -1495,6 +1497,181 @@ text never shows them. Verify with register reads (`$D015`, `$D000/$D001`)
 and `c64 screen --png`; X > 255 additionally needs the MSB bit in `$D010`
 (see hardware.md).
 
+### Smooth sub-pixel motion: 8.8 fixed point
+
+`$D000` takes whole pixels, so a program that keeps its position in one byte
+has exactly one slow speed: 1 pixel per frame is 60 px/s, 2 is 120, and
+there is nothing in between. Everything that has to drift, ease or fall
+needs the fraction, and the C64 way to keep one is **8.8 fixed point**: the
+position is two bytes, integer and fraction, and so is the velocity, added
+to it once a frame. `$01C0` is 1.75 px/frame — `$01` whole pixels plus
+`$C0`/256 = 0.75 — and the whole of the motion is a two-byte add.
+
+Two things make it work and one is a trap:
+
+- **The carry is the arithmetic, not a leftover.** `clc` before the *low*
+  add and deliberately not before the high one: the carry out of the
+  fraction byte is the pixel the fraction just completed, and the high `adc`
+  is what collects it.
+- **Reverse by negating the velocity as one 16-bit two's complement** —
+  subtract both bytes from zero with the borrow carried between them. There
+  is no separate "moving left" code path: `$FE40` is `-$01C0`, and adding it
+  is the identical pair of instructions.
+- **The trap: bounds are tested on the integer byte, and only on it.** That
+  byte is what the sprite register takes, so it is also what "has the ball
+  reached the wall" has to mean — while the fraction underneath keeps
+  accumulating and is compared with nothing. A bound test that tries to
+  involve the fraction is testing a quantity the display never showed.
+
+```asm
+; fixed88.s — 8.8 fixed-point sprite motion: 1.75 px/frame, reversed by negation.
+SPDATA  = $0340                 ; block 13 (832 = 13*64); tape buffer, unused
+JIFFLO  = $A2
+VX_INIT = $01C0                 ; 1.75 px/frame: $01 = one pixel, $C0 = 192/256
+XI_INIT = 40
+XMIN    = 24                    ; the bounds are on the INTEGER byte, and both
+XMAX    = 200                   ;   sit under 256 so $D010 stays out of it
+TOTAL   = 162
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  ldx     #62             ; a solid 24x21 square to watch
+fill:   lda     #$FF
+        sta     SPDATA,x
+        dex
+        bpl     fill
+        lda     #13
+        sta     $07F8           ; sprite 0 pointer: block 13
+        lda     #7
+        sta     $D027
+        lda     #120
+        sta     $D001
+        lda     #1
+        sta     $D015
+
+        lda     #XI_INIT        ; position: integer byte and fraction byte
+        sta     xi
+        lda     #0
+        sta     xf
+        sta     FRAMES
+        sta     BOUNCES
+        sta     DONE
+        lda     #<VX_INIT       ; velocity: signed, same 8.8 layout
+        sta     vx
+        lda     #>VX_INIT
+        sta     vx+1
+
+loop:   lda     JIFFLO          ; one step per frame (the jiffy clock paces it)
+wait:   cmp     JIFFLO
+        beq     wait
+        jsr     step
+        lda     xi
+        sta     $D000           ; the register takes the INTEGER byte only
+        inc     FRAMES
+        lda     FRAMES
+        cmp     #1              ; snapshots, so the sub-pixel claim is checkable
+        bne     l60             ;   from outside: 1 frame = +1 px and $C0 left
+        lda     xi              ;   over, 60 frames = +105 px = 1.75 each
+        sta     X1I
+        lda     xf
+        sta     X1F
+l60:    lda     FRAMES
+        cmp     #60
+        bne     ldone
+        lda     xi
+        sta     X60I
+ldone:  lda     FRAMES
+        cmp     #TOTAL
+        bne     loop
+        lda     #$2a
+        sta     DONE            ; xi/xf/BOUNCES are the published state
+        rts
+
+; step — position += velocity, in one 16-bit add, then the bound test.
+step:   clc                     ; clc before the LOW add and NOT before the
+        lda     xf              ;   high one: the carry out of the fraction is
+        adc     vx              ;   the whole point of the pair — it is the
+        sta     xf              ;   pixel the fraction just completed
+        lda     xi
+        adc     vx+1            ; a negative velocity is these same two
+        sta     xi              ;   instructions: $FE40 is -$01C0
+
+        ; The bound is tested on the INTEGER byte, because that is what the
+        ; sprite register takes; the fraction keeps accumulating underneath and
+        ; is never compared with anything.
+        cmp     #XMAX
+        bcs     stright
+        cmp     #XMIN
+        bcc     stleft
+        rts
+stright:
+        lda     #XMAX
+        sta     xi
+        bne     stbounce        ; always taken: XMAX is not 0
+stleft: lda     #XMIN
+        sta     xi
+stbounce:
+        lda     #0
+        sta     xf              ; clamp the fraction too, so every reversal
+                                ;   starts from exactly the bound and the
+                                ;   motion stays frame-for-frame reproducible
+        inc     BOUNCES
+        sec                     ; vx = -vx, 16-bit two's complement: subtract
+        lda     #0              ;   both bytes from zero, borrow included
+        sbc     vx
+        sta     vx
+        lda     #0
+        sbc     vx+1
+        sta     vx+1
+        rts
+
+        .segment "BSS"
+xi:       .res 1                ; position, integer pixels
+xf:       .res 1                ; position, fraction (1/256 px)
+vx:       .res 2                ; velocity, signed 8.8 (low = fraction)
+FRAMES:   .res 1
+BOUNCES:  .res 1
+X1I:      .res 1                ; xi after 1 frame
+X1F:      .res 1                ; xf after 1 frame
+X60I:     .res 1                ; xi after 60 frames
+DONE:     .res 1
+```
+
+The published bytes are the proof that the motion is sub-pixel, and they are
+exact rather than approximate: after one frame `X1I`/`X1F` = 41/`$C0` — one
+pixel moved and three quarters of the next one banked; after 60 frames
+`X60I` = 145, which is 105 pixels of travel in 60 frames, a speed no
+whole-pixel program can express. The run ends at `xi`/`xf` = 77/`$80`, one
+bounce, with `$D000` = 77: half a pixel is sitting in the accumulator that
+the display has never shown and the next frame will spend.
+
+Three things to carry over when you adapt it:
+
+- **The velocity is signed; the position is not.** `xi` here is an unsigned
+  pixel coordinate, which is why `cmp #XMIN / bcc` is safe: the clamp keeps
+  it far enough from 0 that it can never underflow into `$FF` and read as
+  "past the right wall" instead. With a bound at 0 that trick breaks, and
+  the fix is to test the *velocity's* sign instead of the position's —
+  `bit vx+1 / bmi` after a single out-of-range compare, which is what
+  `demos/amiga_ball/ball.s` does.
+- **Clamp the fraction on impact, not just the integer.** Leaving `xf`
+  where it landed means the reversal starts from a slightly different place
+  every time the object hits, and the trajectory stops being reproducible
+  frame for frame — which is the difference between a demo you can assert on
+  and one you can only watch.
+- **X beyond 255 is a third byte you do not have here.** The bounds are
+  under 256 on purpose; a sprite crossing 256 needs its bit in `$D010`
+  maintained alongside `$D000` (see hardware.md). Y needs no such thing, so
+  a vertical 8.8 accumulator — gravity, easing — is this recipe unchanged
+  with `$D001` in place of `$D000`.
+
 ### Sprite multiplexer: more objects than sprites
 
 Eight hardware sprites is the ceiling *per scanline*, not per screen. Reuse
@@ -1995,6 +2172,229 @@ on whatever event follows it. Feed this the schedule from the
 [sprite multiplexer](#sprite-multiplexer-more-objects-than-sprites) and one
 more event kind — `EV_MUX`, `evarg` = the object to reprogram — is all it
 takes.
+
+### Per-frame raster budget: a high-water mark the program keeps
+
+A per-frame cost — cycles in the tick, sprites repositioned, cells redrawn —
+resets every frame, so the only frames worth knowing about are the rare
+expensive ones. Sampling from outside cannot see them: the value spikes on
+the frames that do the expensive thing and reads comfortable on all the
+others, so a sampler steps over the spike and reports a number that means
+nothing. The program has to keep the maximum itself, and it is four
+instructions around the job: read `$D012` into a scratch byte at entry, read
+it again at exit, subtract, and store it back only if it beats the mark.
+The unit is raster lines — 63-65 CPU cycles each, see hardware.md's
+frame-budget table — which is the unit the budget is written in anyway,
+because what a frame has to do is finish before the beam reaches the thing
+it is about to move.
+
+**The wrap is what makes the number meaningful.** `$D012` counts 0-262 on
+NTSC (0-311 on PAL) and restarts, so an exit sample taken after the wrap is
+*smaller* than the entry sample and the subtract yields a large positive
+byte — which the mark then keeps forever, since the mark's whole job is to
+keep the largest thing it ever saw. No arithmetic in the handler can tell
+that value from a real one. The fix is not a wrap case; it is where the
+interrupt fires. Arm it in the top border and keep the tick short enough
+that entry line plus cost cannot reach the wrap. This program arms at line
+10 and its worst frame costs 23 lines, so it is out by line 33: inside the
+top border, before the display window opens at raster 51 — which is where a
+frame's sprite registers have to be written by anyway, and where the VIC
+steals no badline cycles from the tick being measured.
+`demos/amiga_ball` is the same shape for the same reason.
+
+**One interrupt source, or the mark is fiction.** If the CIA1 timer IRQ is
+left on it enters the same `$0314` vector at whatever line the beam happens
+to be on, and the entry sample is then unrelated to the exit sample. That is
+the wrap failure above arriving by a second route, which is why `irqon`
+turns the timer off as part of the measurement rather than as tidying.
+
+```asm
+; rasterhwm.s — measure the per-frame cost of a raster tick and keep the max.
+CINV    = $0314
+IRQLINE = 10                    ; see the wrap rule: entry here, done well
+                                ;   before the display window opens at 51
+CHEAP   = 40                    ; stand-ins for one frame of game logic:
+BUSY    = 250                   ;   ~200 and ~1250 cycles of it
+
+        .segment "LOADADDR"
+        .word   $0801
+        .segment "EXEHDR"
+        .word   nextln
+        .word   10
+        .byte   $9E, "2061", $00
+nextln: .word   $0000
+
+        .segment "CODE"
+start:  lda     #0
+        sta     FRAMES
+        sta     HWM
+        sta     HWMCHEAP
+        sta     HWMBUSY
+        sta     LAST
+        sta     DONE
+        sta     stop
+        lda     #1
+        sta     phase           ; window 1: every frame cheap
+        jsr     irqon
+mainloop:
+        lda     stop            ; the handler owns the frame count; the main
+        beq     mainloop        ;   loop only waits for it to finish
+        jsr     irqoff
+        lda     #$2a
+        sta     DONE
+        rts
+
+irqon:  sei
+        lda     #$7F
+        sta     $DC0D           ; CIA1 timer IRQ off. This is part of the
+        lda     $DC0D           ;   measurement, not housekeeping: a jiffy IRQ
+                                ;   enters the same handler at an arbitrary
+                                ;   raster line, and the subtract below then
+                                ;   reports a garbage cost the mark keeps.
+        lda     CINV
+        sta     oldvec
+        lda     CINV+1
+        sta     oldvec+1
+        lda     #<irq
+        sta     CINV
+        lda     #>irq
+        sta     CINV+1
+        lda     $D011
+        and     #$7F            ; IRQLINE is below 256, so compare bit 8 = 0
+        sta     $D011
+        lda     #IRQLINE
+        sta     $D012
+        lda     #$01
+        sta     $D01A           ; raster is the only source...
+        sta     $D019           ; ...and no stale latch fires on the cli
+        cli
+        rts
+
+irqoff: sei
+        lda     #0
+        sta     $D01A
+        lda     #$01
+        sta     $D019
+        lda     oldvec
+        sta     CINV
+        lda     oldvec+1
+        sta     CINV+1
+        lda     #$81
+        sta     $DC0D           ; jiffy clock and keyboard scan back on
+        cli
+        rts
+
+; --- the instrument: four instructions around the job ----------------------
+irq:    lda     #$01
+        sta     $D019           ; ack first: an unacked raster IRQ re-fires the
+                                ;   instant the RTI runs
+        cld                     ; an IRQ does not clear D on the NMOS 6502, and
+                                ;   the subtract below is binary
+        lda     $D012           ; (1) sample the line at entry
+        sta     rasterin
+
+        jsr     tick            ; the whole per-frame job, priced in situ
+
+        lda     $D012           ; (2) sample it again at exit
+        sec
+        sbc     rasterin        ; (3) cost of this frame, in raster lines
+        sta     LAST
+        cmp     HWM             ; (4) keep the maximum, never the last value
+        bcc     irqwin
+        sta     HWM
+irqwin: jsr     window          ; window bookkeeping is NOT part of the tick,
+                                ;   so it sits after the mark is updated
+        jmp     $EA81           ; pull A/X/Y and RTI
+
+; tick — the measured job. A real one moves sprites and runs game logic; these
+; two loops just spend the cycles, so the frames differ only in what they cost.
+tick:   inc     FRAMES
+        ldx     #CHEAP
+tcheap: dex
+        bne     tcheap
+        lda     phase
+        cmp     #2
+        bne     tdone
+        lda     FRAMES
+        and     #$0F            ; window 2: one frame in sixteen is expensive
+        bne     tdone
+busy:   ldx     #BUSY
+tbusy:  dex
+        bne     tbusy
+tdone:  rts
+
+; window — zero the mark, run the window the claim is about, read the mark.
+; A lifetime mark answers no question: it carries every frame ever run.
+window: lda     FRAMES
+        cmp     #60
+        beq     wcheap
+        cmp     #180
+        beq     wbusy
+        rts
+wcheap: lda     HWM             ; 60 cheap frames: publish and re-zero
+        sta     HWMCHEAP
+        lda     #0
+        sta     HWM
+        lda     #2
+        sta     phase
+        rts
+wbusy:  lda     HWM             ; 120 frames, 8 of them expensive
+        sta     HWMBUSY
+        lda     #1
+        sta     stop
+        rts
+
+        .segment "BSS"
+FRAMES:   .res 1
+HWM:      .res 1                ; the live mark, zeroed at each window start
+HWMCHEAP: .res 1                ; mark over window 1 (frames 1-60)
+HWMBUSY:  .res 1                ; mark over window 2 (frames 61-180)
+LAST:     .res 1                ; what a sampler would have read
+DONE:     .res 1
+phase:    .res 1
+stop:     .res 1
+rasterin: .res 1
+oldvec:   .res 2
+```
+
+The two windows are the same handler measuring the same tick; the only
+difference is that one frame in sixteen of the second window does extra
+work. On NTSC this run publishes `HWMCHEAP` = 4, `HWMBUSY` = 23, and `LAST`
+= 4 — `LAST` being the cost of the final frame, which is one of the fifteen
+cheap ones. **That pair is the argument for the instrument**: anything
+reading the cost from outside sees 4 with probability 15/16 and the mark
+sees 23. Scale it up and it stops being a toy: `demos/la-galaxia`'s own
+dogfood sampled a per-frame redraw counter every tenth tick and read **4**
+against a ceiling of 64, while the mark the program kept read **88**.
+
+Three rules come with the mark, and the program above follows all three:
+
+- **Zero it, run the window the claim is about, then read it.** A mark that
+  has been running since power-on carries every frame ever executed,
+  including the ones a ceiling exempts — screen rebuilds, stage transitions,
+  the first frame after a load. `window` re-zeroes `HWM` at each boundary
+  and publishes the previous window's value under its own name, so
+  `HWMCHEAP` and `HWMBUSY` each mean one stated span of frames.
+- **Publish a state byte that proves the run stayed in the window.**
+  `FRAMES` is that byte here: an assertion on `HWMBUSY` is worth nothing if
+  the program stopped after three frames.
+- **Read a mark with `at_most`/`at_least`, never `equals`.** A ceiling
+  claim is `at_most`; a floor claim (the expensive frame really happened) is
+  `at_least`. Waits poll, and a monotone byte can step over any exact value
+  between two polls — `equals` on a climbing counter is a race whether or
+  not it passes today.
+
+**`c64 profile` cannot replace this, and does not compete with it.** It
+prices a routine by faking a `JSR` with the I flag set, so it needs a
+callable entry ending in `RTS` — which a handler entered through `$0314`
+does not have — and by masking interrupts it measures a frame in which
+nothing else could have collided with the tick. The two are complementary:
+write the handler as the thin wrapper above (`ack`, `jsr tick`, exit) and
+`c64 profile tick` gives the job's cycle cost precisely, while the mark
+gives the worst *arrival* the machine actually had. In the top border, where
+no badline steals a cycle from either, the two are the same quantity in
+different units — so a mark that exceeds what the cycle count predicts is
+exactly the interference `profile` was blind to.
 
 ### Custom character set: copy the ROM charset to RAM and redefine glyphs
 
