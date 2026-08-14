@@ -1,0 +1,53 @@
+# SID audio verification
+
+## Transcription
+
+### Voice 1
+
+| Start frame | Frames | Note | Cents off | Waveform | Gated frames |
+|---|---|---|---|---|---|
+| 0 | 13 | rest | - | triangle | 0 |
+| 13 | 20 | A2 | +0.5 | triangle | 20 |
+| 33 | 57 | rest | - | triangle | 0 |
+
+### Voice 2
+
+| Start frame | Frames | Note | Cents off | Waveform | Gated frames |
+|---|---|---|---|---|---|
+| 0 | 13 | rest | - | noise | 0 |
+| 13 | 20 | B3 | - | noise | 20 |
+| 33 | 57 | rest | - | noise | 0 |
+
+### Voice 3
+
+| Start frame | Frames | Note | Cents off | Waveform | Gated frames |
+|---|---|---|---|---|---|
+| 0 | 90 | rest | - | none | 0 |
+
+## Score diff
+
+No differences against the reference score — an empty diff list is also what a run with no reference score produces.
+
+## Anomalies
+
+None found.
+
+## WAV metrics
+
+| Metric | Value |
+|---|---|
+| Duration | 1.74 s |
+| Clipped samples | 0 |
+| Silence windows | 0.60-1.74 s |
+| RMS min / median / max | -67.3 / -66.2 / -26.0 dBFS over 18 windows of 0.1 s |
+
+## Artifacts
+
+- [capture.wav](capture.wav)
+- [sid-log.jsonl](sid-log.jsonl)
+- [piano-roll.png](piano-roll.png)
+- [spectrogram.png](spectrogram.png)
+
+## Verdict
+
+**PASS**
