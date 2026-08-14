@@ -30,13 +30,15 @@ RY = 18.0               # vertical radius, in texel rows
 # (c, r) is sampled at (c + 0.5, r + 0.5), so the centre of a 24 x 42 block is
 # (12.0, 21.0).
 #
-# SPEC.md Section 5.2 writes these as (11.5, 20.5), which is half a texel up and
-# left of the block centre and does not survive its own Section 3.2: with
-# CX = 11.5 the disc's left limb falls at c = -1, off the block, so the equator
-# is clipped into a flat vertical edge ~14 rows tall, and with CY = 20.5 the
-# sphere spans rows 2-38 (37 rows), not the 3-38 (36) that Section 3.2's
-# roundness of 0.991 is computed from.  These values are the ones that make
-# Section 3.2 true; the discrepancy is reported rather than silently absorbed.
+# A DRAFT of SPEC.md Section 5.2 wrote these as (11.5, 20.5) -- the INDEX
+# centre, half a texel up and left of the block's continuous centre -- and it
+# does not survive Section 3.2: with CX = 11.5 the disc's left limb falls at
+# c = -1, off the block, so the equator is clipped into a flat vertical edge
+# ~14 rows tall, and with CY = 20.5 the sphere spans rows 2-38 (37 rows), not
+# the 3-38 (36) that Section 3.2's roundness of 0.991 is computed from.
+# Section 5.2 now specifies (12.0, 21.0) and records the correction itself; the
+# note stays here because the asserts at the foot of this file are where the
+# claim is actually checked.
 CX = 12.0
 CY = 21.0
 
@@ -181,19 +183,48 @@ def main() -> None:
     assert total[0:half] != total[8 * half:9 * half], \
         "frame 0 and frame 8 are identical -- the rotation is not being applied"
 
+    # The sphere's extent is what SPEC.md criterion 28 measures on the machine:
+    # 24 texels x 4 px = 96 px wide by SPH_ROWS x 2 px = 72 px tall, which is
+    # 96 x 0.7435 / 72 = 0.991 of a true circle.  It is ASSERTED, not printed.
+    # An earlier version of this file printed it with the comment "rather than
+    # assert a number the geometry might drift from" -- but drift in exactly
+    # this number is what would make criterion 28 fail on the machine, days
+    # after the generator ran, with nothing in the git diff to point at.
+    # The rim is inside the sphere, so the checker bbox the criterion actually
+    # measures is one texel narrower and one row shorter on each side: 22 x 34
+    # texels = 88 x 68 px.  Both are asserted, in every frame, because the
+    # rotation changes which checker lands at the limb.
+    for f, grid in enumerate(frames):
+        occupied = [r for r in range(TEXH)
+                    if any(p != TRANSPARENT for p in grid[r])]
+        assert occupied == list(range(SPH_TOP, SPH_TOP + SPH_ROWS)), (
+            f"frame {f}: sphere occupies rows {occupied[0]}-{occupied[-1]} "
+            f"({len(occupied)} rows), expected {SPH_TOP}-"
+            f"{SPH_TOP + SPH_ROWS - 1} = {SPH_ROWS} (SPEC.md Section 3.2)")
+        widest = max(sum(1 for p in row if p != TRANSPARENT) for row in grid)
+        assert widest == TEXW, (
+            f"frame {f}: widest sphere row is {widest} texels, expected "
+            f"{TEXW} -- the ball no longer spans the block (SPEC.md 3.2)")
+        checker = [(r, c) for r in range(TEXH) for c in range(TEXW)
+                   if grid[r][c] in (RED, WHITE)]
+        crows = sorted({r for r, _ in checker})
+        ccols = sorted({c for _, c in checker})
+        assert (len(crows), len(ccols)) == (SPH_ROWS - 2, TEXW - 2), (
+            f"frame {f}: checker bbox is {len(ccols)} x {len(crows)} texels, "
+            f"expected {TEXW - 2} x {SPH_ROWS - 2} -- SPEC.md criterion 28 "
+            "measures 88 x 68 px off the machine, which is this bbox at "
+            "4 x 2 px per texel")
+
     out = Path(__file__).resolve().parent.parent / "sprites.inc"
     out.write_text("\n".join(lines))
 
-    # Diagnostics: the sphere's extent is the claim SPEC.md Section 3.2 makes,
-    # so print it rather than assert a number the geometry might drift from.
     occupied = [r for r in range(TEXH)
                 if any(p != TRANSPARENT for p in frames[0][r])]
-    widest = max(sum(1 for p in frames[0][r] if p != TRANSPARENT)
-                 for r in range(TEXH))
     print(f"{out}: {len(total)} bytes")
     print(f"sphere rows {occupied[0]}-{occupied[-1]} "
-          f"({len(occupied)} rows, expected {SPH_TOP}-{SPH_TOP + SPH_ROWS - 1}"
-          f" = {SPH_ROWS}), widest row {widest} texels")
+          f"({len(occupied)} rows), widest row {TEXW} texels; "
+          f"checker bbox {TEXW - 2} x {SPH_ROWS - 2} texels = "
+          f"{(TEXW - 2) * 4} x {(SPH_ROWS - 2) * 2} px (criterion 28)")
 
 
 if __name__ == "__main__":

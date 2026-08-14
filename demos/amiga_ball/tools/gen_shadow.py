@@ -5,8 +5,9 @@ Sprites 4 and 5 sit side by side, hires (not in $D01C) and X-expanded, which
 makes a 96 px wide, 21 raster tall pair sampled at 48 horizontal texels: two
 screen pixels per texel, and the finest edge this demo can draw anywhere
 (SPEC.md Section 7).  Each of the four shapes is a filled ellipse centred on the
-pair centre and on raster row 10 -- the contact line -- and the four of them
-shrink toward that point as the ball rises.
+pair centre and on sprite row 10 -- the contact line, raster 236 with the pair's
+Y register at 225 -- and the four of them shrink toward that point as the ball
+rises.
 
 Stdlib only, no arguments; writes ../shadow.inc relative to this file.
 """
@@ -22,7 +23,14 @@ SIZES = [(96, 14), (80, 12), (64, 10), (48, 8)]   # (width in screen px, height
 PAIR_W = 96             # screen px across the X-expanded hires pair ...
 TEXELS = 48             # ... at 2 px each, so 48 texels, 24 per sprite.
 ROWS = 21               # sprite rows; a sprite is 21 rasters whatever else it is
-CENTRE_ROW = 10         # row 10 of 21 lands on raster 235, the contact line.
+CENTRE_ROW = 10         # row 10 of 21.  The pair's Y register is 225, and the
+                        # VIC displays a sprite's first row on raster Y+1 (it
+                        # starts the sprite's DMA on the line where $D012 equals
+                        # Y and shows the fetched data on the next one), so this
+                        # row lands on raster 236 -- the same raster the ball's
+                        # bottom reaches at contact.  SPEC.md Sections 6.1 and 7
+                        # both write 235; measured on the machine, a 21-row hires
+                        # sprite at Y = 100 occupies rasters 101-121.
 
 # Centre of the pair in texel-index coordinates.  Texel k is sampled at index k,
 # so 48 texels run 0..47 and their centre is 23.5 -- between texels, which is
@@ -128,8 +136,10 @@ def main() -> None:
                      f"{counts[s]:>4}")
     lines += [
         ";",
-        f"; Row {CENTRE_ROW} of 21 is the widest row of every size and lands on",
-        "; raster 235, the contact line, because the pair's Y is fixed at 225.",
+        f"; Row {CENTRE_ROW} of 21 is the widest row of every size.  The pair's Y",
+        "; register is fixed at 225 and the VIC shows a sprite's first row on",
+        f"; raster Y+1, so row {CENTRE_ROW} lands on raster 236 -- the contact",
+        "; line, and the raster the ball's own bottom reaches at contact.",
         "",
         '        .segment "SPRITES"',
         "",

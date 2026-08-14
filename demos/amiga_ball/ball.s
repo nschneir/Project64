@@ -8,8 +8,25 @@
 ; budget a claim about the code rather than about a lucky frame.
 
 Y_FLOOR = 158                   ; sprite-0 Y at floor contact.  The sphere's
-                                ; bottom raster is sprite_y + 77 = 235, the
-                                ; floor line (SPEC.md Section 6.1).
+                                ; bottom raster is sprite_y + 78 = 236, which is
+                                ; the raster the shadow's ellipse is centred on
+                                ; -- the contact line.
+                                ;
+                                ; SPEC.md Section 6.1 writes sprite_y + 77 = 235,
+                                ; and Section 7 writes 235 for the shadow's
+                                ; centre.  Both are one raster low, from the same
+                                ; cause: the VIC starts a sprite's DMA on the
+                                ; line where $D012 equals the sprite's Y and
+                                ; DISPLAYS that data on the NEXT line, so a
+                                ; sprite whose Y register is V has its first row
+                                ; on raster V+1.  Measured here: a 21-row hires
+                                ; sprite poked to Y = 100 occupies rasters
+                                ; 101-121, against a display window whose row 0
+                                ; is raster 51 in the same capture.  The two
+                                ; numbers move together, so the ball's bottom and
+                                ; the shadow's centre still coincide exactly and
+                                ; nothing on screen is wrong -- only the
+                                ; arithmetic written down for it.
 X_BASE  = 24                    ; ball_xi is measured from here: sprite-0 X is
                                 ; 24 + ball_xi, so the integer stays in a byte
                                 ; while the sprite X reaches 247.
@@ -47,7 +64,9 @@ SHBLK0  = 224                   ; $3800 / 64 -- shadow.inc is linked immediately
                                 ; after sprites.inc, so its first block is here.
 SHADOW_Y = 225                  ; fixed: the shadow lives on the floor plane,
                                 ; not under the ball.  Row 10 of its 21 lands on
-                                ; raster 235, the contact line (Section 7).
+                                ; raster 236 -- Y + 1 + 10, see Y_FLOOR above --
+                                ; and that is the contact line the ball's bottom
+                                ; raster also lands on (Section 7).
 SH_BAND = 26                    ; shadow size band width, in rasters of height
 
         .segment "CODE"
@@ -115,8 +134,24 @@ ballcol: sta    SPRCOL0,x       ; pair 10 -> red checker, sprites 0-3
         lda     #$0B            ; dark gray.  The floor is black, so nothing can
         sta     SPRCOL0+4       ; be darker than it: what the shadow supplies is
         sta     SPRCOL0+5       ; a gray patch where the black would otherwise
-        rts                     ; be, which is the only way a shadow exists
+                                ; be, which is the only way a shadow exists
                                 ; against black (SPEC.md Section 7).
+
+        ; Derive and publish the state before returning, instead of leaving the
+        ; first frame to ball_step.  ballderive ends in the rts this routine
+        ; needs, so the jmp IS the return.
+        ;
+        ; Without it the machine spends the whole gap between here and the first
+        ; raster interrupt -- and the whole first `until tick` anchor, which
+        ; stops at tick ENTRY -- with ball_xi set but ball_x16, ball_yi,
+        ; shadow_x16, shadow_size, sptr, $D000-$D00B and $07F8-$07FD all still
+        ; holding whatever the VARS zero-fill and the boot RAM left: measured on
+        ; the machine at that anchor, ball_xi = 40 with ball_x16 = 0, sptr = 0,
+        ; and $07FA/$07FB = $FF, i.e. the VIC pointed at block 255.  SPEC.md
+        ; criteria 6, 7, 8 and 10 are each written "at every anchored frame" and
+        ; each failed at that one.  Nothing was visible -- sprite Y 0 is above
+        ; the display -- which is exactly why it survived nine tasks.
+        jmp     ballderive
 
 ; ---------------------------------------------------------------------------
 ; ball_step -- one frame of ball, in the order SPEC.md Section 12 depends on:

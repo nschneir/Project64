@@ -20,8 +20,10 @@
 ;   2    52-77    64x10     228      229        248
 ;   3    78+      48x8      230      231        144
 ;
-; Row 10 of 21 is the widest row of every size and lands on
-; raster 235, the contact line, because the pair's Y is fixed at 225.
+; Row 10 of 21 is the widest row of every size.  The pair's Y
+; register is fixed at 225 and the VIC shows a sprite's first row on
+; raster Y+1, so row 10 lands on raster 236 -- the contact
+; line, and the raster the ball's own bottom reaches at contact.
 
         .segment "SPRITES"
 

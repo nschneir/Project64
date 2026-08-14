@@ -25,15 +25,15 @@ Every entry is EXACT in 8.8, with no rounding at all:
 so the generator does integer arithmetic and the assert that the table is
 symmetric about p = 32 is an equality, not a tolerance.
 
-SPEC.md Section 6.1 also tabulates nine sample values, and four of them do not
-survive its own formula: it prints y(16) = y(48) = 79.0 where the formula gives
-80.0, and y(24) = y(40) = 57.5 where the formula gives 60.5.  Nor is that table
-self-consistent -- 79.0 at p = 16 implies an amplitude of 105.3 and 57.5 at
-p = 24 implies 107.2, so no single A reproduces both.  The formula is what the
-generator implements, because it is what the two values the spec asserts
-elsewhere (y(0) = 158 at contact, y(32) = 54 at the apex, and the 104-raster
-amplitude between them) actually agree with.  The discrepancy is reported here
-rather than silently absorbed.
+A DRAFT of SPEC.md Section 6.1 tabulated y(16) = y(48) = 79.0 and
+y(24) = y(40) = 57.5 where the formula gives 80.0 and 60.5, and that table was
+not even self-consistent -- 79.0 at p = 16 implies an amplitude of 105.3 and
+57.5 at p = 24 implies 107.2, so no single A reproduces both.  The formula won,
+because it is what the values the spec asserts elsewhere (y(0) = 158 at contact,
+y(32) = 54 at the apex, and the 104-raster amplitude between them) agree with.
+Section 6.1 now prints 80.0 and 60.5 and records the correction in its own
+parenthesis; this note stays because the numbers below are the only place the
+claim can be checked.
 
 Stdlib only, no arguments; writes ../bounce.inc relative to this file.
 """
@@ -87,13 +87,13 @@ def main() -> None:
         "; one frame: the contact speed SPEC.md Section 6.1 calls the visible "
         "tell.",
         ";",
-        "; Section 6.1's sample table disagrees with Section 6.1's formula at "
-        "four of its",
-        "; nine points -- it prints y(16) = 79.0 and y(24) = 57.5 where the "
-        "formula gives",
-        f"; {table[16] / 256:g} and {table[24] / 256:g}, and no single "
-        "amplitude reproduces both of those numbers.",
-        "; The formula wins here; see tools/gen_bounce.py.",
+        "; A draft of Section 6.1's sample table printed y(16) = 79.0 and "
+        "y(24) = 57.5,",
+        f"; where the formula gives {table[16] / 256:g} and "
+        f"{table[24] / 256:g} and no single amplitude reproduces",
+        "; both of the draft's numbers.  The formula won, and Section 6.1 now "
+        "agrees;",
+        "; see tools/gen_bounce.py.",
         "",
         '        .segment "RODATA"',
         "",

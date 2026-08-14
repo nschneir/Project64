@@ -5,14 +5,20 @@ The "boing" is a resonant low-pass cutoff collapsing over a noise burst.  The
 collapse is a linear ramp in $D416 (cutoff high byte) read one entry per frame:
 floor 220 -> 30, wall 250 -> 70, both over the 16 frames the sweep lasts.
 
-The tables are 24 entries even though the ramp is 16, because snd_timer runs
-0-23 and sound_step indexes with it.  Entries 16-23 hold the final value, so a
-table read outside the sweep window is still a defined byte rather than
-whatever followed the table in RODATA.  SPEC.md Section 8 calls these "a linear
-ramp" of 24 entries, which taken literally would spread the ramp over all 24 and
-contradict its own schedule table ("at 0-15, write $D416 from the sweep table");
-the 16-then-hold reading is the one that satisfies both, and it is what the
-schedule in Section 8 and PLAN.md Task 5 both describe.
+The tables are 24 entries even though the ramp is 16, because snd_timer's own
+range is 0-23 and it is what indexes them.  SPEC.md Section 8 calls these "a
+linear ramp" of 24 entries, which taken literally would spread the ramp over all
+24 and contradict its own schedule table ("at 0-15, write $D416 from the sweep
+table"); the 16-then-hold reading is the one that satisfies both, and it is what
+the schedule in Section 8 and PLAN.md Task 5 both describe.
+
+Entries 16-23 are therefore NEVER READ by the shipped program: sound.s branches
+past the sweep with `cmp #16 / bcs stepgate` before it indexes.  They are kept,
+and generated rather than left off, so that the table's index domain is exactly
+snd_timer's -- an edit that widens the sweep window reads a defined byte instead
+of whatever RODATA happens to follow.  That is 16 bytes of deliberate slack in a
+build that has 1,536 spare in the SPRITES area alone; it is named here so it is
+not mistaken for an oversight.
 
 Stdlib only, no arguments; writes ../sound.inc relative to this file.
 """

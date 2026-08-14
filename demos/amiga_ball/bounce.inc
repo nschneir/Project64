@@ -15,10 +15,10 @@
 ; impact is 6.398 rasters above the floor, so the ball crosses that gap in
 ; one frame: the contact speed SPEC.md Section 6.1 calls the visible tell.
 ;
-; Section 6.1's sample table disagrees with Section 6.1's formula at four of its
-; nine points -- it prints y(16) = 79.0 and y(24) = 57.5 where the formula gives
-; 80 and 60.5, and no single amplitude reproduces both of those numbers.
-; The formula wins here; see tools/gen_bounce.py.
+; A draft of Section 6.1's sample table printed y(16) = 79.0 and y(24) = 57.5,
+; where the formula gives 80 and 60.5 and no single amplitude reproduces
+; both of the draft's numbers.  The formula won, and Section 6.1 now agrees;
+; see tools/gen_bounce.py.
 
         .segment "RODATA"
 

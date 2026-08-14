@@ -52,8 +52,32 @@ areas:
 timeout: 120
 
 steps:
+  # ---- THE FIRST ANCHOR (Section 14.6, 7, 8, 10) ------------------------
+  # Criteria 6, 7, 8 and 10 are each written "at every anchored frame", and
+  # the very first one is the frame that can break them: `until tick` stops
+  # at tick ENTRY, so at count 1 ball_init has run and ball_step has NOT.
+  # Audit iteration 1 measured exactly that hole -- ball_xi 40 with
+  # ball_x16 0, sptr 0, and $07FA/$07FB reading $FF, i.e. the VIC pointed
+  # at block 255. Nothing was visible, because sprite Y 0 is above the
+  # display window, which is why nine tasks went past it. ball_init now
+  # ends `jmp ballderive`, and these eight assertions are what keeps it
+  # there. They are the initial state SPEC.md Section 12 fixes: ball_xi 40
+  # -> ball_x16 64, bounce_phase 32 -> ball_yi 54 (the apex, h = 104, so
+  # shadow_size 3), rot_frame 0 -> blocks 160-163 and 230-231.
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: ball_xi, equals: [40] }
+  - assert: { mem: ball_x16, equals: [64, 0] }               # 14.10  24 + 40
+  - assert: { mem: ball_yi, equals: [54] }
+  - assert: { mem: "$D000", equals: [64, 54, 112, 54] }      # 14.7, 14.8
+  - assert: { mem: "$D004", equals: [64, 96, 112, 96] }      # +42 on the row
+  - assert: { mem: "$D010", equals: [0] }                    # 14.9   40 < 184
+  - assert: { mem: "$07F8", equals: [160, 161, 162, 163, 230, 231] }  # 14.6
+  - assert: { mem: sptr, equals: [160, 161, 162, 163] }      # 14.6
+  - assert: { mem: shadow_x16, equals: [64, 0] }             # 14.16
+  - assert: { mem: shadow_size, equals: [3] }
+
   # ---- let the machine reach a steady frame ------------------------------
-  - until:  { ref: tick, count: 30 }
+  - until:  { ref: tick, count: 29 }
 
   # ---- 1. mode and memory (Section 14.1) --------------------------------
   # $D011 bit 7 is the raster compare's bit 8 and reads the live raster, so

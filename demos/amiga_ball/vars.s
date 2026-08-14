@@ -48,4 +48,13 @@ sid_shadow:   .res 25           ; +29 mirror of $D400-$D418; the SID is
                                 ;     write-only, so this is the only thing a
                                 ;     stopped machine can read back
 rasterin:     .res 1            ; +54 scratch: $D012 at tick entry
-tmp:          .res 8            ; +55 scratch
+tmp:          .res 8            ; +55 scratch.  UNUSED by the shipped program --
+                                ;     grepped, zero references outside this file
+                                ;     -- and kept because SPEC.md Section 9
+                                ;     declares it at $4037 and every address
+                                ;     after $4000 is load-bearing by arrangement.
+                                ;     The whole per-frame job runs out of A/X/Y:
+                                ;     the physics is two adds, the bounce and the
+                                ;     shadow are table lookups, and the sound
+                                ;     schedule keeps its state in snd_timer, so
+                                ;     nothing has ever needed a spill slot.
