@@ -6,7 +6,22 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
-## [Unreleased]
+## [1.0.0] — 2026-08-14
+
+One-point-oh gates on the code being right rather than on a feature: a
+high-effort review of everything since 0.9.5 (242 commits, ~19k lines across
+`src/` and `tests/`) produced ten correctness findings — nine confirmed,
+most by live reproduction, and one refuted by a measurement that then
+convicted a different site. All nine are fixed in this release, red test
+first: a truncated WAV can no longer pass the audio verdict, a refused
+`--at-frame` schedule can no longer silently double a capture window, a
+corrupt session record can no longer silently reboot a cartridge into the
+wrong emulator, `disk get` can no longer be steered outside the working
+directory by a hostile disk name, PAL captures get an honest real-time
+warning, non-ASCII WAV paths work, and the charset/sprite-sheet, `--area`
+and BASIC-lint regressions the review caught are gone. The one refuted
+finding is recorded where it was measured, and the new one it exposed is in
+`docs/todo.md`.
 
 A landing pass (2026-08-14) closed seventeen `docs/todo.md` items in one
 change. The toolchain half: `c64 sprite png` now renders with the emulator's

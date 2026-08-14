@@ -246,7 +246,7 @@ and the EasyFlash banking discipline.
 
 ## Status
 
-Stable — current release **v0.9.5**. Full history: [CHANGELOG.md](CHANGELOG.md).
+Stable — current release **v1.0.0**. Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## AI Disclosure
 
