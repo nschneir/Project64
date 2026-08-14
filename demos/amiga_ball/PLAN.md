@@ -151,8 +151,10 @@ the order and the area start; assert them (Step 4).
 
 - No arguments; writes `demos/amiga_ball/sprites.inc` relative to its own file.
 - Constants at the top, named and commented: `TEXW=24`, `TEXH=42`,
-  `SPH_TOP=3`, `SPH_ROWS=36`, `RX=12.0`, `RY=18.0`, `CX=11.5`, `CY=20.5`,
-  `N_LON=16`, `N_LAT=8`, `FRAMES=16`, `SPAN_DEG=45.0`.
+  `SPH_TOP=3`, `SPH_ROWS=36`, `RX=12.0`, `RY=18.0`, `CX=12.0`, `CY=21.0`,
+  `N_LON=16`, `N_LAT=8`, `FRAMES=16`, `SPAN_DEG=45.0`. (`CX`/`CY` are the
+  block's *continuous* centre, not its index centre — spec §5.2 says what the
+  index centre costs.)
 - Per frame `f`: `rot = radians(SPAN_DEG * f / FRAMES)`. Per texel the ray cast
   and parity rule of spec §5.2, then the rim pass (inside-sphere texel with an
   outside 4-neighbour → pair `01`).
@@ -682,9 +684,9 @@ and again 8 frames later, in one file, labelled.
 - [ ] **Step 2: Run it twice and prove it is deterministic**
 
 ```sh
-zsh demos/amiga_ball/tools/evidence.sh
+sh demos/amiga_ball/tools/evidence.sh
 md5 demos/amiga_ball/evidence/*.png > /tmp/ev1
-zsh demos/amiga_ball/tools/evidence.sh
+sh demos/amiga_ball/tools/evidence.sh
 md5 demos/amiga_ball/evidence/*.png > /tmp/ev2
 diff /tmp/ev1 /tmp/ev2
 ```
@@ -850,7 +852,7 @@ Each numbered iteration is a full cycle, logged in `AUDIT.md`:
 ```sh
 python3 demos/amiga_ball/tools/generate.py
 .venv/bin/c64 test run demos/amiga_ball/test.yaml
-zsh demos/amiga_ball/tools/evidence.sh
+sh demos/amiga_ball/tools/evidence.sh
 ```
 
 Use `superpowers:verification-before-completion` before any claim that it works.
