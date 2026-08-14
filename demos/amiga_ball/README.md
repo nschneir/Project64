@@ -93,10 +93,15 @@ reports pass against scores generated from the impact schedule rather than
 fitted to the recording, and a written audit marking all 28 criteria with the
 command and output that settled each one.
 
-The per-frame job costs **7 raster lines** of a 263-line frame. It is armed at
-line 10 and finishes inside the top border, before the VIC draws a single pixel
-of the display — so there is no tearing to look for, and the margin is not an
-estimate but a `c64 profile tick` reading of 481 cycles.
+The per-frame job costs **7 raster lines** of a 263-line frame on an ordinary
+frame and **14** on the one frame in 64 that gates a new impact — a high-water
+mark the program keeps itself, because a sampler steps over the expensive
+frames and reports a comfortable number that means nothing. It is armed at line
+10 and finishes inside the top border, before the VIC draws a single pixel of
+the display, so there is no tearing to look for. `c64 profile tick` prices the
+same job independently at 450-480 cycles mean, which it can only do because the
+handler is a thin wrapper around an `rts` subroutine — `profile` masks
+interrupts, so it cannot price a handler in situ.
 
 ## The bits worth reading
 

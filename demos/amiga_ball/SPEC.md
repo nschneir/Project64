@@ -886,6 +886,16 @@ the score and its evidence is the spectrogram — where the noise transient and
 the filter's downward sweep are visible and the piano roll cannot show them.
 Both reports must read `verdict: PASS`.
 
+**The capture window does not open at a fixed offset.** Measured across eleven
+captures: the WAV varies by ±2 video frames in length (165,292 / 166,892 /
+168,492 bytes) and the impact lands anywhere from **353 ms to 387 ms** into the
+file. The register schedule is *not* what moves — `sid-log.jsonl` is
+md5-identical across five captures of the same build — so it is the window
+opening, not the program drifting. Anything measured against a fixed grid in
+the WAV is therefore partly measuring where the window opened, which is exactly
+what made iteration 1's centroid figures irreproducible. **Anchor every
+time-domain measurement on the impact itself**, which is stable to ±5 ms.
+
 The maintainer's listen of `capture.wav` is the final gate on whether it sounds
 like a boing.
 
@@ -949,17 +959,23 @@ machine, never from reading the source.
 21. `evidence/audio/floor/report.md` and `evidence/audio/wall/report.md` both
     read `verdict: PASS` against a score written from the impact schedule.
 22. The spectrogram of each capture shows a broadband transient at the impact
-    frame whose energy centroid falls by at least a factor of three over the
-    following **~100 ms** — the filter sweep, which the piano roll cannot show —
-    and the wall's centroid is higher than the floor's at every point in that
-    window.
+    frame — a full-height column, arriving in one frame — and **the transient's
+    own band (2-10 kHz, above voice 1's audible harmonics) takes at least
+    150 ms to fall 30 dB**, so the noise burst outlives more than half of the
+    267 ms cutoff sweep and there is something left to hear the sweep in. The
+    wall's spectral centroid is higher than the floor's at every 10 ms step of
+    the first 200 ms.
 
-    (An earlier draft said ~250 ms, which §8's own instrument cannot deliver:
-    the cutoff ramps for 16 frames = 267 ms, but `$D40C` = `$04` decays voice 2
-    in 114 ms, so the burst is gone before the sweep ends. The second clause is
-    free — measured 4,484 vs 4,204 Hz at onset and 1,881 vs 1,128 Hz at +100 ms
-    — and it makes the criterion test §8's *two surfaces* claim rather than only
-    its one-gesture claim.)
+    (Two earlier drafts asked for the *energy centroid* to fall — by a factor of
+    three over ~250 ms, then over ~100 ms. Measured over eleven captures, that
+    fall is **the noise burst ending, not the filter closing**: its timing
+    tracks the 2-10 kHz band's 30 dB point exactly, and a centroid computed with
+    voice 1's fundamental excluded moves by 1.12× across the whole window. So
+    the old wording rewarded a *shorter* transient — `$D40C` = `$00` would have
+    scored best of all — which is the opposite of what §8 is trying to buy. A
+    criterion that improves as the demo gets worse is not a criterion.
+    `AUDIT.md` iteration 2 has the captures. The replacement above can fail and
+    does: the same measurement on the `$D40C` = `$04` build reads 95 ms.)
 
 **Budget**
 

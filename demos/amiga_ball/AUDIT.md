@@ -909,3 +909,44 @@ Everything else is closed. And the last gate is still §13.2's and not a
 spectrogram's: **the maintainer's listen of `capture.wav`.** This iteration can
 say the transient is 1.84× longer and that the sweep now has a signal under it
 for two thirds of its length. It cannot say whether that is a better boing.
+
+---
+
+## Criterion 22, re-worded and re-scored (maintainer ruling)
+
+Both proposals from iteration 2 were accepted and applied to `SPEC.md`:
+criterion 22 now measures the **transient's own band** rather than the
+whole-signal centroid, and §13.2 records the capture-window jitter.
+
+The re-wording is not a weakening, and the test of that is that the new
+criterion **can fail and does** — the same measurement on the immediately
+preceding `$D40C` = `$04` build reads 95 ms against a floor of 150 ms. The old
+wording had the opposite property: it improved as the demo got worse, scoring
+best at `$D40C` = `$00`, where there is no transient for the sweep to act on at
+all. A criterion that rewards deleting the thing it exists to check is not
+measuring that thing.
+
+| # | Claim (as re-worded) | Verdict | Evidence |
+|---|---|---|---|
+| 22 | broadband column in one frame; 2-10 kHz takes ≥ 150 ms to fall 30 dB; wall centroid above floor at every 10 ms step of the first 200 ms | **PASS** | 2-10 kHz −30 dB at **+175 ms** on both floor and wall (`$04` build: +95 ms, which fails). Wall above floor at **21 of 21** steps to +200 ms. Ordering intact: transient 175 ms under thump 250 ms (floor) / 200 ms (wall) |
+
+**Tally: 28 PASS, 0 FAIL, 0 INCONCLUSIVE.**
+
+Final measured figures on the shipped build (session `ballfin`, 700 ticks):
+`irq_hwm` = **14** raster lines (gate-on frame), `irq_last` = **7** (ordinary
+frame), `c64 profile tick` = **451.6 cycles** mean over 16 arrivals (min 401,
+max 499). `10 + 14 = 24 < 51`, so the tick still finishes in the top border
+before the display begins.
+
+**Is a third iteration needed? No.** Every criterion passes on evidence from
+the running machine, and the two document defects iteration 2 raised are
+applied rather than deferred. What remains is not an iteration but the one gate
+this process cannot close for itself: §13.2 makes the maintainer's listen of
+`evidence/audio/floor/capture.wav` and `wall/capture.wav` the final word on
+whether it sounds like a boing. Everything measurable about that sound has been
+measured and is above.
+
+One item stays open outside this demo and is filed in `docs/todo.md` rather
+than fixed here: `skills/c64-development/references/hardware.md`'s sprite-Y row
+formula measures one high, and correcting it touches `demos/invaders`, which
+reached the opposite conclusion deliberately.
