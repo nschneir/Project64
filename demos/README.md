@@ -54,6 +54,6 @@ is the deliverable.
 
 Every demo outside that tier keeps everything: sources, plan, `AUDIT.md`,
 `evidence/`, and the artefact the prompt asked for, so `invaders.d64`,
-`snake.d64`, `ms-muncher.d64`, `la-galaxia.d64` and `1812.d64` all run in
-stock VICE without a checkout of this toolset. Fugue and Amiga Ball are
-prompt-only so far; their directories fill in the same way once built.
+`snake.d64`, `ms-muncher.d64`, `la-galaxia.d64`, `1812.d64` and
+`amiga_ball.d64` all run in stock VICE without a checkout of this toolset.
+Fugue is prompt-only so far; its directory fills in the same way once built.

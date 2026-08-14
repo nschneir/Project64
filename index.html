@@ -436,7 +436,22 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
             </td>
           </tr>
           <tr><td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/fugue">Fugue No. 2 in C Minor</a></td><td>6502 assembly</td><td>Bach's BWV 847 on three SID voices while its score scrolls past &mdash; custom charset staves, pitch-class note colors, a sprite backlighting the sounding note</td><td class="no">&mdash;</td></tr>
-          <tr><td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/amiga_ball">Amiga Ball</a></td><td>6502 assembly</td><td>The Amiga's 1984 Boing Ball on four multicolor sprites &mdash; a precomputed sphere texture, a custom-charset grid room, and a SID impact thump</td><td class="no">&mdash;</td></tr>
+          <tr>
+            <td class="demo-cell"><a href="https://github.com/nschneir/Project64/tree/main/demos/amiga_ball">Amiga Ball</a><a class="play-btn" href="play.html?demo=amiga_ball" aria-label="Play Amiga Ball in your browser">&#x25B6; PLAY</a></td><td>6502 assembly</td><td>The Amiga's 1984 Boing Ball on four multicolor sprites &mdash; a precomputed sphere texture, a custom-charset grid room, and a SID impact thump</td>
+            <td class="shotcell">
+              <div class="shots">
+                <a class="shot" href="demos/amiga_ball/evidence/contact.png" title="The ball at floor contact, the grid drawn over its shadow">
+                  <img src="demos/amiga_ball/evidence/contact.png" width="1040" height="526" loading="lazy" decoding="async" alt="The Boing Ball at floor contact: a red and white checkered sphere with a black rim resting on a light blue perspective floor grid, a grey elliptical shadow beneath it crossed by one of the floor's grid lines, and a purple wall grid above the horizon">
+                </a>
+                <a class="shot" href="demos/amiga_ball/evidence/apex.png" title="The top of the bounce, with the smallest shadow">
+                  <img src="demos/amiga_ball/evidence/apex.png" width="1040" height="526" loading="lazy" decoding="async" alt="The ball at the top of its bounce, high in the purple wall grid, with its smallest shadow far below on the light blue floor whose lines converge on the horizon">
+                </a>
+                <a class="shot" href="demos/amiga_ball/evidence/wall-right.png" title="A wall bounce, where the spin reverses">
+                  <img src="demos/amiga_ball/evidence/wall-right.png" width="1040" height="526" loading="lazy" decoding="async" alt="The ball flush against the right edge of the screen at a wall bounce, its shadow tracking it along the floor">
+                </a>
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
       </div>
@@ -444,7 +459,7 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       miscellaneous builds) ships its whole solution beside its prompt once it
       has been built &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
-      runnable .d64 for stock VICE; Fugue and Amiga Ball are
+      runnable .d64 for stock VICE; Fugue is
       prompt-only so far.</small></p>
     </section>
 
