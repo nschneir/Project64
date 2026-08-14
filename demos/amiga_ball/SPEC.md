@@ -450,7 +450,18 @@ finer than the ball's.
   | h | 0-25 | 26-51 | 52-77 | 78+ |
   |---|---|---|---|---|
   | `shadow_size` | 0 | 1 | 2 | 3 |
-  | ellipse | 96×14 | 80×12 | 64×10 | 48×8 |
+  | width | 96 px | 80 px | 64 px | 48 px |
+  | lit rows | 13 | 11 | 9 | 7 |
+  | lit texels | 520 | 368 | 248 | 144 |
+
+  **The heights are odd, and they have to be.** This draft first asked for
+  14/12/10/8 while also fixing the shape's centre on the integer row 10 (raster
+  235, the contact line). A run symmetric about an integer centre always has an
+  odd length, so no discretisation delivers both. Sampling raster centres gives
+  13/11/9/7 and grazing gives 15/13/11/9; the build took the shorter, so a shape
+  never spills past its stated height, and kept the centring — a shadow that
+  drifted a raster as it changed size would be visible, and one raster of height
+  is not. The widths are exact in all four. Caught by the Task 4 implementer.
 
   Blocks `224 + 2*size + half`. A contact shadow is the ball's *contact*, not
   its silhouette: a shadow that stayed the ball's size would say the light is at
