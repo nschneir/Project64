@@ -109,7 +109,10 @@ def _html_roster(text: str) -> dict[str, str]:
             f"demos table header without a Description column: {header}"
         desc_col = header.index("Description")
         for row in re.finditer(r"<tr>.*?</tr>", table.group(0), re.S):
-            link = re.search(r"tree/main/demos/([A-Za-z0-9-]+)", row.group(0))
+            # `_` is in the class because a demo directory may hold one
+            # (`amiga_ball`); without it the slug read here is a truncation
+            # that mismatches the markdown surfaces for a reason nothing names.
+            link = re.search(r"tree/main/demos/([A-Za-z0-9_-]+)", row.group(0))
             if not link:
                 continue
             at = table.start() + row.start()
@@ -756,7 +759,10 @@ def _html_descriptions(text: str) -> dict[str, str]:
             continue
         desc_col = header.index("Description")
         for row in re.finditer(r"<tr>.*?</tr>", table.group(0), re.S):
-            link = re.search(r"tree/main/demos/([A-Za-z0-9-]+)", row.group(0))
+            # `_` is in the class because a demo directory may hold one
+            # (`amiga_ball`); without it the slug read here is a truncation
+            # that mismatches the markdown surfaces for a reason nothing names.
+            link = re.search(r"tree/main/demos/([A-Za-z0-9_-]+)", row.group(0))
             if not link:
                 continue
             cells = re.findall(r"<td[^>]*>(.*?)</td>", row.group(0), re.S)

@@ -129,6 +129,7 @@ three-voice SID sound:
 |------|----------|-------------|---------|
 | [1812](demos/1812/) — [▶ Play](https://nschneir.github.io/Project64/play.html?demo=1812) | 6502 assembly | Shapes painted to Tchaikovsky's *1812 Overture* — bitmap mode, a rotating polygon rasterizer, 3-voice SID | <img src="demos/1812/evidence/sec1.png" width="150" alt="The 1812 canvas at the end of the Marseillaise: large blue and red polygons over dithered blue, red and white fills"> <img src="demos/1812/evidence/cannon.png" width="150" alt="A cannon shot in the 1812 canvas: the border flashed white around a bitmap of red, orange, yellow and blue dithered shapes"> <img src="demos/1812/evidence/final.png" width="150" alt="The finished 1812 canvas: blue, yellow, brown and white shapes layered over the whole bitmap, a blue star among them"> |
 | [Fugue No. 2 in C Minor](demos/fugue/) | 6502 assembly | Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note | &nbsp; |
+| [Amiga Ball](demos/amiga_ball/) | 6502 assembly | The Amiga's 1984 Boing Ball on four multicolor sprites — a precomputed sphere texture, a custom-charset grid room, and a SID impact thump | &nbsp; |
 
 Every demo outside the test tier keeps its whole solution once it has been
 built: the sources an agent wrote, a fidelity audit, a regression test, and
@@ -141,7 +142,7 @@ A/D and space, or `x64sc -ntsc demos/1812/1812.d64` and just watch. Their
 audits are [invaders](demos/invaders/AUDIT.md), [snake](demos/snake/AUDIT.md),
 [ms-muncher](demos/ms-muncher/AUDIT.md),
 [la-galaxia](demos/la-galaxia/AUDIT.md) and [1812](demos/1812/AUDIT.md).
-Fugue is prompt-only so far.
+Fugue and Amiga Ball are prompt-only so far.
 
 All five built demos also run in the browser: the ▶ Play links above, or all
 of them together at
