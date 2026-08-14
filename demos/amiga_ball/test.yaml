@@ -1,0 +1,362 @@
+# Amiga Ball -- the deterministic regression spec (SPEC.md Section 14).
+#
+#   c64 test run demos/amiga_ball/test.yaml
+#
+# It covers criteria 1-20, 23 and 25. The four it cannot: 21-22 are audio
+# (a WAV, a spectrogram and a generated score -- evidence/audio/, Task 8),
+# 24 is `c64 profile tick`, 26 is `c64 package`, 27 is this file passing,
+# and 28 is a bounding box measured off a capture. Everything left is a
+# byte a stopped machine can be asked for.
+#
+# It builds from source: `areas:` carries the three --area placements the
+# program needs to link at all, and the run assembles amiga_ball.s here
+# with its own labels on every invocation, so nothing can go stale between
+# the symbols and the bytes they are read against.
+#
+# THREE RULES THIS FILE OBEYS, each of which has a way of failing quietly:
+#
+#   1. Everything is anchored on `tick`, the once-per-frame subroutine.
+#      `mainloop` free-runs, so `until mainloop --count N` would count
+#      loops rather than frames (SPEC.md Section 10.2). And nothing waits
+#      after an until: a `wait:` polls a machine that is not executing and
+#      can only time out.
+#
+#   2. Counters that climb are asserted `at_least`, never `equals` -- the
+#      poll can step over an exact value. `differs`/`greater_than`/
+#      `less_than` take the name of an earlier `sample:` and never a
+#      literal; the literal comparators are a different family.
+#
+#   3. VIC-II colour registers and colour RAM read back four bits wide, so
+#      every compare against them is masked. $D018 reads $19, not the $18
+#      written (bit 0 is unused and reads 1) and $D016 reads $C8, not $08
+#      (bits 6-7 likewise) -- so those two are masked or compared against
+#      what the chip actually returns.
+#
+# STAGING (SPEC.md Section 12). `freeze` is the hook. ball_step skips
+# ADVANCING the physics while it is set but still derives Y from
+# bounce_phase, X16 from ball_xi, the shadow band and all six pointers, and
+# writes every sprite register -- so poking a state byte with freeze set
+# and stepping one tick puts that exact state on the machine. An impact is
+# staged the other way round: freeze, poke the byte one short of the event,
+# release, and step, so the program's own code produces the impact.
+#
+# The timeout is per step and stays at 120: the long `until:` runs here are
+# hundreds of emulated frames each.
+
+name: amiga-ball
+program: amiga_ball.s
+areas:
+  - 'CHARS=$2000:$0800'
+  - 'SPRITES=$2800:$1800'
+  - 'VARS=$4000:$0100'
+timeout: 120
+
+steps:
+  # ---- let the machine reach a steady frame ------------------------------
+  - until:  { ref: tick, count: 30 }
+
+  # ---- 1. mode and memory (Section 14.1) --------------------------------
+  # $D011 bit 7 is the raster compare's bit 8 and reads the live raster, so
+  # the compare is masked to the mode bits. $D016 bits 6-7 are unused and
+  # read as 1 ($C8 back from an $08 written). $D018 = $18 written, $19 read.
+  - assert: { mem: "$D011", mask: { and: "$7f", equals: ["$1b"] } }
+  - assert: { mem: "$D016", mask: { and: "$1f", equals: ["$08"] } }
+  - assert: { mem: "$D018", equals: ["$19"] }
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }
+
+  # ---- 2. colour RAM: the horizon is a colour change (Section 14.2) ------
+  # Rows 0-14 purple $04 (the wall), 15-24 light blue $0E (the floor). The
+  # change of colour IS the horizon, which is why the ball never has to
+  # cross an ambiguous line (SPEC.md Section 4).
+  - assert: { mem: "@@0,0",  mask: { and: "$0f", equals: ["$04"] } }
+  - assert: { mem: "@@14,0", mask: { and: "$0f", equals: ["$04"] } }
+  - assert: { mem: "@@20,0", mask: { and: "$0f", equals: ["$0e"] } }
+
+  # ---- 3. the screen matrix was copied (Section 14.3) --------------------
+  # Glyph 0 is blank, so an uncopied screen is all-zero and every assertion
+  # below would read 0. Row 0 is the wall's top horizontal crossed by its
+  # verticals -- 1 at every fourth column, 2 between them; row 24 col 0 is a
+  # floor cell; row 20 col 20 is the centre convergent line, the one that
+  # runs straight down from the vanishing point.
+  - assert: { mem: "@0,0",   equals: [1, 2, 2, 2, 1, 2, 2, 2] }
+  - assert: { mem: "@24,0",  not_equals: 0 }
+  - assert: { mem: "@20,20", equals: 3 }
+
+  # ---- 4. the sprite configuration (Section 14.4) ------------------------
+  # All eight bits of these five are implemented, so they need no mask.
+  - assert: { mem: "$D015", equals: ["$3f"] }   # sprites 0-5 on, 6-7 off
+  - assert: { mem: "$D01C", equals: ["$0f"] }   # ball multicolour, shadow hires
+  - assert: { mem: "$D017", equals: ["$0f"] }   # double height: the ball only
+  - assert: { mem: "$D01D", equals: ["$3f"] }   # double width: ball AND shadow
+  - assert: { mem: "$D01B", equals: ["$30"] }   # shadow behind the grid
+
+  # ---- 5. the sprite colours (Section 14.5) ------------------------------
+  # $D025/$D026 are shared by every multicolour sprite, which is why red --
+  # the colour only the ball needs -- has to be the per-sprite one.
+  - assert: { mem: "$D025", mask: { and: "$0f", equals: ["$00"] } }  # rim
+  - assert: { mem: "$D026", mask: { and: "$0f", equals: ["$01"] } }  # white
+  - assert: { mem: "$D027", mask: { and: "$0f", equals: ["$02"] } }  # red
+  - assert: { mem: "$D028", mask: { and: "$0f", equals: ["$02"] } }
+  - assert: { mem: "$D029", mask: { and: "$0f", equals: ["$02"] } }
+  - assert: { mem: "$D02A", mask: { and: "$0f", equals: ["$02"] } }
+  - assert: { mem: "$D02B", mask: { and: "$0f", equals: ["$0b"] } }  # shadow
+  - assert: { mem: "$D02C", mask: { and: "$0f", equals: ["$0b"] } }
+
+  # ---- 20. voice 3 is silent, and stays silent (Section 14.20) ----------
+  # sid_shadow+14..+20 mirror $D40E-$D414. They are written zero at init and
+  # never again; this is the first of three anchors that asks.
+  - assert: { mem: "sid_shadow+14", equals: [0, 0, 0, 0, 0, 0, 0] }
+
+  # =======================================================================
+  # MOTION -- these run with the physics live. Nothing below is staged
+  # until the geometry section.
+  # =======================================================================
+
+  # ---- 11, 25, 14: the ball travels, the main loop lives, the ball spins -
+  # ball_xi is parked mid-field first so the 20-frame window cannot contain
+  # a wall reversal: 20 frames at 1.75 px is 35 px, and 100 is 123 px from
+  # either bound. That matters for rot_frame, which reverses with the ball
+  # -- +20 then -20 inside one window would land back where it started and
+  # the `differs` would read as a stopped spin.
+  #
+  # ball_x16 is sampled `width: 2` because it is a 16-bit lo/hi pair; a
+  # one-byte sample of a 16-bit quantity is not a small version of it.
+  - poke:   { addr: ball_xi, values: [100] }
+  - poke:   { addr: ball_xf, values: [0] }
+  - until:  { ref: tick, count: 1 }
+  - sample: { mem: ball_x16, as: x0, width: 2 }
+  - sample: { mem: alive, as: a0 }
+  - sample: { mem: rot_frame, as: r0 }
+  - until:  { ref: tick, count: 20 }
+  - assert: { mem: ball_x16, differs: x0 }      # 14.11
+  - assert: { mem: alive, differs: a0 }         # 14.25  the main loop runs
+  - assert: { mem: rot_frame, differs: r0 }     # 14.14  the ball spins
+  - assert: { mem: rot_frame, at_most: 15 }     # 14.14  and stays in range
+
+  # ---- 13: both impact counters climb (Section 14.13) -------------------
+  # Zeroed first so the window is scoped and the byte cannot be read as
+  # climbing on impacts that happened before this spec's window. bounce_count
+  # is asserted after 200 ticks: the bounce period is 64 frames, so 200
+  # frames contains at least 3 wraps from any starting phase. wall_count
+  # after 300: 300 frames at 1.75 px is 525 px of travel across a 223 px
+  # field, which cannot happen without at least two reversals.
+  - poke:   { addr: bounce_count, values: [0] }
+  - poke:   { addr: wall_count, values: [0] }
+  - until:  { ref: tick, count: 200 }
+  - assert: { mem: bounce_count, at_least: 3 }
+  - until:  { ref: tick, count: 100 }
+  - assert: { mem: wall_count, at_least: 2 }
+
+  # ---- 12: a whole bounce, traversed (Section 14.12) --------------------
+  # bounce_phase is poked to 62 with the physics LIVE, so the program's own
+  # wrap produces the impact two ticks later -- 63, then 63+1 = 64 wraps to
+  # 0 and increments bounce_count. The apex is 32 ticks after that and the
+  # next contact 32 after the apex; the values are the bounce table's own
+  # (SPEC.md Section 6.1: y(0) = 158.0, y(32) = 54.0).
+  - poke:   { addr: bounce_count, values: [0] }
+  - poke:   { addr: bounce_phase, values: [62] }
+  - until:  { ref: tick, count: 2 }
+  - assert: { mem: bounce_phase, equals: 0 }
+  - assert: { mem: ball_yi, equals: 158 }       # contact
+  - assert: { mem: bounce_count, equals: 1 }
+  - until:  { ref: tick, count: 32 }
+  - assert: { mem: bounce_phase, equals: 32 }
+  - assert: { mem: ball_yi, at_most: 60 }       # 14.12 asks for <= 60 ...
+  - assert: { mem: ball_yi, equals: 54 }        # ... and the table says 54
+  - until:  { ref: tick, count: 32 }
+  - assert: { mem: ball_yi, equals: 158 }       # and back to contact
+  - assert: { mem: bounce_count, equals: 2 }
+
+  # ---- 23: the frame budget held (Section 14.23) ------------------------
+  # irq_hwm is a high-water MARK the handler keeps, not a sample: per-frame
+  # cost spikes only on the frames that do the expensive thing, and a
+  # sampler steps over those and reports a comfortable number that means
+  # nothing. 617 ticks have run by here (30 + 1 + 20 + 200 + 100 + 66), so
+  # the 200 below carries it past 600 with the sound frames -- the most
+  # expensive arm, 30 register writes -- included many times over.
+  #
+  # The declared ceiling is 40 lines, and the operational form of it is
+  # `10 + irq_hwm < 51`: the tick starts at raster 10 and must finish
+  # before the display window opens at 51, so every sprite register is
+  # written before the VIC draws a pixel. at_most 40 is exactly that claim.
+  # at_least 1 is the other half -- a mark of 0 would mean the measurement
+  # never ran, and every assertion above it would still pass.
+  - until:  { ref: tick, count: 200 }
+  - assert: { mem: irq_hwm, at_least: 1 }
+  - assert: { mem: irq_hwm, at_most: 40 }
+
+  # =======================================================================
+  # GEOMETRY -- staged with `freeze`. Three anchors, each a state the ball
+  # would otherwise take a hundred frames to reach, and each asserted as
+  # twelve literal sprite registers rather than as a relationship the spec
+  # cannot evaluate.
+  # =======================================================================
+
+  # ---- anchor A: floor contact at the left bound ------------------------
+  # bounce_phase 0 -> ball_yi 158; ball_xi 0 -> ball_x16 24. The twelve
+  # bytes are $D000-$D00B in order: sprite 0 X/Y, 1 X/Y, 2 X/Y, 3 X/Y,
+  # 4 X/Y, 5 X/Y. The right column is +48 because X-expansion doubles the
+  # sprite's 24 px of data; the bottom row is +42 because Y-expansion
+  # doubles its 21 rasters; the shadow's Y is fixed at 225 and does NOT
+  # rise with the ball (criteria 7 and 8).
+  - poke:   { addr: freeze, values: [1] }
+  - poke:   { addr: bounce_phase, values: [0] }
+  - poke:   { addr: ball_xi, values: [0] }
+  - poke:   { addr: ball_xf, values: [0] }
+  - poke:   { addr: rot_frame, values: [0] }
+  - until:  { ref: tick, count: 2 }
+  - assert: { mem: ball_yi, equals: 158 }
+  - assert: { mem: ball_x16, equals: [24, 0] }               # 14.10  24 + 0
+  - assert: { mem: shadow_x16, equals: [24, 0] }             # 14.16  no lag
+  - assert: { mem: shadow_size, equals: 0 }
+  - assert: { mem: "$D000", equals: [24, 158, 72, 158,
+                                     24, 200, 72, 200,
+                                     24, 225, 72, 225] }     # 14.7, 14.8
+  - assert: { mem: "$D010", equals: 0 }                      # 14.9  xi < 184
+  - assert: { mem: "$07F8", equals: [160, 161, 162, 163] }   # 14.6  160 + 4*0
+  - assert: { mem: sptr, equals: [160, 161, 162, 163] }      # 14.6  and the
+                                                             #       mirror agrees
+  - assert: { mem: "$07FC", equals: [224, 225] }             # 14.6  224 + 2*0
+  - assert: { mem: "sid_shadow+14", equals: [0, 0, 0, 0, 0, 0, 0] }  # 14.20
+
+  # ---- anchor B: mid-flight, mid-field, rotation frame 5 ----------------
+  # bounce_phase 8 -> ball_yi 112 (the table's 112.5 truncated to its
+  # integer byte); h = 158 - 112 = 46, which is band 1 of the four 26-raster
+  # shadow bands. ball_xi 100 -> ball_x16 124.
+  - poke:   { addr: bounce_phase, values: [8] }
+  - poke:   { addr: ball_xi, values: [100] }
+  - poke:   { addr: rot_frame, values: [5] }
+  - until:  { ref: tick, count: 2 }
+  - assert: { mem: ball_yi, equals: 112 }
+  - assert: { mem: ball_x16, equals: [124, 0] }              # 14.10  24 + 100
+  - assert: { mem: shadow_x16, equals: [124, 0] }            # 14.16
+  - assert: { mem: shadow_size, equals: 1 }                  # 14.16  second value
+  - assert: { mem: "$D000", equals: [124, 112, 172, 112,
+                                     124, 154, 172, 154,
+                                     124, 225, 172, 225] }   # 14.7, 14.8
+  - assert: { mem: "$D010", equals: 0 }                      # 14.9
+  - assert: { mem: "$07F8", equals: [180, 181, 182, 183] }   # 14.6  160 + 4*5
+  - assert: { mem: sptr, equals: [180, 181, 182, 183] }
+  - assert: { mem: "$07FC", equals: [226, 227] }             # 14.6  224 + 2*1
+
+  # ---- anchor C: the apex, hard against the right wall ------------------
+  # bounce_phase 32 -> ball_yi 54, the top of the table; h = 104, the open
+  # top band, shadow_size 3. ball_xi 223 is the right bound, so ball_x16 is
+  # 247 and the right-hand column sits at 247 + 48 = 295: past 255, which is
+  # what $D010 is for. 295 & $FF = 39.
+  - poke:   { addr: bounce_phase, values: [32] }
+  - poke:   { addr: ball_xi, values: [223] }
+  - poke:   { addr: rot_frame, values: [15] }
+  - until:  { ref: tick, count: 2 }
+  - assert: { mem: ball_yi, equals: 54 }
+  - assert: { mem: ball_x16, equals: [247, 0] }              # 14.10  24 + 223
+  - assert: { mem: shadow_x16, equals: [247, 0] }            # 14.16
+  - assert: { mem: shadow_size, equals: 3 }                  # 14.16  third value
+  - assert: { mem: "$D000", equals: [247, 54, 39, 54,
+                                     247, 96, 39, 96,
+                                     247, 225, 39, 225] }    # 14.7, 14.8
+  - assert: { mem: "$D010", equals: ["$2a"] }                # 14.9  sprites 1,3,5
+  - assert: { mem: "$07F8", equals: [220, 221, 222, 223] }   # 14.6  160 + 4*15
+  - assert: { mem: sptr, equals: [220, 221, 222, 223] }
+  - assert: { mem: "$07FC", equals: [230, 231] }             # 14.6  224 + 2*3
+
+  # ---- 9: the X-MSB flips at exactly ball_xi = 184 ----------------------
+  # 24 + 184 + 48 = 256. $D010 is rebuilt from the comparison every frame
+  # rather than read-modify-written, so it has exactly two legal values and
+  # the boundary is a single byte apart. Asserting both sides of it is what
+  # separates "the register happens to be right" from "the comparison is".
+  - poke:   { addr: ball_xi, values: [183] }
+  - until:  { ref: tick, count: 2 }
+  - assert: { mem: "$D010", equals: 0 }
+  - poke:   { addr: ball_xi, values: [184] }
+  - until:  { ref: tick, count: 2 }
+  - assert: { mem: "$D010", equals: ["$2a"] }
+
+  # =======================================================================
+  # SOUND -- the SID is write-only, so sid_shadow is the only thing a
+  # stopped machine can be asked what the program played. It proves the
+  # writes happened; it cannot prove they sound like an impact, which is
+  # what criteria 21-22's WAV and spectrogram are for.
+  # =======================================================================
+
+  # ---- 17: the floor impact gates both voices (Section 14.17) -----------
+  # Staged the other way round from the geometry above: bounce_phase is set
+  # to 63 with freeze SET, then freeze is released for exactly the ticks
+  # that carry the wrap, so the impact is produced by ball_step's own code
+  # path -- the same one a free-running bounce takes -- rather than poked.
+  # freeze goes back on immediately after, so nothing else can fire inside
+  # the 32-frame sound window and the schedule below is the program's.
+  - poke:   { addr: bounce_phase, values: [63] }
+  - poke:   { addr: freeze, values: [0] }
+  - until:  { ref: tick, count: 2 }
+  - poke:   { addr: freeze, values: [1] }
+  - assert: { mem: last_impact, equals: 1 }                  # 1 = floor
+  - assert: { mem: snd_kind, equals: 1 }
+  - assert: { mem: sid_shadow, equals: ["$0d", "$07"] }      # 14.17  A2, 1805
+  - assert: { mem: "sid_shadow+4", equals: ["$11"] }         # triangle + gate
+  - assert: { mem: "sid_shadow+11", equals: ["$81"] }        # noise + gate
+  - assert: { mem: "sid_shadow+5", equals: ["$08"] }         # attack 0, decay 8
+  - assert: { mem: "sid_shadow+6", equals: ["$00"] }         # sustain 0
+  - assert: { mem: "sid_shadow+23", equals: ["$f2"] }        # res 15, voice 2 in
+  - assert: { mem: "sid_shadow+24", equals: ["$1f"] }        # low-pass, volume 15
+  - assert: { mem: "sid_shadow+14", equals: [0, 0, 0, 0, 0, 0, 0] }  # 14.20
+
+  # ---- 18: the cutoff sweeps DOWN, and the gate falls (Section 14.18) ---
+  # The claim is the direction, not any one value, so the cutoff is sampled
+  # and compared against the sample -- `less_than` takes the name of a
+  # sample and never a literal. That descending resonant cutoff over a noise
+  # burst is the whole "boing".
+  - sample: { mem: "sid_shadow+22", as: cut0 }
+  - until:  { ref: tick, count: 8 }
+  - assert: { mem: "sid_shadow+22", less_than: cut0 }
+  # 24 more ticks carries snd_timer past the gate-off at 20 and out to its
+  # idle 24. The envelope's sustain is 0, so the note was over long before
+  # the gate fell -- which is what a struck body does.
+  - until:  { ref: tick, count: 24 }
+  - assert: { mem: snd_timer, equals: 24 }                   # idle
+  - assert: { mem: "sid_shadow+4", equals: ["$10"] }         # 14.18  released
+  - assert: { mem: "sid_shadow+11", equals: ["$80"] }
+
+  # ---- 15, 19: the right wall (Sections 14.15, 14.19) -------------------
+  # ball_xi is parked one step short of the bound with a positive velocity
+  # and spin_dir known, so releasing freeze for a single tick runs the
+  # program's own reversal: clamp, negate the velocity, negate the spin,
+  # count the wall, and strike the higher note. The spin reverses with the
+  # travel because a ball that changed direction without changing its spin
+  # would read as skidding off the wall.
+  - poke:   { addr: ball_xi, values: [223] }
+  - poke:   { addr: ball_xf, values: [0] }
+  - poke:   { addr: ball_vx, values: ["$c0", "$01"] }        # +1.75 px/frame
+  - poke:   { addr: spin_dir, values: [1] }
+  - assert: { mem: spin_dir, equals: ["$01"] }               # 14.15  before
+  - poke:   { addr: freeze, values: [0] }
+  - until:  { ref: tick, count: 1 }
+  - poke:   { addr: freeze, values: [1] }
+  - assert: { mem: spin_dir, equals: ["$ff"] }               # 14.15  after
+  - assert: { mem: last_impact, equals: 3 }                  # 3 = wall-right
+  - assert: { mem: ball_xi, equals: 223 }                    # clamped, not past
+  - assert: { mem: ball_vx, equals: ["$40", "$fe"] }         # -1.75 px/frame
+  - assert: { mem: snd_kind, equals: 2 }                     # either wall is 2
+  - assert: { mem: sid_shadow, equals: ["$90", "$0a"] }      # 14.19  E3, 2704
+  - assert: { mem: "sid_shadow+4", equals: ["$11"] }
+  - assert: { mem: "sid_shadow+11", equals: ["$81"] }
+  - assert: { mem: "sid_shadow+14", equals: [0, 0, 0, 0, 0, 0, 0] }  # 14.20
+
+  # ---- 15: and the left wall, which is the other value of last_impact ---
+  # The velocity left behind by the reversal above is already negative, so
+  # parking the ball at the left bound and stepping once takes the other
+  # arm of the same branch: ball_xi underflows to $FE, which the single
+  # `cmp #224 / bcs` catches alongside the right wall's 224, and the sign of
+  # ball_vx says which one happened.
+  - poke:   { addr: ball_xi, values: [0] }
+  - poke:   { addr: ball_xf, values: [0] }
+  - poke:   { addr: freeze, values: [0] }
+  - until:  { ref: tick, count: 1 }
+  - poke:   { addr: freeze, values: [1] }
+  - assert: { mem: last_impact, equals: 2 }                  # 2 = wall-left
+  - assert: { mem: spin_dir, equals: ["$01"] }               # 14.15  flipped back
+  - assert: { mem: ball_xi, equals: 0 }                      # clamped
+  - assert: { mem: ball_vx, equals: ["$c0", "$01"] }         # positive again
+  - assert: { mem: sid_shadow, equals: ["$90", "$0a"] }      # 14.19  wall pitch
+  - assert: { mem: "$D010", equals: 0 }                      # 14.9  back to 0
