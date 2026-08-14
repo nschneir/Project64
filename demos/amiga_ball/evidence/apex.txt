@@ -1,0 +1,29 @@
+# apex.png -- the apex -- ball_yi 54, the sphere entirely above the horizon at raster 171, and the smallest shadow (size 3, 48 px)
+#
+# Captured with the machine STOPPED at a `tick` anchor.
+# Decoded state (SPEC.md Section 9):
+#   freeze=1  bounce_phase=32  rot_frame=0  spin_dir=1
+#   ball_xi=100  ball_x16=124 0  ball_yi=54
+#   shadow_x16=124 0  shadow_size=3
+#   last_impact=0  bounce_count=0  wall_count=0
+#   $D000-$D00B=124 54 172 54 124 96 172 96 124 225 172 225
+#   $D010=0  ($00 while ball_xi < 184, $2A at or above it)
+#
+# $4000 ball_xf .. $4019 sptr+3, in SPEC.md Section 9's order:
+#   +0  ball_xf       +1  ball_xi       +2  ball_x16 lo,hi
+#   +4  ball_vx lo,hi +6  ball_yf       +7  ball_yi
+#   +8  bounce_phase  +9  rot_frame     +10 spin_dir
+#   +11 bounce_count  +12 wall_count    +13 last_impact
+#   +14 frame_count lo,hi               +16 irq_hwm
+#   +17 irq_last      +18 shadow_x16 lo,hi
+#   +20 shadow_size   +21 freeze        +22 sptr[4]
+4000: 00 64 7c 00 c0 01 00 36 20 00 01 00 00 00 00 00  .d|....6 .......
+4010: 06 06 7c 00 03 01 a0 a1 a2 a3                    ..|.......
+# text column: ascii
+#
+# $07F8-$07FF -- the six live sprite pointers, plus two unused:
+#   0-3 ball  = 160 + 4*rot_frame + n     (SPEC.md Section 5.4)
+#   4-5 shadow= 224 + 2*shadow_size + n   (SPEC.md Section 7)
+#   6-7 sprites 6 and 7 are disabled in $D015 = $3F
+07f8: a0 a1 a2 a3 e6 e7 00 00                          ........
+# text column: ascii

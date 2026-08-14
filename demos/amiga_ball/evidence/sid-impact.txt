@@ -1,0 +1,45 @@
+# sid-impact.txt -- the SID shadow across one floor impact.
+#
+# sid_shadow ($401D, 25 bytes) mirrors $D400-$D418.  Every SID write in
+# the demo goes through `sidput`, which stores to the register and to the
+# shadow, so these bytes are proof the writes happened.  They CANNOT prove
+# the result sounds like an impact -- that is what SPEC.md Section 13.2's
+# WAV and spectrogram are for.
+#
+# offset -> register, for the ones this demo uses:
+#   +0/+1  $D400/1  voice 1 frequency lo/hi   floor = $0D/$07 (A2, 1805)
+#                                             wall  = $90/$0A (E3, 2704)
+#   +4     $D404    voice 1 control  $11 triangle+gate, $10 released
+#   +5/+6  $D405/6  voice 1 AD / SR  $08 = attack 0, decay 8; sustain 0
+#   +7/+8  $D407/8  voice 2 (noise) frequency lo/hi
+#   +11    $D40B    voice 2 control  $81 noise+gate, $80 released
+#   +12/13 $D40C/D  voice 2 AD / SR  $04 = attack 0, decay 4
+#   +14..+20        voice 3 -- zero for the life of the run, an assertion
+#   +22    $D416    filter cutoff, swept DOWN over 16 frames = the boing
+#   +23    $D417    $F2 resonance 15, voice 2 routed into the filter
+#   +24    $D418    $1F low-pass, volume 15
+
+== the floor impact (snd_timer=2, snd_kind=1, last_impact=1, bounce_count=1)
+   Read at the tick anchor after the two ticks that carry the wrap, which
+   is why snd_timer is 2 and not 0: sound_step increments it AFTER writing,
+   so no stop can ever show the window's first frame from inside it.  The
+   gate-on writes below all happened on the impact tick itself.
+   $D416 cutoff = 207
+401d: 0d 07 00 00 11 08 00 00 10 00 00 81 04 00 00 00  ................
+402d: 00 00 00 00 00 00 cf f2 1f                       .........
+# text column: ascii
+
+== 8 frames later (snd_timer=10)
+   $D416 cutoff = 106, down from 207 -- the sweep is the
+   descending resonant low-pass over the noise burst (SPEC.md Section 8).
+401d: 0d 07 00 00 11 08 00 00 10 00 00 81 04 00 00 00  ................
+402d: 00 00 00 00 00 00 6a f2 1f                       ......j..
+# text column: ascii
+
+== 24 frames after the impact (snd_timer=24, idle at 24)
+   voice 1 control = 16 and voice 2 control = 128:
+   both gates released.  Sustain is 0, so the note was over long before the
+   gate fell -- which is what a struck body does.
+401d: 0d 07 00 00 10 08 00 00 10 00 00 80 04 00 00 00  ................
+402d: 00 00 00 00 00 00 1e f2 1f                       .........
+# text column: ascii
