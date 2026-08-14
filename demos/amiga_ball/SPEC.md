@@ -57,7 +57,7 @@ there.
 | `$2800-$37FF` | 4,096 | `SPRITES` area, part 1 — 16 rotation frames × 4 blocks × 64 bytes. Blocks **160-223**. |
 | `$3800-$39FF` | 512 | `SPRITES` area, part 2 — 4 shadow sizes × 2 blocks × 64 bytes. Blocks **224-231**. |
 | `$3A00-$3FFF` | 1,536 | Free (blocks 232-255). Declared but unused; see §5 for what it would buy. |
-| `$4000-$4046` | 71 | `VARS` area — every observable byte (§9). Outside bank 0 on purpose: the VIC never reads it. |
+| `$4000-$403E` | 63 | `VARS` area — every observable byte (§9). Outside bank 0 on purpose: the VIC never reads it. `.res` inside an area ships as zeros (the segment is linked `type = ro`), so every counter starts at 0 with no init loop. |
 
 **The charset base trap.** Bank 0 offers eight 2 KB charset bases, and the
 character ROM's image is **4 KB** (`$1000-$1FFF`), which covers *two* of them:
@@ -275,11 +275,11 @@ checkerboard.
 ### 5.2 The ray cast
 
 For texel (column `c` in 0-23, row `r` in 0-41), with the sphere centred at
-(11.5, 20.5) with radii 12 texels and 18 rows:
+**(12.0, 21.0)** with radii 12 texels and 18 rows:
 
 ```
-nx = (c + 0.5 - 11.5) / 12
-ny = (r + 0.5 - 20.5) / 18
+nx = (c + 0.5 - 12.0) / 12
+ny = (r + 0.5 - 21.0) / 18
 if nx^2 + ny^2 > 1 :  transparent
 nz  = sqrt(1 - nx^2 - ny^2)          # the near hit of the ray, z toward viewer
 lat = asin(ny)                       # spin axis is vertical, poles top/bottom
@@ -292,6 +292,16 @@ color = red if (lat_index + lon_index) & 1 else white
 A texel is **rim** (`01`, black) instead of a checker if it is inside the
 sphere but one of its four neighbours is outside. The rim is applied after the
 checker so it always wins at the limb.
+
+**The centre is the block's continuous centre, not its index centre**, and the
+difference is not cosmetic. Texel `c` is sampled at `c + 0.5`, so the 24-column
+grid spans 0.0-24.0 and its centre is 12.0; the sphere's 36 rows span 3.0-39.0,
+so their centre is 21.0. This draft first wrote (11.5, 20.5) — the *index*
+centre — and the C64 says what that costs: `nx` runs -0.9167 to +1.0000 instead
+of ±0.9583, so the disc's left limb falls at column -1, off the block, and the
+equator flattens into a vertical edge about 11 texel rows tall; the sphere also
+comes out 37 rows instead of the 36 that §3.2's roundness of 0.991 is computed
+from. Caught by the Task 1 implementer against the running machine.
 
 ### 5.3 Why 16 frames, and what a frame costs
 
@@ -461,9 +471,15 @@ finer than the ball's.
   (`references/hardware.md`) — which is why the ball is 0-3 and the shadow 4-5
   and not the other way round.
 
-`$D015` = `$3F` (sprites 0-5). `$D01C` = `$0F` (0-3 multicolor). `$D017` =
-`$D01D` = `$0F` for `$D017`… stated exactly: `$D017` (double height) = `$0F`,
-`$D01D` (double width) = `$3F` — the ball in both axes, the shadow in X only.
+The four sprite-configuration registers, stated exactly:
+
+| Register | Value | Reading |
+|---|---|---|
+| `$D015` enable | `$3F` | sprites 0-5 on, 6-7 off |
+| `$D01C` multicolor | `$0F` | ball multicolor, shadow hires |
+| `$D017` double height | `$0F` | ball only |
+| `$D01D` double width | `$3F` | ball **and** shadow — the shadow is 96 px wide because of this bit |
+| `$D01B` behind data | `$30` | shadow behind the grid, ball in front |
 
 ---
 
@@ -716,9 +732,31 @@ lands on frame 32 and every 64 frames after; the first wall impact on frame
 ### 13.1 Frames
 
 `tools/evidence.sh` regenerates all of it in one command, following the five
-rules in `docs/graphics-and-sprites.md` §5. Each PNG is captured while the
-machine is **stopped** at a `c64 until tick` anchor, at `--scale 2 --border`,
-and each is accompanied by a `.txt` holding the state bytes that put it there.
+rules in `docs/graphics-and-sprites.md` §5 — plus two this demo had to establish
+for itself, both stated here because a reviewer will otherwise draw a wrong
+conclusion from a correct picture.
+
+**A. Flush the scanline buffer.** `c64 screen --png` returns the emulator's
+rolling raster, not a re-render of video RAM: lines the beam has swept show the
+current partial frame and lines below it show the previous one, arbitrarily
+stale after a warped phase. Step exactly one more `until tick` immediately
+before every capture. This is not in the policy's five rules;
+`demos/la-galaxia/tools/evidence.sh` states it as its own rule 2, having shipped
+a capture with boot-screen blue below the beam.
+
+**B. The PNG has square pixels; the C64 does not.** `c64 screen --png` writes
+the raw NTSC raster with no aspect correction — measured, 1 PNG pixel per raster
+pixel at `--scale 1`. Since the machine's PAR is 0.7435 (§3.1), **a ball that is
+genuinely round on a television necessarily reads as a 4:3-wide ellipse in these
+PNGs, and one that looks round in the PNG would be a 29%-too-tall egg on the
+machine.** So roundness is never judged by eye off `evidence/*.png`. It is
+judged by the bounding box: the sphere must measure **96 × 72** raster pixels,
+which is criterion 28. `apex.png` and `contact.png` are evidence of *position*,
+not of shape.
+
+Each PNG is captured while the machine is **stopped** at a `c64 until tick`
+anchor, at `--scale 2 --border`, and each is accompanied by a `.txt` holding the
+state bytes that put it there.
 
 | File | The claim |
 |---|---|
@@ -847,3 +885,11 @@ machine, never from reading the source.
 26. `c64 package` produces `amiga_ball.d64` and `amiga_ball.prg`, and the
     reported run command is `x64sc -ntsc amiga_ball.d64`.
 27. `c64 test run demos/amiga_ball/test.yaml` passes.
+
+**Shape**
+
+28. The sphere's bounding box, measured off a capture rather than judged by
+    eye, is **96 × 72 raster pixels** — `96 × 0.7435 / 72 = 0.991`. Measured as
+    the red-checker bbox plus one rim texel on each side: 88 × 68 red, +4 px
+    left/right and +2 px top/bottom. §13.1 B is why this is a measurement and
+    not a look.
