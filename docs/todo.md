@@ -909,3 +909,223 @@ frames.
 and `hardware.md`'s Sprites section must still agree about the general rule,
 and `c64 build demos/invaders/invaders.s` must reproduce the committed
 `invaders.prg` (`tests/test_docs_demos.py::test_demo_prg_is_a_build_of_the_committed_sources`).
+
+---
+
+Everything from *Two skill files say the screen reader assumes `$0400`* onward
+is the **fugue dogfood's** post-mortem (2026-08-14), kept the same way: a
+friction log written while the work happened, then triaged, with the file
+quoted before any gap in it is asserted. Six items. The through-line this time
+is different from amiga_ball's: five of the six are about *what the references
+say*, not about the instruments. The demo's own bugs — a sprite constant that
+did not follow its geometry, an illegal addressing mode, a branch out of range
+— were each caught within one build or one screenshot. What cost hours was a
+frame-budget design derived from a rule the references state incompletely.
+
+## Two skill files say the screen reader assumes `$0400`. It does not.
+
+**Anchor:** `skills/c64-development/references/cookbook.md:2523-2524` and
+`skills/c64-development/references/hardware.md:214-215`.
+
+**What's wrong now.** Both say the same thing:
+
+> **Leave the screen at `$0400`.** The `$D018` high nybble can move it, but
+> the toolset's screen reader assumes `$0400`.
+
+Two other files say the opposite, and they are the ones that are right.
+`docs/graphics-and-sprites.md:99-101`: "Screen reads are relocation-aware:
+`c64 screen` and `@row,col` follow `$DD00`/`$D018` to wherever the VIC-II put
+the screen". `skills/c64-development/SKILL.md:209`: "relocation is followed
+automatically by `c64 screen` and `@row,col`."
+
+Measured 2026-08-14 on an NTSC session, marker bytes at both addresses:
+
+```
+mem write $1C00 5 ; mem write $0400 9
+mem read '@0,0' 1     -> 0400: 09          (default $D018)
+mem write $D018 $78                        (screen -> $1C00)
+mem read '@0,0' 1     -> 1c00: 05          followed the relocation
+c64 screen --codes    -> first cell 5      followed it too
+```
+
+Both halves of the claim are false, and the two files carrying the false
+version are inside the skill — the half that travels to other repositories,
+where `docs/graphics-and-sprites.md` does not exist to contradict it.
+
+**Fix direction.** Correct both skill files to match the measurement and say
+what is actually fixed: colour RAM never moves, so `@@row,col` stays `$D800`
+whatever `$D018` says. Keep a *reason* to leave the screen at `$0400` if there
+is one worth keeping (there is: nothing in the toolset needs it moved, and
+moving it costs a KB of bank 0), but stop giving a false one.
+
+**How to verify.** `git grep -n "screen reader assumes"` returns nothing, and
+the replacement sentence in each file is asserted by a `tests/test_docs_*.py`
+case that performs the two-marker measurement above against a live session.
+
+**Cost here.** `demos/fugue/SPEC.md` §5 costed a double-buffered fallback that
+would have relocated the screen, and had to carry a paragraph hedging a
+contradiction that a two-minute measurement settles.
+
+## The cookbook has no scrolling recipe and no SID sequencer recipe, and a demo prompt promises both
+
+**Anchor:** `skills/c64-development/references/cookbook.md`;
+`demos/fugue/PROMPT.md:51-52`.
+
+**What's wrong now.** The prompt sends the agent to the cookbook for three
+things:
+
+> - `skills/c64-development/references/cookbook.md` — working recipes (raster
+>   IRQ, SID, smooth scrolling) to start from rather than reinvent.
+
+One of the three is there. Verified:
+`git grep -nI 'D016' -- skills/c64-development/references/cookbook.md` returns
+**two** hits, both inside "Multicolor bitmap" switching on the multicolour bit;
+no heading in the file mentions scrolling (`git grep -nI '^### '` lists 31
+headings). The 38-column bit, the column-shift step and its cost appear
+nowhere, and the only register description is one line in `hardware.md:212`.
+
+The SID half is thinner than it sounds too. The file's entire assembly SID
+vocabulary is "Sound: a beep from machine code" — eight stores and a jiffy
+delay — plus its BASIC twin. There is no note table (the formula is in
+`hardware.md`), no frame-driven player, no gate handling, and no shadow-block
+convention (that is in `audio-verification.md`, which argues *against* trusting
+shadows alone).
+
+**Fix direction.** Either add the two recipes or stop promising them. Adding
+them is now cheap in source material and expensive in nothing: a horizontal
+fine-scroll recipe has `demos/fugue/scroll.s` plus `demos/la-galaxia`'s banded
+`$D016` split to draw on, and a frame-driven three-voice player with a shadow
+block has `demos/fugue/music.s`, `demos/1812`, `demos/la-galaxia` and
+`demos/ms-muncher`. Both would be `LIVE_RECIPES` entries, which is the bar the
+cookbook holds its recipes to.
+
+**How to verify.** Two new `### ` headings in the cookbook, both listed in
+`LIVE_RECIPES` in `tests/test_docs_cookbook.py`, both assembling and running
+correctly on a live C64 in that suite.
+
+## Nothing states the fact a scrolling demo's frame budget actually turns on: a text row is latched at its badline
+
+**Anchor:** `skills/c64-development/references/hardware.md:193-203`
+("Badlines"); `skills/c64-development/references/cookbook.md:2176`
+("Per-frame raster budget: a high-water mark the program keeps").
+
+**What's wrong now.** Every mention of badlines in the tree is about the
+*cycle steal*. `git grep -nIi badline -- skills/ docs/` returns nine hits:
+`hardware.md` explains the ~40-43 cycle stall and concludes that "work done in
+the **top border** (rasters 0-50) pays no badline steal at all", the cookbook's
+budget recipe says "Arm it in the top border", and the rest are `docs/cli.md`
+on `c64 profile` counting the steal as wall cycles.
+
+The fact none of them states is the one that decides when a redraw is safe:
+**the VIC fetches a text row's whole character matrix and its colour nybbles on
+the badline at that row's first raster (`51 + 8*R`), so after that raster,
+writes to that row cannot affect the current frame — and before it, they can.**
+That single sentence has two consequences a demo needs:
+
+- a row's redraw *deadline* is `51 + 8*R`, not the row's last scanline; and
+- a redraw may begin the moment the *last* row it touches has been latched,
+  which for a full-screen effect is late in the display, not in the top border.
+
+**Fix direction.** State it in `hardware.md`'s "Badlines" paragraph, and add
+the consequence to the cookbook's budget recipe, whose "arm it in the top
+border" is good advice for a short tick and actively misleading for a redraw
+that spans most of a frame.
+
+**How to verify.** A `tests/test_docs_*.py` case asserting both files carry the
+latch rule, in the shape the other reference-fact tests use.
+
+**Cost here.** `demos/fugue` designed its whole scroll around "arm in the top
+border", measured `tickend = 227` against a 203 deadline, and costed two
+fallbacks (a display list, and double-buffering) before finding that arming at
+raster **204** — immediately after the last band row's badline — turns a
+215-raster window into a 263-raster one and needs neither. Final measurement:
+`tickend` 178. The design that shipped is a *consequence* of the missing
+sentence, arrived at the long way.
+
+## `c64 test run` anchors its first `until` deterministically; the CLI does not, and only one of the two is documented
+
+**Anchor:** `skills/c64-development/SKILL.md:302-317` ("Catching the first
+frame of a state you just triggered"); `docs/cli.md`, `c64 test run`.
+
+**What's wrong now.** SKILL.md documents the CLI trap well — `c64 until` "sets
+its checkpoint only when it runs, and the wall-clock gap since the previous
+command is emulated seconds at warp" — and prescribes arming a breakpoint
+before the trigger. Measured on this demo, `c64 run` followed immediately by
+`c64 until tick --count 30` landed on **frame 3,774**.
+
+Nothing says whether `c64 test run` has the same problem. It does not: the
+runner arms its checkpoint before the program gets going, so a spec whose first
+step is `until: {ref: tick, count: 1}` stops at the program's **first**
+arrival. Measured: that step plus `assert: {mem: frame, equals: 0}` passes, and
+every `--count N` after it is an exact frame number.
+
+That is a real guarantee and a useful one — it is the difference between a
+spec that can assert absolute frames and one that can only assert relative
+ones — and an agent has no way to know it holds without measuring.
+
+**Fix direction.** One sentence under `c64 test run` in `docs/cli.md` saying
+the runner arms before the program runs, so the first `until` lands on the
+first arrival and counts are absolute; and a pointer to it from SKILL.md's
+paragraph, which currently leaves the reader to assume the CLI's behaviour
+applies everywhere.
+
+**How to verify.** `tests/test_docs_cli.py` asserts the sentence exists, and a
+spec fixture asserting `frame == 0` after a single `until` keeps it true.
+
+## `c64 sprite encode` and `c64 charset encode` disagree about the hires legend
+
+**Anchor:** `docs/cli.md`, `c64 sprite encode` and `c64 charset encode`.
+
+**What's wrong now.** The two are documented as a pair — the charset command's
+entry opens "the charset twin of `c64 sprite encode`" — but their hires
+legends differ. `c64 charset encode`: "Hires rows are 8 characters of `.#`."
+`c64 sprite encode`: "hires rows are 24 characters using `' #'`". So `.` is the
+background in one and needs `--background .` in the other. Authoring this
+demo's two sheets in one sitting, the sprite sheet written in the legend the
+charset command documents failed with
+
+```
+{"error": "sprite 1 'glow' (line 22): unknown hires sprite glyph '.'"}
+```
+
+The error is actionable and the fix is one flag, so this is small — but the
+commands are presented as twins and a demo that authors both hits it.
+
+**Fix direction.** Cheapest is a cross-reference in each entry naming the
+other's default. Making `.` legal in sprite hires without the flag is a
+behaviour change and would want its own ruling.
+
+**How to verify.** `tests/test_docs_cli.py` asserts each entry mentions the
+other's background default.
+
+## `docs/graphics-and-sprites.md`'s evidence helpers are `sh`, offered without a shell named
+
+**Anchor:** `docs/graphics-and-sprites.md:239-243`.
+
+**What's wrong now.** The block is introduced as "worth stealing verbatim":
+
+```sh
+C=".venv/bin/c64"; S="-s mmev"
+shot()  { $C screen --png "$OUT/$1.png" --scale 2 $S >/dev/null; echo "  $1.png"; }
+```
+
+`$S` unquoted relies on word splitting, which **zsh does not do** for
+parameter expansions. Pasted into a zsh shell — the shell this environment
+runs — `$S` arrives as the single token `-s fugev` and click reads the session
+name as `" fugev"`:
+
+```
+error: no session named ' fugev'. Start one with: c64 session start
+```
+
+Every committed `tools/evidence.sh` is `#!/bin/sh`, where it works, so the
+scripts are correct; it is the snippet, presented bare, that has no shell on
+it. This is the same class as the zsh driver example `docs/cli.md` lost in the
+amiga_ball pass (see the preamble above) — second instance, different file.
+
+**Fix direction.** One clause on the block saying the helpers assume the
+`#!/bin/sh` the committed evidence scripts use, and why (`$S` needs word
+splitting).
+
+**How to verify.** `tests/test_docs_*.py` asserts the caveat sits with the
+snippet.

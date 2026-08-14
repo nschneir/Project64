@@ -1,0 +1,208 @@
+name: fugue
+program: fugue.s
+areas:
+  - CHARS=$2000:$0800
+  - SPRITES=$2800:$0100
+timeout: 120
+
+# Anchoring.  `c64 test run` arms its checkpoint before the program gets
+# going, so the FIRST `until tick` lands on frame 0 and every `--count N`
+# after it is an exact frame number.  (The CLI is not like this: `c64 run`
+# followed by `c64 until tick --count 30` landed on frame 3,774 on this demo,
+# because the machine free-runs at warp in the gap between the two commands.
+# Evidence scripts arm `break add tick` before `run` for that reason.)
+steps:
+
+  # ---- the static hold: staves, clefs, bar line, nothing moving ----------
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: "frame", equals: [0, 0] }
+  - assert: { mem: "state", equals: 0 }
+
+  - until:  { ref: tick, count: 30 }
+  - assert: { mem: "frame", equals: [30, 0] }
+  - assert: { mem: "state", equals: 0 }
+  - assert: { mem: "sf", equals: [0, 0] }
+  - assert: { mem: "shifts", equals: [0, 0] }
+
+  # mode registers.  $D011 reads back exactly $1B: a stopped machine is at
+  # the top of the frame, so the raster MSB in bit 7 is 0.
+  - assert: { mem: "$D011", equals: "$1B" }
+  - assert: { mem: "$D018", equals: "$19" }
+  - assert: { mem: "$D01B", equals: "$07" }
+  - assert: { mem: "$D020", mask: { and: "$0f", equals: [0] } }
+  - assert: { mem: "$D021", mask: { and: "$0f", equals: [0] } }
+  # 38-column mode is bit 3 CLEAR, and the fine scroll is 6 during the hold.
+  - assert: { mem: "$D016", mask: { and: "$0f", equals: [6] } }
+  - assert: { mem: "xsc", equals: 6 }
+
+  # the staff: five lines on rows 7-11 (treble) and 13-17 (bass), blank
+  # above and below.  Column 20 is clear of the clefs and of the first notes.
+  - assert: { mem: "@7,20",  equals: 33 }
+  - assert: { mem: "@8,20",  equals: 33 }
+  - assert: { mem: "@9,20",  equals: 33 }
+  - assert: { mem: "@10,20", equals: 33 }
+  - assert: { mem: "@11,20", equals: 33 }
+  - assert: { mem: "@12,20", equals: 32 }   # the middle-C gap row
+  - assert: { mem: "@13,20", equals: 33 }
+  - assert: { mem: "@14,20", equals: 33 }
+  - assert: { mem: "@15,20", equals: 33 }
+  - assert: { mem: "@16,20", equals: 33 }
+  - assert: { mem: "@17,20", equals: 33 }
+  - assert: { mem: "@4,20",  equals: 32 }   # never-touched rows stay blank
+  - assert: { mem: "@20,20", equals: 32 }
+  # the staff is white
+  - assert: { mem: "@@9,20", mask: { and: "$0f", equals: [1] } }
+
+  # the clefs, drawn from custom characters, in columns 1-2.  Treble
+  # 64-73 down rows 7-11 column-major; bass 74-79 down rows 13-15.
+  - assert: { mem: "@7,1",  equals: 64 }
+  - assert: { mem: "@11,1", equals: 68 }
+  - assert: { mem: "@7,2",  equals: 69 }
+  - assert: { mem: "@11,2", equals: 73 }
+  - assert: { mem: "@13,1", equals: 74 }
+  - assert: { mem: "@15,1", equals: 76 }
+  - assert: { mem: "@13,2", equals: 77 }
+  - assert: { mem: "@15,2", equals: 79 }
+
+  # ---- the hold really holds --------------------------------------------
+  - sample: { mem: "shifts", as: hold0, width: 2 }
+  - until:  { ref: tick, count: 100 }
+  - assert: { mem: "frame", equals: [130, 0] }
+  - assert: { mem: "shifts", unchanged: hold0 }
+  - assert: { mem: "state", equals: 0 }
+  - assert: { mem: "@7,1", equals: 64 }     # ...and the clefs are still there
+
+  # ---- the scroll starts -------------------------------------------------
+  - until:  { ref: tick, count: 20 }
+  - assert: { mem: "frame", equals: [150, 0] }
+  - assert: { mem: "state", equals: 1 }     # LEAD: scrolling, still silent
+  - assert: { mem: "sf", equals: [0, 0] }
+
+  # the fine scroll walks 6,4,2,0 and the column shift happens on the frame
+  # after 0 -- one clock, checked one frame at a time.
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: "xsc", equals: 4 }
+  - sample: { mem: "shifts", as: s0, width: 2 }
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: "xsc", equals: 2 }
+  - assert: { mem: "shifts", unchanged: s0 }
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: "xsc", equals: 0 }
+  - assert: { mem: "shifts", unchanged: s0 }
+  - until:  { ref: tick, count: 1 }
+  - assert: { mem: "xsc", equals: 6 }
+  - assert: { mem: "shifts", greater_than: s0 }   # exactly here, and nowhere
+  - assert: { mem: "shifts", equals: [1, 0] }     #   else in the four
+
+  # ---- the music starts on the frame the arithmetic says ------------------
+  - until:  { ref: tick, count: 84 }
+  - assert: { mem: "frame", equals: [238, 0] }
+  - assert: { mem: "state", equals: 2 }           # PLAY, at HOLD + LEADIN
+  - assert: { mem: "sixteenth", equals: [0, 0] }
+  - assert: { mem: "bar", equals: 1 }
+  - assert: { mem: "slot", equals: 0 }
+
+  # ---- the exposition's three entries, one voice at a time ---------------
+  # The frames come from the arrangement: SUBJECT_ENTRIES puts the subject in
+  # the alto at bar 1 slot 2, the answer in the soprano at bar 3 slot 2, and
+  # the subject in the bass at bar 7 slot 2.  Sixteenth k sounds on frame
+  # 238 + 8k, so those are frames 254, 510 and 1022.
+  - until:  { ref: tick, count: 16 }
+  - assert: { mem: "frame", equals: [254, 0] }
+  - assert: { mem: "bar", equals: 1 }
+  - assert: { mem: "slot", equals: 2 }
+  - assert: { mem: "v2idx", equals: [1, 0] }      # the alto, alone
+  - assert: { mem: "v1idx", equals: [0, 0] }
+  - assert: { mem: "v3idx", equals: [0, 0] }
+  - assert: { mem: "vnote+1", equals: 72 }        # C5, the subject's head
+
+  # the head that entry drew, still on screen during the hold, was asserted
+  # above at @9,36 -- glyph 38 (filled upper head on a line) in colour 2, the
+  # pitch class C.  Here the same note is sounding.
+
+  # ---- the renderer runs exactly 15 sixteenths ahead of the sequencer -----
+  # Frame 400 is deliberately not an attack frame: on an attack frame the
+  # sixteenth has advanced and the renderer has not run yet, so the
+  # difference reads 14 for that one frame out of eight.
+  - until:  { ref: tick, count: 146 }
+  - assert: { mem: "frame", equals: [144, 1] }    # 400
+  - assert: { mem: "sixteenth", equals: [20, 0] }
+  - assert: { mem: "rendk", equals: [35, 0] }
+
+  - until:  { ref: tick, count: 110 }
+  - assert: { mem: "frame", equals: [254, 1] }    # 510
+  - assert: { mem: "bar", equals: 3 }
+  - assert: { mem: "slot", equals: 2 }
+  - assert: { mem: "v1idx", equals: [1, 0] }      # the soprano answers
+  - assert: { mem: "v3idx", equals: [0, 0] }      # the bass still silent
+  - assert: { mem: "vnote+0", equals: 79 }        # G5: the answer in G minor
+
+  - until:  { ref: tick, count: 512 }
+  - assert: { mem: "frame", equals: [254, 3] }    # 1022
+  - assert: { mem: "bar", equals: 7 }
+  - assert: { mem: "slot", equals: 2 }
+  - assert: { mem: "v3idx", equals: [1, 0] }      # the bass enters last
+  - assert: { mem: "vnote+2", equals: 60 }        # C4
+
+  # ---- the frame budget, measured by the program -------------------------
+  # tickend is $D012 at the tick's exit, high-water over shift frames only.
+  # The last band row (screen row 19) is latched by the VIC at raster
+  # 51 + 8*19 = 203, so the column must be final before then.
+  - until:  { ref: tick, count: 378 }
+  - assert: { mem: "tickend", at_most: 203 }
+  - assert: { mem: "shiftline", at_most: 203 }
+  - assert: { mem: "frame", equals: [120, 5] }    # 1400: no frame was dropped
+
+  # ---- the sprite backlight tracks the sounding note ---------------------
+  # The registers are compared against the bytes the program published for
+  # them: sample the shadow, then assert the register is `unchanged` from it.
+  - sample: { mem: "sprx+0", as: x0 }
+  - assert: { mem: "$D000", unchanged: x0 }
+  - sample: { mem: "spry+0", as: y0 }
+  - assert: { mem: "$D001", unchanged: y0 }
+  - sample: { mem: "sprx+1", as: x1 }
+  - assert: { mem: "$D002", unchanged: x1 }
+  - sample: { mem: "spry+1", as: y1 }
+  - assert: { mem: "$D003", unchanged: y1 }
+  - sample: { mem: "sprx+2", as: x2 }
+  - assert: { mem: "$D004", unchanged: x2 }
+  - sample: { mem: "spry+2", as: y2 }
+  - assert: { mem: "$D005", unchanged: y2 }
+  - sample: { mem: "sprena", as: en }
+  - assert: { mem: "$D015", unchanged: en }
+
+  # ---- the SID shadow ----------------------------------------------------
+  # Waveform + gate per voice: pulse, sawtooth, triangle.  The shadow is the
+  # program's own evidence and the only kind that survives on real hardware,
+  # where $D400-$D418 is write-only.
+  - assert: { mem: "sidshadow+5",  equals: "$08" }   # voice 1 attack/decay
+  - assert: { mem: "sidshadow+6",  equals: "$A6" }   # voice 1 sustain/release
+  - assert: { mem: "sidshadow+12", equals: "$17" }   # voice 2
+  - assert: { mem: "sidshadow+13", equals: "$95" }
+  - assert: { mem: "sidshadow+19", equals: "$09" }   # voice 3
+  - assert: { mem: "sidshadow+20", equals: "$B7" }
+  - assert: { mem: "sidshadow+23", equals: "$A4" }   # voice 3 through the
+                                                     #   filter; the pedal
+                                                     #   opens this to $A7
+  - assert: { mem: "sidshadow+24", equals: "$1F" }   # volume 15 + low-pass;
+                                                     #   bit 7 CLEAR or voice 3
+                                                     #   is disconnected
+  # the pulse width really is being swept
+  - sample: { mem: "pwmval", as: pw0, width: 2 }
+  - until:  { ref: tick, count: 20 }
+  - assert: { mem: "pwmval", differs: pw0 }
+
+  # ---- the end: it stops, and it stops where it should -------------------
+  # The whole piece is 496 sixteenths = 3,968 frames from frame 238, so the
+  # last note is at 4,206 and the scroll halts once its head reaches the now
+  # column.  `collide` is the count genmusic.py predicts from the arrangement
+  # -- three unisons in the whole fugue, at bars 20, 27 and 29 -- so this is
+  # the renderer agreeing with the note data about what it had to draw.
+  - until:  { ref: tick, count: 3002 }
+  - assert: { mem: "frame", equals: [70, 17] }    # 4422
+  - assert: { mem: "state", equals: 3 }           # FINE
+  - assert: { mem: "collide", equals: [3, 0] }
+  - sample: { mem: "shifts", as: sfin, width: 2 }
+  - until:  { ref: tick, count: 120 }
+  - assert: { mem: "shifts", unchanged: sfin }    # the scroll really stopped
+  - assert: { mem: "state", equals: 3 }

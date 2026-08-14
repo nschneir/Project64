@@ -288,6 +288,9 @@
           <li>1812 &mdash;
             <a href="demos/1812/1812.prg">1812.prg</a> &middot;
             <a href="demos/1812/1812.d64">1812.d64</a></li>
+          <li>FUGUE IN C MINOR &mdash;
+            <a href="demos/fugue/fugue.prg">fugue.prg</a> &middot;
+            <a href="demos/fugue/fugue.d64">fugue.d64</a></li>
           <li>AMIGA BALL &mdash;
             <a href="demos/amiga_ball/amiga_ball.prg">amiga_ball.prg</a> &middot;
             <a href="demos/amiga_ball/amiga_ball.d64">amiga_ball.d64</a></li>
@@ -470,6 +473,21 @@
       image: "demos/1812/evidence/sec1.png",
       alt: "The 1812 canvas at the end of the Marseillaise: large blue and red polygons over dithered blue, red and white fills",
       controls: "Nothing to press — it paints itself for 2:50, then holds the finished canvas. Any key restarts it with a fresh seed."
+    },
+    {
+      /* Not a game either — and the second demo with no title screen to
+         shoot, so its tile art is the frame the whole thing is about: the
+         third voice entering, with all three backlights lit. */
+      id: "fugue",
+      title: "FUGUE IN C MINOR",
+      accent: "var(--c64-cyan)",
+      tagline: "Bach's score, scrolling as it plays.",
+      description: "Bach's BWV 847 on three SID voices while its score scrolls past — custom charset staves, pitch-class note colors, a sprite backlighting the sounding note",
+      d64: "demos/fugue/fugue.d64",
+      prg: "demos/fugue/fugue.prg",
+      image: "demos/fugue/evidence/entry3.png",
+      alt: "A grand staff scrolling right to left: coloured note heads with flats and sharps beside them across both staves, a bar line joining the two, and three sprite glows lit behind the notes sounding at the fixed now column",
+      controls: "Nothing to press — it plays once for 66 seconds and stops on a held C major chord."
     },
     {
       id: "amiga_ball",
