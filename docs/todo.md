@@ -17,6 +17,15 @@ friction log kept while the work happened rather than remembered after it.
 Every proposal below names **both front ends**, because a CLI proposal without
 an MCP counterpart is not a proposal (`AGENTS.md`, "Code quality").
 
+Everything from *`c64 screen --png` writes uncorrected raster* onward is the
+**amiga_ball dogfood's** post-mortem (2026-08-14), kept the same way. Its
+through-line is worth stating once: all twelve are about the *instruments*
+rather than about the C64. The demo's own defects were caught by the machine
+within minutes each; what cost time was evidence that looks conclusive and is
+not — a PNG that makes a round ball elliptical, a report that cannot say
+whether it checked anything, two renderers that disagree about a colour, and a
+shipping checklist that exists only as a red suite.
+
 ## A plan deliverable was destroyed by the SDD workspace cleanup
 
 **Anchor:** the preamble directly above this item;
@@ -717,3 +726,379 @@ and put the fighter back there if it is not, so a captured fighter fails as
 an unchanged tree and count. Today that is not 5/5; whatever lands must make it
 5/5, and must still fail if `keydecode` is broken on purpose (poke a `rts` over
 its first byte and confirm the step goes red).
+
+## `c64 screen --png` writes uncorrected raster, and nothing says so
+
+**Anchor:** `src/c64lib/screen.py`'s `screenshot`; `c64 screen --png` in
+`docs/cli.md`; `docs/graphics-and-sprites.md` §3 ("Screenshots are evidence")
+and §5 (committed PNGs are "load-bearing for review").
+
+**What's wrong now.** The capture is the raw NTSC raster at one PNG pixel per
+raster pixel — verified: a sphere measuring 96×72 raster px came out as a
+176×136 red-checker bbox at `--scale 2`. The machine's pixel aspect ratio is
+≈0.7435 (320 px across ≈430 dots of a 52.6 µs active line; 200 lines of ≈240
+active). So **a shape that is genuinely round on a television necessarily reads
+as a 4:3-wide ellipse in the committed PNG, and one that looks round there is
+29% too tall on the machine.**
+
+`c64 screen --help` lists `--png`, `--scale`, `--border`, `--codes`, `--style`,
+`--ansi-reverse`, `--numbered`, `--json`: no aspect option.
+`git grep -nI -i aspect -- docs skills` finds nothing about display aspect —
+the only hits are `demos/1812` prose about the *multicolor* 2:1 pixel, which is
+a different thing.
+
+This is not hypothetical. `demos/amiga_ball`'s central claim is that its ball is
+round; its `SPEC.md` originally asked reviewers to judge that off the evidence
+frames, which would have got the wrong answer every time. The demo now carries
+the rule as §13.1 B and scores roundness as a measured 96×72 bounding box
+(criterion 28) instead.
+
+**Fix direction (not ruled).** Either is a real fix; the second is the cheap one.
+
+- Both front ends: `c64 screen --png --aspect` / `c64_screenshot(aspect=True)`,
+  resampling to square *picture* pixels using the session model's PAR. Take the
+  number from the machine profile in `machines.py` (NTSC ≈0.7435, PAL ≈0.936),
+  not from the call site.
+- Or one sentence in `docs/cli.md`'s `c64 screen` entry and in
+  `docs/graphics-and-sprites.md` §3 saying the capture is uncorrected raster and
+  that circles are judged by bounding box, not by eye.
+
+**How to verify.** Capture any known-round sprite and measure its bbox: it must
+be ≈1.345× wider than tall in the PNG. With `--aspect`, width and height must
+come out equal for the same sprite, and a PAL session must produce a different
+correction than an NTSC one from the same program.
+
+## The screenshot flush rule is a demo's private knowledge, not the policy's
+
+**Anchor:** `docs/graphics-and-sprites.md` §5, "The shape of an evidence
+script" — the five-rule table; `demos/la-galaxia/tools/evidence.sh` rule 2.
+
+**What's wrong now.** `c64 screen --png` returns the emulator's rolling
+scanline buffer rather than a re-render of video RAM: lines the beam has swept
+show the current partial frame and lines below it show the *previous* one,
+which after a warped or free-running phase is arbitrarily stale. The fix is one
+extra `until tick --count 1` immediately before every capture.
+
+That rule is not among the five. `git grep -nI -e "rolling scanline" -e flush
+-- docs skills` returns nothing relevant (the `flush` hits are the keyboard
+buffer at `$C6`). It exists only inside `demos/la-galaxia/tools/evidence.sh`,
+which states it as its own rule 2 with the symptom recorded: "the first capture
+ever taken here had boot-screen light blue under the program's own border".
+
+`demos/amiga_ball` is the second demo to need it, which is this file's own
+"one instance is an inconvenience, two is a missing primitive" test (§6 of the
+graphics policy) coming due.
+
+**Fix direction (ruled: doc change, not code).** Promote it to a sixth row of
+the §5 table. The one-tick flush works; nothing needs building.
+
+**How to verify.** `git grep -nI "flush" docs/graphics-and-sprites.md` names the
+rule, and a new demo's evidence script written only from the policy produces
+byte-identical PNGs across two runs from a cold session.
+
+## `c64 sprite png` and `c64 screen --png` disagree about the palette
+
+**Anchor:** `src/c64lib/sprites.py:19-25` (`C64_PALETTE`);
+`src/c64lib/screen.py:73` (`palette = mon.palette()`); `protocol.py:46`
+(`PALETTE_GET`).
+
+**What's wrong now.** The two commands the graphics policy names as the sprite
+inspector and the evidence camera render the same colour number differently.
+Measured on two committed artifacts of the *same* sprite data:
+
+```
+demos/amiga_ball/evidence/ball-tl.png  (c64 sprite png)    red = (104, 55, 43)
+demos/amiga_ball/evidence/rot00.png    (c64 screen --png)  red = (174, 71, 93)
+```
+
+A dark brick against a rose — not a rounding difference. The cause is one line
+each: `sprites.py` ships a hardcoded table (`# Pepto palette (colodore
+lineage)`), while `screen.py` asks the machine over the binary monitor and
+renders with whatever palette VICE is actually configured with.
+
+`docs/graphics-and-sprites.md` §3 sends a reviewer to `c64 sprite png` to
+"verify a sprite before claiming it works" and to `c64 screen --png` for
+evidence. A reviewer comparing the two sees two different colours for the same
+three bytes, with nothing to say which is the machine.
+
+**Fix direction (not ruled).** Have `sprites.py` take the palette from
+`mon.palette()` the way `screen.py` does — `c64 sprite png INDEX` cannot run
+without a session, so the ground truth is always available — and keep
+`C64_PALETTE` only as the fallback for any path with no live monitor, saying so
+in the docstring. `c64 sprite show`'s ASCII is unaffected.
+
+**How to verify.** A test that renders one sprite through both writers and
+asserts the two agree on every colour it uses. That check does not exist today,
+which is why the divergence shipped.
+
+## A committed audio `report.md` cannot say whether it checked anything
+
+**Anchor:** `src/c64lib/sid_analysis.py`'s report writer; `c64 audio capture`
+/ `audio report` in `docs/cli.md`; any `demos/*/evidence/audio/*/report.md`.
+
+**What's wrong now.** The report is the durable artifact a reviewer reads
+months later, and it does not name the reference score, quote its entry counts,
+or state whether `--ref` was passed at all. It says so itself —
+`demos/amiga_ball/evidence/audio/floor/report.md`, committed as that demo's
+audio evidence:
+
+> ## Score diff
+>
+> No differences against the reference score — an empty diff list is also what
+> a run with no reference score produces.
+
+So the strongest audio evidence a demo can commit is, on its face,
+indistinguishable from a capture that was never scored. `docs/cli.md` already
+carries the rule this undermines — "A score derived from a transcription this
+produced cannot fail, and a check that cannot fail is not evidence" — and this
+is that failure one level up, in the report rather than in the score.
+
+**Fix direction (not ruled).** Put the reference into the report: the score's
+path, its per-voice entry and frame counts (`c64 audio score` already computes
+exactly this), and an explicit "no reference score supplied" line when there is
+none. The JSON payload already distinguishes the two cases; only the markdown
+cannot. Both front ends share the writer, so this lands once.
+
+**How to verify.** Run one capture with `--ref` and one without over the same
+log; the two `report.md` files must differ in the Score-diff section, and the
+scored one must name the file it diffed against.
+
+## `--at-frame` is the one address argument that refuses a symbol
+
+**Anchor:** `c64 audio capture --at-frame` in `docs/cli.md` (~line 1866); the
+global address conventions at the head of the same file; `ops.parse_number`.
+
+**What's wrong now.** Measured:
+
+```
+$ c64 audio capture ... --at-frame 12 'freeze=0'
+error: audio capture --at-frame: 'freeze=0' is not a number
+(invalid literal for int() with base 10: 'freeze'); use decimal, $hex, or 0xhex
+```
+
+`docs/cli.md` states the restriction, so it is documented rather than
+surprising — but the same file's global convention is that "a symbol name is
+accepted anywhere an address is", and `mem read`, `mem write`, `until`,
+`break add`, `watch add` and the YAML steps all honour it. This is the
+exception, and it is in the one command whose whole job is to poke a running
+program's state at a known frame.
+
+The cost is design pressure: `demos/amiga_ball` gave its observable state its
+own `--area 'VARS=$4000:$0100'` so that `freeze` would be at a *fixed* address
+this flag could name. That is a good layout and it was forced rather than
+chosen; a demo without an area has no stable number to write.
+
+**Fix direction (not ruled).** Resolve `--at-frame` addresses through the
+session's label file the way every other address argument does, falling back to
+the literal parse. `c64_audio_capture`'s `at_frame` needs the same.
+
+**How to verify.** `c64 audio capture 1 out/ --at-frame 12 'somelabel=0'` on a
+session with symbols registered performs the write; with no such symbol it
+still fails before anything is pinned.
+
+## Shipping a demo has a checklist, and it lives only in the test suite
+
+**Anchor:** `tests/test_docs_demos.py` —
+`test_play_page_registry_is_the_runnable_demos_in_the_roster_order`,
+`test_every_demo_file_play_html_serves_exists_and_is_tracked`,
+`test_play_page_describes_each_game_the_way_the_landing_page_does`,
+`test_exactly_one_captured_audio_score_lists_no_sounding_note`,
+`test_the_sites_the_failure_message_names_still_say_it`; `play.html`'s `DEMOS`
+array and its `<noscript>` fallback; each demo's `PROMPT.md` "Ship it" section.
+
+**What's wrong now.** A demo prompt tells its author to `c64 package` the demo
+and write a `README.md`. Committing the `.prg` that step produces then obliges,
+with nothing anywhere saying so:
+
+1. a `play.html` `DEMOS` entry — a committed `.prg` is exactly what the roster
+   test counts;
+2. a second, separately hand-written entry in `play.html`'s `<noscript>`
+   fallback (one `.prg` and one `.d64` link per demo);
+3. a description **byte-identical** to `index.html`'s for the same demo;
+4. tile art under the demo's own `evidence/`;
+5. if the demo captures audio: a hardcoded count of scored captures, the prose
+   in two docstrings that states the sounding/silent split, and a meta-guard
+   that pins the exact phrasing of one of those docstrings.
+
+Every one of those guards is well-built and catching something real. The defect
+is discovery: the author meets the list as a red suite, one failure at a time.
+The `demos/amiga_ball` dogfood hit all five.
+
+**Partly landed.** `test_la_galaxia_prg_is_a_build_of_the_committed_sources` is
+now `test_demo_prg_is_a_build_of_the_committed_sources`, parameterised over
+every demo with a `test.yaml` naming an `.s` and a committed `.prg` — six
+today, all six byte-identical to a rebuild. Four of them previously had no such
+guard, and `amiga_ball.prg` had sat five commits stale (1,986 differing bytes)
+because the only guard named a different demo.
+
+**Fix direction (not ruled).** State the checklist where the author will meet
+it — a "Shipping a new demo" section in `demos/README.md`, or beside AGENTS.md's
+dogfood section — naming all five obligations. The residual gap the pinning
+test's own docstring already flags is still open: the `.d64` is not pinned to
+the `.prg` it should carry, so a re-packaged image can drift from a rebuilt
+program with nothing to notice.
+
+**How to verify.** Add a demo directory with a committed `.prg` and nothing
+else, run `pytest tests/test_docs_demos.py -m "not vice"`, and count how many
+failures name a file the prompt never mentioned. The checklist is correct when
+that count is zero because the author was told first.
+
+## No reference shows the per-frame raster mark the graphics policy requires
+
+**Anchor:** `docs/graphics-and-sprites.md` §4 ("A per-frame budget is measured
+by the program, not by the harness"); `skills/c64-development/references/cookbook.md`;
+`skills/c64-development/SKILL.md:513-522`.
+
+**What's wrong now.** The policy makes the instrument mandatory —
+
+> If the quantity resets every frame … then the *program* keeps the high-water
+> mark and the test reads that mark
+
+— and gives La Galaxia's numbers as the worked case (a sampler read 4 against a
+mark of 88). No reference shows how to build one. `git grep -nI -i "high-water"
+-- skills docs` returns three hits: the two policy sentences above, and
+`SKILL.md:515`, which offers "a bitmask of the events seen so far, or a
+high-water mark" purely as a *testing* substitute for BASIC programs with no
+label to anchor on. Neither the cookbook's raster-chain recipe nor any other
+shows the four instructions, and the raster-chain recipe measures a different
+thing (`OVERRUN`/`MIDFRAME` counters, not a cost mark).
+
+`demos/amiga_ball` wrote it from scratch: sample `$D012` at handler entry,
+subtract at exit, keep the max. It also had to discover the constraint that
+makes the number meaningful — `$D012` wraps at 263, so the interrupt must fire
+where the tick cannot straddle the wrap (this demo arms at raster 10 and
+finishes inside the top border, before the display starts at 51).
+
+**Fix direction (not ruled).** A short cookbook recipe: the four instructions,
+the wrap constraint, the fact that `c64 profile` cannot substitute (below), and
+the zero-it-then-scope-the-window discipline §4 already demands.
+
+**How to verify.** The recipe assembles and runs as the cookbook's live-recipe
+tests require, and its mark tracks a deliberately inflated frame.
+
+## `c64 profile` cannot price an interrupt handler in situ
+
+**Anchor:** `c64 profile` in `docs/cli.md`; `skills/c64-development/SKILL.md`'s
+one-line mention.
+
+**What's wrong now.** `c64 profile REF` is a fake JSR at a label with the I flag
+set, so it prices a *routine*. A raster handler entered through `$0314` has no
+callable entry, and `--with-irq` leaves interrupts live during a measurement of
+something else rather than measuring the handler. So the one command that
+reports cycles cannot answer "what does my per-frame interrupt cost", which is
+the question every demo with a raster IRQ actually has.
+
+There is a good workaround and it is written down nowhere: make the handler a
+thin wrapper that acknowledges, calls, and exits, and put the whole job in a
+subroutine ending in `rts`. `c64 profile tick` then prices the job exactly.
+`demos/amiga_ball` is built this way and measures 481 cycles mean over 16
+arrivals.
+
+**Fix direction (ruled: document, don't build).** One paragraph in `c64
+profile`'s `docs/cli.md` entry, and a line in the raster-interrupt material,
+saying the handler-as-wrapper shape is what makes an IRQ measurable — and
+pairing it with the program-kept mark above, which is what catches the cost
+`profile` cannot see because it masked the interrupts.
+
+**How to verify.** The docs name the shape; a demo following them can report
+both a `c64 profile` figure and a program-kept raster mark for the same tick.
+
+## Nothing in `skills/` covers fixed-point motion
+
+**Anchor:** `skills/c64-development/references/cookbook.md`;
+`skills/6502-assembly/SKILL.md`.
+
+**What's wrong now.** Smooth motion at sub-pixel velocity is the standard C64
+technique and no recipe covers it. `git grep -nI -i -e "8\.8" -e "fixed.point"
+-e "sub-?pixel" -- skills docs` returns two hits, both the LFSR's *mathematical*
+fixed point ("0 is the LFSR's fixed point"), which is a different sense of the
+words. The cookbook has a signed multiply by quarter squares and a jiffy-paced
+sweep that moves whole pixels; there is nothing on a fractional accumulator.
+
+`demos/amiga_ball`'s prompt asks for "a constant-velocity sweep in 8.8 fixed
+point" by name, so the demo invented it: a two-byte position, a signed two-byte
+velocity, `clc`/`adc` on the low byte then the high, and reversal by two's
+complement negation of both velocity bytes.
+
+**Fix direction (not ruled).** A cookbook recipe: the accumulator, the carry
+discipline, negation for reversal, and the one trap — that the integer byte is
+what the sprite register takes, so a bound is tested on the integer while the
+fraction keeps accumulating.
+
+**How to verify.** The recipe assembles and runs under the cookbook's live
+tests, and a sprite driven by it advances by a non-integer number of pixels per
+frame measured over 60 frames.
+
+## `docs/cli.md` sends a driver to zsh; the graphics policy hands it `sh`-only helpers
+
+**Anchor:** `docs/cli.md:107` (`nohup caffeinate -dimsu /bin/zsh driver.sh &`);
+`docs/graphics-and-sprites.md:219-223`, the helper snippet it calls "worth
+stealing verbatim".
+
+**What's wrong now.** The helpers are
+
+```sh
+C=".venv/bin/c64"; S="-s mmev"
+shot()  { $C screen --png "$OUT/$1.png" --scale 2 $S >/dev/null; … }
+```
+
+`$S` unquoted relies on word splitting, and **zsh does not word-split unquoted
+parameter expansions**. Under `/bin/zsh` the whole `-s mmev` arrives as one
+argument and click reads the session name as `" mmev"`. Hit verbatim during the
+amiga_ball dogfood: `error: no session named ' ball'` — a message that reads as
+a session problem rather than a quoting one, which is what makes it expensive.
+
+The two are reconciled today only by accident: all seven shipped
+`demos/*/tools/*.sh` carry `#!/bin/sh` and each documents itself as `sh
+demos/<name>/tools/…`. A reader who follows cli.md's line loses that.
+
+**Fix direction (not ruled).** Make cli.md's example `/bin/sh`, or make the
+policy's helpers shell-agnostic by dropping `$S` for `-s "$SESSION"` at each
+call site. One-line change either way.
+
+**How to verify.** Run any demo's evidence script under `zsh` explicitly; it
+must either work or fail with a message naming the shell, not a session.
+
+## "Unattended" undersells when the idle throttle bites
+
+**Anchor:** `docs/cli.md:99`, under `c64 session start`.
+
+**What's wrong now.** The heading is "**Unattended `--headless` work on macOS
+belongs under `caffeinate -dimsu`.**" The mechanism the same paragraph then
+describes is macOS idle-throttling a minimized background process "once the
+machine sits without user activity" — which is not the same predicate. A
+headless session wedges whenever *the human* stops touching the Mac, detached or
+not.
+
+An amiga_ball implementer hit it during ordinary interactive work and lost real
+time to a session that "presents as a wedged emulator rather than a slow one",
+exactly as documented — while reading a heading that says the warning was for
+someone else. When an agent is driving, essentially every session qualifies.
+
+**Fix direction (ruled: reword).** Change the trigger from "unattended" to any
+headless session that may run while the machine is idle, and say that an
+agent-driven session is always that.
+
+**How to verify.** The paragraph's first sentence states the predicate the rest
+of it describes.
+
+## The WAV/log bracket is wider than `docs/cli.md` records
+
+**Anchor:** the capture bracket figures in `docs/cli.md`'s `c64 audio capture`
+entry.
+
+**What's wrong now.** Measured on both amiga_ball captures: **1.738 s of WAV for
+1.500 s of log — 0.238 s of bracket**, against the 0.086-0.103 s the doc
+records, and the impact's WAV onset ran 0.135 s later than log frame 13's
+nominal position. Rate alignment is unaffected (pitches and durations agree
+between log and recording, and both reports PASS), so this bears only on the
+claim that the bracket locates a log frame to within about 0.1 s — anyone lining
+a spectrogram feature up with a log frame on this host is out by more than the
+stated tolerance.
+
+**Fix direction (not ruled).** Re-measure on a second machine and either widen
+the figure or mark it host-dependent. Nothing is broken; the number is just
+narrower than it holds.
+
+**How to verify.** `c64 audio capture` on two hosts, comparing `wav_bytes`
+against `frames` × the sample rate; the documented figure must bracket both.
