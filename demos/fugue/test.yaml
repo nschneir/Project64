@@ -202,7 +202,21 @@ steps:
   - assert: { mem: "frame", equals: [70, 17] }    # 4422
   - assert: { mem: "state", equals: 3 }           # FINE
   - assert: { mem: "collide", equals: [3, 0] }
+  # Nothing may move after the end.  The fine scroll is the one that bit:
+  # the $D016 write used to be unconditional, so once the column shift had
+  # stopped `xsc` went on cycling 6,4,2,0 and the finished picture jittered
+  # six pixels back and forth at 15 Hz for ever.  Sample every moving part
+  # and assert it does not.
   - sample: { mem: "shifts", as: sfin, width: 2 }
+  - sample: { mem: "xsc", as: xfin }
+  - sample: { mem: "$D016", as: d016fin }
+  - sample: { mem: "frame", as: ffin, width: 2 }
   - until:  { ref: tick, count: 120 }
   - assert: { mem: "shifts", unchanged: sfin }    # the scroll really stopped
+  - assert: { mem: "xsc", unchanged: xfin }       # ...and so did the fine scroll
+  - assert: { mem: "$D016", unchanged: d016fin }  # ...in the register, not just
+                                                  #    in the shadow
+  - assert: { mem: "$D015", equals: 0 }           # every sprite off
   - assert: { mem: "state", equals: 3 }
+  - assert: { mem: "frame", greater_than: ffin }  # the tick is still an anchor,
+                                                  #    it just has nothing to do

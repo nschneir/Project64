@@ -6,134 +6,137 @@
 
 | Start frame | Frames | Note | Cents off | Waveform | Gated frames |
 |---|---|---|---|---|---|
-| 0 | 64 | rest | - | pulse | 0 |
-| 64 | 8 | G5 | +0.0 | pulse | 8 |
-| 72 | 8 | F#5 | +0.0 | pulse | 8 |
-| 80 | 16 | G5 | +0.0 | pulse | 16 |
-| 96 | 16 | C5 | +0.1 | pulse | 16 |
-| 112 | 16 | D#5 | +0.1 | pulse | 16 |
-| 128 | 8 | G5 | +0.0 | pulse | 8 |
-| 136 | 8 | F#5 | +0.0 | pulse | 8 |
-| 144 | 16 | G5 | +0.0 | pulse | 16 |
-| 160 | 16 | A5 | +0.0 | pulse | 16 |
-| 176 | 16 | D5 | +0.0 | pulse | 16 |
-| 192 | 8 | G5 | +0.0 | pulse | 8 |
-| 200 | 8 | F#5 | +0.0 | pulse | 8 |
-| 208 | 16 | G5 | +0.0 | pulse | 16 |
-| 224 | 16 | A5 | +0.0 | pulse | 16 |
-| 240 | 8 | C5 | +0.1 | pulse | 8 |
-| 248 | 8 | D5 | +0.0 | pulse | 8 |
-| 256 | 32 | D#5 | +0.1 | pulse | 32 |
-| 288 | 8 | D5 | +0.0 | pulse | 8 |
-| 296 | 8 | C5 | +0.1 | pulse | 8 |
-| 304 | 16 | A#4 | +0.0 | pulse | 16 |
-| 320 | 8 | D#5 | +0.1 | pulse | 8 |
-| 328 | 8 | D5 | +0.0 | pulse | 8 |
-| 336 | 16 | D#5 | +0.1 | pulse | 16 |
-| 352 | 16 | G4 | -0.1 | pulse | 16 |
-| 368 | 16 | G#4 | +0.0 | pulse | 16 |
-| 384 | 8 | F5 | +0.0 | pulse | 8 |
-| 392 | 8 | D#5 | +0.1 | pulse | 8 |
-| 400 | 16 | F5 | +0.0 | pulse | 16 |
-| 416 | 16 | A4 | +0.0 | pulse | 16 |
-| 432 | 16 | A#4 | +0.0 | pulse | 16 |
-| 448 | 8 | G5 | +0.0 | pulse | 8 |
-| 456 | 8 | F5 | +0.0 | pulse | 8 |
-| 464 | 16 | G5 | +0.0 | pulse | 16 |
-| 480 | 16 | B4 | +0.0 | pulse | 16 |
-| 496 | 16 | C5 | +0.1 | pulse | 16 |
-| 512 | 8 | D5 | +0.0 | pulse | 8 |
-| 520 | 8 | D#5 | +0.1 | pulse | 8 |
-| 528 | 48 | F5 | +0.0 | pulse | 48 |
-| 576 | 8 | D#5 | +0.1 | pulse | 8 |
-| 584 | 8 | D5 | +0.0 | pulse | 8 |
-| 592 | 8 | C5 | +0.1 | pulse | 8 |
-| 600 | 8 | A#4 | +0.0 | pulse | 8 |
-| 608 | 8 | G#4 | +0.0 | pulse | 8 |
-| 616 | 8 | G4 | -0.1 | pulse | 8 |
-| 624 | 16 | F4 | +0.0 | pulse | 16 |
-| 640 | 16 | G#5 | +0.0 | pulse | 16 |
-| 656 | 16 | G5 | +0.0 | pulse | 16 |
-| 672 | 16 | F5 | +0.0 | pulse | 16 |
-| 688 | 16 | D#5 | +0.1 | pulse | 16 |
-| 704 | 16 | D5 | +0.0 | pulse | 16 |
+| 0 | 63 | rest | - | pulse | 0 |
+| 63 | 8 | G5 | +0.0 | pulse | 8 |
+| 71 | 8 | F#5 | +0.0 | pulse | 8 |
+| 79 | 16 | G5 | +0.0 | pulse | 16 |
+| 95 | 16 | C5 | +0.1 | pulse | 16 |
+| 111 | 16 | D#5 | +0.1 | pulse | 16 |
+| 127 | 8 | G5 | +0.0 | pulse | 8 |
+| 135 | 8 | F#5 | +0.0 | pulse | 8 |
+| 143 | 16 | G5 | +0.0 | pulse | 16 |
+| 159 | 16 | A5 | +0.0 | pulse | 16 |
+| 175 | 16 | D5 | +0.0 | pulse | 16 |
+| 191 | 8 | G5 | +0.0 | pulse | 8 |
+| 199 | 8 | F#5 | +0.0 | pulse | 8 |
+| 207 | 16 | G5 | +0.0 | pulse | 16 |
+| 223 | 16 | A5 | +0.0 | pulse | 16 |
+| 239 | 8 | C5 | +0.1 | pulse | 8 |
+| 247 | 8 | D5 | +0.0 | pulse | 8 |
+| 255 | 32 | D#5 | +0.1 | pulse | 32 |
+| 287 | 8 | D5 | +0.0 | pulse | 8 |
+| 295 | 8 | C5 | +0.1 | pulse | 8 |
+| 303 | 16 | A#4 | +0.0 | pulse | 16 |
+| 319 | 8 | D#5 | +0.1 | pulse | 8 |
+| 327 | 8 | D5 | +0.0 | pulse | 8 |
+| 335 | 16 | D#5 | +0.1 | pulse | 16 |
+| 351 | 16 | G4 | -0.1 | pulse | 16 |
+| 367 | 16 | G#4 | +0.0 | pulse | 16 |
+| 383 | 8 | F5 | +0.0 | pulse | 8 |
+| 391 | 8 | D#5 | +0.1 | pulse | 8 |
+| 399 | 16 | F5 | +0.0 | pulse | 16 |
+| 415 | 16 | A4 | +0.0 | pulse | 16 |
+| 431 | 16 | A#4 | +0.0 | pulse | 16 |
+| 447 | 8 | G5 | +0.0 | pulse | 8 |
+| 455 | 8 | F5 | +0.0 | pulse | 8 |
+| 463 | 16 | G5 | +0.0 | pulse | 16 |
+| 479 | 16 | B4 | +0.0 | pulse | 16 |
+| 495 | 16 | C5 | +0.1 | pulse | 16 |
+| 511 | 8 | D5 | +0.0 | pulse | 8 |
+| 519 | 8 | D#5 | +0.1 | pulse | 8 |
+| 527 | 48 | F5 | +0.0 | pulse | 48 |
+| 575 | 8 | D#5 | +0.1 | pulse | 8 |
+| 583 | 8 | D5 | +0.0 | pulse | 8 |
+| 591 | 8 | C5 | +0.1 | pulse | 8 |
+| 599 | 8 | A#4 | +0.0 | pulse | 8 |
+| 607 | 8 | G#4 | +0.0 | pulse | 8 |
+| 615 | 8 | G4 | -0.1 | pulse | 8 |
+| 623 | 16 | F4 | +0.0 | pulse | 16 |
+| 639 | 16 | G#5 | +0.0 | pulse | 16 |
+| 655 | 16 | G5 | +0.0 | pulse | 16 |
+| 671 | 16 | F5 | +0.0 | pulse | 16 |
+| 687 | 16 | D#5 | +0.1 | pulse | 16 |
+| 703 | 16 | D5 | +0.0 | pulse | 16 |
+| 719 | 1 | D#5 | +0.1 | pulse | 1 |
 
 ### Voice 2
 
 | Start frame | Frames | Note | Cents off | Waveform | Gated frames |
 |---|---|---|---|---|---|
-| 0 | 32 | G#4 | +0.0 | sawtooth | 32 |
-| 32 | 8 | G4 | -0.1 | sawtooth | 8 |
-| 40 | 8 | F4 | +0.0 | sawtooth | 8 |
-| 48 | 8 | D#4 | +0.1 | sawtooth | 8 |
-| 56 | 8 | C5 | +0.1 | sawtooth | 8 |
-| 64 | 8 | B4 | +0.0 | sawtooth | 8 |
-| 72 | 8 | A4 | +0.0 | sawtooth | 8 |
-| 80 | 8 | G4 | -0.1 | sawtooth | 8 |
-| 88 | 8 | F4 | +0.0 | sawtooth | 8 |
-| 96 | 8 | D#4 | +0.1 | sawtooth | 8 |
-| 104 | 8 | D4 | -0.1 | sawtooth | 8 |
-| 112 | 16 | C4 | +0.1 | sawtooth | 16 |
-| 128 | 16 | D#5 | +0.1 | sawtooth | 16 |
-| 144 | 16 | D5 | +0.0 | sawtooth | 16 |
-| 160 | 16 | C5 | +0.1 | sawtooth | 16 |
-| 176 | 16 | A#4 | +0.0 | sawtooth | 16 |
-| 192 | 16 | A4 | +0.0 | sawtooth | 16 |
-| 208 | 16 | A#4 | +0.0 | sawtooth | 16 |
-| 224 | 16 | C5 | +0.1 | sawtooth | 16 |
-| 240 | 16 | F#4 | +0.1 | sawtooth | 16 |
-| 256 | 16 | G4 | -0.1 | sawtooth | 16 |
-| 272 | 16 | A4 | +0.0 | sawtooth | 16 |
-| 288 | 16 | F#4 | +0.1 | sawtooth | 16 |
-| 304 | 32 | G4 | -0.1 | sawtooth | 32 |
-| 336 | 8 | rest | - | sawtooth | 0 |
-| 344 | 8 | C4 | +0.1 | sawtooth | 8 |
-| 352 | 8 | D4 | -0.1 | sawtooth | 8 |
-| 360 | 8 | D#4 | +0.1 | sawtooth | 8 |
-| 368 | 8 | F4 | +0.0 | sawtooth | 8 |
-| 376 | 8 | G4 | -0.1 | sawtooth | 8 |
-| 384 | 24 | G#4 | +0.0 | sawtooth | 24 |
-| 408 | 8 | D4 | -0.1 | sawtooth | 8 |
-| 416 | 8 | D#4 | +0.1 | sawtooth | 8 |
-| 424 | 8 | F4 | +0.0 | sawtooth | 8 |
-| 432 | 8 | G4 | -0.1 | sawtooth | 8 |
-| 440 | 8 | A4 | +0.0 | sawtooth | 8 |
-| 448 | 24 | A#4 | +0.0 | sawtooth | 24 |
-| 472 | 8 | D#4 | +0.1 | sawtooth | 8 |
-| 480 | 8 | F4 | +0.0 | sawtooth | 8 |
-| 488 | 8 | G4 | -0.1 | sawtooth | 8 |
-| 496 | 8 | G#4 | +0.0 | sawtooth | 8 |
-| 504 | 8 | G4 | -0.1 | sawtooth | 8 |
-| 512 | 8 | F4 | +0.0 | sawtooth | 8 |
-| 520 | 8 | D#4 | +0.1 | sawtooth | 8 |
-| 528 | 16 | D4 | -0.1 | sawtooth | 16 |
-| 544 | 8 | C5 | +0.1 | sawtooth | 8 |
-| 552 | 8 | B4 | +0.0 | sawtooth | 8 |
-| 560 | 32 | C5 | +0.1 | sawtooth | 32 |
-| 592 | 48 | rest | - | sawtooth | 0 |
-| 640 | 16 | F5 | +0.0 | sawtooth | 16 |
-| 656 | 16 | D#5 | +0.1 | sawtooth | 16 |
-| 672 | 16 | D5 | +0.0 | sawtooth | 16 |
-| 688 | 16 | rest | - | sawtooth | 0 |
-| 704 | 16 | G#4 | +0.0 | sawtooth | 16 |
+| 0 | 31 | G#4 | +0.0 | sawtooth | 31 |
+| 31 | 8 | G4 | -0.1 | sawtooth | 8 |
+| 39 | 8 | F4 | +0.0 | sawtooth | 8 |
+| 47 | 8 | D#4 | +0.1 | sawtooth | 8 |
+| 55 | 8 | C5 | +0.1 | sawtooth | 8 |
+| 63 | 8 | B4 | +0.0 | sawtooth | 8 |
+| 71 | 8 | A4 | +0.0 | sawtooth | 8 |
+| 79 | 8 | G4 | -0.1 | sawtooth | 8 |
+| 87 | 8 | F4 | +0.0 | sawtooth | 8 |
+| 95 | 8 | D#4 | +0.1 | sawtooth | 8 |
+| 103 | 8 | D4 | -0.1 | sawtooth | 8 |
+| 111 | 16 | C4 | +0.1 | sawtooth | 16 |
+| 127 | 16 | D#5 | +0.1 | sawtooth | 16 |
+| 143 | 16 | D5 | +0.0 | sawtooth | 16 |
+| 159 | 16 | C5 | +0.1 | sawtooth | 16 |
+| 175 | 16 | A#4 | +0.0 | sawtooth | 16 |
+| 191 | 16 | A4 | +0.0 | sawtooth | 16 |
+| 207 | 16 | A#4 | +0.0 | sawtooth | 16 |
+| 223 | 16 | C5 | +0.1 | sawtooth | 16 |
+| 239 | 16 | F#4 | +0.1 | sawtooth | 16 |
+| 255 | 16 | G4 | -0.1 | sawtooth | 16 |
+| 271 | 16 | A4 | +0.0 | sawtooth | 16 |
+| 287 | 16 | F#4 | +0.1 | sawtooth | 16 |
+| 303 | 32 | G4 | -0.1 | sawtooth | 32 |
+| 335 | 8 | rest | - | sawtooth | 0 |
+| 343 | 8 | C4 | +0.1 | sawtooth | 8 |
+| 351 | 8 | D4 | -0.1 | sawtooth | 8 |
+| 359 | 8 | D#4 | +0.1 | sawtooth | 8 |
+| 367 | 8 | F4 | +0.0 | sawtooth | 8 |
+| 375 | 8 | G4 | -0.1 | sawtooth | 8 |
+| 383 | 24 | G#4 | +0.0 | sawtooth | 24 |
+| 407 | 8 | D4 | -0.1 | sawtooth | 8 |
+| 415 | 8 | D#4 | +0.1 | sawtooth | 8 |
+| 423 | 8 | F4 | +0.0 | sawtooth | 8 |
+| 431 | 8 | G4 | -0.1 | sawtooth | 8 |
+| 439 | 8 | A4 | +0.0 | sawtooth | 8 |
+| 447 | 24 | A#4 | +0.0 | sawtooth | 24 |
+| 471 | 8 | D#4 | +0.1 | sawtooth | 8 |
+| 479 | 8 | F4 | +0.0 | sawtooth | 8 |
+| 487 | 8 | G4 | -0.1 | sawtooth | 8 |
+| 495 | 8 | G#4 | +0.0 | sawtooth | 8 |
+| 503 | 8 | G4 | -0.1 | sawtooth | 8 |
+| 511 | 8 | F4 | +0.0 | sawtooth | 8 |
+| 519 | 8 | D#4 | +0.1 | sawtooth | 8 |
+| 527 | 16 | D4 | -0.1 | sawtooth | 16 |
+| 543 | 8 | C5 | +0.1 | sawtooth | 8 |
+| 551 | 8 | B4 | +0.0 | sawtooth | 8 |
+| 559 | 32 | C5 | +0.1 | sawtooth | 32 |
+| 591 | 48 | rest | - | sawtooth | 0 |
+| 639 | 16 | F5 | +0.0 | sawtooth | 16 |
+| 655 | 16 | D#5 | +0.1 | sawtooth | 16 |
+| 671 | 16 | D5 | +0.0 | sawtooth | 16 |
+| 687 | 16 | rest | - | sawtooth | 0 |
+| 703 | 16 | G#4 | +0.0 | sawtooth | 16 |
+| 719 | 1 | G4 | -0.1 | sawtooth | 1 |
 
 ### Voice 3
 
 | Start frame | Frames | Note | Cents off | Waveform | Gated frames |
 |---|---|---|---|---|---|
-| 0 | 576 | rest | - | triangle | 0 |
-| 576 | 8 | C4 | +0.1 | triangle | 8 |
-| 584 | 8 | B3 | +0.0 | triangle | 8 |
-| 592 | 16 | C4 | +0.1 | triangle | 16 |
-| 608 | 16 | G3 | -0.1 | triangle | 16 |
-| 624 | 16 | G#3 | -0.2 | triangle | 16 |
-| 640 | 8 | C4 | +0.1 | triangle | 8 |
-| 648 | 8 | B3 | +0.0 | triangle | 8 |
-| 656 | 16 | C4 | +0.1 | triangle | 16 |
-| 672 | 16 | D4 | -0.1 | triangle | 16 |
-| 688 | 16 | G3 | -0.1 | triangle | 16 |
-| 704 | 8 | C4 | +0.1 | triangle | 8 |
-| 712 | 8 | B3 | +0.0 | triangle | 8 |
+| 0 | 575 | rest | - | triangle | 0 |
+| 575 | 8 | C4 | +0.1 | triangle | 8 |
+| 583 | 8 | B3 | +0.0 | triangle | 8 |
+| 591 | 16 | C4 | +0.1 | triangle | 16 |
+| 607 | 16 | G3 | -0.1 | triangle | 16 |
+| 623 | 16 | G#3 | -0.2 | triangle | 16 |
+| 639 | 8 | C4 | +0.1 | triangle | 8 |
+| 647 | 8 | B3 | +0.0 | triangle | 8 |
+| 655 | 16 | C4 | +0.1 | triangle | 16 |
+| 671 | 16 | D4 | -0.1 | triangle | 16 |
+| 687 | 16 | G3 | -0.1 | triangle | 16 |
+| 703 | 8 | C4 | +0.1 | triangle | 8 |
+| 711 | 8 | B3 | +0.0 | triangle | 8 |
+| 719 | 1 | C4 | +0.1 | triangle | 1 |
 
 ## Score diff
 
@@ -150,7 +153,7 @@ None found.
 | Duration | 12.29 s |
 | Clipped samples | 0 |
 | Silence windows | none |
-| RMS min / median / max | -28.5 / -21.6 / -19.6 dBFS over 123 windows of 0.1 s |
+| RMS min / median / max | -28.5 / -21.7 / -19.6 dBFS over 123 windows of 0.1 s |
 
 ## Artifacts
 

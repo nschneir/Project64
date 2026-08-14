@@ -1,6 +1,6 @@
 # Fugue in C minor — audit
 
-Four iterations. Each is evaluate → review → improve → re-verify, and every
+Five iterations. Each is evaluate → review → improve → re-verify, and every
 PASS below was read off a running machine, never off the source.
 
 Anchoring for everything here: `c64 break add tick` **before** `c64 run`, then
@@ -250,6 +250,51 @@ note Bach did not write. The glow going out at the release is the same
 honesty: the backlight tracks *sounding*, and once the gate is released
 nothing is.
 
+## Iteration 5 — the finished picture was vibrating
+
+**Evaluate.** Reported from a real viewing, which is the one instrument this
+audit did not have: after the fugue ends, the notes *shimmer*. Every
+criterion was still PASS, and nothing in 128 test steps or nine screenshots
+had any way to see it — a still frame cannot show a six-pixel oscillation, and
+nothing sampled `$D016` twice.
+
+**Review.** Halting the column shift is not the same as halting the scroll.
+The two are separate writes, and only the first was gated: `shiftband` stopped
+at `stopshift`, while the `$D016` write at the top of `tick` went on walking
+`xsc` through 6, 4, 2, 0 every four frames. The whole picture therefore slid
+six pixels left and right, for ever, at 15 Hz. Measured before the fix, on
+consecutive frames after the end: `xsc` 6, 4, 2, 0, 6, 4, 2, 0.
+
+The second half of the finding is that the program never actually stopped. At
+`state` 3 the sequencer was done, but `muswrite`, `pwmtick` and `filttick`
+still ran every frame, writing SID registers for a chip with every gate
+released — inaudible, and still work being done by a demo that had finished.
+
+**Improve.**
+
+1. The `$D016` write is gated on `scrollon`, the same flag the column shift
+   uses. Frozen, it holds `xsc` at 6, which is the value on a shift frame and
+   so exactly where the last shift left the picture.
+2. The stop condition is computed *before* the fine scroll rather than after,
+   because the fine scroll now depends on it.
+3. From the frame after `state` becomes 3, `tick` returns immediately. The
+   transition frame still runs in full — that is where the gates release, the
+   sprites go out and the release is written — so by the time the early return
+   is first taken the machine is already in its final state and being left
+   alone is the whole ending. `frame` keeps counting so `until tick` is still
+   an anchor.
+
+**Re-verify.** Six consecutive frames after the end: `xsc` 6, `$D016` `$c6`,
+`$D015` 0, `vnote` 0/0/0, and a checksum over the first 256 bytes of screen
+RAM constant at 8192 — every one of them unchanging. `test.yaml` grew a guard
+that samples `shifts`, `xsc` and `$D016` and asserts all three `unchanged`
+across 120 further frames, plus `$D015` = 0: **135 steps, PASS.**
+
+**What this cost, as a lesson.** Every mechanical check passed while the demo
+had a visible defect in its final state, because all of them sample a *stopped*
+machine and the defect only exists between frames. The audit had no criterion
+of the form "nothing changes", and now it has one.
+
 ## Criteria, final
 
 | # | Criterion | Evidence |
@@ -275,7 +320,7 @@ nothing is.
 | 19 | two voices crossing, both legible | `evidence/crossing.png` |
 | 20 | PWM visible | `evidence/audio/entry1/spectrogram.png`; `pwmval` sampled moving |
 | 21 | filter sweep | `evidence/audio/pedal/spectrogram.png`; `cutoff` 112→22→84 |
-| 22 | it ends | scroll halts at `shifts` = `stopshift` = 998 (frame 4,143), chord rings at the now column, `state` 3 at 4,206; `shifts` unchanged over 120 more frames |
+| 22 | it ends, and stays ended | scroll halts at `shifts` = `stopshift` = 998 (frame 4,143), chord rings at the now column, `state` 3 at 4,206; then `shifts`, `xsc` and `$D016` all unchanged over 120 more frames and `$D015` = 0 |
 | 23 | `test.yaml` | 128 steps PASS |
 | 24 | packaged, `-ntsc` pinned | see README |
 | 25 | roll and screen agree | `tools/crosscheck.py`, five frames |

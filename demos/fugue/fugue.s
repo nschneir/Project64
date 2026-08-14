@@ -326,22 +326,26 @@ tkgo:
         sbc     #>HOLD
         sta     sf+1
 
-        ; ---- 1. fine scroll ----------------------------------------------
-        lda     sf
-        and     #3
-        asl     a               ; 0, 2, 4, 6
-        sta     tmp0
-        lda     #6
-        sec
-        sbc     tmp0            ; 6, 4, 2, 0
-        sta     xsc
-        sta     $D016           ; bit 3 clear = 38 columns, which is what
-                                ;   hides the column entering at the right
-                                ;   edge; bit 4 clear = not multicolour
+        ; ---- 0b. it is over ------------------------------------------------
+        ; Once the sequencer has run out, this frame and every frame after it
+        ; does NOTHING but keep the counter.  The transition frame itself
+        ; still runs the whole tick -- that is where musfetch releases the
+        ; gates, glowtick puts the sprites out and muswrite writes the release
+        ; -- so by the time this branch is first taken the machine is already
+        ; in its final state, and leaving it alone is the entire ending.
+        ;
+        ; `frame` keeps counting so `c64 until tick` is still an anchor after
+        ; the end; nothing else changes, so there is nothing to anchor ON that
+        ; could move.
+        lda     state
+        cmp     #3
+        bne     tkalive
+        rts
+tkalive:
 
         ; ---- the scroll's own stop condition ------------------------------
-        ; Computed here rather than in the phase-0 branch because glowtick,
-        ; which runs below, reads it every frame.
+        ; Computed before the fine scroll below, because the fine scroll has
+        ; to stop when the column shift does.  glowtick reads it too.
         lda     shifts+1
         cmp     stopshift+1
         bcc     tkscron
@@ -356,6 +360,29 @@ tkscron:
         lda     #1
 tkscrset:
         sta     scrollon
+
+        ; ---- 1. fine scroll ----------------------------------------------
+        ; ONLY WHILE THE SCORE IS STILL MOVING.  This write used to be
+        ; unconditional, and the last chord of the fugue sat there shaking:
+        ; the column shift had stopped but `xsc` went on cycling 6, 4, 2, 0,
+        ; so the whole picture jittered six pixels back and forth at 15 Hz
+        ; for ever.  Freezing it holds the picture exactly where the final
+        ; shift left it -- `xsc` is 6 on a shift frame, which is where the
+        ; heads at the now column were drawn.
+        lda     scrollon
+        beq     tknoscr
+        lda     sf
+        and     #3
+        asl     a               ; 0, 2, 4, 6
+        sta     tmp0
+        lda     #6
+        sec
+        sbc     tmp0            ; 6, 4, 2, 0
+        sta     xsc
+        sta     $D016           ; bit 3 clear = 38 columns, which is what
+                                ;   hides the column entering at the right
+                                ;   edge; bit 4 clear = not multicolour
+tknoscr:
 
         ; ---- 2..4 music and sprites --------------------------------------
         jsr     musfetch

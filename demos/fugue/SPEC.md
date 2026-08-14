@@ -684,6 +684,18 @@ the glow's x and a stationary head must have a stationary glow. At the release
 the glow goes out with the sound: the backlight tracks *sounding*, and nothing
 is. The heads stay on screen.
 
+**Two things must stop, and the second is easy to miss.** Halting the column
+shift is not halting the scroll: the `$D016` fine scroll is a separate write,
+and leaving it running walks `xsc` through 6, 4, 2, 0 for ever, jittering the
+finished picture six pixels back and forth at 15 Hz. Both are gated on
+`scrollon`. And from the frame after `state` becomes 3, `tick` returns
+immediately: the transition frame has already released the gates, put the
+sprites out and written the release, so every frame after it has nothing to do
+and does nothing. `frame` goes on counting so `c64 until tick` is still an
+anchor — there is simply nothing left that could move for it to anchor on.
+Criterion 22 samples `shifts`, `xsc` and `$D016` and asserts all three
+unchanged across 120 further frames.
+
 The closing sonority is C3-G3-E4, and only G3 and E4 are on the staff at the
 end: the tonic pedal C3 was attacked at bar 29 and tied through, so its head
 is 54 columns to the left. That is where a tied note's head belongs. No loop,
