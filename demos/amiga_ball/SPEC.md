@@ -29,6 +29,7 @@ C64 demo*:
 | Rotation computed per frame from geometry | **16 pre-generated rotation frames**, switched by the four sprite pointers | Switching a frame costs 4 stores. The texture mapping still happens — once, in `tools/generate.py`, at full float precision, instead of 60 times a second in 8-bit integers. |
 | Shaded sphere (a continuous light term) | Two checker colors plus a **one-texel dark rim** | Multicolor sprites carry exactly three colors plus transparent. The rim buys the silhouette, which is what shading was mostly doing at this size. |
 | Grid drawn as vector lines into the bitmap | Grid drawn with a **custom character set** | A static backdrop has no business spending 8 KB and a per-frame budget. The charset is 2 KB and costs zero frame time. |
+| Spin axis tilted ~17° from vertical | **Axis exactly vertical** | Not a saving — a **loss**, and the one deviation on this list with nothing to recommend it. The tilt is half of what people recognise the Boing Ball by. A tilted axis is free in the generator (rotate the hit normal before taking latitude), but it breaks the 45° rotation period this demo's whole storage budget rests on: tilting maps the checker's symmetry off the sampling axis, so the frames no longer repeat every two segments and 16 frames stop covering a full cycle. Restoring the tilt means generating a full 360° — 128 blocks against the 96 the bank has. Recorded as a deviation rather than a to-do, because closing it is a memory-map redesign. |
 
 The one thing that is *not* a deviation: the ball really is texture-mapped.
 `tools/generate.py` casts a ray per sprite texel, intersects the unit sphere,
@@ -161,12 +162,20 @@ Multicolor bit-pair → color (`references/hardware.md`, "Sprites"):
 *per-sprite* color; all four ball sprites get `$02`.
 
 **What the third color bought.** A dark rim, not a shading tone. At 4×2 px
-texels the sphere's limb is where the eye reads "sphere"; against a purple grid
-line a red or white checker at the limb loses its edge. The rim is one texel
+texels the sphere's limb is where the eye reads "sphere". The rim is one texel
 wide, always present, and independent of where the ball is — a guarantee a
 Lambert term cannot make. The cost is that the ball is not shaded: it reads as
 a *flat* checkered disc lit head-on, which is what the Amiga ball also looks
 like in the frames where the light is behind the camera.
+
+**Be exact about what it separates the ball from.** `$D025` is `$00` and so is
+`$D021`, so the rim is invisible *against the background* — it buys no
+silhouette there, and an earlier draft of this paragraph claimed it did. What
+it actually buys is that **no grid pixel ever abuts a checker**: measured on
+`evidence/apex.png`, zero purple pixels are orthogonally adjacent to a red or
+white one (six diagonal corner touches at the limb, which the eye does not
+read as a join). The wall grid is the only thing the ball crosses, so that is
+the whole job.
 
 ---
 
@@ -394,11 +403,24 @@ Amiga's, and a full-g bounce at this height would be over in 0.85 s.
 **Geometry of the two ends.**
 
 ```
-sphere top raster    = sprite_y + 6      (3 blank texel rows x 2 px)
-sphere bottom raster = sprite_y + 77     (36 rows x 2 px, minus one)
-contact:  sprite_y = 158  ->  sphere spans 164-235   (floor, row 23)
-apex:     sprite_y =  54  ->  sphere spans  60-131   (wall, above the horizon)
+sphere top raster    = sprite_y + 7      (1 + 3 blank texel rows x 2 px)
+sphere bottom raster = sprite_y + 78     (36 rows x 2 px, minus one)
+contact:  sprite_y = 158  ->  sphere spans 165-236   (floor, row 23)
+apex:     sprite_y =  54  ->  sphere spans  61-132   (wall, above the horizon)
 ```
+
+**The `+1` is the VIC, not an off-by-one.** A sprite whose Y register is `V`
+displays its first row on raster **`V+1`**, not `V`. Measured decisively: a
+solid 24×21 hires sprite with `$D00D` = 100 occupies rasters **101-121**,
+exactly 21 rows. Cross-checked on the ball itself — with `$D001` = 158 the
+checkers span 167-234, and since they are inset one rim texel that puts the
+sphere at 165-236 and the sprite's row 0 at 159. This draft first wrote `+6`
+and `164-235`; caught by the Task 10 audit and confirmed independently.
+
+Note what that makes true of the shadow: the ball's bottom at contact and the
+shadow's ellipse centre both land on raster **236** (§7). That coincidence is
+the design — the contact patch is where the ball touches — and it is worth
+stating rather than leaving as two numbers that happen to agree.
 
 Both ends are inside the sprite Y window 50-249 (`skills/6502-assembly/SKILL.md`,
 "Sprite invisible?"). The bottom sprite pair sits at `sprite_y + 42` because
@@ -452,8 +474,10 @@ finer than the ball's.
 - **Position.** `spr4_x = spr0_x`, `spr5_x = spr0_x + 48` — the shadow tracks
   the ball's X exactly, with no lag, because it is derived from the same byte in
   the same frame. `spr4_y = spr5_y = 225`, fixed: the shadow lives on the floor
-  plane, not under the ball. Ellipse centre row 10 of 21 → raster 235, the
-  contact line.
+  plane, not under the ball. Ellipse centre row 10 of 21 → raster **236**
+  (225 + 1 + 10 — a sprite's row 0 shows at `Y+1`, §6.1), which is the same
+  raster the ball's own bottom reaches at contact. The two agreeing is the
+  point of a contact shadow, not a coincidence.
 - **It shrinks.** Four shapes, selected by the ball's height above contact
   `h = 158 - int(ball_y)` (0-104):
 
@@ -710,13 +734,16 @@ its expensive arm is 30 register writes.
 | physics (2 adds, 2 compares, table index) | ~90 |
 | bounce table lookup + shadow band select | ~60 |
 | 6 sprite X, 6 sprite Y, `$D010`, 6 pointers | ~330 |
-| sound (worst frame: gate-on) | ~300 |
+| sound (worst frame: gate-on) | ~394 *(measured; this row was estimated at ~300)* |
 | cost measurement + counters | ~60 |
-| **total, worst frame** | **~840** |
+| **total, worst frame** | **~934** |
 
-840 cycles is 12.9 raster lines (65 cycles/line) and 4.9% of the 17,095-cycle
+934 cycles is 14.4 raster lines (65 cycles/line) and 5.5% of the 17,095-cycle
 NTSC frame. Lines 10-50 are top border — no badlines — so the DMA scale-back
-`docs/cli.md` measures (×1.067) does not apply here.
+`docs/cli.md` measures (×1.067) does not apply here. The measured mark is
+comfortably under the estimate: `irq_hwm` reads 7 raster lines and
+`c64 profile tick` 481 cycles mean, because the gate-on frame is one frame in
+64 and the table above prices it.
 
 **The declared ceiling is `irq_hwm ≤ 40` raster lines**, which is 2,600 cycles
 and 15% of the frame. **The margin is therefore at least 223 of the frame's 263
@@ -915,8 +942,17 @@ machine, never from reading the source.
 21. `evidence/audio/floor/report.md` and `evidence/audio/wall/report.md` both
     read `verdict: PASS` against a score written from the impact schedule.
 22. The spectrogram of each capture shows a broadband transient at the impact
-    frame whose energy centroid falls over the following ~250 ms — the filter
-    sweep, which the piano roll cannot show.
+    frame whose energy centroid falls by at least a factor of three over the
+    following **~100 ms** — the filter sweep, which the piano roll cannot show —
+    and the wall's centroid is higher than the floor's at every point in that
+    window.
+
+    (An earlier draft said ~250 ms, which §8's own instrument cannot deliver:
+    the cutoff ramps for 16 frames = 267 ms, but `$D40C` = `$04` decays voice 2
+    in 114 ms, so the burst is gone before the sweep ends. The second clause is
+    free — measured 4,484 vs 4,204 Hz at onset and 1,881 vs 1,128 Hz at +100 ms
+    — and it makes the criterion test §8's *two surfaces* claim rather than only
+    its one-gesture claim.)
 
 **Budget**
 
