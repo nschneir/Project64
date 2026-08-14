@@ -811,12 +811,36 @@ window with `--at-frame`, which is the only way to trigger something once the
 capture owns the session:
 
 ```sh
-c64 audio capture 1.5 evidence/audio/floor --at-frame 12 '$4015=0' --ref floor.score.yaml
+c64 audio capture 1.5 evidence/audio/floor \
+    --at-frame 12 '$4015=0' --at-frame 13 '$4015=1' --ref floor.score.yaml
 ```
 
-(`$4015` is `freeze`; the address is fixed by §9, which is why `VARS` is an
-area.) The impact therefore lands on a **known frame of the window**, computed
-from the bounce table, not observed after the fact.
+(`$4015` is `freeze`.) `--at-frame` takes **literal addresses only** — measured:
+`--at-frame 12 'freeze=0'` is refused with *"'freeze=0' is not a number …; use
+decimal, `$hex`, or `0xhex`"*, unlike `mem read`/`write`/`until` and every other
+address argument in the CLI, which resolve symbols. That is the whole reason
+`VARS` is an `--area`: `freeze` is at `$4015` **by arrangement**, so the address
+can be written down here and not drift.
+
+**`freeze` is cleared for exactly one frame and set again.** An earlier draft
+released it and never restored it, which lets physics free-run for the rest of
+the window: `bounce_phase` wraps 64 frames later and drops a *second, unscored*
+impact into the tail, and the diff fails with an unexpected note. Clearing and
+re-setting it means the window holds exactly one frame of physics and exactly
+one impact, so the schedule cannot repeat and the wall window cannot collect a
+floor impact it is not about.
+
+**The impact is heard one frame after the write.** An `--at-frame` write to a
+*state* byte is acted on by the *next* tick, and that tick's SID writes land
+after the sampler's own point (the halt is at raster 12; this demo's tick starts
+at raster 10 and `sound_step` runs tens of lines below). So `$4015=0` at frame
+12 sounds at sample **13** — `score.py` carries this as `IRQ_LATENCY = 1` with
+the mechanism written beside it, and both logs confirm the first `$D404 = $11`
+at sample 13. A *direct* `$D4xx` write needs no frame of program and lands on
+frame N, which is the case `docs/cli.md` describes.
+
+The impact therefore lands on a **known frame of the window**, computed from the
+bounce table, not observed after the fact.
 
 **The reference score is generated, not fitted.** `tools/score.py` reads the
 same constants as the demo — the impact frame, the 20-frame gate, the two

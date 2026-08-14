@@ -224,10 +224,10 @@ def test_graphics_policy_requires_program_side_high_water_marks():
 def test_every_audio_evidence_script_captures_strictly():
     """`docs/cli.md` names these scripts as the callers `c64 audio capture
     --strict` exists for, and an evidence run reads its success from an exit
-    code. All ten capture calls pass `--ref` today, and for nine of them the
-    flag is a second line of defence: those scores list sounding notes, so a
+    code. All twelve capture calls pass `--ref` today, and for eleven of them
+    the flag is a second line of defence: those scores list sounding notes, so a
     silent window already diffs each scored entry as "heard nothing", FAILs and
-    exits 1 without it. The tenth is why this pin is per capture call rather
+    exits 1 without it. The twelfth is why this pin is per capture call rather
     than per script. ms-muncher's `play` score is `voices: {1: []}` with voices
     2 and 3 deliberately unscored ("read off the piano roll instead"), and
     `diff_score` compares only the voices a score lists while reading an empty
@@ -271,9 +271,9 @@ printf '%s\\n' '{_ARGV_END}' >>"$C64_ARGV_LOG"
 MS_MUNCHER_PLAY = "demos/ms-muncher/evidence/audio/play.score.yaml"
 
 _BOTH_SITES = (
-    "Nine scored captures that sound and one that does not is load-bearing prose "
-    "in two places, and a score that gains or loses its last sounding note has "
-    "to change both: this file's "
+    "Eleven scored captures that sound and one that does not is load-bearing "
+    "prose in two places, and a score that gains or loses its last sounding note "
+    "has to change both: this file's "
     "test_every_audio_evidence_script_captures_strictly docstring and "
     "demos/ms-muncher/tools/audio-evidence.sh's cap() comment."
 )
@@ -306,9 +306,9 @@ def test_the_sites_the_failure_message_names_still_say_it():
     every assert it is attached to still passed — a failure message that sends
     someone to prose that has already moved is worse than none."""
     doc = _prose(test_every_audio_evidence_script_captures_strictly.__doc__ or "")
-    assert "for nine of them the flag is a second line of defence" in doc, \
+    assert "for eleven of them the flag is a second line of defence" in doc, \
         (f"this file's test_every_audio_evidence_script_captures_strictly "
-         f"docstring no longer states the nine/one split.\n{_BOTH_SITES}")
+         f"docstring no longer states the eleven/one split.\n{_BOTH_SITES}")
     for path, where, sentence in _SITE_ANCHORS:
         assert sentence in _prose(Path(path).read_text()), \
             f"{path}: {where} no longer says {sentence!r}.\n{_BOTH_SITES}"
@@ -383,10 +383,10 @@ def _refs(call: list[str]) -> list[str]:
 def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     """The pin under the docstring above, which nothing but prose held. That
     docstring and ms-muncher's `cap()` comment both rest on the same split —
-    ten scored captures, nine of whose scores list sounding notes and one,
+    twelve scored captures, eleven of whose scores list sounding notes and one,
     ms-muncher's `play`, that lists none — and the same branch got the claim
     wrong twice running. Adding a note to `play.score.yaml`, or emptying one of
-    the other nine, silently falsifies both sentences.
+    the other eleven, silently falsifies both sentences.
 
     "Sounding" and not "listed" is the property counted, and it is deliberately
     the wider of the two rather than a claim about what `diff_score` lets
@@ -401,7 +401,7 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
     because it would PASS; counting this way over-flags that shape and cannot
     miss one that really does PASS at exit 0.
 
-    The scores come out of the scripts rather than a list here, so an eleventh
+    The scores come out of the scripts rather than a list here, so a thirteenth
     capture is in scope the moment it is written.
     """
     from c64lib.sid_analysis import REST, load_score
@@ -414,8 +414,8 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
                 f"{script} makes a capture with {len(found)} --ref scores: "
                 f"{' '.join(call)}\n{_BOTH_SITES}")
             refs.extend(found)
-    assert len(refs) == 10, (
-        f"the evidence scripts now make {len(refs)} scored captures, not ten: "
+    assert len(refs) == 12, (
+        f"the evidence scripts now make {len(refs)} scored captures, not twelve: "
         f"{refs}\n{_BOTH_SITES}")
 
     sounding = {}
@@ -515,23 +515,55 @@ def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
         "spell hires/multicolor on every block, the way sprites.s does"
 
 
+def _pinnable_demos() -> list[str]:
+    """Every demo directory shipping a tracked `.prg` built from a `.s` this
+    repo can rebuild — i.e. every one the next test can pin.
+
+    Derived, not listed. A demo that gains a committed program joins the guard
+    by existing, which is the whole point: the failure this catches is a
+    *new* demo shipping a binary nobody rebuilds, and a hand-maintained list
+    would have to be updated by the same commit that introduces the risk.
+    """
+    import yaml
+
+    out = []
+    for demo in sorted(p.name for p in DEMOS_DIR.iterdir() if p.is_dir()):
+        spec_path = DEMOS_DIR / demo / "test.yaml"
+        if not spec_path.exists() or not (DEMOS_DIR / demo / f"{demo}.prg").exists():
+            continue
+        program = (yaml.safe_load(spec_path.read_text()) or {}).get("program")
+        if program and program.endswith(".s"):
+            out.append(demo)
+    return out
+
+
 @pytest.mark.skipif(
     shutil.which("ca65") is None and not os.environ.get("C64_TOOLS_CA65"),
     reason="cc65 not installed",
 )
-def test_la_galaxia_prg_is_a_build_of_the_committed_sources(tmp_path):
-    """The include above is pinned to its sheet; this pins the shipped binary
-    to the sources that carry it. `la-galaxia.prg` is tracked, and a stale one
-    contradicts every `.s` and `.inc` beside it — the same "generated file
-    with no regeneration test" failure, one level down. It costs one ca65 and
-    one ld65 pass over a single translation unit (~0.2 s) and is
-    byte-reproducible. The `.d64` is deliberately not pinned: packaging shells
-    out to c1541 and costs seconds where this pass costs a fraction of one, so
-    nothing here checks that the shipped image carries the `.prg` this test
-    just rebuilt — re-package by hand after any rebuild.
+@pytest.mark.parametrize("demo", _pinnable_demos())
+def test_demo_prg_is_a_build_of_the_committed_sources(demo, tmp_path):
+    """The include above is pinned to its sheet; this pins each shipped binary
+    to the sources that carry it. A demo's `.prg` is tracked (`.gitignore`
+    carves `!demos/*/*.prg` out so a demo can ship the artifact its own prompt
+    builds), and a stale one contradicts every `.s` and `.inc` beside it — the
+    same "generated file with no regeneration test" failure, one level down.
+    It costs one ca65 and one ld65 pass per demo (~0.2 s) and is
+    byte-reproducible.
+
+    Parameterised over every demo rather than written once for la-galaxia,
+    because the drift is not hypothetical: the amiga_ball dogfood committed a
+    `.prg` in its first task and let it sit **five commits** stale — 1,986
+    differing bytes against its own sources — and nothing failed, because the
+    only guard named a different demo. Four other demos had no guard at all.
+
+    The `.d64` is still deliberately not pinned: packaging shells out to c1541
+    and costs seconds where this pass costs a fraction of one, so nothing here
+    checks that the shipped image carries the `.prg` this test just rebuilt —
+    re-package by hand after any rebuild.
 
     The areas and the load address both come from data — `test.yaml` and the
-    machine profile — so the spec stays the one place the program's link
+    machine profile — so each spec stays the one place its program's link
     layout is written down and no line here restates it."""
     import yaml
 
@@ -539,19 +571,19 @@ def test_la_galaxia_prg_is_a_build_of_the_committed_sources(tmp_path):
     from c64lib.machines import get_profile
     from c64lib.ops import parse_areas
 
-    spec = yaml.safe_load((LG / "test.yaml").read_text())
-    areas = spec.get("areas")
-    assert areas, ("test.yaml no longer declares any `areas:` — la-galaxia "
-                   "cannot link without one")
-    basic_start = get_profile("c64").basic_start
-    built = build_asm(LG / "la-galaxia.s", out_prg=tmp_path / "la-galaxia.prg",
+    demo_dir = DEMOS_DIR / demo
+    spec = yaml.safe_load((demo_dir / "test.yaml").read_text())
+    source = demo_dir / spec["program"]
+    areas = spec.get("areas") or []
+    basic_start = get_profile(spec.get("machine") or "c64").basic_start
+    built = build_asm(source, out_prg=tmp_path / f"{demo}.prg",
                       basic_start=basic_start,
                       areas=parse_areas(areas, basic_start)).prg
-    flags = " ".join(f"--area '{a}'" for a in areas)
-    assert built.read_bytes() == (LG / "la-galaxia.prg").read_bytes(), (
-        "demos/la-galaxia/la-galaxia.prg is not a build of the committed "
-        f"sources — re-run `c64 build demos/la-galaxia/la-galaxia.s {flags}` "
-        "(and `c64 package` the .d64, which nothing pins to it)"
+    flags = "".join(f" --area '{a}'" for a in areas)
+    assert built.read_bytes() == (demo_dir / f"{demo}.prg").read_bytes(), (
+        f"demos/{demo}/{demo}.prg is not a build of the committed sources — "
+        f"re-run `c64 build {source}{flags}` (and `c64 package` the .d64, "
+        "which nothing pins to it)"
     )
 
 

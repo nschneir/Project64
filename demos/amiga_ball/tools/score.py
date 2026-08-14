@@ -182,7 +182,7 @@ def score_yaml(kind: str) -> str:
 
 def main(argv=None) -> int:
     here = Path(__file__).resolve().parent
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--outdir", type=Path, default=here.parent / "evidence",
                     help="where the score YAMLs go (default: ../evidence)")
     ap.add_argument("--print", dest="show", choices=sorted(IMPACTS),
