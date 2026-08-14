@@ -115,7 +115,9 @@ open → attract screen → entrance waves → dives → challenging stage → g
 over → cold open — with the 40-enemy formation settled in character RAM and
 every diver handed to a raster-IRQ multiplexer that never overflows, five
 scripted entrances off trajectory LUTs, a tractor beam that takes your fighter
-and a mid-flight rescue that gives you two, transforming enemies, the no-fire
+and a mid-flight rescue that gives you two, a fighter that explodes where it
+stood when it is shot down — four shapes over half a second, cooling white to
+red, under a rumble no enemy explosion sounds like — transforming enemies, the no-fire
 challenging stages with their `¡PERFECTO!` bonus, and three-voice SID music
 that keeps playing under the effects that duck it; then a fidelity audit with
 every claim measured, the deterministic evidence trail the prompt calls for,

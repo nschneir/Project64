@@ -194,6 +194,89 @@ others, with `mus_on` = 1. `tick_overrun` = 0 throughout.
 
 ---
 
+## Iteration 6 — the death nobody could see or hear
+
+**Evaluate.** A second play session, one finding: *"when my ship was killed
+there was no explosion visual or sound. It felt like the game froze for a
+couple of seconds, although it probably did not."* Both halves were right, and
+the parenthesis was right too — nothing was frozen.
+
+Read off the running machine, stopped at `playerhit` and stepped a frame at a
+time (pre-fix): sprite 0's pointer read **128** — `SPR_FIGHTER`, the ordinary
+white fighter — on every one of the 40 frames of `plstate` 2, with `$D015` bit
+0 still set. `playerdraw` had a case for `plstate` 1 (the capture spin) and
+none for 2, so the fighter that had just been shot sat there intact and
+unmoving until the state expired. Then `plalive` cleared, `ST_DEAD` held for
+70 more frames with no fighter on screen at all, and the next one arrived:
+**110 frames, 1.8 s, in which the only thing that changed was a counter.**
+
+The sound was real but might as well not have been. `vprio[2]` = 3,
+`vfx[2]` = 3, voice 3's shadow `$81`/`$09` for 24 frames — `SFX_EXPLODE`,
+byte for byte the effect every enemy fires, several of which are usually going
+off at the same moment. So the one event that costs a life sounded exactly
+like the fifty that do not.
+
+Neither is a coding slip. §6.3 of `PROMPT.md` specified the *capture*
+animation in detail — spin, turn red, draw up to the Flagship — and said
+nothing whatever about being shot down, and §9's effect table had one row
+called "Explosion". The build implemented what it was asked for.
+
+**Improve.** The fighter now burns. `plstate` 2 draws the enemies' four
+explosion shapes (`SPR_EXP0..3`, blocks 145-148), eight frames each, over a
+colour ramp that cools white → yellow → orange → red; `PLBOOM_FRAMES` is 32,
+so `pltimer >> 3` indexes both tables and the state ends on the tick that
+would have wanted a fifth shape. Those shapes are multicolour art and sprite 0
+is hires for the fighter's edges, so `playerdraw` now owns `$D01C` bit 0:
+it sets the bit for the blast and clears it for every other state, including
+the no-fighter early return, so the mode register never describes a sprite
+that is not there. The dead time is 32 + 70 = **102 frames**, and 32 of them
+are now an explosion instead of a photograph.
+
+The sound is its own effect. `SFX_PLDEATH` (7) runs 32 frames on voice 3 at
+**priority 4** — above everything else in the game, so an enemy blowing up in
+the same frame cannot take the voice off the player's death. It sweeps the
+noise frequency high byte `$30` → `$11` (a rumble collapsing) where the
+enemies' explosion moves `$4F` → `$4A`, and it decays over 1.5 s and releases
+over ~170 ms instead of being cut off.
+
+**Re-verify.** On the machine, stepping the blast frame by frame: sprite 0's
+pointer walks 145 → 146 → 147 → 148 at pltimer 2/11/19/27, `$D027` walks
+`$F1`/`$F7`/`$F8`/`$F2` (white/yellow/orange/red under the 4-bit mask),
+`$D01C` reads `$FD` for the blast and `$FC` on both sides of it, and
+`vprio[2]`/`vfx[2]` read 4/7 for all 32 frames with voice 3's shadow at `$81`,
+AD `$0A`, SR `$05`. `c64 sprite show 0` mid-blast renders the fireball itself,
+which is the one instrument that shows the shape the VIC is really reading.
+
+Two `c64 audio capture` windows settle the ear half, the player's death
+against an enemy's, both fired inside the window with `--at-frame` (a cue
+armed before the command counts down during arming, and a one-shot effect is
+then over before log frame 0 — the trap `--at-frame` exists for):
+
+| | gated noise frames | freq hi across the burst | AD / SR |
+|---|---|---|---|
+| enemy explosion | 23 | 79 → 74 | `$09` / `$00` |
+| the fighter's death | 31 | 48 → 18 | `$0A` / `$05` |
+
+`evidence/death-1..4.png` and `evidence/death.txt` are the frames and the
+bytes beside them; `test.yaml` asserts the whole sequence — pointer, colour,
+mode bit, `vprio`/`vfx`, the gated noise register, and the pitch falling
+against a sample — so a future build cannot quietly go back to a fighter that
+sits there.
+
+**Two things the spec learned in the process.** Waiting for the death rather
+than staging it was a coin flip: a life goes two ways, and the Flagship's
+tractor beam takes the fighter through `capture`, which never calls
+`playerhit` — so a run whose lives all went to captures reached the game over
+and then sat out the whole 120 s timeout on a label the attract loop never
+executes. Measured twice in eight runs. The hit is now staged with a bullet
+poked into `hitplayer`'s own window, which runs the real collision path. And
+the §7 movement test was failing about one run in three on `88 not < 88`,
+because a fighter shot down inside its 40-tick window respawns at the centre;
+it now clears the formation first, the way `tools/audio-evidence.sh` already
+did for the same reason.
+
+---
+
 ## The claim table
 
 | § | Claim | Verdict | Evidence |
@@ -207,6 +290,7 @@ others, with `mus_on` = 1. `tick_overrun` = 0 throughout.
 | 4 | 24-column window, bezel as charset cells | PASS | `screen --png --border` |
 | 5 | Dual Fighter: equal Y, exactly 16px apart | PASS | sprites 0/1 at y=218/218, x=164/180 |
 | 5 | collision is coordinate maths, never `$D01E`/`$D01F` | PASS | neither register is read anywhere in the source |
+| 5 | the fighter's death is drawn, not waited out | PASS | sprite 0 walks blocks 145-148 with `$D027` white→yellow→orange→red over 32 frames, `$D01C` bit 0 set for the blast and clear either side; `evidence/death-1..4.png`, `evidence/death.txt` |
 | 6.2 | entrance waves off trajectory LUTs, no runtime trig | PASS | `traj.inc` generated; entrants settle to `enemy_state` = 1 |
 | 6.3 | tractor beam, capture, rescue, freed captive | PASS | `plstate`=1, slot 47 EST_DOCKED, lives 3→2; rescue → `pldual`=1 |
 | 6.4 | challenging stage: 40 sweep, never fire | PASS | `bullets_live` 0 for the whole sweep; `¡PERFECTO!` and the 10,000 bonus |
@@ -216,6 +300,7 @@ others, with `mus_on` = 1. `tick_overrun` = 0 throughout.
 | 8 | every score value fixed | PASS | all eleven exact: 50/100, 80/160, 150/400, carrier 150/800, transformed 160 (1,000/trio), captive 1,000, sweeper 100 |
 | 8 | extra lives at 20,000 then every 70,000 | PASS | 20,000→4, 70,000→5, 140,000→6, 210,000→7 |
 | 9 | every SID write shadowed | PASS | `evidence/sid-shadow.txt`, three moments, each byte named |
+| 9 | the fighter's death does not sound like an enemy's | PASS | `SFX_PLDEATH`, priority 4, 32 gated noise frames sweeping freq hi `$30`→`$11` with AD `$0A`/SR `$05`, against the enemy's 24 frames at `$4F`→`$4A` with `$09`/`$00`; captured side by side (iteration 6) |
 | 9 | effect priority: seize if ≥, drop never queue, music resumes | PASS | `evidence/audio/priority/` — voice 1 resumes at the position the sequencer would have reached; a priority-1 effect offered against a priority-2 holder leaves `vprio`/`vfx` untouched |
 | 9 | theme ≥60s and loops seamlessly | PASS | 100 bars, 600 rows, 3,600 frames = 60.0 s; `evidence/audio/seam/` passes as one continuous phrase across the seam |
 | 11 | no frame overruns its budget | PASS | `tick_overrun` = 0 across stage 1, stage 8 and two challenging sweeps (~7,400 ticks) |
@@ -269,13 +354,17 @@ avoids the wedge at session start but not inside the capture's own pin/arm
 sequence.
 
 The artifacts are nonetheless valid for this build, and the reason is
-checkable rather than hopeful. Exactly one change reached `sound.s` after they
-were taken: `sfxstart` gained `stx sfxsavex` at entry and `ldx sfxsavex` at
+checkable rather than hopeful. Two changes have reached `sound.s` since they
+were taken, and neither alters a byte of what the five windows recorded.
+The first: `sfxstart` gained `stx sfxsavex` at entry and `ldx sfxsavex` at
 exit, preserving the X register across the call. It writes no SID register and
 alters no value written to `$D400-$D418`; what it fixes is which enemy slot
-`enemytick` resumes from after a tractor-beam deploy. `music.inc` and every
-effect routine are byte-identical. So the recording the shipped program would
-produce is the recording that is committed.
+`enemytick` resumes from after a tractor-beam deploy. The second, in iteration
+6: `SFX_PLDEATH` and its `fx_pldeath` routine, which are purely additive — one
+entry appended to each of the four effect tables and a new routine after
+`fx_explode`. Every existing effect routine and `music.inc` are
+byte-identical, and none of the five windows fires effect 7. So the recording
+the shipped program would produce is the recording that is committed.
 
 Re-running `tools/audio-evidence.sh` when the capture path is healthy is the
 way to refresh them, and the script now starts its session warped for the

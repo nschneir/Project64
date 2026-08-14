@@ -404,10 +404,24 @@ ptcaptured:
         jsr     loselife
         rts
 
+; ---- the death blast ----------------------------------------------------
+; The fighter used to spend these frames sitting on screen intact and white,
+; because `playerdraw` had no case for plstate 2 -- so a death read as the
+; game freezing rather than as anything happening, and the only thing that
+; marked it was a noise burst identical to the one every enemy makes.  It now
+; burns: the enemies' four explosion shapes, eight frames each, over a colour
+; ramp that cools white -> yellow -> orange -> red.  PLBOOM_FRAMES is 4*8, so
+; `pltimer >> 3` indexes both tables and pltimer 0-31 covers exactly the four
+; shapes -- pltimer reaches 32 on the tick that ends the state, and that tick
+; leaves plalive 0, so `playerdraw` never indexes past the tables' end.
+PLBOOM_FRAMES = 32
+plboomshape: .byte   SPR_EXP0, SPR_EXP1, SPR_EXP2, SPR_EXP3
+plboomcol:   .byte   COL_WHITE, COL_YELLOW, COL_ORANGE, COL_RED
+
 ptdying:
         inc     pltimer
         lda     pltimer
-        cmp     #40
+        cmp     #PLBOOM_FRAMES
         bcc     pt9
         lda     #0
         sta     plstate
@@ -503,8 +517,8 @@ ph1:    lda     #2
         sta     plstate
         lda     #0
         sta     pltimer
-        lda     #SFX_EXPLODE
-        jmp     sfxstart
+        lda     #SFX_PLDEATH            ; not SFX_EXPLODE: the player's death
+        jmp     sfxstart                ;   has to be heard over the enemies'
 ph9:    rts
 
 ; ---- playerdraw -- sprites 0 and 1, straight into the VIC ---------------
@@ -516,7 +530,10 @@ playerdraw:
         sta     plena
         lda     plalive
         bne     :+
-        rts
+        lda     SPRMC                   ; no fighter and no blast: sprite 0
+        and     #$FE                    ;   goes back to hires, so the mode
+        sta     SPRMC                   ;   register never describes a sprite
+        rts                             ;   that is not on screen
 :       ; sprite X = PLX_BASE + window pixel; the carry is the 9th bit
         lda     plx
         clc
@@ -530,19 +547,42 @@ playerdraw:
         lda     #PLY
         sta     SPR0Y
         lda     plstate
+        cmp     #2
+        beq     pdboom
         cmp     #1
-        bne     :+
-        jsr     spinshape
-        jmp     :++
-:       lda     #SPR_FIGHTER
-:       sta     SPRPTR
+        beq     pdspin
+        lda     #SPR_FIGHTER
+        sta     SPRPTR
         lda     #COL_WHITE
-        ldy     plstate
-        cpy     #1
-        bne     :+
+        jmp     pdhires
+pdspin: jsr     spinshape
+        sta     SPRPTR
         lda     #COL_RED                ; a captured fighter turns red
-:       sta     SPRCOL0
-        lda     #$01
+pdhires:
+        sta     SPRCOL0
+        lda     SPRMC                   ; hires, for the fighter's sharp edges
+        and     #$FE
+        sta     SPRMC
+        jmp     pdena
+        ; The blast borrows the enemies' explosion shapes, which are
+        ; MULTICOLOUR art: drawn through a hires sprite 0 every colour pair
+        ; reads as two lit pixels and the fireball comes out as static.
+        ; $D01C is otherwise written once at startup for the whole cast
+        ; (sprites.s, cold.s), so these two branches are its only per-frame
+        ; writers and each puts the bit where its own shape needs it.
+pdboom: lda     pltimer
+        lsr     a
+        lsr     a
+        lsr     a                       ; eight frames a shape
+        tay
+        lda     plboomshape,y
+        sta     SPRPTR
+        lda     plboomcol,y
+        sta     SPRCOL0
+        lda     SPRMC
+        ora     #$01
+        sta     SPRMC
+pdena:  lda     #$01
         sta     plena
 
         ; Sprite 1 is the second fighter when dual, and the accent overlay

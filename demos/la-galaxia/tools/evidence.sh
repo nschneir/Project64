@@ -175,6 +175,48 @@ shot dual-fighter
 $C sprite status $S > "$OUT/dual-fighter.sprites.txt"
 echo "  dual-fighter.sprites.txt"
 
+# --- the fighter's death blast (§5) ---------------------------------------
+# Staged with a bullet, by rule 3, and here that rule is not about speed: a
+# life is lost two ways and only one of them is a hit.  The Flagship's beam
+# takes the fighter through `capture`, which never calls `playerhit` -- so
+# waiting for the real thing can watch all three lives go to captures and
+# then time out on a label the attract loop never executes (measured).  A
+# bullet inside `hitplayer`'s window runs the game's own collision test:
+# bul_y in [PLY-51+2, PLY-51+20) = [169, 187), bul_x - plx in [0, 17)
+# (collide.s, hp1).  The slots are cleared and bullets_live set to 1 so the
+# count the hit decrements stays the truth.
+#
+# Four shots, one per shape of the blast: `shot` spends a tick of its own on
+# the flush, so the counts below land on pltimer 2, 11, 19 and 27 -- inside
+# each of the four eight-frame bands.
+boot; hold 1; release; ticks 900
+$C mem write lives 3 $S >/dev/null
+$C mem write plx 88 0 $S >/dev/null
+$C mem write bul_on 1 0 0 0 0 0 0 0 $S >/dev/null
+$C mem write bul_x 96 $S >/dev/null
+$C mem write bul_y 175 $S >/dev/null
+$C mem write bullets_live 1 $S >/dev/null
+$C until playerhit --count 1 --timeout 60 $S >/dev/null
+ticks 2; shot death-1
+ticks 8; shot death-2
+ticks 8; shot death-3
+ticks 8; shot death-4
+{ echo "# the fighter's death blast (§5), read off the frames above."
+  echo "# pltimer is one behind the ticks since the hit; the shape is"
+  echo "# pltimer>>3 and the colour ramps with it, white -> yellow ->"
+  echo "# orange -> red.  Sprite 0 is multicolour ONLY here: the four"
+  echo "# explosion shapes are multicolour art, and the fighter's own"
+  echo "# shape is hires (\$D01C bit 0, 0xfc <-> 0xfd)."
+  echo "pltimer=$($C mem get pltimer $S) plstate=$($C mem get plstate $S)"
+  echo "sprite0_ptr=$($C mem get '$07F8' $S) (145-148 = SPR_EXP0..3)"
+  echo "sprite0_col=$($C mem get '$D027' $S) \$D01C=$($C mem get '$D01C' $S)"
+  echo "# SFX_PLDEATH holds voice 3 at priority 4 for the whole 32 frames,"
+  echo "# so no enemy explosion can take it off the player's own death."
+  echo "vprio=$($C mem get vprio 3 $S) vfx=$($C mem get vfx 3 $S)"
+  echo "sidshad v3 \$D40E-\$D414 = $($C mem get sidshad+14 7 $S)"
+} > "$OUT/death.txt"
+echo "  death.txt"
+
 # --- the stage select working: stage 4 on the first frame of play (§2) ----
 boot
 hold 4; release; ticks 30

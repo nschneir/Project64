@@ -1,0 +1,13 @@
+# the fighter's death blast (§5), read off the frames above.
+# pltimer is one behind the ticks since the hit; the shape is
+# pltimer>>3 and the colour ramps with it, white -> yellow ->
+# orange -> red.  Sprite 0 is multicolour ONLY here: the four
+# explosion shapes are multicolour art, and the fighter's own
+# shape is hires ($D01C bit 0, 0xfc <-> 0xfd).
+pltimer=29 plstate=2
+sprite0_ptr=148 (145-148 = SPR_EXP0..3)
+sprite0_col=242 $D01C=253
+# SFX_PLDEATH holds voice 3 at priority 4 for the whole 32 frames,
+# so no enemy explosion can take it off the player's own death.
+vprio=0 0 4 vfx=0 1 7
+sidshad v3 $D40E-$D414 = 0 20 0 5 129 10 5

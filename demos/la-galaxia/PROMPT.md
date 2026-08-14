@@ -298,12 +298,30 @@ coordinate never drift apart.
 * **Flagship damage state:** starts cyan/blue. On its first hit the
   colour pointer swaps to `COLOR_PURPLE` ($04) and `COLOR_RED` ($02) and
   it stays alive; two hits destroy it.
+* **Player death:** the fighter's own explosion, animated on its sprite
+  at the position it died — not a vanishing fighter and not an unchanged
+  one. Reusing the enemies' explosion shapes is fine if they suit, but
+  mind the mode: those shapes are multicolour art and sprite 0 is hires
+  for the fighter, so whatever draws the blast owns `$D01C` bit 0 for the
+  duration and puts it back afterwards. Give the blast a colour of its
+  own too — the enemies' explosions are already on screen by the dozen,
+  and the player's own has to be told apart from them at a glance.
 
 | Sprite | Assignment |
 | :--- | :--- |
 | 0 | Player fighter, or the left fighter when dual |
 | 1 | Player accent overlay, or the right fighter when dual |
 | 2–7 | Multiplexed: divers, transformed enemies, the tractor beam |
+
+**Every state the fighter can be in has to draw something.** It has more
+states than "flying": captured, dual, exploding, and whatever else your
+design adds. A state whose whole implementation is a countdown looks
+exactly like the game hanging, and the player who meets it will report a
+freeze rather than a missing animation — they cannot see the difference,
+which is the point. So when a state goes into the state byte, its frames
+go in with it, and both the state and the shape it draws go into the
+observable list (§13) so a test can read which one is on screen rather
+than trusting that some frame somewhere shows it.
 
 **Missiles and enemy bullets are character-space objects,** not sprites —
 two missiles in flight per fighter and up to eight enemy bullets would
@@ -362,6 +380,17 @@ when the last surviving entrant settles.
   player.
 * A hit while dual destroys one fighter and costs one life; play
   continues with the survivor as a single fighter.
+
+**Shot down.** A bullet or a collision destroys the fighter outright, and
+that is the other way a life goes — the capture above is not the only
+one, and a spec that details the capture animation while leaving this one
+implicit gets a game where dying is the least eventful thing in it. The
+fighter explodes where it stood (§5), the game holds while that plays,
+and then the next one arrives. State in the spec how many frames the
+blast runs, what is drawn in each, and how long the hold after it lasts:
+dead time longer than the animation is dead time a player reads as a
+freeze, so the two numbers are a design decision and not an accident of
+whatever the timer happened to be set to.
 
 ### 4. Stage progression and difficulty
 
@@ -503,8 +532,18 @@ ducks it there, because no effects play on the attract screen.
 
 * **Laser fire:** voice 1, triangle waveform, pitch swept from `$4000`
   down to `$1000` over 5 frames.
-* **Explosion:** voice 3, noise waveform (control register `$80`), sharp
-  attack and exponential decay, the volume envelope carrying the fade.
+* **Explosion (an enemy):** voice 3, noise waveform (control register
+  `$80`), sharp attack and exponential decay, the volume envelope
+  carrying the fade.
+* **Explosion (the fighter's own):** voice 3 as well, and it needs its
+  own row in the effect table rather than a second use of the enemies'.
+  The one event that costs the player something cannot sound like the
+  event they have already heard fifty times in the same minute — so make
+  it longer, lower, and give it a pitch sweep the enemies' explosion does
+  not have, at the highest priority in the game so nothing can take the
+  voice off it half way through. Say in the spec which of those the ear
+  is meant to use, and prove it against the enemies' explosion rather
+  than on its own: two captures side by side, or the register log of each.
 * **Tractor beam:** voice 2, pulse waveform with dynamic pulse-width
   modulation and an arpeggio alternating two high notes every frame.
 
@@ -693,12 +732,14 @@ with the demo.
 | `challenging-stage.png` | Stage 3 mid-sweep, 40 enemies crossing without firing (§6.4) — reached with the stage select, `3`. |
 | `perfect-bonus.png` | The 10,000 point `¡PERFECTO!` award after all 40 are hit on that stage. |
 | `raster-time.png` | A `--border` capture mid-frame showing the `$D020` timing band of §11 well clear of the bottom of the screen. |
+| `death-1..4.png` | The fighter's death blast (§5), one frame per shape of the animation, with `death.txt` beside them carrying the state bytes, the sprite pointer and colour, and the SID shadow that produced them. A lost life has to be visible in the frames and audible in the shadow — and the hit is worth staging rather than waiting for, since a life can also go to a capture, which is a different code path entirely. |
 | `game-over.png` | The game over state after the last life is lost — `JUEGO TERMINADO` on screen. |
 
 Alongside them, record the **SID shadow block** (§9) read with `c64 mem
-read` at three moments — a laser shot, an explosion, and the tractor beam
-hum — showing the waveform and envelope bytes this spec calls for on the
-voices it assigns them to. Record `mux_count` and `mux_overflow` (§3)
+read` at four moments — a laser shot, an enemy explosion, the fighter's
+own death, and the tractor beam hum — showing the waveform and envelope
+bytes this spec calls for on the voices it assigns them to, and, for the
+two explosions, showing that they are not the same bytes. Record `mux_count` and `mux_overflow` (§3)
 during the busiest dive you can stage.
 
 **Audio evidence.** The shadow block (§9) proves a write was issued; it

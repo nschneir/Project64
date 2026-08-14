@@ -114,6 +114,74 @@ steps:
   - assert: { mem: "@3,16", between: { min: 64, max: 87 } }
   - assert: { mem: "tick_overrun", equals: 0 }
 
+  # ---- the fighter's death is an event, not a pause (§5) -----------------
+  # It used to be neither. `playerdraw` had no case for plstate 2, so the
+  # fighter sat on screen intact and white for the whole 40-frame dying
+  # state and the only thing marking a lost life was a noise burst identical
+  # to the one every enemy makes — which is what a player reported as "no
+  # explosion, and it froze for a couple of seconds".
+  #
+  # The hit is STAGED, and it has to be: a life is lost two ways and only one
+  # of them is a hit. The Flagship's tractor beam takes the fighter through
+  # `capture`, which never calls `playerhit` at all — so a spec that simply
+  # waited for the real thing can watch all three lives go to captures, reach
+  # the game over, and then sit out its whole 120 s on a label the attract
+  # loop never executes (measured, twice, before this was staged: the step
+  # does not fail with a wrong byte, it reports `reached 0/1`).
+  #
+  # A bullet poked onto the fighter runs the same `hitplayer` test the game's
+  # own bullets run and lands in `playerhit` on the next tick: `bul_y` inside
+  # [PLY-51+2, PLY-51+20) = [169, 187) and `bul_x - plx` inside [0, 17)
+  # (collide.s, hp1). All eight bullet slots are cleared and `bullets_live`
+  # set to 1 first, so the count the hit decrements stays the truth, and the
+  # lives are topped up so the death cannot end the game underneath the
+  # assertions.
+  #
+  # Everything after the hit is the program's own: the blast is four shapes
+  # of eight frames, so a tick count picks the shape. `playerhit` runs in the
+  # tick it stops on and `pltimer` is then one behind the ticks elapsed, so
+  # tick 3 is pltimer 2 and tick 20 is pltimer 19.
+  - assert: { mem: "gstate", equals_any: [[2], [3]] }
+  - poke:   { addr: "lives", values: [3] }
+  - poke:   { addr: "plx", values: [88, 0] }
+  - poke:   { addr: "bul_on", values: [1, 0, 0, 0, 0, 0, 0, 0] }
+  - poke:   { addr: "bul_x", values: [96] }
+  - poke:   { addr: "bul_y", values: [175] }
+  - poke:   { addr: "bullets_live", values: [1] }
+  - until:  { ref: playerhit, count: 1 }
+  - until:  { ref: tick, count: 3 }
+  - assert: { mem: "plstate", equals: 2 }
+  - assert: { mem: "$07F8", equals: 145 }                         # SPR_EXP0
+  - assert: { mem: "$D01C", mask: { and: "$01", equals: [1] } }    # MC art
+  - assert: { mem: "$D027", mask: { and: "$0f", equals: [1] } }    # white
+  # The sound is the player's own, not the enemies': SFX_PLDEATH is effect 7
+  # at priority 4, so nothing else in the game can take voice 3 off it.
+  - assert: { mem: "vprio+2", equals: 4 }
+  - assert: { mem: "vfx+2", equals: 7 }
+  - assert: { mem: "sidshad+18", equals: ["$81"] }                 # noise+gate
+  - sample: { mem: "sidshad+15", as: boom0 }
+  - until:  { ref: tick, count: 9 }
+  - assert: { mem: "$07F8", equals: 146 }
+  - assert: { mem: "$D027", mask: { and: "$0f", equals: [7] } }    # yellow
+  # $30 down to $11 over the 32 frames: the rumble collapses where the
+  # enemies' explosion holds its pitch. A sample, because the claim is the
+  # direction rather than any one value.
+  - assert: { mem: "sidshad+15", less_than: boom0 }
+  - until:  { ref: tick, count: 8 }
+  - assert: { mem: "$07F8", equals: 147 }
+  - assert: { mem: "$D027", mask: { and: "$0f", equals: [8] } }    # orange
+  - until:  { ref: tick, count: 8 }
+  - assert: { mem: "$07F8", equals: 148 }                          # SPR_EXP3
+  - assert: { mem: "$D027", mask: { and: "$0f", equals: [2] } }    # red
+  # 32 frames and the fighter is gone — the state ends on tick 33, which is
+  # the one that would have indexed a fifth shape, and sprite 0 goes back to
+  # hires.
+  - until:  { ref: tick, count: 6 }
+  - assert: { mem: "plalive", equals: 0 }
+  - assert: { mem: "plstate", equals: 0 }
+  - assert: { mem: "$D01C", mask: { and: "$01", equals: [0] } }
+  - poke:   { addr: "lives", values: [3] }
+
   # §11's redraw ceiling, measured where it is actually under pressure: a
   # settled grid, whose breathing repaints formation rows.  Three things make
   # this assertion mean something.
@@ -138,6 +206,21 @@ steps:
   # Position is 8.8 fixed point in window pixels, so 40 frames of held `A`
   # is exactly 60 pixels — an alternating 1-and-2 would read as a stutter and
   # would not land on 60.
+  #
+  # The formation is cleared first, and that is not tidiness. A fighter shot
+  # down inside the window respawns at the centre, and the comparison then
+  # reads `88 not < 88` and fails — measured at better than one run in three
+  # before this line existed, because the game is hard enough that an idle
+  # fighter dies inside 200 ticks. Clearing `enemy_state` is what
+  # tools/audio-evidence.sh does to the same window and for the same reason;
+  # `enemies_left` is untouched, so the stage does not end. The 100 ticks
+  # then carry the respawn the death assertions above have just cost us.
+  - poke:   { addr: "enemy_state", values: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+  - until:  { ref: tick, count: 150 }
+  - assert: { mem: "plalive", equals: 1 }
   - sample: { mem: "plx", as: x0 }
   - poke:   { addr: "$CB", values: [10] }
   - until:  { ref: tick, count: 40 }

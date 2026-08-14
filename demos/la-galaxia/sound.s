@@ -35,11 +35,12 @@ SFX_EXPLODE = 3
 SFX_CAPTURE = 4
 SFX_RESCUE  = 5
 SFX_EXTRA   = 6
-NUM_SFX     = 7
+SFX_PLDEATH = 7
+NUM_SFX     = 8
 
-sfxvoice:   .byte   0, 1, 1, 2, 1, 0, 0
-sfxprio:    .byte   2, 1, 2, 3, 3, 3, 3
-sfxlen:     .byte   6, 10, 14, 24, 40, 30, 24
+sfxvoice:   .byte   0, 1, 1, 2, 1, 0, 0, 2
+sfxprio:    .byte   2, 1, 2, 3, 3, 3, 3, 4
+sfxlen:     .byte   6, 10, 14, 24, 40, 30, 24, 32
 
 voicebase:  .byte   0, 7, 14
 
@@ -211,10 +212,10 @@ sft8:   inx
 
 sfxjmplo:
         .byte   <fx_laser, 0, <fx_dive, 0, <fx_beam, 0, <fx_explode, 0
-        .byte   <fx_capture, 0, <fx_rescue, 0, <fx_extra, 0
+        .byte   <fx_capture, 0, <fx_rescue, 0, <fx_extra, 0, <fx_pldeath, 0
 sfxjmphi:
         .byte   >fx_laser, 0, >fx_dive, 0, >fx_beam, 0, >fx_explode, 0
-        .byte   >fx_capture, 0, >fx_rescue, 0, >fx_extra, 0
+        .byte   >fx_capture, 0, >fx_rescue, 0, >fx_extra, 0, >fx_pldeath, 0
 
 ; ---- fx_laser: voice 1, triangle, $4000 swept down to $1000 in 5 frames -
 lasertab:
@@ -315,6 +316,36 @@ fx_explode:
         ldx     #14+SIDAD
         jsr     sidput
         lda     #$00
+        ldx     #14+SIDSR
+        jsr     sidput
+        lda     #$81                    ; noise, gate on
+        ldx     #14+SIDCTRL
+        jmp     sidput
+
+; ---- fx_pldeath: voice 3, the fighter's own death ----------------------
+; The enemies' explosion is a 24-frame crack whose pitch barely moves, and
+; the player's death used to fire that same effect -- so the one event in the
+; game that costs a life sounded exactly like the dozen before it.  This one
+; is told apart by all three of the things an ear can use: it runs 32 frames
+; (the length of the blast animation, so the sound ends when the fire does),
+; it sweeps a long way down ($3000 to $1100, a rumble collapsing rather than
+; a crack), and it releases over ~170 ms instead of being cut off.  Priority
+; 4 is above every other effect, so an enemy blowing up in the same frame
+; cannot take the voice off it half way through.
+fx_pldeath:
+        lda     #$00
+        ldx     #14+SIDFLO
+        jsr     sidput
+        lda     vfxstep+2               ; $30 at step 0 down to $11 at step 31
+        eor     #$FF
+        clc
+        adc     #49                     ; = 48 - step (mod 256)
+        ldx     #14+SIDFHI
+        jsr     sidput
+        lda     #$0A                    ; attack 0, decay 1.5 s
+        ldx     #14+SIDAD
+        jsr     sidput
+        lda     #$05                    ; sustain 0, release 168 ms
         ldx     #14+SIDSR
         jsr     sidput
         lda     #$81                    ; noise, gate on
