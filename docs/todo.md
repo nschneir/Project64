@@ -1102,3 +1102,67 @@ narrower than it holds.
 
 **How to verify.** `c64 audio capture` on two hosts, comparing `wav_bytes`
 against `frames` × the sample rate; the documented figure must bracket both.
+
+## The sprite-Y row formula is one high, in the paragraph warning about it
+
+**Anchor:** `skills/c64-development/references/hardware.md:137`;
+`skills/6502-assembly/SKILL.md:222`; `demos/invaders/invaders.s:51`,
+`sprites.s:50`, `test.yaml:47`, `AUDIT.md:108`.
+
+**Status:** measured, **not acted on** — it contradicts a deliberate earlier
+finding in five places and wants a ruling, not a patch.
+
+**What's wrong now.** `hardware.md` says:
+
+> Sprite Y for **text row R is `51 + 8*R`** — the 25-row display window spans
+> rasters 51-250, so a sprite at Y=50 sits one raster line *above* row 0.
+
+Measured on VICE, decisively and with nothing inferred from art that might have
+a blank top row: a **solid** 24×21 hires sprite (63 bytes of `$FF`, unexpanded,
+`$D01C` bit clear) with `$D00D` = 100 occupies rasters **101-121** — exactly 21
+rows. So a sprite whose Y register is `V` displays its first row on raster
+**`V+1`**.
+
+The same capture pins the other half: the wall grid's horizontal rules, which
+`demos/amiga_ball/tools/gen_room.py` puts on the *top scanline* of text rows 0,
+3, 6, 9 and 12, measured at rasters **51, 75, 99, 123, 147** — so text row R's
+top raster really is `51 + 8R`.
+
+Put together, aligning a sprite's first row with the top of text row R needs
+`Y = 50 + 8R`, and a sprite at Y=50 starts exactly **on** row 0's first raster
+rather than one line above it. Both sentences are one high.
+
+Independently confirmed on `demos/amiga_ball` itself: `$D001` = 158 puts the
+checkers at rasters 167-234, and they are inset one rim texel, so the sphere
+spans 165-236 and the sprite's row 0 sits at 159 = 158 + 1. Solving the
+top and bottom edges together gives the sphere's first and last checker texel
+rows as 4 and 37 — symmetric about 20.5, as the generator draws them — which
+is the consistency check that rules out an off-by-one in the reading.
+
+**Why this is not simply a doc fix.** `demos/invaders` reached the opposite
+conclusion on purpose and encoded it four times, including
+`sprites.s:50` — "text row R is `51 + 8*R` — not `50 + 8*R`. One line out and
+the UFO…" — and `test.yaml:47`, which asserts `$D001` = 227 for text row 22.
+Under the measurement above those sprites sit one raster **low**. That may be
+what its audit judged to look right by eye, in which case the demo is fine and
+only the *general rule* stated in `skills/` is wrong; or the correction
+overshot. Nobody should decide that from a spectrogram of someone else's
+screenshot.
+
+The irony is worth recording: the sentence in question is the one warning that
+"the invaders dogfood shipped its UFO a line high".
+
+**Fix direction (not ruled).** Re-measure with the solid-sprite method above,
+then either (a) correct both `skills/` sentences to `50 + 8*R` and leave the
+demos alone as a deliberate one-line-low placement, saying so where they assert
+it; or (b) correct the sentences *and* the demos, which moves
+`demos/invaders`'s sprite positions, its `test.yaml` constants and its evidence
+frames. (a) is much the cheaper and is probably right, since what a game wants
+is what looks right rather than what is arithmetically flush.
+
+**How to verify.** The experiment is four commands and needs no demo: poke 63
+bytes of `$FF` into a free 64-byte block, point a disabled sprite's pointer at
+it, set its Y, enable it, and read the first and last raster it occupies off
+`c64 screen --png` (inner capture: PNG row 0 is raster 51, PNG column 0 is
+sprite X 24). Whatever lands must make that experiment and the `skills/`
+sentence agree.
