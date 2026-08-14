@@ -36,10 +36,10 @@ None found.
 
 | Metric | Value |
 |---|---|
-| Duration | 1.74 s |
+| Duration | 1.75 s |
 | Clipped samples | 0 |
-| Silence windows | 0.60-1.74 s |
-| RMS min / median / max | -68.7 / -67.9 / -26.0 dBFS over 18 windows of 0.1 s |
+| Silence windows | 0.70-1.75 s |
+| RMS min / median / max | -68.5 / -67.8 / -26.0 dBFS over 18 windows of 0.1 s |
 
 ## Artifacts
 

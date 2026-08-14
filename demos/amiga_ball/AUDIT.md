@@ -602,3 +602,310 @@ depends on the ball's position — so it should stay 14 unless something is
 added. The one thing that would move it is a per-frame gesture on the sprite
 data rather than the pointers; the 1,536 bytes of unspent `SPRITES` slack exist
 precisely so that any such gesture can stay a pointer switch.
+
+---
+
+## Iteration 2 — the metric was measuring the burst dying
+
+Iteration 1 closed with one open item and a request for a ruling. The ruling
+came back:
+
+> **Lengthen the transient: `$D40C` `$04` → `$06` in `sound.s`.** Voice 2's
+> decay goes 114 ms → 204 ms so the cutoff sweep is audible for most of its
+> 267 ms length. It stays shorter than voice 1's 300 ms thump, so §8's "the
+> transient is shorter than the thump" still holds. (Rejected alternative, for
+> the record: `RAMP` 16 → 7 in `gen_sound.py`, which would have kept the sound
+> and removed nine dead register writes. The ruling chose audibility over
+> economy.)
+
+This iteration makes that change, re-measures it, and finds that it does
+exactly what the ruling intended — **and that criterion 22 goes from PASS to
+FAIL because of it**, for a reason that is worth more than the change was: the
+number criterion 22 asks for was never measuring the filter sweep.
+
+### Improve
+
+| Where | What |
+|---|---|
+| `sound.s` `sndattack` | `$D40C` `$04` → `$06`. The comment now states 204 ms, that it is still shorter than voice 1's 300 ms, and what `$04` cost — nine of the sixteen sweep frames written over a voice already 30 dB down. |
+| `SPEC.md` §8 | The voice-2 paragraph records `$06` / 204 ms, states the two facts that make it the right number (shorter than the thump, outlasts most of the sweep), and carries the `$04` history in a parenthesis rather than deleting it. §14 is **not** touched. |
+
+Nothing else moved: `python3 tools/generate.py` leaves all five `.inc` files
+byte-identical, and `evidence.sh` re-runs with all fifteen PNGs and eleven of
+its twelve `.txt` files byte-identical. The twelfth is the point of the change:
+
+```
+$ git diff demos/amiga_ball/evidence/sid-impact.txt
+-401d: 0d 07 00 00 11 08 00 00 10 00 00 81 04 00 00 00
++401d: 0d 07 00 00 11 08 00 00 10 00 00 81 06 00 00 00      (impact frame)
+-401d: 0d 07 00 00 11 08 00 00 10 00 00 81 04 00 00 00
++401d: 0d 07 00 00 11 08 00 00 10 00 00 81 06 00 00 00      (+8 frames)
+-401d: 0d 07 00 00 10 08 00 00 10 00 00 80 04 00 00 00
++401d: 0d 07 00 00 10 08 00 00 10 00 00 80 06 00 00 00      (+24, released)
+```
+
+One byte, in the one place, and every other byte of the SID shadow unchanged.
+
+### How the audio was measured, and why it is not iteration 1's anchoring
+
+2048-point Hann STFT at 48 kHz, 10 ms hop, magnitude-weighted centroid over the
+full band — the same estimator iteration 1 used, and re-running it iteration
+1's way on iteration 1's committed WAVs reproduces its published table to the
+hertz (floor 4,204 → 2,129 → 1,128 Hz; wall 4,484 → 3,466 → 1,881 Hz), which is
+what says the two iterations are measuring the same thing.
+
+What changed is the **anchor**. Iteration 1 laid its 10 ms grid 60 ms into the
+file; this iteration lays it on the impact — the first 1 ms window whose RMS
+rises 20 dB above the pre-impact floor, searched after 300 ms so the emulator's
+audio-on step cannot win. That matters because `c64 audio capture` does **not**
+put the impact at the same place in the WAV twice: across eleven captures the
+window opened anywhere from 353 ms to 387 ms before the burst and the file
+length varied by ±2 video frames (165,292 to 168,492 bytes). On a fixed grid a
+sharp dip is hit or missed by where the grid happens to land; iteration 1's
+"4,204 → 1,128, a factor of 3.7" is that grid landing in the dip, and the same
+build measured at the impact anchor reads 2.2-3.9 depending on the capture. The
+impact-anchored numbers are stable to ±5 ms of anchor error (fall factor moves
+under 5%) and repeatable across captures, so everything below is anchored.
+
+### Re-measure: the transient
+
+The direct measurement of what the ruling changed — energy in **2-10 kHz**, the
+noise burst's own band, voice 1's triangle being 110/165 Hz with its harmonics
+50 dB down by 2 kHz — as time from the impact, on the committed captures:
+
+| band falls by | floor `$04` | floor `$06` | wall `$04` | wall `$06` |
+|---|---:|---:|---:|---:|
+| −10 dB | +35 ms | **+70 ms** | +40 ms | **+60 ms** |
+| −20 dB | +70 ms | **+140 ms** | +65 ms | **+125 ms** |
+| −30 dB | +95 ms | **+175 ms** | +95 ms | **+175 ms** |
+
+The transient's audible life goes from 95 ms to 175 ms, a factor of 1.84
+against the envelope table's 204/114 = 1.79 — the chip did what the datasheet
+says to within 3%. Against §8's 267 ms sweep that is 66% of the sweep audible
+at better than −30 dB and 52% at better than −20 dB, where `$04` gave 36% and
+26%. The report's own metric agrees from the other end: the wall capture's
+silence window opened at **0.60 s** before and opens at **0.70 s** now, level
+with the floor's.
+
+And §8's ordering survives, which is what the ruling asked to be confirmed:
+204 ms of transient under 300 ms of thump. Measured as well as declared —
+voice 1's own band (80-200 Hz), untouched by the change and reading identically
+in both builds, falls 30 dB at **+250 ms** on the floor and **+200 ms** on the
+wall, against the noise band's +175 ms. The transient is still the shorter of
+the two in both windows, by 75 ms and by 25 ms; it was 155 ms and 105 ms at
+`$04`. The margin narrows and does not close, which is the thing the ruling
+wanted checked and is also the reason a seventh decay step would not be free.
+
+### Re-measure: the centroid, and what it turns out to be
+
+| | floor `$04` | floor `$06` | wall `$04` | wall `$06` |
+|---|---:|---:|---:|---:|
+| centroid at onset | 4,426 Hz | 4,498 Hz | 4,484 Hz | 4,839 Hz |
+| peak | 4,426 (+0 ms) | 4,498 (+0 ms) | 4,724 (+10 ms) | 5,427 (+20 ms) |
+| minimum | 1,124 (**+100 ms**) | 2,538 (**+190 ms**) | 1,881 (**+100 ms**) | 3,776 (**+200 ms**) |
+| centroid at +100 ms | 1,124 | 3,038 | 1,881 | 4,480 |
+| peak → minimum | **3.94×** | **1.77×** | **2.51×** | **1.44×** |
+
+and the same four numbers across every capture taken this iteration, two
+independent harnesses (the shipped `audio-evidence.sh` and a scratch loop that
+reproduces its staging):
+
+| | captures | time of minimum | peak → minimum |
+|---|---:|---|---|
+| floor `$04` | 8 | +100 ms (7 of 8) | 2.15-3.94×, median 2.48 |
+| floor `$06` | 6 | +180-190 ms (6 of 6) | 1.38-1.77×, median 1.43 |
+| wall `$04` | 3 | +100 ms (3 of 3) | 2.51-3.67× |
+| wall `$06` | 4 | +190-200 ms (4 of 4) | 1.44-1.67× |
+
+**The claim the ruling asked to be tested is half true, and the interesting
+half is the other one.** The centroid does now fall over ~200 ms rather than
+~100 ms: the minimum moves from +100 ms to +190-200 ms, in every capture of
+both windows, with no overlap between the two builds. And the wall stays above
+the floor at every point — measured at every 10 ms step from the impact to
++200 ms, wall over floor throughout (4,839 vs 4,498 at the onset, 5,427 vs
+4,079 at +20 ms, 4,480 vs 3,038 at +100 ms, 3,776 vs 2,634 at +200 ms), which
+is criterion 22's second clause and §8's two-surfaces claim.
+
+But the fall gets **shallower**, not deeper: 3.94× → 1.77× on the floor,
+2.51× → 1.44× on the wall. That is not a regression in the sound. It is the
+metric telling on itself:
+
+> The centroid's minimum lands, in every capture of every build, at exactly the
+> moment the 2-10 kHz band reaches −30 dB — +100 ms against +95 ms for `$04`,
+> +190 ms against +175 ms for `$06`. What iteration 1 measured as "the filter
+> sweep closing" is the **noise burst ending**. Once the burst is gone the
+> mixture is the dry triangle alone and the centroid falls to its pitch; the
+> "factor of 3.7" is the distance between a noise-dominated spectrum and a
+> triangle-dominated one, and it is bought by the transient going away.
+
+Which means criterion 22's quantitative clause rewards precisely what §8 does
+not want. A build that silenced the boing at 20 ms would score better on it
+than this one; `$D40C` = `$00` (6 ms decay) would score better still. The
+filter sweep itself barely moves any centroid — the SID's low-pass is 12 dB per
+octave and the noise above the cutoff survives it, so a centroid restricted to
+250 Hz-8 kHz (the triangle's fundamental excluded) moves from 2,137 to 1,907 Hz
+across the whole `$04` window, a factor of 1.12. The sweep is *audible* — it is
+the timbre darkening, and it is visible in the spectrogram as the wedge
+narrowing — but it is not a threefold centroid fall and never was.
+
+### The spectrogram, read
+
+`evidence/audio/floor/spectrogram.png` and `wall/spectrogram.png`, against the
+same two files at `$04`. Both still open black, then one bright full-height
+column at the impact frame — the broadband transient, arriving in a single
+frame, which is criterion 22's first clause and is unaffected by the change.
+What is different is everything to the right of that column: at `$04` the bright
+region collapsed to a thin low band within about a fifth of the burst's width,
+and at `$06` the column is visibly **wider** and the energy above the lower band
+persists roughly twice as far before it thins. The banded texture of the
+triangle's harmonics runs underneath both, unchanged, and outlasts the noise in
+both — the picture of "the transient is shorter than the thump". The wall's
+wedge sits higher than the floor's in both builds and now also reaches as far
+to the right.
+
+### Re-verify: the gate, in full
+
+```
+$ python3 demos/amiga_ball/tools/generate.py && git status --short demos/amiga_ball/
+--- 5 generators, all clean
+ M demos/amiga_ball/SPEC.md
+ M demos/amiga_ball/amiga_ball.prg
+ M demos/amiga_ball/evidence/audio/floor/{capture.wav,report.md,sid-log.jsonl,spectrogram.png}
+ M demos/amiga_ball/evidence/audio/wall/{capture.wav,report.md,sid-log.jsonl,spectrogram.png}
+ M demos/amiga_ball/evidence/sid-impact.txt
+ M demos/amiga_ball/sound.s
+                                    # no .inc file moved: the generators are
+                                    # byte-identical, and both piano-roll.png
+                                    # are too — the gate schedule is untouched
+
+$ .venv/bin/c64 test run demos/amiga_ball/test.yaml
+PASS  amiga-ball  (c64, 24.93s)                       # 167 steps
+
+$ .venv/bin/c64 package demos/amiga_ball/amiga_ball.s -o demos/amiga_ball/amiga_ball.d64 \
+      --title "AMIGA BALL" --area 'CHARS=$2000:$0800' --area 'SPRITES=$2800:$1800' \
+      --area 'VARS=$4000:$0100'
+packaged 'AMIGA BALL' -> demos/amiga_ball/amiga_ball.d64
+run it with: x64sc -ntsc demos/amiga_ball/amiga_ball.d64
+
+$ .venv/bin/python -m pytest tests/test_docs_demos.py -q -m "not vice"
+21 passed in 1.67s                                    # rebuilds every demo's .prg
+                                                      # and compares byte for byte
+
+$ sh demos/amiga_ball/tools/evidence.sh
+done -- 15 frames, 12 state files                     # 15 PNGs and 11 .txt identical;
+                                                      # only sid-impact.txt moved
+
+$ sh demos/amiga_ball/tools/audio-evidence.sh
+PASS: …/evidence/audio/floor/report.md
+90 frames — 1.5 s emulated in 2.5 s of wall clock
+PASS: …/evidence/audio/wall/report.md
+90 frames — 1.5 s emulated in 2.5 s of wall clock
+
+$ grep -A2 '^## Verdict' demos/amiga_ball/evidence/audio/*/report.md
+floor/report.md:**PASS**      wall/report.md:**PASS**
+```
+
+### The criteria, re-scored
+
+Everything the change could touch — 17-22 — re-scored from the running machine,
+plus the rest confirmed. Session `ballaudit2`, `--warp --headless`, everything
+under `caffeinate -dimsu`, every reading at a `tick` anchor.
+
+| # | Verdict | Evidence |
+|---|---|---|
+| 17 | **PASS** | floor impact staged by the program's own `bounce_phase` 63 → 0 wrap: `401d: 0d 07 00 00 11 08 00 00 10 00 00 81 06 …` — `sid+4` = `$11`, `sid+11` = `$81`, `sid+0/1` = `$0D`/`$07`, and `sid+12` = `$06`, the change itself |
+| 18 | **PASS** | `sid+22` = `$cf` = 207 at impact → `$6a` = 106 at +8; at +24 `sid+4` = `$10` and `sid+11` = `$80`, both gates released |
+| 19 | **PASS** | wall impact staged at `ball_xi` 223: `401d: 90 0a 00 00 11 08 00 00 18 …` — 2704 against the floor's 1805, noise clock `$18` against `$10`, `last_impact` 3, `spin_dir` `$ff` |
+| 20 | **PASS** | `sid+14`…`sid+20` are `00` on the impact frame, at +8 and at +24, in both windows |
+| 21 | **PASS** | both reports re-generated against a score written from the schedule before the capture, `--ref` + `--strict`: `**PASS**` / `**PASS**`. Voice 1 still transcribes one 20-frame note from frame 13, voice 3 still an empty lane |
+| 22 | **FAIL** *(was "PASS on substance")* | First clause **holds**: a full-height column at the impact frame in both spectrograms. Second clause **holds**: the wall's centroid is above the floor's at every 10 ms step from the impact to +200 ms. The quantitative clause **fails**: the centroid falls 4,498 → 3,038 Hz (floor) and 4,839 → 4,480 Hz (wall) over the first 100 ms, factors of **1.48** and **1.08**, against "at least a factor of three". See below — the criterion is measuring the burst ending, not the sweep, and it also fails for the wall on iteration 1's own numbers (4,484 → 1,881 = 2.38) |
+| 23 | **PASS** | `4010: 0e 07` — `irq_hwm` 14 after 600 ticks from a clean run; 10 + 14 = 24 < 51 |
+| 24 | **PASS** | `$087a (tick): 480.2 cycles mean over 200 arrivals (min 388, max 978)`. Iteration 1 read 477.7/388/971; the operand changed, the instruction did not, and the 2.5-cycle difference is which frames the sampler landed on |
+| 25 | **PASS** | `alive` `$16` = 22 → `$1d` = 29 across 20 ticks |
+| 26 | **PASS** | `packaged 'AMIGA BALL' -> demos/amiga_ball/amiga_ball.d64` / `run it with: x64sc -ntsc demos/amiga_ball/amiga_ball.d64` |
+| 27 | **PASS** | `PASS  amiga-ball  (c64, 24.93s)`, 167 steps |
+| 28 | **PASS** | fresh `--scale 1` capture at `rot_frame` 0, red+white checker bbox measured at **88 × 68** px → 96 × 72 with the rim, 96 × 0.7435 / 72 = 0.991. `sprites.inc` is byte-identical to iteration 1's and the four `ball-*.png` are too |
+| 1-16 | **PASS** | `test.yaml` covers 1-20, 23 and 25 and passes all 167 steps, including the ten iteration-1 assertions at `until tick --count 1`. Re-read directly at that anchor for the record: `4000: 00 28 40 00 c0 01 00 36 …`, `07f8: a0 a1 a2 a3 e6 e7`, `d000: 40 36 70 36 40 60 70 60 40 e1 70 e1`, `d010: 00`, `d011: 1b`, `d016: c8`, `d018: 19`, `d020: f0 f0`, `d015: 3f`, `d01b: 30 0f 3f`, `d025: f0 f1 f2 f2 f2 f2 fb fb`, `d800: 04`, `db20: 0e` — byte for byte what iteration 1 re-verified |
+
+**Tally: 27 PASS, 1 FAIL (22), 0 INCONCLUSIVE.**
+
+The FAIL is not a defect in the build and it is not fixable by changing the
+build in the direction the criterion points, because that direction is
+backwards. It is recorded, not absorbed, and not edited away.
+
+### SPEC.md defects found in this iteration
+
+1. **§14 criterion 22 — the quantitative clause measures the transient dying,
+   not the filter sweeping.** Evidence above: the centroid's minimum coincides
+   with the 2-10 kHz band's −30 dB point in all four build/window combinations
+   (+100 vs +95 ms at `$04`, +190 vs +175 ms at `$06`), and a centroid with the
+   triangle's fundamental excluded moves by a factor of 1.12 across the whole
+   window. A shorter transient scores better; `$D40C` = `$00` would score best
+   of all. **Proposed wording:**
+
+   > 22. The spectrogram of each capture shows a broadband transient at the
+   > impact frame — a full-height column, arriving in one frame — and the
+   > transient's own band (2-10 kHz, above voice 1's audible harmonics) takes at
+   > least 150 ms to fall 30 dB, so the noise burst outlives more than half of
+   > the 267 ms cutoff sweep and the sweep is something there is anything left
+   > to hear. The wall's spectral centroid is higher than the floor's at every
+   > 10 ms step of the first 200 ms.
+   >
+   > (Two earlier drafts asked for the energy centroid to fall — by a factor of
+   > three over ~250 ms, then over ~100 ms. Measured over eleven captures, that
+   > fall is the noise burst ending rather than the filter closing: its timing
+   > tracks the 2-10 kHz band's 30 dB point exactly, so lengthening the burst —
+   > which is what makes the sweep audible — makes the number worse.
+   > `AUDIT.md` iteration 2 has the captures.)
+
+   The parenthesis already in §14 under criterion 22 cites `$D40C` = `$04` and
+   114 ms, which §8 no longer says. §14 is not edited by this audit, so it is
+   left stale and reported here.
+
+2. **§13.2 — `c64 audio capture` does not place the impact at the same offset
+   twice, and nothing says so.** Eleven captures this iteration: file lengths
+   165,292 / 166,892 / 168,492 bytes (±2 video frames) and the burst starting
+   anywhere from 353 ms to 387 ms into the WAV. The register schedule *is*
+   deterministic — `sid-log.jsonl` is md5-identical across five captures of the
+   same build — so this is the window opening, not the program drifting. It
+   matters because it is exactly what made iteration 1's centroid figure
+   irreproducible. **Proposed wording**, appended to §13.2: *"The capture window
+   does not open at a fixed offset: measured across eleven captures, the WAV
+   varies by ±2 video frames in length and the impact lands between 353 and
+   387 ms into the file. The SID log is bit-identical run to run, so any
+   measurement made against a fixed grid in the WAV is measuring where the
+   window opened. Anchor time-domain measurements on the impact itself."*
+
+The six defects iteration 1 raised were ruled on and applied to `SPEC.md`
+before this iteration ran (§1's fourth deviation, §3.3's rim, §6.1's `V+1`,
+§7's raster 236, §11's ~394-cycle sound row, criterion 22's ~100 ms); they are
+not repeated here.
+
+## Is a third iteration needed?
+
+**Yes, and again it is a ruling rather than a commit.**
+
+The build is doing what §8 designs and what the ruling asked for, measured: the
+transient's audible life went 95 ms → 175 ms, the sweep is audible over about
+two thirds of its length instead of about a third, the two surfaces stay
+distinguishable at every point of the window, and nothing else in the demo
+moved — 167 test steps, fifteen evidence frames and five generated `.inc` files
+all byte-identical.
+
+What is open is that **criterion 22 now fails, and it fails in a direction the
+build should not chase.** Its quantitative clause is satisfied by a short
+transient and defeated by a long one; iteration 1 passed it for the floor
+(3.94×) and, on its own published numbers, already failed it for the wall
+(2.38×). The proposed wording above tests the same two things the criterion is
+really about — a broadband strike, and a sweep with something left to sweep —
+with a number the instrument can actually deliver and a measurement that is
+reproducible across captures. That is a §14 edit, and §14 is not this audit's
+to make.
+
+The second open item is §13.2's silence about capture jitter, also proposed
+wording above, and also not edited.
+
+Everything else is closed. And the last gate is still §13.2's and not a
+spectrogram's: **the maintainer's listen of `capture.wav`.** This iteration can
+say the transient is 1.84× longer and that the sweep now has a signal under it
+for two thirds of its length. It cannot say whether that is a better boing.

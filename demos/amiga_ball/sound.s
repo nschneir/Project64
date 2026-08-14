@@ -158,8 +158,13 @@ sndattack:
         lda     #$00            ; sustain level 0, release 6 ms
         ldx     #V1SR
         jsr     sidput
-        lda     #$04            ; attack 2 ms, decay 114 ms -- the transient is
-        ldx     #V2AD           ; shorter than the thump it sits on
+        lda     #$06            ; attack 2 ms, decay 204 ms -- the transient is
+        ldx     #V2AD           ; still shorter than the thump it sits on (300
+                                ; ms), and now it outlasts about three quarters
+                                ; of the 267 ms cutoff sweep instead of being
+                                ; 30 dB down by frame 7.  $04 = 114 ms spent
+                                ; nine of the sixteen sweep frames on a voice
+                                ; nobody could hear (AUDIT.md iteration 1).
         jsr     sidput
         lda     #$00
         ldx     #V2SR

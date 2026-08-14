@@ -39,7 +39,7 @@ None found.
 | Duration | 1.75 s |
 | Clipped samples | 0 |
 | Silence windows | 0.70-1.75 s |
-| RMS min / median / max | -67.3 / -66.2 / -26.0 dBFS over 18 windows of 0.1 s |
+| RMS min / median / max | -67.3 / -66.1 / -26.0 dBFS over 18 windows of 0.1 s |
 
 ## Artifacts
 

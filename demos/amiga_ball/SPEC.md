@@ -550,9 +550,16 @@ decay — the note is over before the gate falls, which is what a struck body
 does and why sustain is 0 rather than a level.
 
 **Voice 2 — the transient (the strike).** Noise, gated with voice 1, `$D40C` =
-`$04` (attack 2 ms, decay 114 ms), `$D40D` = `$00`. Noise frequency `$1000`
+`$06` (attack 2 ms, decay 204 ms), `$D40D` = `$00`. Noise frequency `$1000`
 (floor) / `$1800` (wall) — the noise generator's clock, which sets how bright
-the hiss is before the filter touches it.
+the hiss is before the filter touches it. The transient is still shorter than
+the thump it sits on — 204 ms against voice 1's 300 ms — and it now outlasts
+about three quarters of the 267 ms cutoff sweep below, which is the whole point
+of the sweep. (An earlier draft used `$04` = 114 ms. Measured, that put the
+burst 30 dB down by frame 7 of 16, so nine of the sixteen `$D416` writes swept a
+filter over a voice nobody could hear: the centroid fell for ~100 ms and then
+rose again as the signal reached the noise floor. `AUDIT.md` iteration 1
+measured it and iteration 2 changed the constant.)
 
 **The filter — the "oing".** Voice 2 is routed through the filter (`$D417` =
 `$F2`: resonance 15, routing bit 1 = voice 2), the filter is **low-pass**
