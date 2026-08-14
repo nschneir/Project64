@@ -359,6 +359,24 @@
      playable frame on it before ship. The standing caveats — chiefly that the demos' own test
      suites still run on Commodore ROMs — are in docs/todo.md. Nothing below
      hard-codes a URL, a ROM name, or the choice of medium.
+
+     The ROMs themselves are an UNTAGGED open-roms dev build (they announce
+     RELEASE DEV.210823.FC.1 at boot), vendored into the fork's roms/ and
+     pinned by sha256 in its roms/README.md — upstream has no tagged
+     releases to move to. Refreshing them is done as a MATCHED PAIR only
+     (open-roms' bin/README.md forbids mixing BASIC and KERNAL from
+     different builds), re-recording the sha256 pins and the on-screen build
+     string in the fork's roms/README.md. If the banner a visitor boots ever
+     disagrees with the string recorded there, the pin was bypassed.
+
+     The demo tiles below were captured under VICE on Commodore's CHARGEN,
+     while this page boots open-roms' PXL font — so prose text in a tile
+     shows letterforms the visitor will not see once the machine boots.
+     Accepted deliberately (2026-08-14): evidence/ is each demo's
+     proof-of-work from the reference machine and is not re-shot to flatter
+     a web page; cells, colours and layout are identical, so nothing about
+     the games misleads. (la-galaxia is unaffected — it builds its charset
+     from scratch.)
      ══════════════════════════════════════════════════════════════════════════ */
 
   var EMU_BASE      = "https://nschneir.github.io/vc64web.github.io/";

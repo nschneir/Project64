@@ -916,3 +916,27 @@ def test_graphics_policy_names_the_shell_its_helpers_assume():
         assert script.read_text().startswith("#!/bin/sh"), \
             f"{script} is not the #!/bin/sh the policy says every evidence " \
             f"script uses"
+
+
+def test_every_landing_page_screenshot_is_wrapped_and_sized():
+    """index.html sizes screenshots through `.shot img { width:104px }`, so a
+    bare `<img>` dropped straight into a `.shots` div renders at its natural
+    width — 1040 pixels, dwarfing every other row. The fugue row shipped
+    exactly that (caught by the maintainer's eye, 2026-08-14, and misread at
+    first as a capture bug: the PNGs were identical in size to every other
+    bordered demo's). Every image in a shots cell must sit in an
+    `<a class="shot">` wrapper and carry explicit dimensions so the layout
+    cannot depend on the file."""
+    text = INDEX.read_text()
+    blocks = re.findall(r'<div class="shots">(.*?)</div>', text, re.S)
+    assert blocks, "index.html no longer has any .shots blocks; retarget this"
+    for block in blocks:
+        imgs = re.findall(r"<img[^>]*>", block)
+        anchors = block.count('class="shot"')
+        assert len(imgs) == anchors, (
+            "a screenshot in index.html is not wrapped in <a class=\"shot\">"
+            " — it will render at natural size instead of 104px: "
+            + block[:120])
+        for img in imgs:
+            assert 'width="' in img and 'height="' in img, (
+                f"a landing-page screenshot lacks explicit dimensions: {img[:120]}")

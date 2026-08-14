@@ -133,7 +133,7 @@ Full protocol re-run (`tools/evidence.sh`). Every criterion PASS:
 | A10 | `dropped = 0`, reproduced across two independent full runs |
 | A11 | `typeseen = $03FF`, `patseen = $FF` |
 | A12 | `shapes` unchanged over 120 frames of hold; a key resets `shapes` to 0, clears the bitmap and mixes the jiffy clock into `seed` |
-| A13 | `smul` **111–151** over 9 poked operand cases · `rnd` **29 or 38 blanked, nothing between** (96 arrivals over two runs, mean 33.0; `+43` per badline with the screen on) · `pickshape` 1,477 · `xform` 14,961 · `spanfill` 4,384 · worst-case `drawshape` 483,327 (28 frames) — see *A13's first two figures*, below |
+| A13 | `smul` **111–151** over 9 poked operand cases · `rnd` **29 or 38 blanked, nothing between** (96 arrivals over two runs, mean 33.0; `+43` per badline with the screen on) · `pickshape` 1,477 · `xform` 14,961 · `spanfill` 4,384 · worst-case `drawshape` 483,327 (28 frames) — see *A13's first two figures*, below. **The last four figures are single-arrival readings with no recorded anchor — do not treat them as baselines.** `spanfill` in particular costs what its caller's span endpoints make it cost (docs/cli.md's own worked example of the trap), so a later reading that differs is a different anchor, not a regression; and 483,327 is a search result whose search was never recorded. Only the `smul`/`rnd` figures carry the anchor-and-cases discipline that makes a number re-runnable (triage ruling 2026-08-14: re-measuring the other four is not worth a dedicated pass for a finished demo). |
 | A14 | `1812.d64` built; `x64sc -ntsc demos/1812/1812.d64` |
 
 **A9 needed its anchor corrected.** Two passes with seed `$9977` compared at

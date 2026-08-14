@@ -75,6 +75,17 @@ steps:
   - assert: { mem: "pldual", equals: 0 }
 
   # A challenging stage sweeps and never fires (§6.4).
+  #
+  # `tick_overrun` is a LIFETIME mark, and both asserts on it below are
+  # scoped the way docs/graphics-and-sprites.md §4 requires a lifetime mark
+  # to be read: zero it, run the window the claim is about, then read it.
+  # Unscoped, the second assert carried every frame since boot — including
+  # the 5,000-tick idle ride-through — and failed 1 run in 8 (measured
+  # 2026-08-14, `mem $4159 = 01 != 00`): the raster-seeded LFSR means every
+  # run plays a different game, and a heavy-enough frame anywhere in the
+  # game's history legitimately crossed a boundary. Zeroed, each assert
+  # claims exactly what its comment says — this window held the budget.
+  - poke:   { addr: "tick_overrun", values: [0] }
   - until:  { ref: tick, count: 400 }
   - assert: { mem: "bullets_live", equals: 0 }
 
@@ -104,6 +115,10 @@ steps:
   - poke:   { addr: "$CB", values: [56] }
   - until:  { ref: tick, count: 4 }
   - poke:   { addr: "$CB", values: [64] }
+  # zero the budget mark here, so the assert after the formation lands reads
+  # the 900 ticks of ordinary-stage play, not the whole game so far — the
+  # scoping rule stated at the first tick_overrun assert above
+  - poke:   { addr: "tick_overrun", values: [0] }
   - until:  { ref: tick, count: 900 }
   - assert: { mem: "stage", equals: 1 }
 

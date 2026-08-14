@@ -36,6 +36,12 @@ secframeh:
 ; same separation, and stays distinct from the battle's reds and the cannon's
 ; browns so the picture still reads as strata.
 
+; index.html's three 1812 alt strings describe evidence PNGs painted from
+; these rows, and nothing mechanical connects the two ends — when this table
+; moves, regenerate evidence/ and re-read those alt strings against the new
+; images by hand (last done 2026-08-12; both fixes costed and declined
+; 2026-08-14: a secpal-parsing guard is heavier than the risk, and
+; de-colouring the strings makes them worse for exactly their readers).
 secpal: .byte   $bc, $0f
         .byte   $62, $01
         .byte   $28, $07
