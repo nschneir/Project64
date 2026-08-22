@@ -248,6 +248,22 @@ and the EasyFlash banking discipline.
 
 Stable — current release **v1.0.0**. Full history: [CHANGELOG.md](CHANGELOG.md).
 
+## Related projects
+
+Project64 is one of three Commodore toolsets built the same way — AI-written,
+human-directed, and pointed at real hardware behavior rather than an
+approximation of it.
+
+- **[image64](https://nschneir.github.io/image64/)** — a native macOS app and
+  command-line tool that converts modern images into pictures the C64 can
+  actually display. Project64's upstream neighbor: it exports the native C64
+  formats plus a runnable program, so an export goes straight to
+  `c64 run picture.prg`.
+- **[PET Project](https://nschneir.github.io/PET-Project/)** — tools, skills,
+  and an MCP for agentic Commodore PET coding and debugging through the VICE
+  emulator, driven by a `pet` command-line tool. Covers the PET's model range
+  and both its 40- and 80-column screens.
+
 ## AI Disclosure
 
 Project64 is developed primarily by AI — Anthropic's Claude, working
