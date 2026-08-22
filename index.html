@@ -136,6 +136,12 @@
   .c-cyan{--accent:var(--c64-cyan)}
   .c-purple{--accent:var(--c64-purple)}
 
+  /* Related-projects cards: the sign-off link picks up the card's accent. */
+  #related .grid{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card .go{margin-top:.55em}
+  .card .go a{color:var(--accent);border-bottom-color:color-mix(in srgb, var(--accent) 55%, transparent)}
+  .card .go a:hover,.card .go a:focus-visible{background:var(--accent);color:var(--room);border-bottom-color:var(--accent)}
+
   /* code blocks */
   .code{position:relative;border:1px solid var(--p-faint);background:#241c66;margin:12px 0}
   .code pre{margin:0;padding:14px 46px 14px 16px;overflow-x:auto;font-size:1rem;line-height:1.65;color:var(--p)}
@@ -475,6 +481,31 @@ c64 step 5 &amp;&amp; c64 reg             <span class="cm"># single-step, inspec
       has been built &mdash;
       sources, plan, fidelity audit, regression test, evidence frames, and a
       runnable .d64 for stock VICE.</small></p>
+    </section>
+
+    <section class="reveal" id="related">
+      <h2><span class="mk">&#x2500;&#x2500;</span> RELATED PROJECTS <span class="mk">&#x2500;&#x2500;</span></h2>
+      <p class="lead">Three Commodore toolsets built the same way &mdash; AI-written,
+      human-directed, and pointed at what the hardware actually does rather than an
+      approximation of it.</p>
+      <div class="grid">
+        <div class="card c-cyan">
+          <b>&#x25B8; IMAGE64</b><small>koala / art studio / .prg</small>
+          <p>A native macOS app and command-line tool that converts modern images into
+          pictures the C64 can actually display &mdash; drag one in, crop it, watch the
+          live preview. Project 64&rsquo;s upstream neighbour: it exports the native C64
+          formats plus a runnable program, so an export goes straight to
+          <code>c64 run picture.prg</code>.</p>
+          <p class="go"><a href="https://nschneir.github.io/image64/">nschneir.github.io/image64 &#x25B8;</a></p>
+        </div>
+        <div class="card c-green">
+          <b>&#x25B8; PET PROJECT</b><small>pet CLI / 40- and 80-column</small>
+          <p>Tools, skills, and an MCP for agentic Commodore PET coding and debugging
+          through the VICE emulator, driven by a <code>pet</code> command-line tool.
+          Covers the PET&rsquo;s model range and both its 40- and 80-column screens.</p>
+          <p class="go"><a href="https://nschneir.github.io/PET-Project/">nschneir.github.io/PET-Project &#x25B8;</a></p>
+        </div>
+      </div>
     </section>
 
     <div class="rule" aria-hidden="true">&#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;</div>
