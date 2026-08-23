@@ -1,7 +1,8 @@
 #!/bin/sh
 # evidence.sh -- regenerate demos/amiga_ball/evidence/ in one command.
 #
-#   caffeinate -dimsu sh demos/amiga_ball/tools/evidence.sh
+#   caffeinate -dimsu sh demos/amiga_ball/tools/evidence.sh   # macOS
+#   sh demos/amiga_ball/tools/evidence.sh                     # Linux
 #
 # `#!/bin/sh`, and run as `sh ...`, on purpose: the `C=`/`S=` helper idiom below
 # relies on an unquoted `$S` splitting into two words.  zsh does NOT word-split
@@ -10,10 +11,12 @@
 # reads as a broken session rather than a quoting bug.  All seven shipped demo
 # evidence scripts are /bin/sh for this reason.
 #
-# `caffeinate -dimsu`, also on purpose: a headless VICE session idle-throttles
-# on a Mac nobody is touching and presents as a WEDGED emulator -- binary-
-# monitor timeouts with x64sc alive at ~2% CPU.  See `docs/cli.md` under
-# `c64 session start`.
+# `caffeinate -dimsu`, also on purpose, and macOS ONLY: a headless VICE session
+# idle-throttles on a Mac nobody is touching and presents as a WEDGED emulator
+# -- binary-monitor timeouts with x64sc alive at ~2% CPU.  See `docs/cli.md`
+# under `c64 session start`.  Linux has no equivalent idle throttle and no
+# `caffeinate` binary, so run the script bare there; the wrapper to reach for
+# is `systemd-inhibit --what=sleep --`, and only if the box suspends on idle.
 #
 # Audio evidence is separate and costs real time (warp has to be off, so a
 # capture runs at ~42 ms per frame); see SPEC.md Section 13.2.

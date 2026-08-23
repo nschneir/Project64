@@ -7,12 +7,15 @@
 # report.md.  The reference scores are generated first, from music.s's own
 # note streams, by tools/genscore.py.
 #
-#   caffeinate -dimsu sh demos/1812/tools/audio-evidence.sh
+#   caffeinate -dimsu sh demos/1812/tools/audio-evidence.sh   # macOS
+#   sh demos/1812/tools/audio-evidence.sh                     # Linux
 #
-# RUN IT DETACHED AND UNDER caffeinate.  A capture takes the machine OFF WARP
-# for its window — under warp VICE writes a zero-frame WAV, nothing at all —
-# so the five windows are 73 seconds of emulated time and about four minutes
-# of wall clock, and headless VICE wedges on a user-idle Mac.
+# RUN IT DETACHED, AND ON macOS UNDER caffeinate.  A capture takes the machine
+# OFF WARP for its window — under warp VICE writes a zero-frame WAV, nothing at
+# all — so the five windows are 73 seconds of emulated time and about four
+# minutes of wall clock, and headless VICE wedges on a user-idle Mac.  Linux
+# has no equivalent idle throttle and no `caffeinate` binary: run it bare
+# there, under `systemd-inhibit --what=sleep --` only if the box suspends.
 #
 # NOTHING ELSE MAY TOUCH THE SESSION while a window is open: the sampling loop
 # owns it for the whole capture, so a second command would simply queue behind

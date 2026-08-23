@@ -118,6 +118,13 @@ def test_until_count_documents_its_measured_per_arrival_cost():
         "the docs never establish that the two anchors cover the SAME span"
     assert "caffeinate -dimsu" in section, \
         "the docs quote timings without the conditions they were taken under"
+    # `caffeinate` is a macOS binary; on Linux the copy-pasted wrapper exits 127
+    # and takes the whole detached run with it. The conditions line is one of the
+    # two places the wrapper is prescribed, so it carries the qualification too.
+    assert "the macOS idle-throttle wrapper" in section, \
+        "the cost note no longer says caffeinate is a macOS-only wrapper"
+    assert "on Linux there is no such throttle and the same calls run bare" in section, \
+        "the cost note never tells a Linux reader what to run instead"
     assert "budget by the span you cover, not" in section, \
         "the docs still let a reader budget by N rather than by the span"
     for lie in ("tens of minutes", "many times dearer", "expire long before"):
@@ -419,6 +426,17 @@ def test_session_start_documents_the_macos_idle_throttling_hazard():
         "the docs never say the symptom is indistinguishable from a wedge"
     assert "CHANGELOG.md" in section, \
         "the docs never point at the A/B that attributed the hazard"
+    # The remedy is macOS-only and the instruction used to read as universal.
+    # `caffeinate` does not exist on Linux, so a reader who copies the mandate
+    # loses the entire detached run to an exit 127 inside `nohup` — and there is
+    # nothing to port, because Linux has no equivalent idle throttle. Both
+    # halves are pinned so the qualification cannot drift back out.
+    assert "On macOS, any `--headless` session" in section, \
+        "the caffeinate mandate is unqualified again — it reads as universal"
+    assert "On Linux there is no equivalent idle throttle" in section, \
+        "the docs never say caffeinate has no Linux counterpart to port"
+    assert "systemd-inhibit" in section, \
+        "the docs never name the Linux wrapper for the one case that needs one"
 
 
 #: The three areas the la-galaxia dogfood measured the fill against, and the

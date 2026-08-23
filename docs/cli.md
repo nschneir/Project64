@@ -100,11 +100,11 @@ Boot a fresh emulated C64.
   straight into it; there is nothing to load afterwards. A sibling `.lbl` of
   the cartridge's stem is registered as the session's symbols if it is there.
 
-**Any `--headless` session that may run while the machine is idle belongs under
-`caffeinate -dimsu`** — which, when an agent is driving rather than a person, is
-all of them. The trigger is the *machine* being idle, not the run being
-detached: an interactive session wedges just as readily while nobody is touching
-the keyboard, and a dogfood run spent real time on exactly that.
+**On macOS, any `--headless` session that may run while the machine is idle
+belongs under `caffeinate -dimsu`** — which, when an agent is driving rather
+than a person, is all of them. The trigger is the *machine* being idle, not the
+run being detached: an interactive session wedges just as readily while nobody
+is touching the keyboard, and a dogfood run spent real time on exactly that.
 A headless session is a minimized background process, and macOS idle-throttles
 one once the machine sits without user activity: the emulation loop slows until
 binary-monitor calls time out, while `x64sc` is still alive at ~2% CPU with its
@@ -121,6 +121,18 @@ does not word-split unquoted parameter expansions — under it the whole
 `error: no session named ' NAME'`, which looks like a session problem rather
 than a quoting one. Every shipped `demos/*/tools/*.sh` carries `#!/bin/sh` for
 this reason.
+
+**On Linux there is no equivalent idle throttle, and no `caffeinate` to run:**
+nothing there slows a minimized background emulator because the machine is
+sitting untouched, so the same command line runs bare —
+`nohup /bin/sh driver.sh &`. Copying the macOS form across is worse than
+unnecessary: `caffeinate` is not on the box, so the wrapped line exits 127 and
+the entire detached run silently never happens. The one Linux case that does
+want a wrapper is a host configured to *suspend* while idle (a laptop, or a
+desktop with sleep enabled) — that is the machine stopping rather than slowing,
+and `systemd-inhibit --what=sleep -- /bin/sh driver.sh` is what holds it off.
+None of this is the `xvfb-run -a` above: that one is about having a display at
+all, this one about the machine being left alone.
 
 Human: `started c64 session 'c64' (pid 1234, monitor port 6510)`.
 JSON: `{"name", "model", "pid", "port", "symbols"}` — `symbols` is the label
@@ -578,7 +590,9 @@ Each arrival is one resume plus one wait-for-stop against VICE (`_run_until`
 in `daemon.py`), so a high count does add wall clock on top of the emulated
 span — but the span is what dominates, and **budget by the span you cover, not
 by N**. Measured on `demos/1812`, headless, `--warp`, fresh session per run,
-every call under `caffeinate -dimsu`, three runs each:
+every call under `caffeinate -dimsu` (the macOS idle-throttle wrapper —
+on Linux there is no such throttle and the same calls run bare), three runs
+each:
 
 | command | arrivals | run 1 | run 2 | run 3 |
 |---|---:|---:|---:|---:|

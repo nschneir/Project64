@@ -9,12 +9,16 @@
 # protocol next door is warped and costs nothing; putting them in one script
 # would make the cheap half pay for the expensive one on every regeneration.
 #
-#   caffeinate -dimsu sh demos/amiga_ball/tools/audio-evidence.sh
+#   caffeinate -dimsu sh demos/amiga_ball/tools/audio-evidence.sh   # macOS
+#   sh demos/amiga_ball/tools/audio-evidence.sh                     # Linux
 #
-# `caffeinate -dimsu` is not decoration.  A headless VICE idle-throttles on a
-# Mac nobody is touching, and a capture that gets throttled part-way through
-# its window is silently wrong rather than obviously broken -- it presents as
-# a wedged emulator or as a log that is short.
+# `caffeinate -dimsu` is not decoration, and it is a macOS remedy only.  A
+# headless VICE idle-throttles on a Mac nobody is touching, and a capture that
+# gets throttled part-way through its window is silently wrong rather than
+# obviously broken -- it presents as a wedged emulator or as a log that is
+# short.  Linux has no equivalent idle throttle and no `caffeinate` binary, so
+# the run goes bare there; use `systemd-inhibit --what=sleep --` only if the
+# box suspends while idle.
 #
 # The session runs WITHOUT --warp, unlike demos/la-galaxia's, which starts
 # warped to step around a wedge it documents.  `c64 audio capture` pins real
