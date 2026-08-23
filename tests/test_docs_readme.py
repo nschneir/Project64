@@ -44,11 +44,18 @@ def test_install_section_near_top():
 
     # Debian's vice is outside main, and dfsg-repacked without the ROMs —
     # either omission leaves a follower with an emulator that cannot boot.
+    # The ROM step must be runnable commands, not a pointer: C64 alone boots
+    # the machine but breaks every disk command, so DRIVES is pinned too.
     assert "contrib" in debian and "multiverse" in debian, \
         "the Debian block must say vice lives in contrib/multiverse"
-    assert "ROM" in debian and "README.Debian" in debian, \
-        "the Debian block must warn about the missing ROMs and point at " \
-        "the package's README.Debian"
+    assert "ROM" in debian and "~/.local/share/vice" in debian, \
+        "the Debian block must install the ROMs with concrete commands"
+    assert "DRIVES" in debian, \
+        "the ROM step must copy DRIVES as well as C64"
+    # Ubuntu 22.04 ships Python 3.10, under the project's 3.11 floor; a venv
+    # built from it fails the same way, so the escape hatch must be named.
+    assert "python3.11-venv" in debian, \
+        "the Debian block must name the Python-floor escape hatch"
 
 
 def test_readme_links_the_agent_setup_doc():

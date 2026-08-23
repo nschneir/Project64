@@ -18,8 +18,8 @@ Project64 is a set of tools, skills, and an MCP to enable agentic Commodore
 
 Requires **Python 3.11+**, **VICE 3.5+** (provides `x64sc` and `petcat`), and
 the **cc65** suite (`ca65`/`ld65`, for assembling 6502 programs). Install this
-package into a virtual environment: Debian 12+ and Ubuntu 23.04+ mark the
-system Python externally-managed (PEP 668), so a bare `pip install -e .` there
+package into a virtual environment: Debian 12+, Ubuntu 23.04+, and Homebrew
+all mark their Python externally-managed (PEP 668), so a bare `pip install -e .`
 fails with `error: externally-managed-environment`.
 
 macOS (Homebrew):
@@ -28,23 +28,45 @@ macOS (Homebrew):
     python3 -m venv .venv
     .venv/bin/pip install -e .
 
+Homebrew's VICE bundles the Commodore ROM images, so that is the whole setup.
+
 Debian / Ubuntu:
 
-    sudo apt install vice cc65       # enable contrib/multiverse first (below)
-    python3 -m venv .venv            # may need: sudo apt install python3-venv
+**1. Debian only — enable the `contrib` component.** Ubuntu carries `vice` in
+`multiverse`, on by default; skip to step 2.
+
+    sudo add-apt-repository contrib
+
+If that command is missing, add `contrib` by hand: to the `Components:` line
+of `/etc/apt/sources.list.d/debian.sources` (fresh Debian 13 installs), or to
+each `deb` line of `/etc/apt/sources.list` (Debian 12 and upgraded machines).
+
+**2. Install VICE and cc65.**
+
+    sudo apt update
+    sudo apt install vice cc65
+
+**3. Install the ROMs.** The package ships without the Commodore ROM images,
+and `x64sc` will not boot until they are installed:
+
+    curl -L -o /tmp/vice.tar.gz https://sourceforge.net/projects/vice-emu/files/releases/vice-3.9.tar.gz/download
+    tar xf /tmp/vice.tar.gz -C /tmp
+    mkdir -p ~/.local/share/vice
+    cp -r /tmp/vice-3.9/data/C64 /tmp/vice-3.9/data/DRIVES ~/.local/share/vice/
+    rm -rf /tmp/vice.tar.gz /tmp/vice-3.9
+
+`C64` is the machine ROMs; `DRIVES` is the drive DOS ROMs that `c64 disk`
+commands and `--disk` boots need.
+
+**4. Install c64-tools in a venv.**
+
+    sudo apt install python3-venv
+    python3 -m venv .venv
     .venv/bin/pip install -e .
 
-Two Debian/Ubuntu specifics, because VICE needs ROMs Debian cannot ship:
-
-- **`vice` is not in `main`.** It lives in **contrib** on Debian and in
-  **multiverse** on Ubuntu; enable that component first —
-  `sudo apt-add-repository contrib` (Debian) or
-  `sudo add-apt-repository multiverse` (Ubuntu), then `sudo apt update`.
-- **The package ships without the Commodore ROM images.** It is repacked to
-  meet the DFSG, so `x64sc` will not boot until you install the ROMs yourself:
-  take them from an upstream VICE release (vice-emu.sourceforge.io) and put
-  them where the package looks — the paths are in
-  `/usr/share/doc/vice/README.Debian`.
+Ubuntu 22.04 ships Python 3.10, under this project's 3.11 floor — there,
+install `python3.11` and `python3.11-venv` and build the venv with
+`python3.11 -m venv .venv`.
 
 Then run the tools as `.venv/bin/c64 ...`, or activate the environment
 (`source .venv/bin/activate`) and use `c64` directly — as the Quickstart does.
