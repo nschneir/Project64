@@ -22,7 +22,7 @@ def test_load_autostarts_and_registers_symbols(tmp_path):
     prg = tmp_path / "p.prg"
     prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\n")
+    lbl.write_text("al C:040d .start\n", encoding="utf-8")
     fake, mon = _fake_attached()
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
@@ -46,7 +46,7 @@ def test_load_no_run(tmp_path):
 
 def test_run_bas_tokenizes_then_autostarts(tmp_path):
     src = tmp_path / "d.bas"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     fake, mon = _fake_attached()
     prg = tmp_path / "d.prg"
     with patch("c64lib.cli.Session") as S, \
@@ -60,7 +60,7 @@ def test_run_bas_tokenizes_then_autostarts(tmp_path):
 
 def test_run_asm_builds_and_registers_labels(tmp_path):
     src = tmp_path / "d.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     res = BuildResult(prg=tmp_path / "d.prg", labels=tmp_path / "d.lbl")
     fake, mon = _fake_attached()
     with patch("c64lib.cli.Session") as S, \
@@ -77,7 +77,7 @@ def test_run_asm_builds_and_registers_labels(tmp_path):
 
 def test_run_unknown_extension(tmp_path):
     f = tmp_path / "d.txt"
-    f.write_text("x")
+    f.write_text("x", encoding="utf-8")
     fake, _ = _fake_attached()
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake

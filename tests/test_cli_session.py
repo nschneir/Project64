@@ -125,7 +125,7 @@ def test_session_start_with_disk_registers_its_labels(tmp_path):
     img = tmp_path / "game.d64"
     img.write_bytes(b"x")
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al C:0824 .mainloop\n")
+    lbl.write_text("al C:0824 .mainloop\n", encoding="utf-8")
     s = Mock()
     s.name, s.model, s.pid, s.port = "c64", "c64", 1, 6510
     with patch("c64lib.cli.Session") as S:
@@ -142,7 +142,7 @@ def test_session_start_with_cart_registers_its_sibling_lbl(tmp_path):
     crt = tmp_path / "game.crt"
     crt.write_bytes(b"x")
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al C:8009 .cart_main\n")
+    lbl.write_text("al C:8009 .cart_main\n", encoding="utf-8")
     s = Mock()
     s.name, s.model, s.pid, s.port = "c64", "c64", 1, 6510
     with patch("c64lib.cli.Session") as S:
@@ -352,7 +352,7 @@ def test_session_start_reports_a_corrupt_registry_record_as_a_json_error(
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     sessions = tmp_path / "sessions"
     sessions.mkdir(parents=True)
-    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}', encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "session", "start"])
     assert r.exit_code == 1, r.output
     error = json.loads(r.stdout)["error"]
@@ -376,7 +376,7 @@ def test_session_stop_all_reports_a_corrupt_registry_record_as_a_json_error(
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     sessions = tmp_path / "sessions"
     sessions.mkdir(parents=True)
-    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}', encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "session", "stop", "--all"])
     assert r.exit_code == 1, r.output
     error = json.loads(r.stdout)["error"]
@@ -403,7 +403,7 @@ def test_session_list_reports_a_corrupt_record_as_json(tmp_path, monkeypatch):
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     sessions = tmp_path / "sessions"
     sessions.mkdir(parents=True)
-    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}')
+    (sessions / "truncated.json").write_text('{"name": "truncated", "pid": 1}', encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "session", "list"])
     error = assert_json_error(r)["error"]
     assert "truncated.json" in error and "port" in error, \

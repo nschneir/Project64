@@ -24,7 +24,7 @@ def _fake(labels=None):
 
 def test_break_add_symbolic(tmp_path):
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\n")
+    lbl.write_text("al C:040d .start\n", encoding="utf-8")
     fake, mon = _fake(labels=str(lbl))
     mon.checkpoint_set.return_value = _ck()
     with patch("c64lib.cli.Session") as S:

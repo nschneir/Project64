@@ -126,7 +126,7 @@ def test_cart_group_is_in_help():
 
 def test_cart_build_reports_the_fill_table(tmp_path):
     manifest = tmp_path / "game.ef.yaml"
-    manifest.write_text("name: GAME\n")
+    manifest.write_text("name: GAME\n", encoding="utf-8")
     ret = {"crt": "game.crt", "bin": "game.bin", "labels": "game.lbl",
            "title": "GAME", "cart_type": "easyflash", "run": "x64sc game.crt",
            "banks": [0], "windows": {"0hi": 12}, "fill": "bank 0 hi: 12 bytes",
@@ -140,7 +140,7 @@ def test_cart_build_reports_the_fill_table(tmp_path):
 
 def test_cart_build_error_is_actionable(tmp_path):
     manifest = tmp_path / "game.ef.yaml"
-    manifest.write_text("name: GAME\n")
+    manifest.write_text("name: GAME\n", encoding="utf-8")
     with patch("c64lib.cli.build_easyflash",
                side_effect=CartError("bank 3 lo is 40 bytes over the window")):
         r = CliRunner().invoke(main, ["--json", "cart", "build", str(manifest)])
@@ -249,7 +249,7 @@ def test_run_a_crt_with_no_session_boots_a_default_one(tmp_path, crt):
 
 def test_run_a_crt_registers_its_label_file(tmp_path, crt):
     lbl = crt.with_suffix(".lbl")
-    lbl.write_text("al C:8009 .cart_main\n")
+    lbl.write_text("al C:8009 .cart_main\n", encoding="utf-8")
     new = _fake_session()
     with patch("c64lib.ops.Session") as S:
         S.attach.return_value = _fake_session()

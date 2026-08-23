@@ -137,7 +137,7 @@ def test_session_ref_with_no_labels_reads_the_sessions_own_label_file(tmp_path):
     decision rather than an accident."""
     s, _ = _fake_session()
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al C:1000 .alien\n")
+    lbl.write_text("al C:1000 .alien\n", encoding="utf-8")
     s.labels = str(lbl)
     assert ops.session_ref(s, "alien") == 0x1000
     assert ops.session_ref(s, "alien+2") == 0x1002
@@ -1302,7 +1302,7 @@ def test_disk_labels_path_prefers_the_sibling_lbl(tmp_path):
     img.write_bytes(b"x")
     assert disk_labels_path(img) is None          # nothing there: silent
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al C:0824 .mainloop\n")
+    lbl.write_text("al C:0824 .mainloop\n", encoding="utf-8")
     assert disk_labels_path(img) == lbl
 
 
@@ -1313,7 +1313,7 @@ def test_disk_labels_path_falls_back_to_the_disk_build_convention(tmp_path):
     img = tmp_path / "game.d64"
     img.write_bytes(b"x")
     kept = tmp_path / "game.boot.lbl"
-    kept.write_text("al C:0810 .start\n")
+    kept.write_text("al C:0810 .start\n", encoding="utf-8")
     listing = {"label": "g", "blocks_free": 660,
                "files": [{"blocks": 1, "name": "boot", "type": "prg"}]}
     with patch("c64lib.disk.list_files", return_value=listing):

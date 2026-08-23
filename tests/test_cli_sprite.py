@@ -182,7 +182,7 @@ def test_sprite_from_png_no_session(tmp_path):
     r = CliRunner().invoke(main, ["--json", "sprite", "from-png", str(src),
                                   "-o", str(out_s)])
     assert r.exit_code == 0, r.output
-    assert ".byte %10000000" in out_s.read_text()
+    assert ".byte %10000000" in out_s.read_text(encoding="utf-8")
     assert len(json.loads(r.output)["bytes"]) == 63
 
 
@@ -214,7 +214,7 @@ def test_sprite_encode_multi_sprite_file(tmp_path):
     art_a = [_DOT_ROW] * 21
     art_b = [_HASH_ROW] * 21
     src = tmp_path / "two.txt"
-    src.write_text("\n".join(art_a) + "\n\n" + "\n".join(art_b) + "\n")
+    src.write_text("\n".join(art_a) + "\n\n" + "\n".join(art_b) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
     assert r.exit_code == 0, r.output
@@ -229,7 +229,7 @@ def test_sprite_encode_all_space_row_is_not_a_separator(tmp_path):
     art = [_DOT_ROW] * 10 + [_BLANK_ROW] + [_HASH_ROW] * 10
     assert len(art) == 21
     src = tmp_path / "one.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
     assert r.exit_code == 0, r.output
@@ -242,7 +242,7 @@ def test_sprite_encode_all_space_row_is_not_a_separator(tmp_path):
 def test_sprite_encode_format_basic_emits_data_lines(tmp_path):
     art = [_DOT_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format", "basic"])
     assert r.exit_code == 0, r.output
@@ -256,7 +256,7 @@ def test_sprite_encode_format_basic_emits_data_lines(tmp_path):
 def test_sprite_encode_basic_start_line_numbers_the_rows(tmp_path):
     art = [_DOT_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
                                   "basic", "--start-line", "1000"])
@@ -273,7 +273,7 @@ def test_sprite_encode_basic_numbering_runs_on_across_sprites(tmp_path):
     restarting the numbers would make the second block overwrite the first."""
     art = [_DOT_ROW] * 21
     src = tmp_path / "two.txt"
-    src.write_text("\n".join(art) + "\n\n" + "\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n\n" + "\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
                                   "basic", "--start-line", "100",
@@ -288,7 +288,7 @@ def test_sprite_encode_basic_numbering_runs_on_across_sprites(tmp_path):
 def test_sprite_encode_start_line_rejected_for_asm(tmp_path):
     art = [_DOT_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
                                   "asm", "--start-line", "10"])
@@ -299,7 +299,7 @@ def test_sprite_encode_start_line_rejected_for_asm(tmp_path):
 def test_sprite_encode_start_line_past_the_basic_maximum_is_refused(tmp_path):
     art = [_DOT_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format",
                                   "basic", "--start-line", "63900"])
@@ -310,7 +310,7 @@ def test_sprite_encode_start_line_past_the_basic_maximum_is_refused(tmp_path):
 def test_sprite_encode_format_asm_emits_byte_rows(tmp_path):
     art = [_DOT_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--format", "asm"])
     assert r.exit_code == 0, r.output
@@ -325,7 +325,7 @@ def test_sprite_encode_asm_is_row_aligned_binary_with_label(tmp_path):
     # `.byte %binary` rows, one sprite row (3 bytes) per line.
     art = [_HASH_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src)])
     assert r.exit_code == 0, r.output
@@ -340,7 +340,7 @@ def test_sprite_encode_multi_sprite_asm_labels_are_distinct(tmp_path):
     art_a = [_DOT_ROW] * 21
     art_b = [_HASH_ROW] * 21
     src = tmp_path / "two.txt"
-    src.write_text("\n".join(art_a) + "\n\n" + "\n".join(art_b) + "\n")
+    src.write_text("\n".join(art_a) + "\n\n" + "\n".join(art_b) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["sprite", "encode", str(src)])
     assert r.exit_code == 0, r.output
@@ -351,7 +351,7 @@ def test_sprite_encode_multi_sprite_asm_labels_are_distinct(tmp_path):
 def test_sprite_encode_json_emits_raw_bytes(tmp_path):
     art = [_HASH_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
 
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
     assert r.exit_code == 0, r.output
@@ -362,14 +362,14 @@ def test_sprite_encode_json_emits_raw_bytes(tmp_path):
 def test_sprite_encode_writes_out_file(tmp_path):
     art = [_DOT_ROW] * 21
     src = tmp_path / "sprite.txt"
-    src.write_text("\n".join(art) + "\n")
+    src.write_text("\n".join(art) + "\n", encoding="utf-8")
     out_path = tmp_path / "out.s"
 
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src),
                                   "-o", str(out_path)])
     assert r.exit_code == 0, r.output
     expected = format_bytes(encode_sprite(art, multicolor=True), "asm")
-    assert out_path.read_text().strip() == expected
+    assert out_path.read_text(encoding="utf-8").strip() == expected
     out = json.loads(r.output)
     assert out["sprites"] == [list(encode_sprite(art, multicolor=True))]
 
@@ -395,7 +395,7 @@ def _named_sheet() -> str:
 
 def test_sprite_encode_background_makes_a_named_mixed_sheet_one_invocation(tmp_path):
     src = tmp_path / "sprites.txt"
-    src.write_text(_named_sheet())
+    src.write_text(_named_sheet(), encoding="utf-8")
     r = CliRunner().invoke(main, ["sprite", "encode", str(src), "--background", "."])
     assert r.exit_code == 0, r.output
     assert "; sprite 0 (fighter), 24x21 hires" in r.output
@@ -405,7 +405,7 @@ def test_sprite_encode_background_makes_a_named_mixed_sheet_one_invocation(tmp_p
 
 def test_sprite_encode_background_json_has_every_block(tmp_path):
     src = tmp_path / "sprites.txt"
-    src.write_text(_named_sheet())
+    src.write_text(_named_sheet(), encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src),
                                   "--background", "."])
     assert r.exit_code == 0, r.output
@@ -417,7 +417,7 @@ def test_sprite_encode_background_json_has_every_block(tmp_path):
 
 def test_sprite_encode_background_must_be_one_character(tmp_path):
     src = tmp_path / "sprites.txt"
-    src.write_text("\n".join([_DOT_ROW] * 21) + "\n")
+    src.write_text("\n".join([_DOT_ROW] * 21) + "\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src),
                                   "--background", ".."])
     assert r.exit_code == 1, r.output
@@ -426,7 +426,7 @@ def test_sprite_encode_background_must_be_one_character(tmp_path):
 
 def test_sprite_encode_unknown_mode_is_a_clean_error(tmp_path):
     src = tmp_path / "sprites.txt"
-    src.write_text("drone:mono\n" + "\n".join([_DOT_ROW] * 21) + "\n")
+    src.write_text("drone:mono\n" + "\n".join([_DOT_ROW] * 21) + "\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "sprite", "encode", str(src)])
     assert r.exit_code == 1, r.output
     assert "unknown mode 'mono'" in json.loads(r.output)["error"]
@@ -456,13 +456,13 @@ def test_encode_sheet_file_rejects_an_empty_sheet_both_ways(tmp_path):
     the *second* test here can fail.
     """
     blank = tmp_path / "blank.txt"
-    blank.write_text("\n   \n")
+    blank.write_text("\n   \n", encoding="utf-8")
     with pytest.raises(ValueError) as e:
         encode_sheet_file(blank, multicolor=True)
     assert str(e.value) == f"no sprite art found in {blank}"
 
     legend_only = tmp_path / "legend.txt"
-    legend_only.write_text("# La Galaxia -- the shapes\n#   . background\n")
+    legend_only.write_text("# La Galaxia -- the shapes\n#   . background\n", encoding="utf-8")
     with pytest.raises(ValueError) as e:
         encode_sheet_file(legend_only, multicolor=True)
     assert str(e.value) == f"no sprite art found in {legend_only}"
@@ -490,7 +490,7 @@ def test_encode_sheet_file_names_the_file_it_cannot_read(tmp_path):
 def test_encode_sheet_file_returns_the_parsed_blocks(tmp_path):
     """The happy path: the guards are not the whole function."""
     src = tmp_path / "sprites.txt"
-    src.write_text(_named_sheet())
+    src.write_text(_named_sheet(), encoding="utf-8")
     blocks = encode_sheet_file(src, multicolor=True, background=".")
     assert [b.name for b in blocks] == ["fighter", "drone"]
     assert [b.multicolor for b in blocks] == [False, True]

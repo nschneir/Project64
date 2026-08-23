@@ -160,7 +160,7 @@ def fix_file(path: Path, branches: list[int], dry_run: bool) -> tuple[list[str],
     # reads as LF, every branch matches, and the write-back reformats every
     # line in the file — a whole-file diff for a three-line fix. `rewrite`
     # refuses those lines, and this is the only place it can see them.
-    with path.open(newline="") as fh:
+    with path.open(newline="", encoding="utf-8") as fh:
         lines = fh.read().splitlines(keepends=True)
     report, left = [], 0
     for branch in sorted(set(branches), reverse=True):
@@ -179,7 +179,7 @@ def fix_file(path: Path, branches: list[int], dry_run: bool) -> tuple[list[str],
                       f"{' / '.join(s.strip() for s in new)}")
         lines[branch:branch + 1] = new
     if not dry_run and left < len(set(branches)):
-        with path.open("w", newline="") as fh:
+        with path.open("w", newline="", encoding="utf-8") as fh:
             fh.write("".join(lines))
     return report, left
 

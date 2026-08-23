@@ -345,7 +345,7 @@ def test_run_prg_autostarts(tmp_path):
 
 def test_run_bas_tokenizes(tmp_path):
     bas = tmp_path / "hello.bas"
-    bas.write_text('10 print "hi"\n')
+    bas.write_text('10 print "hi"\n', encoding="utf-8")
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
          patch("c64lib.ops.tokenize",
@@ -361,7 +361,7 @@ def test_run_areas_reach_the_linker(tmp_path):
     from c64lib.build import Area, BuildResult
 
     src = tmp_path / "g.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S, \
@@ -416,7 +416,7 @@ def test_load_no_run_with_symbols(tmp_path):
     prg = tmp_path / "p.prg"
     prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\n")
+    lbl.write_text("al C:040d .start\n", encoding="utf-8")
     s, mon = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
@@ -438,7 +438,7 @@ def test_load_tool_echoes_the_resolved_symbols_path(tmp_path, monkeypatch):
     prg = tmp_path / "p.prg"
     prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\n")
+    lbl.write_text("al C:040d .start\n", encoding="utf-8")
     s, _ = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
@@ -525,7 +525,7 @@ def test_disk_boot_registers_a_sibling_label_file(tmp_path):
     img = tmp_path / "t.d64"
     img.write_bytes(b"x")
     lbl = tmp_path / "t.lbl"
-    lbl.write_text("al C:0824 .mainloop\n")
+    lbl.write_text("al C:0824 .mainloop\n", encoding="utf-8")
     s, _ = _fake_session()
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = s
@@ -570,7 +570,7 @@ def test_test_run_and_programs(tmp_path):
 
     d = tmp_path / "prog1"
     d.mkdir()
-    (d / "expect.txt").write_text("HI\n")
+    (d / "expect.txt").write_text("HI\n", encoding="utf-8")
     with patch("c64lib.mcp_server.program_test", return_value={"name": "prog1"}) as pt, \
          patch("c64lib.mcp_server.run_test", return_value=result):
         err, out = call_tool("c64_test_programs", {"directory": str(tmp_path)})
@@ -605,7 +605,7 @@ def test_sixteen_bit_sample_spec_matches_the_cli(tmp_path):
     spec_file = tmp_path / "w.yaml"
     spec_file.write_text('steps:\n'
                          '  - sample: { mem: "$1000", as: s0, width: 2 }\n'
-                         '  - assert: { mem: "$1000", greater_than: s0 }\n')
+                         '  - assert: { mem: "$1000", greater_than: s0 }\n', encoding="utf-8")
 
     def _run_against_a_fake_machine(spec, allow_stale=False):
         s, mon = _fake_session()
@@ -633,7 +633,7 @@ def test_sixteen_bit_sample_spec_matches_the_cli(tmp_path):
 
 def test_basic_check_returns_the_cli_payload(tmp_path):
     src = tmp_path / "bad.bas"
-    src.write_text("10 goto 999\n")
+    src.write_text("10 goto 999\n", encoding="utf-8")
     is_error, data = call_tool("c64_basic_check", {"source_path": str(src)})
     assert not is_error, data
     assert data["errors"] == 1 and data["warnings"] == 0
@@ -643,7 +643,7 @@ def test_basic_check_returns_the_cli_payload(tmp_path):
 
 def test_basic_check_clean_program(tmp_path):
     src = tmp_path / "ok.bas"
-    src.write_text('10 print "hi"\n20 goto 10\n')
+    src.write_text('10 print "hi"\n20 goto 10\n', encoding="utf-8")
     is_error, data = call_tool("c64_basic_check", {"source_path": str(src)})
     assert not is_error and data["issues"] == []
 
@@ -652,7 +652,7 @@ def test_basic_tokenize_defaults_output_beside_source(tmp_path):
     """The MCP twin of `c64 basic tokenize`: same default output path (SOURCE
     with a .prg suffix) and the same model-selected BASIC version."""
     src = tmp_path / "game.bas"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     out = tmp_path / "game.prg"
     with patch("c64lib.mcp_server.tokenize", return_value=out) as tok:
         is_error, data = call_tool("c64_basic_tokenize", {"source": str(src)})
@@ -663,7 +663,7 @@ def test_basic_tokenize_defaults_output_beside_source(tmp_path):
 
 def test_basic_tokenize_honours_an_explicit_output(tmp_path):
     src = tmp_path / "game.bas"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     out = tmp_path / "elsewhere.prg"
     with patch("c64lib.mcp_server.tokenize", return_value=out) as tok:
         is_error, data = call_tool(
@@ -696,10 +696,10 @@ def test_sprite_encode_returns_bytes_and_rendering(tmp_path):
     the rendering the CLI prints, since MCP has no stdout to print it to."""
     from c64lib.sprites import encode_sheet, render_sheet
     src = tmp_path / "two.txt"
-    src.write_text(_sheet(2))
+    src.write_text(_sheet(2), encoding="utf-8")
     err, out = call_tool("c64_sprite_encode", {"file": str(src)})
     assert err is False, out
-    sprites = encode_sheet(src.read_text())
+    sprites = encode_sheet(src.read_text(encoding="utf-8"))
     assert out["sprites"] == [list(data) for data in sprites]
     assert len(out["sprites"]) == 2 and len(out["sprites"][0]) == 63
     assert out["rendered"] == render_sheet(sprites)
@@ -709,7 +709,7 @@ def test_sprite_encode_hires_and_basic_numbering(tmp_path):
     """hires flips multicolor off (24-char rows), and start_line numbers the
     basic rows with the same run-on numbering the CLI emits."""
     src = tmp_path / "hires.txt"
-    src.write_text(("#" * 24 + "\n") * 21)      # 24 chars/row: hires only
+    src.write_text(("#" * 24 + "\n") * 21, encoding="utf-8")      # 24 chars/row: hires only
     err, out = call_tool("c64_sprite_encode",
                          {"file": str(src), "hires": True, "fmt": "basic",
                           "start_line": 1000})
@@ -720,7 +720,7 @@ def test_sprite_encode_hires_and_basic_numbering(tmp_path):
 
 def test_sprite_encode_start_line_needs_basic_format(tmp_path):
     src = tmp_path / "sprite.txt"
-    src.write_text(_sheet())
+    src.write_text(_sheet(), encoding="utf-8")
     err, out = call_tool("c64_sprite_encode",
                          {"file": str(src), "start_line": 100})
     assert err is True
@@ -733,7 +733,7 @@ def test_sprite_encode_background_and_named_blocks_reach_mcp(tmp_path):
     report the names it parsed, which is what makes the payload a block map."""
     src = tmp_path / "mixed.txt"
     src.write_text("# a sheet\n\nfighter:hires\n" + ("." * 24 + "\n") * 21
-                   + "\ndrone:multicolor\n" + (".123" * 3 + "\n") * 21)
+                   + "\ndrone:multicolor\n" + (".123" * 3 + "\n") * 21, encoding="utf-8")
     err, out = call_tool("c64_sprite_encode",
                          {"file": str(src), "background": "."})
     assert err is False, out
@@ -746,7 +746,7 @@ def test_sprite_encode_background_and_named_blocks_reach_mcp(tmp_path):
 
 def test_sprite_encode_empty_file_is_an_error(tmp_path):
     src = tmp_path / "empty.txt"
-    src.write_text("\n   \n")
+    src.write_text("\n   \n", encoding="utf-8")
     err, out = call_tool("c64_sprite_encode", {"file": str(src)})
     assert err is True
     assert f"no sprite art found in {src}" in str(out)
@@ -765,7 +765,7 @@ def test_charset_encode_returns_glyphs_and_rendering(tmp_path):
     the rendering the CLI prints, since MCP has no stdout to print it to."""
     from c64lib.charset import format_glyphs, parse_charset
     src = tmp_path / "chars.txt"
-    src.write_text(_MIXED_SHEET)
+    src.write_text(_MIXED_SHEET, encoding="utf-8")
     err, out = call_tool("c64_charset_encode", {"file": str(src)})
     assert err is False, out
     assert out["glyphs"] == [
@@ -780,7 +780,7 @@ def test_charset_encode_label_reaches_mcp(tmp_path):
     unusable label has to fail here the way it fails there, not assemble
     into a broken include."""
     src = tmp_path / "chars.txt"
-    src.write_text(_MIXED_SHEET)
+    src.write_text(_MIXED_SHEET, encoding="utf-8")
     err, out = call_tool("c64_charset_encode",
                          {"file": str(src), "label": "fontgly"})
     assert err is False, out
@@ -796,7 +796,7 @@ def test_charset_label_rejection_matches_the_cli(tmp_path):
     `--label` spelled `label` — a caller reading either one is told about the
     flag it actually passed, and nothing else differs."""
     src = tmp_path / "chars.txt"
-    src.write_text(_MIXED_SHEET)
+    src.write_text(_MIXED_SHEET, encoding="utf-8")
     err, out = call_tool("c64_charset_encode",
                          {"file": str(src), "label": "font gly"})
     assert err is True
@@ -825,7 +825,7 @@ def test_charset_encode_bad_sheet_is_an_error(tmp_path):
     """CharsetError reaches the caller with its message intact — a short
     block names itself and its row count, which is the whole diagnosis."""
     src = tmp_path / "short.txt"
-    src.write_text("wall:\n" + ".123\n" * 7)
+    src.write_text("wall:\n" + ".123\n" * 7, encoding="utf-8")
     err, out = call_tool("c64_charset_encode", {"file": str(src)})
     assert err is True
     assert "glyph 'wall' (ending at line 8) has 7 rows, expected 8" in str(out)
@@ -839,7 +839,7 @@ def test_audio_score_summarises_a_score_without_a_session(tmp_path):
     loop."""
     path = tmp_path / "score.yaml"
     path.write_text("voices:\n  1:\n    - {note: E4}\n"
-                    "    - {note: A4, frames: 9}\n  3: []\n")
+                    "    - {note: A4, frames: 9}\n  3: []\n", encoding="utf-8")
     err, out = call_tool("c64_audio_score", {"file": str(path)})
     assert err is False
     assert out == {
@@ -857,7 +857,7 @@ def test_audio_score_summarises_a_score_without_a_session(tmp_path):
 
 def test_audio_score_reports_a_voice_the_sid_does_not_have(tmp_path):
     path = tmp_path / "score.yaml"
-    path.write_text("voices:\n  4: []\n")
+    path.write_text("voices:\n  4: []\n", encoding="utf-8")
     err, out = call_tool("c64_audio_score", {"file": str(path)})
     assert err is True
     assert "voice 4" in str(out)

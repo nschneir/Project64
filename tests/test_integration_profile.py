@@ -54,7 +54,7 @@ def _boot(tmp_path, name, loop_count):
     """Assemble+run the reference program with `ldx #loop_count`, then wait
     for its ready marker. Returns once the machine is parked in `idle`."""
     src = tmp_path / name
-    src.write_text(SRC.replace("ldx     #100", f"ldx     #{loop_count}"))
+    src.write_text(SRC.replace("ldx     #100", f"ldx     #{loop_count}"), encoding="utf-8")
     r = CliRunner().invoke(main, ["run", str(src)])
     assert r.exit_code == 0, r.output
     r = CliRunner().invoke(main, ["wait", "--mem", "$03F0=1", "--timeout", "30"])

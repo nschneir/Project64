@@ -127,7 +127,7 @@ def build_asm(
         obj = Path(td) / (source.stem + ".o")
         cfg = Path(td) / "c64.cfg"
         dep = Path(td) / "deps.d"
-        cfg.write_text(linker_config(basic_start, areas))
+        cfg.write_text(linker_config(basic_start, areas), encoding="utf-8")
         _run([ca65, "-g", str(source), "-o", str(obj),
               "--create-dep", str(dep)])
         _run([ld65, "-o", str(prg), "-C", str(cfg), "-Ln", str(labels), str(obj)])
@@ -150,7 +150,7 @@ def _parse_deps(dep_file: Path, fallback: Path) -> tuple[Path, ...]:
     if not dep_file.exists():
         return (fallback.resolve(),)
     deps: list[Path] = []
-    for line in dep_file.read_text().replace("\\\n", " ").splitlines():
+    for line in dep_file.read_text(encoding="utf-8").replace("\\\n", " ").splitlines():
         _, sep, tail = line.partition(":")
         if not sep:
             continue

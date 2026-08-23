@@ -26,7 +26,7 @@ def _fake():
 
 def test_build(tmp_path):
     src = tmp_path / "p.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     res = BuildResult(prg=tmp_path / "p.prg", labels=tmp_path / "p.lbl")
     with patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
         err, out = call_tool("c64_build", {"source": str(src)})
@@ -37,7 +37,7 @@ def test_build(tmp_path):
 
 def test_build_output_threads_through(tmp_path):
     src = tmp_path / "p.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     out_prg = tmp_path / "elsewhere" / "game.prg"
     res = BuildResult(prg=out_prg, labels=out_prg.with_suffix(".lbl"))
     with patch("c64lib.mcp_server.build_asm", return_value=res) as ba:
@@ -50,7 +50,7 @@ def test_build_output_threads_through(tmp_path):
 
 def test_run_dispatch_bas(tmp_path):
     src = tmp_path / "d.bas"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     s, mon = _fake()
     prg = tmp_path / "d.prg"
     with patch("c64lib.mcp_server.Session") as S, \
@@ -92,7 +92,7 @@ def test_disk_and_rom_tools(tmp_path):
 
 def test_test_run_tool(tmp_path):
     f = tmp_path / "a.yaml"
-    f.write_text("steps: []\n")
+    f.write_text("steps: []\n", encoding="utf-8")
     result = TestResult(name="a", machine="c64", passed=True,
                         steps=[StepResult(1, "wait", True, "ok")],
                         elapsed=1.0, screen="READY.", session_name="t1")

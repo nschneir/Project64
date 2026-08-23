@@ -219,7 +219,7 @@ def parse_charset_file(path: str | Path,
     "no glyphs found" for a sheet that holds none.
     """
     try:
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     except (OSError, ValueError) as e:
         raise ValueError(f"cannot read charset sheet {path}: {e}") from None
     return parse_charset(text, multicolor=multicolor)

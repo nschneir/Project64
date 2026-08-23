@@ -82,7 +82,7 @@ def test_disk_boot_registers_a_sibling_label_file(tmp_path):
     img = tmp_path / "t.d64"
     img.write_bytes(b"x")
     lbl = tmp_path / "t.lbl"
-    lbl.write_text("al C:0824 .mainloop\n")
+    lbl.write_text("al C:0824 .mainloop\n", encoding="utf-8")
     fake = Mock()
     fake.name, fake.model, fake.labels = "c64", "c64", None
     mon = Mock()
@@ -393,7 +393,7 @@ BUILD_OPTIONAL_KEYS = {"labels"}
 def _manifest(tmp_path):
     (tmp_path / "loader.prg").write_bytes(b"\x01\x08payload")
     m = tmp_path / "game.disk.yaml"
-    m.write_text('label: MYGAME\nfiles:\n  - {src: loader.prg, name: "*"}\n')
+    m.write_text('label: MYGAME\nfiles:\n  - {src: loader.prg, name: "*"}\n', encoding="utf-8")
     return m
 
 

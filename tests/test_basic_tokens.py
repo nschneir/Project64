@@ -130,12 +130,12 @@ def test_byte_model_matches_petcat_exactly(tmp_path):
         '50 ?"{clr}{$a0}"\n'
         '60 print"oops\n'
         '70 a=1<=2\n'
-        '80 fori=1to10:printi:next\n'
+        '80 fori=1to10:printi:next\n', encoding="utf-8"
     )
     prg = tmp_path / "p.prg"
     subprocess.run(["petcat", "-w2", "-o", str(prg), "--", str(src)], check=True)
     sizes = []
-    for line in src.read_text().splitlines():
+    for line in src.read_text(encoding="utf-8").splitlines():
         rest = line[len(line) - len(line.lstrip("0123456789 ")):]
         sizes.append(text_bytes(rest, tokenize_line(rest)))
     assert program_bytes(sizes) == len(prg.read_bytes()) - 2   # minus load address

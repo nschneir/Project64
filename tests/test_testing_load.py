@@ -8,7 +8,7 @@ from c64lib.testing import TestError, _prepare, load_test, program_test
 
 def _write(tmp_path, text, name="t.yaml"):
     f = tmp_path / name
-    f.write_text(text)
+    f.write_text(text, encoding="utf-8")
     return f
 
 
@@ -24,7 +24,7 @@ def test_defaults_applied(tmp_path):
 
 def test_program_resolved_relative_to_yaml(tmp_path):
     prog = tmp_path / "prog.bas"
-    prog.write_text('10 print "hi"\n')
+    prog.write_text('10 print "hi"\n', encoding="utf-8")
     f = _write(tmp_path, "program: prog.bas\nsteps: []\n")
     spec = load_test(f)
     assert spec["program"] == str(prog.resolve())
@@ -78,7 +78,7 @@ def test_load_rejects_malformed_poke_and_until(tmp_path):
 
 def test_spec_example_shape(tmp_path):
     prog = tmp_path / "hello.bas"
-    prog.write_text('10 print "hello, world"\n')
+    prog.write_text('10 print "hello, world"\n', encoding="utf-8")
     f = _write(tmp_path, """\
 name: hello-world
 machine: c64
@@ -115,7 +115,7 @@ def test_program_test_rejects_non_program_dir(tmp_path):
 
 def test_load_test_rejects_non_mapping(tmp_path):
     f = tmp_path / "bad.yaml"
-    f.write_text("- just\n- a list\n")
+    f.write_text("- just\n- a list\n", encoding="utf-8")
     with pytest.raises(TestError, match="YAML mapping"):
         load_test(f)
 
@@ -127,7 +127,7 @@ def test_prepare_prg_passthrough(tmp_path):
     prg.write_bytes(b"\x01\x08")
     assert _prepare(str(prg), get_profile("c64")) == (prg, None)
     lbl = tmp_path / "x.lbl"
-    lbl.write_text("al C:c000 .entry\n")
+    lbl.write_text("al C:c000 .entry\n", encoding="utf-8")
     assert _prepare(str(prg), get_profile("c64")) == (prg, lbl)
 
 
@@ -166,10 +166,10 @@ def test_program_test_prefers_test_yaml(tmp_path):
     from c64lib.testing import program_test
     d = tmp_path / "prog"
     d.mkdir()
-    (d / "program.bas").write_text('10 print "hi"\n')
-    (d / "expect.txt").write_text("HI\n")
+    (d / "program.bas").write_text('10 print "hi"\n', encoding="utf-8")
+    (d / "expect.txt").write_text("HI\n", encoding="utf-8")
     (d / "test.yaml").write_text(
-        "steps:\n  - assert: {mem: '$D015', equals: 0}\n")
+        "steps:\n  - assert: {mem: '$D015', equals: 0}\n", encoding="utf-8")
     spec = program_test(d)
     kinds = [next(iter(s)) for s in spec["steps"]]
     assert kinds[0] == "wait" and "assert" in kinds     # expect lines prepended
@@ -182,8 +182,8 @@ def test_program_test_accepts_a_disk_only_directory(tmp_path):
     d = tmp_path / "prog"
     d.mkdir()
     (d / "game.d64").write_bytes(bytes(174848))
-    (d / "expect.txt").write_text("DISK LOAD OK\n")
-    (d / "test.yaml").write_text("disk: game.d64\n")
+    (d / "expect.txt").write_text("DISK LOAD OK\n", encoding="utf-8")
+    (d / "test.yaml").write_text("disk: game.d64\n", encoding="utf-8")
     spec = program_test(d)
     assert spec["disk"] == str((d / "game.d64").resolve())
     assert spec.get("program") is None
@@ -195,9 +195,9 @@ def test_program_test_does_not_autostart_a_disk_directorys_source(tmp_path):
     thing to autostart — promoting it would boot the wrong artifact."""
     d = tmp_path / "prog"
     d.mkdir()
-    (d / "program.s").write_text("nop\n")
+    (d / "program.s").write_text("nop\n", encoding="utf-8")
     (d / "game.d64").write_bytes(bytes(174848))
-    (d / "expect.txt").write_text("HI\n")
-    (d / "test.yaml").write_text("disk: game.d64\n")
+    (d / "expect.txt").write_text("HI\n", encoding="utf-8")
+    (d / "test.yaml").write_text("disk: game.d64\n", encoding="utf-8")
     spec = program_test(d)
     assert spec.get("program") is None

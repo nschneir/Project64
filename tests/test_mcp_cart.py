@@ -86,7 +86,7 @@ def test_cart_dump_tool_writes_the_window(crt, tmp_path):
 
 def test_cart_build_tool_delegates_to_build_easyflash(tmp_path):
     manifest = tmp_path / "game.ef.yaml"
-    manifest.write_text("banks: []\n")
+    manifest.write_text("banks: []\n", encoding="utf-8")
     with patch("c64lib.mcp_server.build_easyflash",
                return_value={"crt": "game.crt"}) as bef:
         assert mcp_server.c64_cart_build(str(manifest), output="out.crt") == {
@@ -204,7 +204,7 @@ def test_run_a_crt_reports_a_failed_stop_instead_of_downgrading(crt, boom):
 
 def test_run_a_crt_registers_its_label_file(crt):
     lbl = crt.with_suffix(".lbl")
-    lbl.write_text("al C:8009 .cart_main\n")
+    lbl.write_text("al C:8009 .cart_main\n", encoding="utf-8")
     new, _ = _fake_session()
     with patch("c64lib.ops.Session") as S:
         S.attach.return_value = _fake_session()[0]
@@ -266,7 +266,7 @@ def test_run_a_crt_failed_stop_message_matches_the_cli(crt):
 
 def test_run_names_crt_among_the_runnable_extensions(tmp_path):
     junk = tmp_path / "thing.txt"
-    junk.write_text("nope")
+    junk.write_text("nope", encoding="utf-8")
     with patch("c64lib.mcp_server.Session") as S:
         S.attach.return_value = _fake_session()[0]
         with pytest.raises(ValueError) as e:
@@ -337,7 +337,7 @@ def _package_error(args: dict) -> str:
 @pytest.fixture
 def src(tmp_path):
     s = tmp_path / "game.s"
-    s.write_text("        .byte 0\n")
+    s.write_text("        .byte 0\n", encoding="utf-8")
     return s
 
 

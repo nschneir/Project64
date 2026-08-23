@@ -108,8 +108,11 @@ Supporting modules: `machines.py` (machine model profiles — RAM size, screen g
   timeout says the machine was left running). MCP tools return the same
   structured data as the CLI's `--json` and let exceptions surface with
   their messages intact.
-- Lint with `ruff check src tests skills` and keep it clean (rules E/F/W/B/UP/I,
-  line length 100 — configured in `pyproject.toml`). `skills` is in the list
+- Lint with `ruff check src tests skills` and keep it clean (rules E/F/W/B/UP/I
+  plus `PLW1514`, line length 100 — configured in `pyproject.toml`). `PLW1514`
+  is the regression guard for UTF-8: every text-mode open in the repo names
+  `encoding="utf-8"` so behaviour does not follow the machine's locale.
+  `skills` is in the list
   because a skill's `references/` may ship a runnable script — the first is
   `6502-assembly/references/fix-branch-range.py` — and a tool an agent is told
   to pipe a build into is code, not prose. Demo `tools/` scripts stay outside

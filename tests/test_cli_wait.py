@@ -81,7 +81,7 @@ def test_wait_mem_fires():
 
 def test_wait_break_already_hit_returns_immediately(tmp_path):
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\n")
+    lbl.write_text("al C:040d .start\n", encoding="utf-8")
     fake, mon = _fake(labels=str(lbl))
     mon.checkpoint_list.return_value = [Checkpoint(
         number=3, hit=True, start=0x040D, end=0x040D, stop=True, enabled=True,

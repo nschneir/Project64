@@ -156,7 +156,7 @@ def _spec_key(path: str | Path, key: str):
     if not path.exists():
         return None
     try:
-        spec = yaml.safe_load(path.read_text())
+        spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise TestError(f"{path}: test file is not valid YAML ({e})") from e
     return spec.get(key) if isinstance(spec, dict) else None
@@ -174,7 +174,7 @@ def load_test(path: str | Path) -> dict:
     left relative.
     """
     path = Path(path)
-    spec = yaml.safe_load(path.read_text())
+    spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(spec, dict):
         raise TestError(f"{path}: test file must be a YAML mapping")
     spec.setdefault("name", path.stem)
@@ -329,7 +329,11 @@ def program_test(program_dir: str | Path) -> dict:
             "(needs program.bas/.s or a test.yaml with `cart:`/`disk:`, "
             "plus expect.txt)"
         )
-    steps = [{"wait": {"text": ln}} for ln in expect.read_text().splitlines() if ln.strip()]
+    steps = [
+        {"wait": {"text": ln}}
+        for ln in expect.read_text(encoding="utf-8").splitlines()
+        if ln.strip()
+    ]
     if extra.exists():
         spec = load_test(extra)
         spec["name"] = program_dir.name

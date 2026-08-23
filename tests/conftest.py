@@ -147,7 +147,7 @@ def _record_pid(pid: int) -> None:
     # 0o700: the ledger is a kill list. Nobody else on the host gets to add
     # pids to it, and nobody else needs to read which ones we hold.
     _RUNS.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with open(_run_file(), "a") as fh:
+    with open(_run_file(), "a", encoding="utf-8") as fh:
         fh.write(f"{pid}\n")
 
 
@@ -168,7 +168,7 @@ def _is_ours(pid: int) -> bool:
 
 def _reap(path: Path) -> int:
     killed = 0
-    for pid in (int(word) for word in path.read_text().split()):
+    for pid in (int(word) for word in path.read_text(encoding="utf-8").split()):
         if pid and _is_ours(pid):
             try:
                 os.kill(pid, signal.SIGKILL)

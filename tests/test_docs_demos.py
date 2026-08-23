@@ -127,9 +127,9 @@ def _html_roster(text: str) -> dict[str, str]:
 
 
 def test_demo_roster_matches_across_readme_site_and_demos_readme():
-    canonical = _md_roster(DEMOS_README.read_text())
-    readme = _md_roster(README.read_text(), section="## Demos")
-    site = _html_roster(INDEX.read_text())
+    canonical = _md_roster(DEMOS_README.read_text(encoding="utf-8"))
+    readme = _md_roster(README.read_text(encoding="utf-8"), section="## Demos")
+    site = _html_roster(INDEX.read_text(encoding="utf-8"))
     assert readme == canonical, \
         "README's demos section disagrees with demos/README.md"
     assert site == canonical, \
@@ -139,7 +139,7 @@ def test_demo_roster_matches_across_readme_site_and_demos_readme():
 def test_no_status_column_or_dogfood_framing():
     """The demos are finished artefacts, not runs being tracked."""
     for path in (DEMOS_README, README, INDEX):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         if path is README:
             # the repo's own release-status heading is not a demo status
             start, end = text.find("## Demos"), text.find("## Sharing")
@@ -158,7 +158,7 @@ def test_graphics_policy_has_evidence_script_shape():
     """Two demos have now written the same evidence protocol from scratch,
     each rediscovering the same rules the hard way. It is repo policy, so it
     lives in the policy doc rather than travelling with the skill."""
-    text = GRAPHICS_POLICY.read_text()
+    text = GRAPHICS_POLICY.read_text(encoding="utf-8")
     section = text[text.index("## 5."):text.index("## 6.")]
     assert "The shape of an evidence script" in section
     assert "key hold" in section and "--at" in section
@@ -168,7 +168,7 @@ def test_graphics_policy_has_evidence_script_shape():
     for demo in ("invaders", "ms-muncher"):
         script = DEMOS_DIR / demo / "tools" / "evidence.sh"
         assert script.exists(), f"{script} is the cited worked example"
-        body = script.read_text()
+        body = script.read_text(encoding="utf-8")
         assert re.search(r"until \w+", body), \
             f"{script} no longer parks on a frame anchor before capturing"
         assert "screen --png" in body
@@ -179,7 +179,7 @@ def test_graphics_policy_scopes_raster_work_by_evidence_not_by_technique():
     raster-IRQ multiplexer and a `$D016` split, both verified under
     `--warp --headless`. The line the policy actually draws is whether a
     failing implementation produces a failing number."""
-    section = GRAPHICS_POLICY.read_text().split("## 1. Scope")[1].split("## 2.")[0]
+    section = GRAPHICS_POLICY.read_text(encoding="utf-8").split("## 1. Scope")[1].split("## 2.")[0]
     section = " ".join(section.split())
     assert "out of scope for automated demos" not in section, \
         "the blanket prohibition is still there"
@@ -190,8 +190,8 @@ def test_graphics_policy_scopes_raster_work_by_evidence_not_by_technique():
         "the policy no longer says what stays out of scope"
     # The named counters have to be real exports the spec really asserts, or
     # the worked example is a story.
-    exported = (DEMOS_DIR / "la-galaxia" / "vars.s").read_text()
-    spec = (DEMOS_DIR / "la-galaxia" / "test.yaml").read_text()
+    exported = (DEMOS_DIR / "la-galaxia" / "vars.s").read_text(encoding="utf-8")
+    spec = (DEMOS_DIR / "la-galaxia" / "test.yaml").read_text(encoding="utf-8")
     for name in ("mux_overflow", "tick_overrun"):
         assert name in section, f"the policy cites no {name}"
         assert re.search(rf"^\s*\.export .*\b{name}\b", exported, re.M), \
@@ -203,7 +203,7 @@ def test_graphics_policy_requires_program_side_high_water_marks():
     """A per-frame budget sampled by the harness reads whatever the sampled
     frame happened to cost: la-galaxia's redraw counter read 4 against a
     ceiling of 64 while the program's own mark read 88."""
-    section = GRAPHICS_POLICY.read_text().split("## 4. Testing policy")[1] \
+    section = GRAPHICS_POLICY.read_text(encoding="utf-8").split("## 4. Testing policy")[1] \
         .split("## 5.")[0]
     section = " ".join(section.split())
     assert "per-frame budget is measured by the program" in section
@@ -215,9 +215,9 @@ def test_graphics_policy_requires_program_side_high_water_marks():
     assert "outside a stage transition" in section, \
         "the policy never says WHY the window matters (the ceiling's carve-out)"
     evidence = DEMOS_DIR / "la-galaxia" / "evidence" / "mux.txt"
-    assert str(evidence.as_posix()) in GRAPHICS_POLICY.read_text(), \
+    assert str(evidence.as_posix()) in GRAPHICS_POLICY.read_text(encoding="utf-8"), \
         "the worked capture is not cited"
-    assert "cells_drawn_peak=88" in evidence.read_text(), \
+    assert "cells_drawn_peak=88" in evidence.read_text(encoding="utf-8"), \
         "the cited capture no longer carries the figure the policy quotes"
 
 
@@ -243,7 +243,7 @@ def test_every_audio_evidence_script_captures_strictly():
         # Logical lines, not physical ones: a capture whose flags moved onto a
         # backslash continuation would otherwise fail this pin while being
         # perfectly strict.
-        body = script.read_text().replace("\\\n", " ")
+        body = script.read_text(encoding="utf-8").replace("\\\n", " ")
         calls = [line for line in body.splitlines()
                  if "audio capture" in line and not line.lstrip().startswith("#")]
         assert calls, f"{script} no longer captures"
@@ -310,7 +310,7 @@ def test_the_sites_the_failure_message_names_still_say_it():
         (f"this file's test_every_audio_evidence_script_captures_strictly "
          f"docstring no longer states the eleven/one split.\n{_BOTH_SITES}")
     for path, where, sentence in _SITE_ANCHORS:
-        assert sentence in _prose(Path(path).read_text()), \
+        assert sentence in _prose(Path(path).read_text(encoding="utf-8")), \
             f"{path}: {where} no longer says {sentence!r}.\n{_BOTH_SITES}"
 
 
@@ -347,7 +347,7 @@ def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
     # PATH. Neither placement covers the other.
     for exe in (sandbox / ".venv" / "bin" / "c64", stubs / "c64", stubs / "python3"):
         exe.parent.mkdir(parents=True, exist_ok=True)
-        exe.write_text(_ARGV_STUB)
+        exe.write_text(_ARGV_STUB, encoding="utf-8")
         exe.chmod(0o755)
     env = dict(os.environ, C64_ARGV_LOG=str(log),
                PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}")
@@ -365,7 +365,7 @@ def _audio_capture_calls(script: Path, sandbox: Path) -> list[list[str]]:
     assert run.returncode == 0, (
         f"{script} does not run against stubbed tools (exit {run.returncode}), so "
         f"the captures it makes cannot be read off it: {run.stderr.strip()}")
-    calls = [c.splitlines() for c in log.read_text().split(_ARGV_END + "\n")]
+    calls = [c.splitlines() for c in log.read_text(encoding="utf-8").split(_ARGV_END + "\n")]
     return [c for c in calls if c[:2] == ["audio", "capture"]]
 
 
@@ -438,7 +438,7 @@ def test_exactly_one_captured_audio_score_lists_no_sounding_note(tmp_path):
 
 def test_every_demo_directory_is_listed():
     dirs = {p.name for p in DEMOS_DIR.iterdir() if p.is_dir()}
-    listed = set(_md_roster(DEMOS_README.read_text()))
+    listed = set(_md_roster(DEMOS_README.read_text(encoding="utf-8")))
     assert listed == dirs, \
         f"demos/README.md lists {sorted(listed)}; demos/ holds {sorted(dirs)}"
 
@@ -450,7 +450,7 @@ LG = DEMOS_DIR / "la-galaxia"
 
 def _inc_bytes(path: Path) -> list[int]:
     """The `%01010101` payload of a generated `.inc`, labels and comments off."""
-    text = re.sub(r";[^\n]*", "", path.read_text())
+    text = re.sub(r";[^\n]*", "", path.read_text(encoding="utf-8"))
     return [int(b, 2) for b in re.findall(r"%([01]{8})", text)]
 
 
@@ -462,7 +462,7 @@ def _genart_sprite_flags() -> tuple[bool, str]:
     added there would leave the test re-encoding the sheet its own way and
     then blaming the include for the difference.
     """
-    script = (LG / "tools" / "genart.sh").read_text()
+    script = (LG / "tools" / "genart.sh").read_text(encoding="utf-8")
     # Command lines only: the header comment discusses `sprite encode` too.
     calls = [ln for ln in script.splitlines()
              if "sprite encode" in ln and not ln.lstrip().startswith("#")]
@@ -483,7 +483,7 @@ def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
     a file that can disagree with its source forever; this is that test."""
     from c64lib.sprites import encode_sheet_blocks
 
-    sheet = (LG / "tools" / "sprites.txt").read_text()
+    sheet = (LG / "tools" / "sprites.txt").read_text(encoding="utf-8")
     multicolor, background = _genart_sprite_flags()
     blocks = encode_sheet_blocks(sheet, multicolor=multicolor,
                                  background=background)
@@ -497,7 +497,7 @@ def test_la_galaxia_sprites_inc_is_its_sheet_re_encoded():
     # The drift was a *mode* drift as much as a byte drift, and the split is
     # what sprites.s promises: five hires shapes, then multicolour all the way
     # down, because `installsprites` sets $D01C once and never per band.
-    manifest = (LG / "sprites.s").read_text()
+    manifest = (LG / "sprites.s").read_text(encoding="utf-8")
     assert "SPR_CAPTIVE = SPRBLK + 5" in manifest, \
         "sprites.s no longer puts the captive at block 5"
     assert [b.multicolor for b in blocks] == [False] * 5 + [True] * 16, \
@@ -531,7 +531,7 @@ def _pinnable_demos() -> list[str]:
         spec_path = DEMOS_DIR / demo / "test.yaml"
         if not spec_path.exists() or not (DEMOS_DIR / demo / f"{demo}.prg").exists():
             continue
-        program = (yaml.safe_load(spec_path.read_text()) or {}).get("program")
+        program = (yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}).get("program")
         if program and program.endswith(".s"):
             out.append(demo)
     return out
@@ -570,7 +570,7 @@ def test_demo_prg_is_a_build_of_the_committed_sources(demo, tmp_path):
     from c64lib.ops import parse_areas
 
     demo_dir = DEMOS_DIR / demo
-    spec = yaml.safe_load((demo_dir / "test.yaml").read_text())
+    spec = yaml.safe_load((demo_dir / "test.yaml").read_text(encoding="utf-8"))
     source = demo_dir / spec["program"]
     areas = spec.get("areas") or []
     basic_start = get_profile(spec.get("machine") or "c64").basic_start
@@ -636,7 +636,7 @@ def test_audit_a13_rnd_table_is_its_own_arithmetic():
     several — has to survive too, since the whole point is that the anchor is
     what governs it.
     """
-    text = AUDIT_1812.read_text()
+    text = AUDIT_1812.read_text(encoding="utf-8")
     rows = re.findall(
         r"\| `until drawshape --count (\d+)` \| (\d+) \| (\d+) / 96 \| ([\d, ]+?) \|", text)
     assert len(rows) >= 5, \
@@ -696,7 +696,7 @@ def _play_registry() -> list[dict[str, str]]:
     list of what the play page serves, and a copy of it in this file would be
     one more surface to keep in step — the thing this module exists to stop.
     """
-    text = PLAY.read_text()
+    text = PLAY.read_text(encoding="utf-8")
     start = text.index("var DEMOS = [")
     end = text.index("\n  ];", start)
     entries = [
@@ -722,7 +722,7 @@ def test_play_page_registry_is_the_runnable_demos_in_the_roster_order():
     is the condition this asserts, so a demo that gains one is a test failure
     rather than an omission nobody notices.
     """
-    runnable = [slug for slug in _md_roster(DEMOS_README.read_text())
+    runnable = [slug for slug in _md_roster(DEMOS_README.read_text(encoding="utf-8"))
                 if (DEMOS_DIR / slug / f"{slug}.prg").exists()]
     ids = [entry["id"] for entry in _play_registry()]
     assert ids == runnable, (
@@ -766,7 +766,7 @@ def test_every_demo_file_play_html_serves_exists_and_is_tracked():
             f"showing another demo's screen resolves fine and misleads")
         referenced[entry["image"]] = f"DEMOS[{demo}].image"
 
-    text = PLAY.read_text()
+    text = PLAY.read_text(encoding="utf-8")
     fallback = text[text.index("<noscript>"):text.index("</noscript>")]
     links = re.findall(r'href="(demos/[^"]+)"', fallback)
     assert len(links) == 2 * len(registry), (
@@ -840,7 +840,7 @@ def test_play_page_describes_each_game_the_way_the_landing_page_does():
     thing standing between them and a slow divergence: the landing page
     describing a demo one way and the page you play it on another.
     """
-    site = _html_descriptions(INDEX.read_text())
+    site = _html_descriptions(INDEX.read_text(encoding="utf-8"))
     for entry in _play_registry():
         demo = entry["id"]
         assert demo in site, \
@@ -885,7 +885,7 @@ def test_no_demo_takes_its_input_from_the_kernal_alone():
         slug = demo["id"]
         sources = sorted((DEMOS_DIR / slug).glob("*.s"))
         assert sources, f"{slug} has a committed .prg but no .s sources"
-        text = "".join(p.read_text() for p in sources)
+        text = "".join(p.read_text(encoding="utf-8") for p in sources)
         if not _READS_CB.search(text):
             continue
         assert _READS_MATRIX.search(text), (
@@ -905,7 +905,7 @@ def test_graphics_policy_names_the_shell_its_helpers_assume():
     the doc must say the helpers assume that shell. (Second instance of the
     class: docs/cli.md lost a zsh driver example the same way in the
     amiga_ball pass; the fugue pass hit this one.)"""
-    text = GRAPHICS_POLICY.read_text()
+    text = GRAPHICS_POLICY.read_text(encoding="utf-8")
     section = text[text.index("## 5."):text.index("## 6.")]
     assert "worth stealing verbatim" in section, \
         "the helper block lost its framing; retarget this test at it"
@@ -913,7 +913,7 @@ def test_graphics_policy_names_the_shell_its_helpers_assume():
         "the helper block no longer names the shell it assumes"
     for demo in ("invaders", "ms-muncher", "la-galaxia", "amiga_ball", "fugue"):
         script = DEMOS_DIR / demo / "tools" / "evidence.sh"
-        assert script.read_text().startswith("#!/bin/sh"), \
+        assert script.read_text(encoding="utf-8").startswith("#!/bin/sh"), \
             f"{script} is not the #!/bin/sh the policy says every evidence " \
             f"script uses"
 
@@ -927,7 +927,7 @@ def test_every_landing_page_screenshot_is_wrapped_and_sized():
     bordered demo's). Every image in a shots cell must sit in an
     `<a class="shot">` wrapper and carry explicit dimensions so the layout
     cannot depend on the file."""
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     blocks = re.findall(r'<div class="shots">(.*?)</div>', text, re.S)
     assert blocks, "index.html no longer has any .shots blocks; retarget this"
     for block in blocks:

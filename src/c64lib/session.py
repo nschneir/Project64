@@ -413,7 +413,7 @@ class Session:
                  "loaded_prg": self.loaded_prg, "loaded_at": self.loaded_at,
                  "loaded_deps": self.loaded_deps, "exe": self.exe,
                  "created": time.time()}
-            )
+            ), encoding="utf-8"
         )
 
     def set_labels_path(self, path: str) -> None:
@@ -435,9 +435,9 @@ class Session:
         """Circuit breaker: record a respawn; hard-error when the last
         RESPAWN_LIMIT respawns all fall within RESPAWN_WINDOW seconds."""
         p = self._respawns_path()
-        stamps = [float(x) for x in p.read_text().split()] if p.exists() else []
+        stamps = [float(x) for x in p.read_text(encoding="utf-8").split()] if p.exists() else []
         stamps = (stamps + [time.time()])[-RESPAWN_LIMIT:]
-        p.write_text("\n".join(f"{t:.3f}" for t in stamps))
+        p.write_text("\n".join(f"{t:.3f}" for t in stamps), encoding="utf-8")
         if len(stamps) == RESPAWN_LIMIT and stamps[-1] - stamps[0] <= RESPAWN_WINDOW:
             raise SessionError(
                 f"session daemon for {self.name!r} crashed {RESPAWN_LIMIT} "
@@ -472,7 +472,7 @@ class Session:
         traceback over empty `--json` stdout.
         """
         try:
-            r = json.loads(path.read_text())
+            r = json.loads(path.read_text(encoding="utf-8"))
             return Session(name=r["name"], pid=r["pid"], port=r["port"],
                            model=r["model"], labels=r.get("labels"),
                            daemon_pid=r.get("daemon_pid"), socket=r.get("socket"),

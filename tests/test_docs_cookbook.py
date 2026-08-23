@@ -17,7 +17,7 @@ COOKBOOK = Path("skills/c64-development/references/cookbook.md")
 
 
 def _blocks(lang: str) -> list[str]:
-    return code_blocks(COOKBOOK.read_text(), lang)
+    return code_blocks(COOKBOOK.read_text(encoding="utf-8"), lang)
 
 
 def _block_by_key(lang: str, key: str) -> str:
@@ -56,13 +56,13 @@ def test_the_mux_reuse_gap_caveat_names_the_emitters_lead():
     gap, lead = int(m_gap.group(1)), int(m_lead.group(1))
     assert (gap, lead) == (22, 3), \
         "the MUXGAP/lead pair the caveat is written about has changed"
-    prose = " ".join(COOKBOOK.read_text().split())
+    prose = " ".join(COOKBOOK.read_text(encoding="utf-8").split())
     assert f"the safe distance is {21 + lead}, not {gap}" in prose, \
         "the cookbook no longer warns that MUXGAP must cover the emitter's lead"
     assert "copy the rule (21 + the lead), not the number" in prose, \
         "the cookbook no longer tells the reader which of the two to copy"
 
-    demo = " ".join(DEMO_MUX.read_text().split())   # the .s aligns its columns
+    demo = " ".join(DEMO_MUX.read_text(encoding="utf-8").split())   # the .s aligns its columns
     assert f"MUXGAP = {gap}" in demo, \
         "demos/la-galaxia/mux.s no longer holds the MUXGAP the recipe copied"
     assert f"21+{lead} = {21 + lead}" in demo, \
@@ -80,7 +80,7 @@ def test_the_mux_reuse_gap_caveat_names_the_emitters_lead():
 def test_basic_recipes_tokenize(tmp_path):
     for i, block in enumerate(_blocks("basic")):
         src = tmp_path / f"r{i}.bas"
-        src.write_text(block)
+        src.write_text(block, encoding="utf-8")
         prg = tokenize(src, tmp_path / f"r{i}.prg", "2.0")
         assert prg.read_bytes()[:2] == b"\x01\x08"
 
@@ -92,7 +92,7 @@ def test_basic_recipes_tokenize(tmp_path):
 def test_asm_recipes_assemble(tmp_path):
     for i, block in enumerate(_blocks("asm")):
         src = tmp_path / f"r{i}.s"
-        src.write_text(block)
+        src.write_text(block, encoding="utf-8")
         res = build_asm(src)
         assert res.prg.read_bytes()[:2] == b"\x01\x08"
 
@@ -423,7 +423,7 @@ def _slug(title: str) -> str:
 
 
 def test_toc_lists_every_recipe_bidirectionally():
-    text = COOKBOOK.read_text()
+    text = COOKBOOK.read_text(encoding="utf-8")
     assert "## Contents" in text, "cookbook needs a '## Contents' section at the top"
     toc = text.split("## Contents")[1].split("\n## ")[0]
     headings = re.findall(r"^### (.+)$", text, re.M)
@@ -458,7 +458,7 @@ def test_cookbook_recipe_runs_live(tmp_path, shared_launch, name, lang, key, ste
         assert old in text, \
             f"{name}: substitution target {old!r} not found in recipe block"
         text = text.replace(old, new, 1)
-    src.write_text(text)
+    src.write_text(text, encoding="utf-8")
     spec = {"name": name, "machine": "c64", "timeout": 30 * timeout_scale(),
             "autorun": True, "program": str(src), "steps": steps}
     result = run_test(spec, launch=shared_launch)
@@ -478,7 +478,7 @@ def test_cookbook_frame_stepping_workflow_live(tmp_path, session):
     from c64lib.symbols import load_labels
     from tests.vice_helpers import wait_for_text
     src = tmp_path / "counter.s"
-    src.write_text(_block_by_key("asm", "frame counter"))
+    src.write_text(_block_by_key("asm", "frame counter"), encoding="utf-8")
     res = build_asm(src)
     labels = load_labels(res.labels)
     s = session
@@ -507,7 +507,7 @@ def test_charset_recipe_names_the_bases_the_char_rom_takes():
     header = block[:block.index("SCREEN")]
     assert "$1800" in header and "4 KB" in header, \
         "the CHARSET equate's comment never rules out the char-ROM bases"
-    prose = COOKBOOK.read_text()
+    prose = COOKBOOK.read_text(encoding="utf-8")
     section = prose[prose.index("- **Where the charset can live.**"):]
     section = " ".join(section[:section.index("- **Leave the screen")].split())
     assert "not sufficient" in section, \

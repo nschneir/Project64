@@ -21,13 +21,13 @@ def parse_labels(text: str) -> dict[str, int]:
 
 
 def load_labels(path: str | Path) -> dict[str, int]:
-    return parse_labels(Path(path).read_text())
+    return parse_labels(Path(path).read_text(encoding="utf-8"))
 
 
 def save_labels(path: str | Path, labels: dict[str, int]) -> None:
     lines = [f"al C:{addr:04x} .{name}"
              for name, addr in sorted(labels.items(), key=lambda kv: kv[1])]
-    Path(path).write_text("\n".join(lines) + "\n")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def resolve(labels: dict[str, int], ref: str) -> int:

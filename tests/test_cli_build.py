@@ -9,7 +9,7 @@ from c64lib.cli import main
 
 def test_build_json(tmp_path):
     src = tmp_path / "p.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     res = BuildResult(prg=tmp_path / "p.prg", labels=tmp_path / "p.lbl")
     with patch("c64lib.cli.build_asm", return_value=res) as ba:
         r = CliRunner().invoke(main, ["--json", "build", str(src)])
@@ -21,7 +21,7 @@ def test_build_json(tmp_path):
 
 def test_build_area_reaches_the_linker(tmp_path):
     src = tmp_path / "p.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     res = BuildResult(prg=tmp_path / "p.prg", labels=tmp_path / "p.lbl")
     with patch("c64lib.cli.build_asm", return_value=res) as ba:
         r = CliRunner().invoke(main, ["--json", "build", str(src),
@@ -36,7 +36,7 @@ def test_build_bad_area_exits_one(tmp_path):
     """A --area that cannot link is rejected before ca65 runs, in terms of
     the flag rather than of the config the toolset generated behind it."""
     src = tmp_path / "p.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "build", str(src), "--area", "HIGH"])
     assert r.exit_code == 1
     assert json.loads(r.output)["error"] == (
@@ -45,7 +45,7 @@ def test_build_bad_area_exits_one(tmp_path):
 
 def test_build_error_exit_code(tmp_path):
     src = tmp_path / "p.s"
-    src.write_text("bogus\n")
+    src.write_text("bogus\n", encoding="utf-8")
     with patch("c64lib.cli.build_asm", side_effect=BuildError("ca65 failed:\nsyntax error")):
         r = CliRunner().invoke(main, ["--json", "build", str(src)])
     assert r.exit_code == 1

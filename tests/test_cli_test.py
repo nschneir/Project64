@@ -20,7 +20,7 @@ def _result(passed=True, name="t"):
 
 def test_run_pass_exit_zero(tmp_path):
     f = tmp_path / "a.yaml"
-    f.write_text("steps: []\n")
+    f.write_text("steps: []\n", encoding="utf-8")
     with patch("c64lib.cli.run_test", return_value=_result(True)) as rt, \
          patch("c64lib.cli.load_test", return_value={"name": "a"}) as lt:
         r = CliRunner().invoke(main, ["--json", "test", "run", str(f)])
@@ -33,7 +33,7 @@ def test_run_pass_exit_zero(tmp_path):
 
 def test_run_fail_exit_one(tmp_path):
     f = tmp_path / "a.yaml"
-    f.write_text("steps: []\n")
+    f.write_text("steps: []\n", encoding="utf-8")
     with patch("c64lib.cli.run_test", return_value=_result(False)), \
          patch("c64lib.cli.load_test", return_value={"name": "a"}):
         r = CliRunner().invoke(main, ["--json", "test", "run", str(f)])
@@ -46,7 +46,7 @@ def test_run_allow_stale_forwards_the_flag_and_reports_the_waiver(tmp_path):
     provoked, and it has to say what it let through in both voices: the human
     line and the `--json` payload a harness reads."""
     f = tmp_path / "a.yaml"
-    f.write_text("steps: []\n")
+    f.write_text("steps: []\n", encoding="utf-8")
     result = _result(True)
     result.warnings = ["staleness allowed: game.d64 predates its symbols"]
     with patch("c64lib.cli.run_test", return_value=result) as rt, \
@@ -62,7 +62,7 @@ def test_run_allow_stale_forwards_the_flag_and_reports_the_waiver(tmp_path):
 
 def test_run_load_error(tmp_path):
     f = tmp_path / "a.yaml"
-    f.write_text("program: nosuch.bas\n")
+    f.write_text("program: nosuch.bas\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "test", "run", str(f)])
     assert r.exit_code == 1
     assert "nosuch" in json.loads(r.output)["error"]
@@ -71,8 +71,8 @@ def test_run_load_error(tmp_path):
 def test_programs_runs_each_directory(tmp_path):
     for d in ("alpha", "beta"):
         (tmp_path / d).mkdir()
-        (tmp_path / d / "expect.txt").write_text("X\n")
-        (tmp_path / d / "program.bas").write_text("10 rem\n")
+        (tmp_path / d / "expect.txt").write_text("X\n", encoding="utf-8")
+        (tmp_path / d / "program.bas").write_text("10 rem\n", encoding="utf-8")
     results = {"alpha": _result(True, "alpha"), "beta": _result(False, "beta")}
     with patch("c64lib.cli.program_test", side_effect=lambda p: {"name": Path(p).name}) as dt, \
          patch("c64lib.cli.run_test", side_effect=lambda s: results[s["name"]]):
@@ -86,7 +86,7 @@ def test_programs_runs_each_directory(tmp_path):
 
 def test_test_run_bad_yaml_fails(tmp_path):
     f = tmp_path / "bad.yaml"
-    f.write_text("- a list\n")
+    f.write_text("- a list\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "test", "run", str(f)])
     assert r.exit_code == 1
     assert "mapping" in json.loads(r.output)["error"]
@@ -113,7 +113,7 @@ def test_spec_error_json_keeps_the_envelope(tmp_path):
     1812's harness crashed on the missing 'tests' key instead of reporting
     the actual error."""
     bad = tmp_path / "bad.yaml"
-    bad.write_text("name: x\nsteps:\n  - bogus: 1\n")   # unknown step kind
+    bad.write_text("name: x\nsteps:\n  - bogus: 1\n", encoding="utf-8")   # unknown step kind
     r = CliRunner().invoke(main, ["--json", "test", "run", str(bad)])
     assert r.exit_code == 1
     out = json.loads(r.output)
@@ -127,7 +127,7 @@ def test_programs_per_program_spec_error_json_keeps_the_envelope(tmp_path):
     any session launch. That early return owes the envelope too."""
     d = tmp_path / "alpha"
     d.mkdir()
-    (d / "expect.txt").write_text("X\n")          # qualifies as a program dir...
+    (d / "expect.txt").write_text("X\n", encoding="utf-8")          # qualifies as a program dir...
     r = CliRunner().invoke(main, ["--json", "test", "programs", str(tmp_path)])
     assert r.exit_code == 1
     out = json.loads(r.output)

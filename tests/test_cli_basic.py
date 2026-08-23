@@ -9,7 +9,7 @@ from tests.conftest import cli_json
 
 def test_tokenize_default_output(tmp_path):
     src = tmp_path / "a.bas"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     with patch("c64lib.cli.tokenize", return_value=tmp_path / "a.prg") as tok:
         r = CliRunner().invoke(main, ["--json", "basic", "tokenize", str(src)])
     assert r.exit_code == 0, r.output
@@ -37,7 +37,7 @@ def _fake_attached():
 
 def test_type_feeds_keyboard_and_run(tmp_path):
     src = tmp_path / "a.bas"
-    src.write_text('10 print "HI"\n')
+    src.write_text('10 print "HI"\n', encoding="utf-8")
     fake, mon = _fake_attached()
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
@@ -60,7 +60,7 @@ def test_basic_type_json_payload_names_the_source_and_counts_the_run(tmp_path):
     entered rather than displayed, then `RUN` and its own RETURN — 18.
     """
     src = tmp_path / "a.bas"
-    src.write_text('10 print "HI"\n')
+    src.write_text('10 print "HI"\n', encoding="utf-8")
     fake, mon = _fake_attached()
     out = cli_json(["basic", "type", str(src), "--run"], session=fake)
     assert out == {"typed": str(src), "typed_chars": 18, "run": True}
@@ -201,7 +201,7 @@ def test_key_hold_negative_frames_fails_before_touching_the_machine():
 
 def test_check_clean_program_exits_zero(tmp_path):
     src = tmp_path / "ok.bas"
-    src.write_text('10 print "hi"\n20 goto 10\n')
+    src.write_text('10 print "hi"\n20 goto 10\n', encoding="utf-8")
     r = CliRunner().invoke(main, ["basic", "check", str(src)])
     assert r.exit_code == 0, r.output
     assert r.output.strip() == "clean"
@@ -209,7 +209,7 @@ def test_check_clean_program_exits_zero(tmp_path):
 
 def test_check_reports_errors_and_exits_one(tmp_path):
     src = tmp_path / "bad.bas"
-    src.write_text("10 goto 999\n")
+    src.write_text("10 goto 999\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["basic", "check", str(src)])
     assert r.exit_code == 1
     assert "ERROR E20: line 10: goto target 999 does not exist" in r.output
@@ -217,7 +217,7 @@ def test_check_reports_errors_and_exits_one(tmp_path):
 
 def test_check_warnings_alone_exit_zero(tmp_path):
     src = tmp_path / "warn.bas"
-    src.write_text('10 print "oops\n20 end\n')
+    src.write_text('10 print "oops\n20 end\n', encoding="utf-8")
     r = CliRunner().invoke(main, ["basic", "check", str(src)])
     assert r.exit_code == 0, r.output
     assert "WARNING W40: line 10:" in r.output
@@ -230,7 +230,7 @@ def test_run_area_reaches_the_linker(tmp_path):
     from c64lib.build import Area, BuildResult
 
     src = tmp_path / "g.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     res = BuildResult(prg=tmp_path / "g.prg", labels=tmp_path / "g.lbl")
     fake, mon = _fake_attached()
     fake.profile.basic_start = 0x0801
@@ -266,7 +266,7 @@ def test_run_reports_the_unsupported_extension_before_the_area_rule(tmp_path):
     only one of them can be fixed: reporting the flag invites dropping it and
     trying again on a file that will never run either way."""
     txt = tmp_path / "notes.txt"
-    txt.write_text("not a program\n")
+    txt.write_text("not a program\n", encoding="utf-8")
     fake, mon = _fake_attached()
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
@@ -282,7 +282,7 @@ def test_run_reports_the_unsupported_extension_before_the_area_rule(tmp_path):
 
 def test_run_bad_area_exits_one_before_assembling(tmp_path):
     src = tmp_path / "g.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     fake, _ = _fake_attached()
     fake.profile.basic_start = 0x0801
     with patch("c64lib.cli.Session") as S, \
@@ -298,7 +298,7 @@ def test_run_bad_area_exits_one_before_assembling(tmp_path):
 
 def test_check_json_payload(tmp_path):
     src = tmp_path / "bad.bas"
-    src.write_text("10 goto 999\n")
+    src.write_text("10 goto 999\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "basic", "check", str(src)])
     assert r.exit_code == 1
     data = json.loads(r.output)

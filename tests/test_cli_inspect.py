@@ -261,7 +261,7 @@ def _mem_fake(labels_path=None):
 
 def test_mem_read_accepts_symbol(tmp_path):
     lbl = tmp_path / "t.lbl"
-    lbl.write_text("al 0006BC .SCORE\n")
+    lbl.write_text("al 0006BC .SCORE\n", encoding="utf-8")
     fake, mon = _mem_fake(str(lbl))
     mon.memory_read.return_value = b"\x2a"
     with patch("c64lib.cli.Session") as S:
@@ -275,7 +275,7 @@ def test_mem_read_accepts_symbol(tmp_path):
 
 def test_mem_write_accepts_symbol(tmp_path):
     lbl = tmp_path / "t.lbl"
-    lbl.write_text("al 0006BA .STEPMODE\n")
+    lbl.write_text("al 0006BA .STEPMODE\n", encoding="utf-8")
     fake, mon = _mem_fake(str(lbl))
     with patch("c64lib.cli.Session") as S:
         S.attach.return_value = fake
@@ -417,7 +417,7 @@ def test_reg_prefers_the_symbol_but_still_reports_the_region(tmp_path):
     """A named symbol wins the human line; `pc_region` is in JSON either
     way, so a consumer never has to re-derive it from the address."""
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:E5D1 .keyloop\n")
+    lbl.write_text("al C:E5D1 .keyloop\n", encoding="utf-8")
     fake, mon = _fake(labels=str(lbl))
     mon.registers.return_value = {"PC": 0xE5D1}
     with patch("c64lib.cli.Session") as S, \

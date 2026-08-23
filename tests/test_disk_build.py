@@ -24,7 +24,7 @@ def write_manifest(tmp_path, text, name="game.disk.yaml"):
     (tmp_path / "loader.prg").write_bytes(b"\x01\x08loader payload")
     (tmp_path / "level1.bin").write_bytes(b"\x00" * 300)
     p = tmp_path / name
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     return p
 
 
@@ -53,14 +53,14 @@ def test_manifest_defaults_the_disk_id(tmp_path):
 
 def test_manifest_requires_files(tmp_path):
     p = tmp_path / "empty.disk.yaml"
-    p.write_text("label: G\nfiles: []\n")
+    p.write_text("label: G\nfiles: []\n", encoding="utf-8")
     with pytest.raises(DiskError, match="non-empty `files:`"):
         load_disk_manifest(p)
 
 
 def test_manifest_names_a_missing_source(tmp_path):
     p = tmp_path / "m.disk.yaml"
-    p.write_text("label: G\nfiles:\n  - {src: gone.bin}\n")
+    p.write_text("label: G\nfiles:\n  - {src: gone.bin}\n", encoding="utf-8")
     with pytest.raises(DiskError, match="gone.bin"):
         load_disk_manifest(p)
 
@@ -175,7 +175,7 @@ def test_manifest_rejects_a_name_c1541_would_truncate(tmp_path):
     # first 16 characters, so two long names can collide into one file.
     (tmp_path / "a_very_long_source_name.bin").write_bytes(b"\x00")
     p = tmp_path / "m.disk.yaml"
-    p.write_text("label: G\nfiles:\n  - {src: a_very_long_source_name.bin}\n")
+    p.write_text("label: G\nfiles:\n  - {src: a_very_long_source_name.bin}\n", encoding="utf-8")
     with pytest.raises(DiskError, match="16"):
         load_disk_manifest(p)
 
@@ -237,7 +237,7 @@ def test_build_refuses_more_files_than_the_directory_holds(tmp_path):
         (tmp_path / f"f{i:03d}.bin").write_bytes(b"\x00")
         lines.append(f"  - {{src: f{i:03d}.bin}}")
     p = tmp_path / "many.disk.yaml"
-    p.write_text("\n".join(lines) + "\n")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     out = tmp_path / "many.d64"
     with pytest.raises(DiskError, match=r"145 files.*144"):
         build_disk(p, out=out)
@@ -322,10 +322,10 @@ def test_put_file_reports_a_write_c1541_refused(tmp_path):
 @needs_c1541
 @needs_cc65
 def test_build_assembles_and_tokenizes_sources(tmp_path):
-    (tmp_path / "boot.bas").write_text('10 print "hi"\n')
+    (tmp_path / "boot.bas").write_text('10 print "hi"\n', encoding="utf-8")
     (tmp_path / "code.s").write_text(
         '.segment "LOADADDR"\n        .word $0801\n'
-        '.segment "CODE"\nstart: rts\n')
+        '.segment "CODE"\nstart: rts\n', encoding="utf-8")
     (tmp_path / "level1.bin").write_bytes(b"\x00" * 300)
     p = tmp_path / "m.disk.yaml"
     p.write_text("""\
@@ -334,7 +334,7 @@ files:
   - {src: boot.bas, name: "*"}
   - {src: code.s, name: code}
   - {src: level1.bin, name: level1}
-""")
+""", encoding="utf-8")
     res = build_disk(p)
     assert [f["name"] for f in list_files(res["image"])["files"]] == [
         "mixed", "code", "level1"]
@@ -346,7 +346,7 @@ files:
     lbl = Path(res["labels"]["code"])
     assert lbl.exists() and lbl.parent == Path(res["image"]).parent
     assert lbl.name == "m.code.lbl"
-    assert "start" in parse_labels(lbl.read_text())
+    assert "start" in parse_labels(lbl.read_text(encoding="utf-8"))
 
 
 @needs_c1541

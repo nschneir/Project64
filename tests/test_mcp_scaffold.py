@@ -141,7 +141,7 @@ def test_index_html_counts_match_the_real_inventory():
     """The landing page's headline counts are measured, not remembered. This
     is the guard that keeps a doc count from drifting the next time a tool or
     a skill lands."""
-    text = Path("index.html").read_text()
+    text = Path("index.html").read_text(encoding="utf-8")
     m = re.search(r"A (\d+)-command CLI, (\d+) MCP tools, (\w+) skills", text)
     assert m, "index.html no longer states the CLI/MCP/skills counts"
     commands, tools, skills = m.groups()

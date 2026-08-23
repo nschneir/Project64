@@ -10,7 +10,7 @@ def test_load_ld65_and_vice_forms(tmp_path):
         "al C:0420 .loop\n"
         "al C:FFD2 .CHROUT\n"
         "; a comment line to ignore\n"
-        "\n"
+        "\n", encoding="utf-8"
     )
     labels = load_labels(f)
     assert labels == {"start": 0x040D, "loop": 0x0420, "CHROUT": 0xFFD2}
@@ -19,7 +19,7 @@ def test_load_ld65_and_vice_forms(tmp_path):
 def test_save_and_reload_roundtrip(tmp_path):
     f = tmp_path / "out.lbl"
     save_labels(f, {"main": 0x040D, "msg": 0x0430})
-    text = f.read_text()
+    text = f.read_text(encoding="utf-8")
     assert "al C:040d .main" in text
     assert load_labels(f) == {"main": 0x040D, "msg": 0x0430}
 

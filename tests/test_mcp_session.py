@@ -80,7 +80,7 @@ def test_no_session_is_actionable_error(tmp_path):
 
 def test_mem_read_symbolic(tmp_path):
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:0400 .screen\n")
+    lbl.write_text("al C:0400 .screen\n", encoding="utf-8")
     s, mon = _fake_session(labels=str(lbl))
     mon.memory_read.side_effect = _vic_reads(bytes([1, 2]))
     with patch("c64lib.mcp_server.Session") as S:
@@ -94,7 +94,7 @@ def test_mem_read_symbolic(tmp_path):
 
 def test_reg_get_includes_pc_symbol(tmp_path):
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\n")
+    lbl.write_text("al C:040d .start\n", encoding="utf-8")
     s, mon = _fake_session(labels=str(lbl))
     mon.registers.return_value = {"PC": 0x040D, "A": 1}
     with patch("c64lib.mcp_server.Session") as S:

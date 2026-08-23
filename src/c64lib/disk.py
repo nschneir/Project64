@@ -740,7 +740,7 @@ def load_disk_manifest(path: str | Path) -> dict:
 
     path = Path(path)
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise DiskError(f"{path}: {e}") from None
     except OSError as e:

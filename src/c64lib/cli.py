@@ -962,7 +962,7 @@ def basic_check(ctx, source):
     programs — before a run cycle. Offline; no session. Exits 1 if any
     error-severity issue is found.
     """
-    text = source.read_text()
+    text = source.read_text(encoding="utf-8")
     issues = lint_source(text)
     errors = sum(1 for i in issues if i.severity == "error")
     lines = [f"{i.severity.upper()} {i.rule}: "
@@ -983,7 +983,7 @@ def basic_check(ctx, source):
 def basic_type(ctx, source, do_run):
     """Type a BASIC program into the running C64 via the keyboard."""
     s = attach(ctx)
-    text = source.read_text()
+    text = source.read_text(encoding="utf-8")
     try:
         out = type_basic(s, text, run=do_run)
     except ValueError as e:
@@ -2344,7 +2344,7 @@ def sprite_from_png(ctx, image, out_path, multicolor):
     data, lines = sprite_from_image(img, multicolor=multicolor)
     text = "\n".join(lines) + "\n"
     if out_path:
-        Path(out_path).write_text(text)
+        Path(out_path).write_text(text, encoding="utf-8")
     emit(ctx, {"rows": lines, "bytes": list(data), "out": out_path},
          text if not out_path else f"wrote {out_path}")
 
@@ -2403,7 +2403,7 @@ def sprite_encode(ctx, file, hires, fmt, start_line, line_step, background,
         fail(ctx, str(e))
         return
     if out_path:
-        Path(out_path).write_text(text)
+        Path(out_path).write_text(text, encoding="utf-8")
     emit(ctx, {"sprites": [list(b.data) for b in blocks],
                "blocks": [{"name": b.name, "multicolor": b.multicolor}
                           for b in blocks]},
@@ -2464,7 +2464,7 @@ def charset_encode(ctx, file, hires, first_code, label, out_path):
     text = format_glyphs(glyphs, first_code=first_code, multicolor=not hires,
                          label=label)
     if out_path:
-        Path(out_path).write_text(text)
+        Path(out_path).write_text(text, encoding="utf-8")
     emit(ctx, {"glyphs": [{"name": g.name,
                            "multicolor": g.multicolor,
                            "bytes": [encode_row(r, g.multicolor) for r in g.rows]}

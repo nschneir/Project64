@@ -20,7 +20,7 @@ def _fake(labels=None):
 
 def _labels_file(tmp_path):
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:040d .start\nal C:040f .loop\n")
+    lbl.write_text("al C:040d .start\nal C:040f .loop\n", encoding="utf-8")
     return str(lbl)
 
 
@@ -162,7 +162,7 @@ def test_until_timeout_is_loud():
 def test_call_command_invokes_routine(tmp_path):
     import json as _j
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:2000 .sndinit\n")
+    lbl.write_text("al C:2000 .sndinit\n", encoding="utf-8")
     fake, mon = _fake(labels=str(lbl))
     fired = {"fired": True, "registers": {"PC": 0x0400, "A": 42, "X": 0},
              "trap": 0x0400}

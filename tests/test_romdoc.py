@@ -20,7 +20,7 @@ _LINE_RE = re.compile(r"^al C:([0-9a-f]{4}) \.([A-Z0-9_]+)$")
 
 
 def _label_file_text(fname: str) -> str:
-    return (resources.files("c64lib") / "data" / "rom_labels" / fname).read_text()
+    return (resources.files("c64lib") / "data" / "rom_labels" / fname).read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("fname", sorted(romdoc._LABEL_FILES.values()))

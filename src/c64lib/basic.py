@@ -52,4 +52,4 @@ def detokenize(prg: Path, basic_version: str) -> str:
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "listing.bas"
         _run([_petcat(), f"-{_dialect(basic_version)}", "-o", str(out), "--", str(prg)])
-        return out.read_text()
+        return out.read_text(encoding="utf-8")

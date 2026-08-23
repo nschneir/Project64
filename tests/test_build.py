@@ -212,7 +212,7 @@ def test_parse_areas_rejects_gap_before_the_next_area():
 
 def _stub_tool(dir: Path, name: str, body: str) -> Path:
     p = dir / name
-    p.write_text("#!/usr/bin/env python3\n" + body)
+    p.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
     p.chmod(p.stat().st_mode | stat.S_IEXEC)
     return p
 
@@ -235,15 +235,15 @@ def test_build_asm_invokes_toolchain(tmp_path, monkeypatch):
     monkeypatch.setenv("C64_TOOLS_LD65", str(ld65))
 
     src = tmp_path / "prog.s"
-    src.write_text("; test\n")
+    src.write_text("; test\n", encoding="utf-8")
     res = build_asm(src)
     assert isinstance(res, BuildResult)
     assert res.prg == tmp_path / "prog.prg" and res.prg.read_bytes()[:2] == b"\x01\x08"
-    assert res.labels == tmp_path / "prog.lbl" and "start" in res.labels.read_text()
-    ca65_args = (tmp_path / "ca65.args").read_text()
+    assert res.labels == tmp_path / "prog.lbl" and "start" in res.labels.read_text(encoding="utf-8")
+    ca65_args = (tmp_path / "ca65.args").read_text(encoding="utf-8")
     assert str(src) in ca65_args
     assert "-g" in ca65_args.split()
-    ld_args = (tmp_path / "ld65.args").read_text()
+    ld_args = (tmp_path / "ld65.args").read_text(encoding="utf-8")
     assert "-C" in ld_args and "-Ln" in ld_args
 
 
@@ -253,7 +253,7 @@ def test_build_error_includes_stderr(tmp_path, monkeypatch):
     monkeypatch.setenv("C64_TOOLS_CA65", str(bad))
     monkeypatch.setenv("C64_TOOLS_LD65", str(bad))
     src = tmp_path / "prog.s"
-    src.write_text("bogus\n")
+    src.write_text("bogus\n", encoding="utf-8")
     with pytest.raises(BuildError, match="syntax error"):
         build_asm(src)
 
@@ -292,8 +292,8 @@ def test_build_asm_collects_deps_and_built_at(tmp_path, monkeypatch):
     import time
     src = tmp_path / "prog.s"
     inc = tmp_path / "inc.s"
-    src.write_text('; top\n.include "inc.s"\n')
-    inc.write_text("; include\n")
+    src.write_text('; top\n.include "inc.s"\n', encoding="utf-8")
+    inc.write_text("; include\n", encoding="utf-8")
     _stub_pair(tmp_path, monkeypatch, deps_line=_real_ca65_deps(src, inc))
     t0 = time.time()
     res = build_asm(src)
@@ -316,8 +316,8 @@ def test_build_asm_deps_ignore_ca65_phony_targets(tmp_path, monkeypatch):
     stale — which reported every freshly built program as out of date."""
     src = tmp_path / "prog.s"
     inc = tmp_path / "inc.s"
-    src.write_text('; top\n.include "inc.s"\n')
-    inc.write_text("; include\n")
+    src.write_text('; top\n.include "inc.s"\n', encoding="utf-8")
+    inc.write_text("; include\n", encoding="utf-8")
     _stub_pair(tmp_path, monkeypatch, deps_line=_real_ca65_deps(src, inc))
     res = build_asm(src)
     assert set(res.deps) == {src, inc}
@@ -326,7 +326,7 @@ def test_build_asm_deps_ignore_ca65_phony_targets(tmp_path, monkeypatch):
 
 def test_build_failure_never_touches_existing_prg(tmp_path, monkeypatch):
     src = tmp_path / "prog.s"
-    src.write_text("; broken\n")
+    src.write_text("; broken\n", encoding="utf-8")
     old = tmp_path / "prog.prg"
     old.write_bytes(b"\x01\x08OLD")
     _stub_pair(tmp_path, monkeypatch,
@@ -347,7 +347,7 @@ def test_include_resolves_relative_to_the_including_file(tmp_path, monkeypatch):
     src = tmp_path / "src"
     nested = src / "nested"
     nested.mkdir(parents=True)
-    (nested / "inc.s").write_text('        lda #1\n')
+    (nested / "inc.s").write_text('        lda #1\n', encoding="utf-8")
     (src / "main.s").write_text(
         '        .segment "LOADADDR"\n'
         '        .word $0801\n'
@@ -358,7 +358,7 @@ def test_include_resolves_relative_to_the_including_file(tmp_path, monkeypatch):
         'nextln: .word $0000\n'
         '        .segment "CODE"\n'
         'start:  .include "nested/inc.s"\n'
-        '        rts\n')
+        '        rts\n', encoding="utf-8")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -393,7 +393,7 @@ def test_build_area_places_segment_live(tmp_path):
                    + '        .segment "CODE"\n'
                      'start:  rts\n'
                      '        .segment "HIGH"\n'
-                     '        .byte $DE, $AD, $BE, $EF\n')
+                     '        .byte $DE, $AD, $BE, $EF\n', encoding="utf-8")
     res = build_asm(src, areas=[Area("HIGH", 0x4000, 0x0100)])
     data = Path(res.prg).read_bytes()
     assert data[:2] == b"\x01\x08"
@@ -401,4 +401,4 @@ def test_build_area_places_segment_live(tmp_path):
     assert data[area_off:area_off + 4] == b"\xde\xad\xbe\xef"
     assert set(data[2 + _STUB_BYTES:area_off]) == {0}, "the gap was not filled"
     assert len(data) == area_off + 4, "the last area must not be padded"
-    assert "__HIGH_LOAD__" in Path(res.labels).read_text()
+    assert "__HIGH_LOAD__" in Path(res.labels).read_text(encoding="utf-8")

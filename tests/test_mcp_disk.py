@@ -71,7 +71,7 @@ def _lockstep(image, tool, argv):
 def _manifest(tmp_path):
     (tmp_path / "loader.prg").write_bytes(b"\x01\x08payload")
     m = tmp_path / "game.disk.yaml"
-    m.write_text('label: MYGAME\nfiles:\n  - {src: loader.prg, name: "*"}\n')
+    m.write_text('label: MYGAME\nfiles:\n  - {src: loader.prg, name: "*"}\n', encoding="utf-8")
     return m
 
 

@@ -26,7 +26,8 @@ pytestmark = [
 
 
 def _expectations(demo: Path) -> list[str]:
-    return [ln for ln in (demo / "expect.txt").read_text().splitlines() if ln.strip()]
+    text = (demo / "expect.txt").read_text(encoding="utf-8")
+    return [ln for ln in text.splitlines() if ln.strip()]
 
 
 def _build_demo(demo: Path, out_dir: Path) -> Path:
@@ -51,7 +52,7 @@ def test_demo(demo, session, tmp_path):
 
 
 def test_basic_type_path(session):
-    src = Path("tests/programs/hello-basic/program.bas").read_text() + "run\n"
+    src = Path("tests/programs/hello-basic/program.bas").read_text(encoding="utf-8") + "run\n"
     with session.monitor() as mon:
         try:
             mon.keyboard_feed(ascii_to_petscii(src))

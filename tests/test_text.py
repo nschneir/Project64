@@ -67,6 +67,6 @@ def test_exactly_three_screen_codes_decode_blank():
 
 def test_petscii_doc_has_decoder_section():
     from pathlib import Path
-    doc = Path("skills/c64-development/references/petscii.md").read_text()
+    doc = Path("skills/c64-development/references/petscii.md").read_text(encoding="utf-8")
     assert "How `c64 screen` decodes" in doc
     assert "$A0" in doc

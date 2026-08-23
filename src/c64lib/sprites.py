@@ -319,7 +319,7 @@ def encode_sheet_file(path: str | Path, *, multicolor: bool,
     no help in saying which of the paths in the call was the wrong one.
     """
     try:
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     except (OSError, ValueError) as e:
         raise ValueError(f"cannot read sprite sheet {path}: {e}") from None
     if not text.strip():

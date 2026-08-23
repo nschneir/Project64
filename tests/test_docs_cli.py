@@ -11,7 +11,7 @@ DOC = Path("docs/cli.md")
 
 
 def test_every_command_documented_and_vice_versa():
-    documented = documented_paths(DOC.read_text())
+    documented = documented_paths(DOC.read_text(encoding="utf-8"))
     actual = all_command_paths()
     missing = actual - documented
     stale = documented - actual
@@ -47,7 +47,7 @@ def test_disk_build_documents_its_labels_key_and_lbl_side_effect():
     """`build_disk` always returns `labels`, and for every `.s` entry it writes
     a `<image-stem>.<cbm-name>.lbl` into the *output* directory. A file
     appearing beside a user's image has to be named where a user would look."""
-    section = _section(DOC.read_text(), "### `c64 disk build`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 disk build`")
     assert '"labels"' in section, "the build payload's `labels` key is undocumented"
     assert ".lbl" in section, "the `.lbl` files build writes are undocumented"
 
@@ -55,7 +55,7 @@ def test_disk_build_documents_its_labels_key_and_lbl_side_effect():
 def test_mem_get_and_mem_read_document_the_shared_byte_keys():
     """Both payloads carry both `values` and `bytes` since the dogfood filed
     the one-key-each mismatch as a silent KeyError trap."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     # `_section` runs to the next `---`, and `mem read`'s block contains the
     # `mem get` entry — cut at it, or `mem get`'s `values` answers for both.
     read = _section(text, "### `c64 mem read`").split("### `c64 mem get`")[0]
@@ -67,7 +67,7 @@ def test_disk_validate_documents_its_damage_findings():
     """`validate` is the one verb where a DOS status line is a finding about
     the image rather than a failed operation, so it reports rather than
     erroring — the docs' `messages` promise has to say so."""
-    section = _section(DOC.read_text(), "### `c64 disk validate`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 disk validate`")
     assert "messages" in section
     assert "65" in section, \
         "the docs never mention the DOS error validate reports as a finding"
@@ -77,7 +77,7 @@ def test_mem_read_documents_its_text_column_gloss():
     """The gutter is a *gloss*, not the bytes: the docs have to say which
     decoding is in play and how to override it, or the ASCII-on-screen-RAM
     trap comes straight back."""
-    section = _section(DOC.read_text(), "### `c64 mem read`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 mem read`")
     assert "--as" in section, "the `--as` encoding override is undocumented"
     assert "screen codes" in section
     assert "text column" in section, "the gutter's label is undocumented"
@@ -90,7 +90,7 @@ def test_mem_read_documents_colour_ram_open_bus_and_the_mask():
     ones. The passage shipped with no guard; `demos/1812` paid for the missing
     knowledge twice in one pass, and a doc claim nothing tests can be deleted by
     a compression pass without anything noticing."""
-    section = " ".join(_section(DOC.read_text(), "### `c64 mem read`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 mem read`").split())
     assert "(phi1 & $F0) | storage" in section, \
         "the docs never say what a colour-RAM read actually returns"
     assert "differ in all 1000 bytes" in section, \
@@ -110,7 +110,7 @@ def test_until_count_documents_its_measured_per_arrival_cost():
     guard is on the *measurement*: the two anchors, both run counts, the span
     they share, and the wrapper the figures were taken under. Prose that drops
     them is prose that is no longer showing its work."""
-    section = " ".join(_section(DOC.read_text(), "### `c64 until`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 until`").split())
     assert "until seqtick --count 10200" in section and \
         "until secchange --count 5" in section, \
         "the cost note names neither of the two anchors it was measured on"
@@ -138,7 +138,7 @@ def test_until_cost_notes_conclusions_follow_from_its_own_table():
     what a stop costs, the other is how fast the emulator covers the program —
     and a reader who reads them as one is out by a factor of six.
     """
-    section = " ".join(_section(DOC.read_text(), "### `c64 until`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 until`").split())
     rows = re.findall(r"\| `c64 until (\w+) --count (\d+)\`[^|]*\|[^|]*\|"
                       r"([^|]*)\|([^|]*)\|([^|]*)\|", section)
     assert len(rows) == 2, f"the cost note's measurement table is gone or reshaped: {rows}"
@@ -196,7 +196,7 @@ def test_test_run_documents_the_always_present_tests_envelope():
     # These two entries end the file, so there is no trailing `---` for
     # `_section` to cut on: slice between the headings by hand, or the sibling
     # command's envelope answers for `test run`.
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
     assert '"tests": []' in section, "the spec-error envelope is undocumented"
     assert "always present" in section, \
@@ -207,7 +207,7 @@ def test_sprite_encode_documents_named_blocks_and_a_visible_background():
     """The sheet grew headers, comments and `--background`; and the old "count
     columns rather than trusting the rendering" warning only ever existed
     because the background pixel was an invisible space."""
-    section = _section(DOC.read_text(), "### `c64 sprite encode`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 sprite encode`")
     assert "--background" in section, "the visible-background option is undocumented"
     assert "`name:` headers" in section and ":hires" in section, \
         "per-block mode headers are undocumented"
@@ -216,14 +216,14 @@ def test_sprite_encode_documents_named_blocks_and_a_visible_background():
 
 
 def test_charset_encode_documents_its_label_option():
-    section = _section(DOC.read_text(), "### `c64 charset encode`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 charset encode`")
     assert "--label" in section, "the block-label option is undocumented"
 
 
 def test_run_documents_its_area_option():
     """`c64 run --area` is what a program linked above the load address needs
     to be runnable at all — undocumented, it may as well not exist."""
-    section = _section(DOC.read_text(), "### `c64 run`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 run`")
     assert "--area" in section, "the linker-area option is undocumented"
     assert "assembly sources only" in section, \
         "the docs never say --area is rejected for a .bas/.prg/.crt"
@@ -232,7 +232,7 @@ def test_run_documents_its_area_option():
 def test_test_run_documents_areas_and_the_prg_label_rule():
     """The spec's `areas:` key and the sibling-`.lbl` rule for `program:` are
     the two things La Galaxia's spec went the long way round for."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
     assert "areas:" in section, "the spec's `areas:` key is undocumented"
     assert ".lbl" in section, \
@@ -244,7 +244,7 @@ def test_test_run_documents_the_sample_width_option():
     on logic, and the spec that hit it (1812's `shapes greater_than s0`) had no
     way to say otherwise. Undocumented, `width:` would go on being unavailable
     to everyone who did not read the runner."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
     assert "width: 2" in section, "the two-byte sample option is undocumented"
     assert "lo/hi" in section, "the docs never say which byte order a width-2 read is"
@@ -258,7 +258,7 @@ def test_test_run_documents_where_an_s_program_builds():
     run — which republishes a *tracked* binary (la-galaxia's `.prg` is one)
     and leaves the label file newer than any sibling image, which is exactly
     the state the staleness stop two paragraphs later refuses."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     section = text[text.index("**Program tests.**"):
                    text.index("**Cartridge tests.**")]
     assert "beside the source" in section, \
@@ -272,7 +272,7 @@ def test_test_run_documents_where_an_s_program_builds():
 def test_test_run_documents_the_staleness_override():
     """A guard with no documented escape gets worked around instead of used:
     `cp -r` without `-p` restamps a tree, and the stop is mtime-based."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
     assert "--allow-stale" in section, "the staleness override is undocumented"
     assert "warns" in section or "warning" in section, \
@@ -288,7 +288,7 @@ def test_profile_documents_samples_and_why_one_arrival_lies():
     """`--samples` is only worth reaching for if the docs say what a single
     arrival gets wrong: a per-frame cost that spikes on a repaint every few
     frames reads as fine 27 times in 32."""
-    section = _section(DOC.read_text(), "### `c64 profile`")
+    section = _section(DOC.read_text(encoding="utf-8"), "### `c64 profile`")
     assert "--samples" in section, "the sampling option is undocumented"
     assert "bimodal" in section, \
         "the docs never say WHY one arrival can lie about a per-frame cost"
@@ -305,7 +305,7 @@ def test_profile_documents_that_samples_re_enters_rather_than_reruns():
     around one repeated case — which four `demos/1812` routines were read as
     regressions for. Sibling of the `--samples`/`bimodal` guard above: that one
     says why ONE arrival lies, this one says why N can lie the same way."""
-    section = " ".join(_section(DOC.read_text(), "### `c64 profile`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 profile`").split())
     assert "re-enters the routine; it does not re-run the program" in section, \
         "the docs never say `--samples` does not advance the program"
     assert "advances the state its cost depends on" in section, \
@@ -331,7 +331,7 @@ def test_profile_documents_blanking_and_the_differential_distinction():
     went unwritten.
     """
     # Prose wraps; these are sentences, not lines.
-    section = " ".join(_section(DOC.read_text(), "### `c64 profile`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 profile`").split())
     assert "DEN (`$D011` bit 4)" in section, \
         "the blanking write is undocumented"
     assert "does not answer *does this fit in a frame*" in section, \
@@ -369,7 +369,7 @@ def test_session_stop_documents_all_and_start_documents_the_notice():
     orphaned from an earlier conversation. The one-command cleanup and the
     "N already up" warning only exist for a reader if they are written down —
     including that the notice is on stderr, so `--json` stays parseable."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     stop = text[text.index("### `c64 session stop`"):
                 text.index("### `c64 session reset`")]
     assert "--all" in stop, "the --all flag is undocumented"
@@ -391,7 +391,7 @@ def test_headless_documents_the_null_sound_sink():
     that may not exist. Undocumented, that silence reads as a broken audio path
     and invites someone to "fix" the one thing keeping headless sessions from
     wedging."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     start = text[text.index("### `c64 session start`"):
                  text.index("### `c64 session ensure`")]
     section = " ".join(start.split())          # the claim is a sentence, not a line
@@ -407,7 +407,7 @@ def test_session_start_documents_the_macos_idle_throttling_hazard():
     while the process is alive and its ports still answer. It reads as a wedge.
     The A/B that attributed it lives in `CHANGELOG.md`, which is not where a
     reader looks for operating guidance — hence the pointer here."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     start = text[text.index("### `c64 session start`"):
                  text.index("### `c64 session ensure`")]
     section = " ".join(start.split())
@@ -433,7 +433,7 @@ def test_build_documents_which_areas_are_filled():
     filled — which is what decides how big the file is, and (the trap) that a
     `.res` in an area is content rather than a hole."""
     # Prose wraps; the claim is a sentence, not a line.
-    section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 build`").split())
     assert "Every area below the last one is filled to its declared size" in section, \
         "the docs never say every area but the last is filled to its size"
     assert "the last one is not" in section, \
@@ -483,7 +483,7 @@ _FLAT_FIGURE = re.compile(r"flat \*{0,2}([\d,]{6,}) bytes")
 
 
 def _documented_flat_padding() -> tuple[int, str]:
-    section = " ".join(_section(DOC.read_text(), "### `c64 build`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 build`").split())
     m = _FLAT_FIGURE.search(section)
     assert m, "docs/cli.md no longer states the flat padding cost"
     return int(m.group(1).replace(",", "")), m.group(1)
@@ -499,7 +499,7 @@ def test_every_copy_of_the_flat_padding_figure_agrees_with_the_docs():
     """
     claimed, spelled = _documented_flat_padding()
     for name in _FIGURE_ECHOES:
-        strays = _FLAT_FIGURE.findall(Path(name).read_text())
+        strays = _FLAT_FIGURE.findall(Path(name).read_text(encoding="utf-8"))
         # Per file, not summed over the list: a list-level count lets one live
         # entry carry the guard while another sits dead beside it, which is the
         # exact state this started in.
@@ -528,7 +528,7 @@ def test_the_figure_stays_gone_from_the_files_it_was_removed_from():
     """
     claimed, spelled = _documented_flat_padding()
     for name in _FIGURE_WATCHED:
-        for stray in _FLAT_FIGURE.findall(Path(name).read_text()):
+        for stray in _FLAT_FIGURE.findall(Path(name).read_text(encoding="utf-8")):
             assert int(stray.replace(",", "")) == claimed, (
                 f"{name} states the flat-padding figure as {stray} where "
                 f"docs/cli.md says {spelled}. This file was made to point at "
@@ -563,7 +563,7 @@ def test_the_documented_area_padding_is_the_measured_one(tmp_path):
                    '        .segment "SPRITES"\n        .byte $01\n'
                    '        .segment "CHARS"\n        .byte $02\n'
                    '        .segment "ENGINE"\n        .byte $03\n'
-                   '        .res 4096\n')
+                   '        .res 4096\n', encoding="utf-8")
     res = build_asm(src, areas=[Area(*a) for a in _AREA_TRIO])
     data = res.prg.read_bytes()
     engine_off = 2 + (0x4000 - 0x0801)
@@ -584,7 +584,7 @@ def test_wait_documents_the_stopped_machine_timeout():
     """`wait --mem` after a `c64 until` burned 120 s and reported `last value
     1` — the repo's most-repeated footgun. The docs have to say the timeout
     names it, or the reader still reaches for the wrong diagnosis."""
-    section = " ".join(_section(DOC.read_text(), "### `c64 wait`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 wait`").split())
     assert '"machine": "stopped"' in section, \
         "the stopped-machine JSON field is undocumented"
     assert "c64 continue" in section, "the docs never give the way out"
@@ -598,7 +598,7 @@ def test_audio_documents_strict_and_that_the_default_is_unchanged():
     capture in which nothing played — was reasoned and stays, so the docs have
     to say the flag is opt-in and what it costs to turn on; otherwise the next
     reader takes exit 0 for "the audio works" or the flag for the behaviour."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     capture = " ".join(_section(text, "### `c64 audio capture`").split())
     assert "`--strict`" in capture, "the flag is undocumented on the command"
     assert "same warning, same exit 0" in capture, \
@@ -616,7 +616,7 @@ def test_break_list_documents_what_a_mask_with_no_known_bits_renders_as():
     *none* of them spells. `protocol.op_name` answers `""` there — a value a
     `--json` caller can only find out by hitting it, and one that reads as a
     missing field rather than as the documented answer."""
-    section = " ".join(_section(DOC.read_text(), "### `c64 break list`").split())
+    section = " ".join(_section(DOC.read_text(encoding="utf-8"), "### `c64 break list`").split())
     assert 'the empty string `""`' in section, \
         ("the docs never say that an op mask with none of the three bits set "
          "renders as the empty string")
@@ -624,7 +624,7 @@ def test_break_list_documents_what_a_mask_with_no_known_bits_renders_as():
 
 def test_cli_md_names_every_machine_profile():
     from c64lib.machines import PROFILES
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     for name in PROFILES:
         assert f"`{name}`" in text, f"docs/cli.md never names {name}"
 
@@ -635,7 +635,7 @@ def test_encode_twins_name_each_others_hires_background():
     so a sheet written in one legend and fed to the other fails — measured:
     `unknown hires sprite glyph '.'` on the fugue dogfood's glow sheet. Each
     entry must warn about the other's default."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     sprite = _section(text, "### `c64 sprite encode`")
     charset = _section(text, "### `c64 charset encode`")
     assert "needs `--background .`" in sprite, \
@@ -649,7 +649,7 @@ def test_test_run_documents_that_the_runner_arms_before_the_program_runs():
     frame 3,774 instead of 30); the YAML runner arms first, so a spec's first
     `until` is the program's first arrival and counts are absolute. Only the
     trap used to be documented; the guarantee is the useful half."""
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     section = text[text.index("### `c64 test run`"):text.index("### `c64 test programs`")]
     assert "armed before the program has run" in section, \
         "the runner's arm-first guarantee is undocumented again"

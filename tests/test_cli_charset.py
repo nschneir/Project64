@@ -11,7 +11,7 @@ ART = "name: g\n.123\n" + "....\n" * 7
 
 def test_charset_encode_emits_the_labeled_block(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text(ART)
+    src.write_text(ART, encoding="utf-8")
     r = CliRunner().invoke(main, ["charset", "encode", str(src),
                                   "--first-code", "64"])
     assert r.exit_code == 0, r.output
@@ -22,7 +22,7 @@ def test_charset_encode_emits_the_labeled_block(tmp_path):
 
 def test_charset_encode_json(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text(ART)
+    src.write_text(ART, encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "charset", "encode", str(src)])
     assert r.exit_code == 0, r.output
     out = json.loads(r.output)
@@ -32,18 +32,18 @@ def test_charset_encode_json(tmp_path):
 
 def test_charset_encode_out_writes_the_file(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text(ART)
+    src.write_text(ART, encoding="utf-8")
     dest = tmp_path / "chars.inc"
     r = CliRunner().invoke(main, ["charset", "encode", str(src),
                                   "-o", str(dest)])
     assert r.exit_code == 0, r.output
     assert "wrote" in r.output
-    assert "glyphs_end:" in dest.read_text()
+    assert "glyphs_end:" in dest.read_text(encoding="utf-8")
 
 
 def test_charset_encode_hires(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text("name: g\n####....\n" + "........\n" * 7)
+    src.write_text("name: g\n####....\n" + "........\n" * 7, encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "charset", "encode", str(src),
                                   "--hires"])
     assert r.exit_code == 0, r.output
@@ -52,7 +52,7 @@ def test_charset_encode_hires(tmp_path):
 
 def test_charset_encode_bad_art_is_a_clean_error(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text("name: g\n..x.\n" + "....\n" * 7)
+    src.write_text("name: g\n..x.\n" + "....\n" * 7, encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "charset", "encode", str(src)])
     assert r.exit_code == 1, r.output
     assert "illegal legend" in json.loads(r.output)["error"]
@@ -66,7 +66,7 @@ def test_charset_encode_missing_file():
 
 def test_charset_encode_label_renames_the_block(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text(ART)
+    src.write_text(ART, encoding="utf-8")
     r = CliRunner().invoke(main, ["charset", "encode", str(src),
                                   "--label", "fontgly"])
     assert r.exit_code == 0, r.output
@@ -76,7 +76,7 @@ def test_charset_encode_label_renames_the_block(tmp_path):
 
 def test_charset_encode_label_must_be_an_identifier(tmp_path):
     src = tmp_path / "chars.txt"
-    src.write_text(ART)
+    src.write_text(ART, encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "charset", "encode", str(src),
                                   "--label", "font gly"])
     assert r.exit_code == 1, r.output
@@ -138,5 +138,5 @@ def test_parse_charset_file_names_the_sheet_it_cannot_read(tmp_path):
     assert str(e.value).startswith(f"cannot read charset sheet {missing}: ")
 
     src = tmp_path / "chars.txt"
-    src.write_text(ART)
+    src.write_text(ART, encoding="utf-8")
     assert [g.name for g in parse_charset_file(src)] == ["g"]

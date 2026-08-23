@@ -119,12 +119,12 @@ def test_yaml_wait_idle_blocks_until_the_program_finishes(tmp_path, shared_launc
     point, and the shape demo 05 had to hand-roll as
     `assert: {reg: pc, in_range: ["$E000","$FFFF"]}`."""
     (tmp_path / "slow.bas").write_text(
-        '10 for i=1 to 12000: next\n20 print "loop done"\n')
+        '10 for i=1 to 12000: next\n20 print "loop done"\n', encoding="utf-8")
     (tmp_path / "slow.yaml").write_text(
         "name: wait-idle\nmachine: c64\nprogram: slow.bas\ntimeout: 45\n"
         "steps:\n"
         "  - wait:   { idle: true }\n"
-        '  - assert: { screen: "LOOP DONE" }\n')
+        '  - assert: { screen: "LOOP DONE" }\n', encoding="utf-8")
     result = run_test(load_test(tmp_path / "slow.yaml"), launch=shared_launch)
     assert result.passed, [s.detail for s in result.steps]
     assert result.steps[0].kind == "wait" and "idle" in result.steps[0].detail

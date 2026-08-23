@@ -118,7 +118,7 @@ def test_sprite_encode_rejects_a_multi_character_background(tmp_path):
     without this the check could be lost on one side alone and the MCP caller
     would get a legend with a two-character key that never matches a cell."""
     src = tmp_path / "sprites.txt"
-    src.write_text(("." * 12 + "\n") * 21)
+    src.write_text(("." * 12 + "\n") * 21, encoding="utf-8")
     err, out = call_tool("c64_sprite_encode",
                          {"file": str(src), "background": ".."})
     assert err is True

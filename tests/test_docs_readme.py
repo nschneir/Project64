@@ -22,14 +22,14 @@ MCP_DOC = Path("docs/mcp.md")
 
 
 def test_install_section_near_top():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     assert text.index("## Install") < text.index("## Quickstart")
     assert "brew install vice cc65" in text
     assert "apt install vice cc65" in text
 
 
 def test_readme_links_the_agent_setup_doc():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     idx = text.index("## Using with AI coding agents")
     section = text[idx:text.index("\n## ", idx + 1)]
     assert "docs/agent-setup.md" in section, \
@@ -37,7 +37,7 @@ def test_readme_links_the_agent_setup_doc():
 
 
 def test_agent_setup_covers_the_majors():
-    text = AGENT_SETUP.read_text()
+    text = AGENT_SETUP.read_text(encoding="utf-8")
     for agent in ("Claude Code", "Codex", "Cursor", "Gemini", "Antigravity"):
         assert agent in text, f"agent setup doc missing {agent}"
     for path in ("CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursor/mcp.json",
@@ -46,8 +46,8 @@ def test_agent_setup_covers_the_majors():
 
 
 def test_mcp_json_snipc64_parses():
-    readme_blocks = code_blocks(README.read_text(), "json")
-    setup_blocks = code_blocks(AGENT_SETUP.read_text(), "json")
+    readme_blocks = code_blocks(README.read_text(encoding="utf-8"), "json")
+    setup_blocks = code_blocks(AGENT_SETUP.read_text(encoding="utf-8"), "json")
     for block in readme_blocks + setup_blocks:
         json.loads(block)  # every fenced JSON snippet must be valid
     assert any("c64-tools-mcp" in b for b in setup_blocks), \
@@ -58,7 +58,7 @@ def test_readme_names_the_domain_skills_beside_their_sections():
     """The Cartridges section names `cartridge-programming`; the Disk images
     section shipped without ever naming `disk-io-programming`, so the skill
     was undiscoverable from the one page that introduces disk work."""
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     for heading, skill in (("## Disk images", "disk-io-programming"),
                            ("## Cartridges", "cartridge-programming")):
         idx = text.index(heading)
@@ -69,7 +69,7 @@ def test_readme_names_the_domain_skills_beside_their_sections():
 def test_readme_c64_commands_exist():
     valid = valid_mention_paths()  # leaf commands plus bare group names
     for doc in (README, AGENT_SETUP, MCP_DOC):
-        unknown = {c for c in mentioned_commands(doc.read_text()) if c not in valid}
+        unknown = {c for c in mentioned_commands(doc.read_text(encoding="utf-8")) if c not in valid}
         assert not unknown, f"{doc} mentions nonexistent commands: {sorted(unknown)}"
 
 
@@ -82,7 +82,7 @@ def test_readme_release_line_matches_pyproject():
     hard-code a version here, or this test becomes the next stale copy."""
     from tests.test_package import _pyproject_version
 
-    m = re.search(r"current release \*\*v([^*]+)\*\*", README.read_text())
+    m = re.search(r"current release \*\*v([^*]+)\*\*", README.read_text(encoding="utf-8"))
     assert m, "README no longer states 'current release **vX.Y.Z**'"
     assert m.group(1) == _pyproject_version(), \
         f"README says v{m.group(1)}; pyproject says {_pyproject_version()}"
@@ -92,7 +92,7 @@ def test_supported_machines_table_matches_profiles():
     """Every fact in the README model table is enforced against machines.py
     and the captured boot banners — the table cannot drift."""
     from c64lib.machines import PROFILES
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     idx = text.index("## Supported machines")
     end = text.index("\n## ", idx + 1)
     section = text[idx:end]
@@ -118,7 +118,7 @@ def test_mcp_md_names_every_tool():
     drift index.html's counts used to have. The tool docstrings remain the
     per-tool reference (guarded by test_mcp_scaffold's roster test); this
     only pins that the map is complete."""
-    text = MCP_DOC.read_text()
+    text = MCP_DOC.read_text(encoding="utf-8")
     missing = sorted(t.name for t in list_tools().tools
                      if f"`{t.name}`" not in text)
     assert not missing, f"docs/mcp.md never names: {missing}"
@@ -129,7 +129,7 @@ def test_mcp_md_documents_the_stopped_machine_wait():
     surface agents actually drive — and the page already promised the four
     tools report where the machine was left. The promise and the tool now
     agree; this pins the half that is prose."""
-    text = MCP_DOC.read_text()
+    text = MCP_DOC.read_text(encoding="utf-8")
     section = " ".join(text[text.index("### Waiting"):
                             text.index("### Building")].split())
     assert '"machine": "stopped"' in section, \
@@ -154,7 +154,7 @@ def _mcp_table_commands() -> set[str]:
     whole, so the caller reports it verbatim."""
     invocable = _invocable_paths()
     out: set[str] = set()
-    for line in MCP_DOC.read_text().splitlines():
+    for line in MCP_DOC.read_text(encoding="utf-8").splitlines():
         if not line.startswith("|"):
             continue
         for span in re.findall(r"`(c64 [^`]+)`", line):

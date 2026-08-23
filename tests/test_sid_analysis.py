@@ -159,7 +159,7 @@ def test_parse_log_round_trip(tmp_path):
     path = tmp_path / "sid-log.jsonl"
     path.write_text(
         "".join(json.dumps({"frame": r.frame, "regs": list(r.regs)}) + "\n"
-                for r in records)
+                for r in records), encoding="utf-8"
     )
     assert parse_log(path) == records
 
@@ -167,7 +167,7 @@ def test_parse_log_round_trip(tmp_path):
 def test_parse_log_ignores_blank_lines(tmp_path):
     path = tmp_path / "sid-log.jsonl"
     row = json.dumps({"frame": 0, "regs": [0] * 25})
-    path.write_text(f"\n{row}\n\n")
+    path.write_text(f"\n{row}\n\n", encoding="utf-8")
     assert parse_log(path) == [FrameRecord(frame=0, regs=tuple([0] * 25))]
 
 
@@ -175,7 +175,7 @@ def test_parse_log_rejects_wrong_register_count(tmp_path):
     path = tmp_path / "sid-log.jsonl"
     path.write_text(
         json.dumps({"frame": 0, "regs": [0] * 25}) + "\n"
-        + json.dumps({"frame": 1, "regs": [0] * 24}) + "\n"
+        + json.dumps({"frame": 1, "regs": [0] * 24}) + "\n", encoding="utf-8"
     )
     with pytest.raises(ValueError, match="line 2"):
         parse_log(path)
@@ -183,7 +183,7 @@ def test_parse_log_rejects_wrong_register_count(tmp_path):
 
 def test_parse_log_rejects_missing_keys(tmp_path):
     path = tmp_path / "sid-log.jsonl"
-    path.write_text(json.dumps({"regs": [0] * 25}) + "\n")
+    path.write_text(json.dumps({"regs": [0] * 25}) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="line 1"):
         parse_log(path)
 
@@ -193,7 +193,7 @@ STAMP = {"machine": "c64", "clock_hz": 1022727, "fps": 60}
 
 def _stamped(tmp_path, *rows) -> Path:
     path = tmp_path / "sid-log.jsonl"
-    path.write_text("".join(json.dumps(row) + "\n" for row in (STAMP, *rows)))
+    path.write_text("".join(json.dumps(row) + "\n" for row in (STAMP, *rows)), encoding="utf-8")
     return path
 
 
@@ -210,7 +210,7 @@ def test_log_timing_reads_the_stamp_back(tmp_path):
 
 def test_log_timing_is_none_for_a_log_written_before_the_stamp(tmp_path):
     path = tmp_path / "sid-log.jsonl"
-    path.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    path.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n", encoding="utf-8")
     assert sid_analysis.log_timing(path) is None
 
 
@@ -218,7 +218,7 @@ def test_parse_log_still_rejects_a_first_line_that_is_neither(tmp_path):
     """The stamp is a specific shape, not "any object without frames": a
     truncated or foreign first line is still the error it always was."""
     path = tmp_path / "sid-log.jsonl"
-    path.write_text(json.dumps({"machine": "c64"}) + "\n")
+    path.write_text(json.dumps({"machine": "c64"}) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="line 1"):
         parse_log(path)
 
@@ -231,7 +231,7 @@ def test_log_stamp_accepts_a_future_extra_key(tmp_path):
     future = {**STAMP, "sid_model": "8580"}
     path = tmp_path / "sid-log.jsonl"
     path.write_text(json.dumps(future) + "\n"
-                    + json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+                    + json.dumps({"frame": 0, "regs": [0] * 25}) + "\n", encoding="utf-8")
     assert sid_analysis.log_timing(path) == future     # whole, extras and all
     assert parse_log(path) == [FrameRecord(frame=0, regs=tuple([0] * 25))]
 
@@ -241,7 +241,7 @@ def test_log_stamp_still_rejects_a_missing_key(tmp_path):
     answer what `log_timing` is asked, so it is not a header — it is the
     truncated or foreign line it always was."""
     path = tmp_path / "sid-log.jsonl"
-    path.write_text(json.dumps({"machine": "c64", "fps": 60}) + "\n")
+    path.write_text(json.dumps({"machine": "c64", "fps": 60}) + "\n", encoding="utf-8")
     assert sid_analysis.log_timing(path) is None
     with pytest.raises(ValueError, match="line 1"):
         parse_log(path)
@@ -252,14 +252,14 @@ def test_parse_log_rejects_a_stamp_that_is_not_on_line_one(tmp_path):
     frame's worth of evidence."""
     path = tmp_path / "sid-log.jsonl"
     path.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n"
-                    + json.dumps(STAMP) + "\n")
+                    + json.dumps(STAMP) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="line 2"):
         parse_log(path)
 
 
 def _one_line_log(tmp_path, regs):
     path = tmp_path / "sid-log.jsonl"
-    path.write_text(json.dumps({"frame": 0, "regs": list(regs)}) + "\n")
+    path.write_text(json.dumps({"frame": 0, "regs": list(regs)}) + "\n", encoding="utf-8")
     return path
 
 
@@ -578,10 +578,10 @@ def test_load_score_accepts_what_diff_score_accepts(tmp_path):
     the reader `diff_score` itself uses, so a score that survives one cannot
     fail the other on shape."""
     ref = tmp_path / "score.yaml"
-    ref.write_text("voices:\n  1:\n    - {note: C4, frames: 5}\n  2: []\n")
+    ref.write_text("voices:\n  1:\n    - {note: C4, frames: 5}\n  2: []\n", encoding="utf-8")
     assert sid_analysis.load_score(ref) == [(1, [{"note": "C4", "frames": 5}]),
                                             (2, [])]
-    ref.write_text("voices:\n  4: []\n")
+    ref.write_text("voices:\n  4: []\n", encoding="utf-8")
     with pytest.raises(ValueError, match="voice 4"):
         sid_analysis.load_score(ref)
 
@@ -606,7 +606,7 @@ def test_diff_score_reads_a_yaml_reference(tmp_path):
         "    - {note: A4, frames: 25}\n"
         "    - {note: rest, frames: 25}\n"
         "  2: []\n"
-        "  3: []\n"
+        "  3: []\n", encoding="utf-8"
     )
     assert diff_score(transcribe(_one_note_log(), PAL_CLOCK), path) == []
 
@@ -618,7 +618,7 @@ def test_diff_score_rejects_a_reference_without_voices():
 
 def test_diff_score_rejects_a_yaml_reference_that_is_not_a_mapping(tmp_path):
     path = tmp_path / "score.yaml"
-    path.write_text("- A4\n- C4\n")
+    path.write_text("- A4\n- C4\n", encoding="utf-8")
     with pytest.raises(ValueError, match="not a YAML mapping"):
         diff_score([], path)
 
@@ -1584,7 +1584,7 @@ def test_write_report_creates_a_missing_output_directory(tmp_path):
 
 
 def test_write_report_has_every_section(tmp_path):
-    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text(encoding="utf-8")
     for heading in ("## Transcription", "## Score diff", "## Anomalies",
                     "## WAV metrics", "## Artifacts", "## Verdict"):
         assert heading in text
@@ -1594,51 +1594,53 @@ def test_write_report_has_every_section(tmp_path):
 
 
 def test_write_report_passes_on_empty_inputs(tmp_path):
-    assert "**PASS**" in _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    assert "**PASS**" in _report(tmp_path, SOUNDING, metrics=_metrics()).read_text(encoding="utf-8")
 
 
 def test_write_report_fails_on_a_score_diff(tmp_path):
     text = _report(tmp_path, SOUNDING, diffs=["voice 1 event 1: expected C4, heard A4"],
-                   metrics=_metrics()).read_text()
+                   metrics=_metrics()).read_text(encoding="utf-8")
     assert "**FAIL**" in text
     assert "expected C4, heard A4" in text
 
 
 def test_write_report_fails_on_an_anomaly(tmp_path):
     text = _report(tmp_path, SOUNDING, anomalies=["voice 1: stuck gate"],
-                   metrics=_metrics()).read_text()
+                   metrics=_metrics()).read_text(encoding="utf-8")
     assert "**FAIL**" in text
     assert "stuck gate" in text
 
 
 def test_write_report_fails_on_clipping(tmp_path):
-    text = _report(tmp_path, SOUNDING, metrics=_metrics(clipped_samples=12)).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=_metrics(clipped_samples=12)).read_text(
+        encoding="utf-8"
+    )
     assert "**FAIL**" in text
     assert "12" in text
 
 
 def test_write_report_fails_when_a_sounding_log_recorded_silence(tmp_path):
     metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
-    assert "**FAIL**" in _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    assert "**FAIL**" in _report(tmp_path, SOUNDING, metrics=metrics).read_text(encoding="utf-8")
 
 
 def test_write_report_passes_when_an_all_rest_log_recorded_silence(tmp_path):
     """Silence is only a failure when the register log says something sounded."""
     metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
     events = [_note(v, "rest", 0, 50, waveform=0, gate_frames=0) for v in (1, 2, 3)]
-    assert "**PASS**" in _report(tmp_path, events, metrics=metrics).read_text()
+    assert "**PASS**" in _report(tmp_path, events, metrics=metrics).read_text(encoding="utf-8")
 
 
 def test_write_report_without_metrics_is_a_render_only_run(tmp_path):
     """No reference and no WAV is a legitimate run, not a failure."""
-    text = _report(tmp_path, SOUNDING).read_text()
+    text = _report(tmp_path, SOUNDING).read_text(encoding="utf-8")
     assert "**PASS**" in text
     assert "## WAV metrics" in text
 
 
 def test_write_report_tabulates_the_notes_of_each_voice(tmp_path):
     events = [_note(1, "A4", 0, 25), _note(2, "C4", 3, 9, waveform=0x40)]
-    text = _report(tmp_path, events, metrics=_metrics()).read_text()
+    text = _report(tmp_path, events, metrics=_metrics()).read_text(encoding="utf-8")
     assert "Voice 1" in text and "Voice 2" in text
     assert "A4" in text and "C4" in text
     assert "pulse" in text
@@ -1651,7 +1653,7 @@ def test_write_report_prints_no_cents_for_a_noise_event(tmp_path):
     events = [NoteEvent(voice=3, note="F#4", start_frame=0, frames=43,
                         waveform=0x80, gate_frames=43, cents_off=30.1)]
     row = [line for line in _report(tmp_path, events, metrics=_metrics()
-                                    ).read_text().splitlines()
+                                    ).read_text(encoding="utf-8").splitlines()
            if line.startswith("| 0 |")]
     assert row == ["| 0 | 43 | F#4 | - | noise | 43 |"]
 
@@ -1662,7 +1664,7 @@ def test_write_report_still_prints_cents_for_a_pitched_event(tmp_path):
     events = [NoteEvent(voice=3, note="F#4", start_frame=0, frames=43,
                         waveform=0x40, gate_frames=43, cents_off=30.1)]
     row = [line for line in _report(tmp_path, events, metrics=_metrics()
-                                    ).read_text().splitlines()
+                                    ).read_text(encoding="utf-8").splitlines()
            if line.startswith("| 0 |")]
     assert row == ["| 0 | 43 | F#4 | +30.1 | pulse | 43 |"]
 
@@ -1676,7 +1678,7 @@ def test_write_report_says_so_when_nothing_played(tmp_path):
     — but a bare PASS there tells an agent whose program never started that
     everything is fine, so the pass says what it is passing on."""
     metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
-    text = _report(tmp_path, ALL_REST, metrics=metrics).read_text()
+    text = _report(tmp_path, ALL_REST, metrics=metrics).read_text(encoding="utf-8")
     assert "**PASS**" in text
     assert "**Nothing played.**" in text          # under the verdict
     assert "**No voice sounded.**" in text        # and above the transcription
@@ -1684,7 +1686,7 @@ def test_write_report_says_so_when_nothing_played(tmp_path):
 
 
 def test_write_report_does_not_say_nothing_played_when_a_voice_sounded(tmp_path):
-    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text(encoding="utf-8")
     assert "Nothing played" not in text and "No voice sounded" not in text
 
 
@@ -1693,7 +1695,7 @@ def test_write_report_does_not_call_a_silent_log_over_an_audible_wav_silent(tmp_
     which this transcription cannot see. The transcription reports what it
     read; the verdict does not claim nothing played when the recording
     disagrees."""
-    text = _report(tmp_path, ALL_REST, metrics=_metrics()).read_text()
+    text = _report(tmp_path, ALL_REST, metrics=_metrics()).read_text(encoding="utf-8")
     assert "**No voice sounded.**" in text
     assert "Nothing played" not in text
 
@@ -1702,13 +1704,13 @@ def test_write_report_says_nothing_played_on_a_register_only_run(tmp_path):
     """No WAV to corroborate, so the notice makes the claim it can: the log
     is what says nothing played, and the sentence does not invent a silent
     recording that was never measured."""
-    text = _report(tmp_path, ALL_REST).read_text()
+    text = _report(tmp_path, ALL_REST).read_text(encoding="utf-8")
     assert "**Nothing played.**" in text
     assert "the recording is silent" not in text
 
 
 def test_write_report_says_nothing_played_for_an_empty_log(tmp_path):
-    text = _report(tmp_path).read_text()
+    text = _report(tmp_path).read_text(encoding="utf-8")
     assert "the register log was empty" in text
     assert "**Nothing played.**" in text
 
@@ -1718,7 +1720,7 @@ def test_write_report_nothing_played_notice_is_not_a_verdict_reason(tmp_path):
     back out of this file. The notice is a block quote so that a PASS with a
     notice still has no reasons — and so a FAIL's reasons stay countable."""
     metrics = _metrics(silence_windows=[(0.0, 1.0)], profile=(-120.0,) * 10)
-    verdict = _report(tmp_path, ALL_REST, metrics=metrics).read_text()
+    verdict = _report(tmp_path, ALL_REST, metrics=metrics).read_text(encoding="utf-8")
     body = verdict[verdict.index("## Verdict"):]
     assert "**Nothing played.**" in body
     assert [line for line in body.splitlines() if line.startswith("- ")] == []
@@ -1726,7 +1728,7 @@ def test_write_report_nothing_played_notice_is_not_a_verdict_reason(tmp_path):
 
 def test_write_report_links_only_the_artifacts_that_exist(tmp_path):
     (tmp_path / "piano-roll.png").write_bytes(b"")
-    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=_metrics()).read_text(encoding="utf-8")
     assert "(piano-roll.png)" in text
     assert "spectrogram.png" not in text
 
@@ -1737,7 +1739,7 @@ def test_write_report_reports_the_wav_metrics(tmp_path):
     the RMS line — so it could pass with the metrics table empty."""
     metrics = _metrics(duration_s=2.5, clipped_samples=7,
                        silence_windows=[(1.0, 1.5)], profile=(-9.0, -12.0, -3.0))
-    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text(encoding="utf-8")
     assert "| Duration | 2.50 s |" in text
     assert "| Clipped samples | 7 |" in text
     assert "| Silence windows | 1.00-1.50 s |" in text
@@ -1750,7 +1752,7 @@ def test_write_report_names_a_recording_that_never_happened(tmp_path):
     the warp signature, and "the recording is silent" sends its owner looking
     at $D418 and the filter instead of at the speed pin."""
     metrics = _metrics(duration_s=0.0, profile=(), silence_windows=())
-    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text(encoding="utf-8")
     assert "**FAIL**" in text
     assert "no samples at all" in text
     assert "the recording is silent" not in text
@@ -1760,7 +1762,7 @@ def test_write_report_still_says_silent_when_the_recording_really_ran(tmp_path):
     """The other half of the same branch, so the two sentences stay distinct."""
     metrics = _metrics(duration_s=1.0, silence_windows=[(0.0, 1.0)],
                        profile=(-120.0,) * 10)
-    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text(encoding="utf-8")
     assert "the recording is silent" in text
     assert "no samples at all" not in text
 
@@ -1778,7 +1780,9 @@ def test_write_report_fails_dead_audio_under_a_lying_header(tmp_path):
     silent samples. Coverage was measured against the header's 30 s, so 1 s of
     silence cleared the 99% test, `nothing_played` came back false, and a
     capture with no audio in it at all was reported **PASS** with no notice."""
-    text = _report(tmp_path, ALL_REST, metrics=_truncated_metrics(tmp_path)).read_text()
+    text = _report(tmp_path, ALL_REST, metrics=_truncated_metrics(tmp_path)).read_text(
+        encoding="utf-8"
+    )
     assert "**FAIL**" in text
     assert "- the recording is truncated" in text
     assert "**Nothing played.**" in text
@@ -1788,7 +1792,9 @@ def test_write_report_names_both_durations_for_a_truncated_capture(tmp_path):
     """Asserted as whole rendered cells: the measured length is the one the
     other metrics cover, and the header's claim is shown beside it rather than
     quietly replaced."""
-    text = _report(tmp_path, ALL_REST, metrics=_truncated_metrics(tmp_path)).read_text()
+    text = _report(tmp_path, ALL_REST, metrics=_truncated_metrics(tmp_path)).read_text(
+        encoding="utf-8"
+    )
     assert "| Duration | 1.00 s |" in text
     assert "| Header duration | 30.00 s — 29.00 s of it is not in the file |" in text
 
@@ -1796,7 +1802,7 @@ def test_write_report_names_both_durations_for_a_truncated_capture(tmp_path):
 def test_write_report_metrics_table_omits_the_header_duration_when_finished(tmp_path):
     """A finalized capture's table and verdict are untouched by any of this."""
     metrics = wav_metrics(_write_wav(tmp_path / "tone.wav", _tone(1.0)))
-    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text()
+    text = _report(tmp_path, SOUNDING, metrics=metrics).read_text(encoding="utf-8")
     assert "| Duration | 1.00 s |" in text
     assert "Header duration" not in text
     assert "truncated" not in text
@@ -1810,7 +1816,7 @@ def test_write_report_names_a_header_only_wav_read_through_the_rescore_path(tmp_
     failure at all; measured off the samples it is the recording that never
     happened, which is the sentence that names the speed pin."""
     text = _report(tmp_path, SOUNDING,
-                   metrics=_truncated_metrics(tmp_path, seconds=0.0)).read_text()
+                   metrics=_truncated_metrics(tmp_path, seconds=0.0)).read_text(encoding="utf-8")
     assert "**FAIL**" in text
     assert "no samples at all" in text
     assert "- the recording is truncated" in text
@@ -1831,7 +1837,7 @@ voices:
 
 def _ref(tmp_path, text=REF_YAML, name="score.yaml"):
     path = tmp_path / name
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -1844,7 +1850,7 @@ def _score_diff_section(text):
 def test_write_report_names_the_reference_score_it_diffed_against(tmp_path):
     ref = _ref(tmp_path)
     section = _score_diff_section(
-        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=ref).read_text())
+        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=ref).read_text(encoding="utf-8"))
     assert str(ref) in section
 
 
@@ -1855,7 +1861,7 @@ def test_write_report_quotes_the_reference_scores_own_counts(tmp_path):
     ref = _ref(tmp_path)
     summary = score_summary(ref)
     section = _score_diff_section(
-        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=ref).read_text())
+        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=ref).read_text(encoding="utf-8"))
     for voice, claim in summary["voices"].items():
         assert (f"| {voice} | {claim['entries']} | {claim['frames']} |") in section
     assert f"{summary['entries']} entries" in section
@@ -1865,7 +1871,7 @@ def test_write_report_quotes_the_reference_scores_own_counts(tmp_path):
 def test_write_report_says_when_no_reference_score_was_supplied(tmp_path):
     """The finding itself: an unscored run must not read as a clean check."""
     section = _score_diff_section(
-        _report(tmp_path, SOUNDING, metrics=_metrics()).read_text())
+        _report(tmp_path, SOUNDING, metrics=_metrics()).read_text(encoding="utf-8"))
     assert "No reference score supplied" in section
     assert "No differences" not in section
 
@@ -1875,9 +1881,10 @@ def test_write_report_score_section_differs_with_and_without_a_reference(tmp_pat
     and the Score-diff sections must not read the same."""
     ref = _ref(tmp_path)
     scored = _score_diff_section(
-        _report(tmp_path / "scored", SOUNDING, metrics=_metrics(), ref=ref).read_text())
+        _report(tmp_path / "scored", SOUNDING, metrics=_metrics(), ref=ref)
+        .read_text(encoding="utf-8"))
     unscored = _score_diff_section(
-        _report(tmp_path / "plain", SOUNDING, metrics=_metrics()).read_text())
+        _report(tmp_path / "plain", SOUNDING, metrics=_metrics()).read_text(encoding="utf-8"))
     assert scored != unscored
     assert str(ref) in scored and str(ref) not in unscored
 
@@ -1887,7 +1894,8 @@ def test_write_report_does_not_hedge_a_clean_diff_that_had_a_reference(tmp_path)
     no reference score produces" — was the whole finding: it made the strongest
     audio evidence a demo can commit unreadable as evidence."""
     section = _score_diff_section(
-        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=_ref(tmp_path)).read_text())
+        _report(tmp_path, SOUNDING, metrics=_metrics(), ref=_ref(tmp_path))
+        .read_text(encoding="utf-8"))
     assert "with no reference score" not in section
     assert "No differences" in section
 
@@ -1895,7 +1903,7 @@ def test_write_report_does_not_hedge_a_clean_diff_that_had_a_reference(tmp_path)
 def test_write_report_lists_the_diffs_under_the_reference_it_names(tmp_path):
     ref = _ref(tmp_path)
     text = _report(tmp_path, SOUNDING, diffs=["voice 1 event 1: expected C4, heard A4"],
-                   metrics=_metrics(), ref=ref).read_text()
+                   metrics=_metrics(), ref=ref).read_text(encoding="utf-8")
     section = _score_diff_section(text)
     assert str(ref) in section
     assert "- voice 1 event 1: expected C4, heard A4" in section
@@ -1907,7 +1915,7 @@ def test_write_report_does_not_call_an_inline_score_a_file(tmp_path):
     there would be a citation to a file that does not exist."""
     section = _score_diff_section(
         _report(tmp_path, SOUNDING, metrics=_metrics(),
-                ref={"voices": {1: [{"note": "A4", "frames": 25}]}}).read_text())
+                ref={"voices": {1: [{"note": "A4", "frames": 25}]}}).read_text(encoding="utf-8"))
     assert "not a file" in section
     assert "| 1 | 1 | 25 | A4 | A4 |" in section
 
@@ -1919,7 +1927,7 @@ def test_write_report_survives_a_reference_it_cannot_summarise(tmp_path):
     capture away; the section says what happened instead."""
     ref = _ref(tmp_path, "voices:\n  1:\n    - {note: C4, frames: soon}\n", "bad.yaml")
     text = _report(tmp_path, SOUNDING, diffs=["voice 1 event 1: expected C4, heard A4"],
-                   metrics=_metrics(), ref=ref).read_text()
+                   metrics=_metrics(), ref=ref).read_text(encoding="utf-8")
     assert "could not be summarised" in _score_diff_section(text)
     assert str(ref) in text
     assert "**FAIL**" in text

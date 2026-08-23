@@ -112,9 +112,9 @@ def test_ultimax_stub_has_vectors_and_no_kernal_calls():
 
 def test_startup_detection_is_the_opt_out(tmp_path):
     plain = tmp_path / "plain.s"
-    plain.write_text('.segment "CODE"\ncart_main: rts\n')
+    plain.write_text('.segment "CODE"\ncart_main: rts\n', encoding="utf-8")
     own = tmp_path / "own.s"
-    own.write_text('.segment "STARTUP"\n        .word start\n')
+    own.write_text('.segment "STARTUP"\n        .word start\n', encoding="utf-8")
     assert has_own_startup([plain]) is False
     assert has_own_startup([own]) is True
     assert has_own_startup([plain, own]) is True
@@ -122,7 +122,7 @@ def test_startup_detection_is_the_opt_out(tmp_path):
 
 def test_startup_detection_ignores_a_comment(tmp_path):
     p = tmp_path / "c.s"
-    p.write_text('; we could add .segment "STARTUP" here one day\nnop\n')
+    p.write_text('; we could add .segment "STARTUP" here one day\nnop\n', encoding="utf-8")
     assert has_own_startup([p]) is False
 
 
@@ -337,12 +337,12 @@ def test_wrap_rejects_a_truncated_prg(tmp_path):
 
 def write_manifest(tmp_path, text):
     p = tmp_path / "game.ef.yaml"
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     return p
 
 
 def test_manifest_parses_sparse_banks(tmp_path):
-    (tmp_path / "boot.s").write_text("")
+    (tmp_path / "boot.s").write_text("", encoding="utf-8")
     (tmp_path / "music.bin").write_bytes(b"")
     m = write_manifest(tmp_path, """
 name: MYGAME
@@ -361,8 +361,8 @@ def test_manifest_rejects_a_duplicated_bank_key(tmp_path):
     """`0:` and `"0":` are two YAML keys and one bank: without this the second
     silently replaces the first and a whole bank's windows vanish from the
     image with nothing said."""
-    (tmp_path / "b.s").write_text("")
-    (tmp_path / "c.s").write_text("")
+    (tmp_path / "b.s").write_text("", encoding="utf-8")
+    (tmp_path / "c.s").write_text("", encoding="utf-8")
     m = write_manifest(
         tmp_path, 'name: G\nbanks:\n  0: {hi: b.s}\n  "0": {lo: c.s}\n')
     with pytest.raises(CartError, match="bank 0 .*twice|appears more than once"):
@@ -376,7 +376,7 @@ def test_cart_inc_constants_match_the_builder(tmp_path):
     around it; editing one without the other produces a cartridge that builds,
     verifies, and jumps somewhere that is not the jump table.
     """
-    inc = (cart_include_dir() / "cart.inc").read_text()
+    inc = (cart_include_dir() / "cart.inc").read_text(encoding="utf-8")
 
     def value(name):
         m = re.search(rf"^{name}\s*=\s*(\$[0-9A-Fa-f]+|\d+)", inc, re.MULTILINE)
@@ -393,14 +393,14 @@ def test_cart_inc_constants_match_the_builder(tmp_path):
 
 
 def test_manifest_requires_a_bank_zero_hi(tmp_path):
-    (tmp_path / "x.s").write_text("")
+    (tmp_path / "x.s").write_text("", encoding="utf-8")
     m = write_manifest(tmp_path, "name: G\nbanks:\n  0: {lo: x.s}\n")
     with pytest.raises(CartError, match="bank 0 hi"):
         load_manifest(m)
 
 
 def test_manifest_rejects_an_out_of_range_bank(tmp_path):
-    (tmp_path / "b.s").write_text("")
+    (tmp_path / "b.s").write_text("", encoding="utf-8")
     m = write_manifest(tmp_path,
                        "name: G\nbanks:\n  0: {hi: b.s}\n  64: {lo: b.s}\n")
     with pytest.raises(CartError, match="bank 64"):
@@ -408,7 +408,7 @@ def test_manifest_rejects_an_out_of_range_bank(tmp_path):
 
 
 def test_manifest_rejects_an_unknown_window_key(tmp_path):
-    (tmp_path / "b.s").write_text("")
+    (tmp_path / "b.s").write_text("", encoding="utf-8")
     m = write_manifest(tmp_path,
                        "name: G\nbanks:\n  0: {hi: b.s, mid: b.s}\n")
     with pytest.raises(CartError, match="mid"):
@@ -416,7 +416,7 @@ def test_manifest_rejects_an_unknown_window_key(tmp_path):
 
 
 def test_manifest_names_a_missing_file(tmp_path):
-    (tmp_path / "b.s").write_text("")
+    (tmp_path / "b.s").write_text("", encoding="utf-8")
     m = write_manifest(tmp_path,
                        "name: G\nbanks:\n  0: {hi: b.s, lo: gone.bin}\n")
     with pytest.raises(CartError, match="gone.bin"):
@@ -499,14 +499,14 @@ def test_fill_table_flags_a_full_window():
 
 def test_merge_bank_labels_prefixes_each_symbol(tmp_path):
     lo = tmp_path / "b1lo.lbl"
-    lo.write_text("al 008000 .update\nal 008010 .draw\n")
+    lo.write_text("al 008000 .update\nal 008010 .draw\n", encoding="utf-8")
     hi = tmp_path / "b1hi.lbl"
-    hi.write_text("al 00A000 .table\n")
+    hi.write_text("al 00A000 .table\n", encoding="utf-8")
     out = merge_bank_labels({(1, "lo"): lo, (1, "hi"): hi}, tmp_path / "game.crt.lbl")
     # None means "no symbols survived the merge" — a distinct failure from
     # "merged the wrong ones", and worth saying so before reading the file.
     assert out is not None
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert ".b01lo_update" in text
     assert ".b01lo_draw" in text
     assert ".b01hi_table" in text
@@ -514,11 +514,11 @@ def test_merge_bank_labels_prefixes_each_symbol(tmp_path):
 
 def test_merge_bank_labels_drops_linker_internals(tmp_path):
     lbl = tmp_path / "b0lo.lbl"
-    lbl.write_text("al 008000 .main\nal 00E100 .__RAMCODE_LOAD__\n")
+    lbl.write_text("al 008000 .main\nal 00E100 .__RAMCODE_LOAD__\n", encoding="utf-8")
     out = merge_bank_labels({(0, "lo"): lbl}, tmp_path / "m.lbl")
     assert out is not None                  # dropping *every* symbol is a bug too
-    assert "__RAMCODE_LOAD__" not in out.read_text()
-    assert ".b00lo_main" in out.read_text()
+    assert "__RAMCODE_LOAD__" not in out.read_text(encoding="utf-8")
+    assert ".b00lo_main" in out.read_text(encoding="utf-8")
 
 
 # A `10 SYS 2061` stub as the canonical .s layout emits it: link pointer to
@@ -644,7 +644,7 @@ def test_bank_switched_types_are_refused_by_every_single_window_path(tmp_path):
     with pytest.raises(CartError, match="no boot stub"):
         boot_stub_source("easyflash")
     src = tmp_path / "x.s"
-    src.write_text('.export cart_main\n.segment "CODE"\ncart_main: rts\n')
+    src.write_text('.export cart_main\n.segment "CODE"\ncart_main: rts\n', encoding="utf-8")
     with pytest.raises(CartError, match="bank-switched"):
         build_cart(src, cart_type="easyflash", title="X")
 
@@ -717,12 +717,12 @@ def test_startup_detection_ignores_directive_case(tmp_path):
     """ca65 directives are case-insensitive, so `.SEGMENT "STARTUP"` is the
     same opt-out — missing it links a second boot stub into the image."""
     shouty = tmp_path / "shouty.s"
-    shouty.write_text('.SEGMENT "STARTUP"\n        .word start\n')
+    shouty.write_text('.SEGMENT "STARTUP"\n        .word start\n', encoding="utf-8")
     assert has_own_startup([shouty]) is True
     # The segment NAME is case-sensitive: "startup" is a different segment, and
     # no linker config here declares one.
     lower = tmp_path / "lower.s"
-    lower.write_text('.segment "startup"\n        .word start\n')
+    lower.write_text('.segment "startup"\n        .word start\n', encoding="utf-8")
     assert has_own_startup([lower]) is False
 
 
@@ -767,7 +767,7 @@ def test_merge_bank_labels_writes_nothing_when_there_is_nothing_to_merge(tmp_pat
 
 
 def test_a_non_string_manifest_name_is_coerced_not_a_traceback(tmp_path):
-    (tmp_path / "b.s").write_text("")
+    (tmp_path / "b.s").write_text("", encoding="utf-8")
     m = write_manifest(tmp_path, "name: 12345\nbanks:\n  0: {hi: b.s}\n")
     assert load_manifest(m)["name"] == "12345"
     bad = write_manifest(tmp_path, "name: [a, b]\nbanks:\n  0: {hi: b.s}\n")
@@ -783,7 +783,7 @@ def test_manifest_rejects_a_non_mapping_document(tmp_path):
 
 
 def test_manifest_rejects_a_non_numeric_bank_key(tmp_path):
-    (tmp_path / "b.s").write_text("")
+    (tmp_path / "b.s").write_text("", encoding="utf-8")
     m = write_manifest(tmp_path, "name: G\nbanks:\n  intro: {hi: b.s}\n")
     with pytest.raises(CartError, match="not a number"):
         load_manifest(m)

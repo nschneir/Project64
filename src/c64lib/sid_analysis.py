@@ -288,7 +288,7 @@ def log_timing(path: str | Path) -> dict | None:
     written before the stamp existed answers; `c64lib.audio.report_timing_from`
     is where that falls back.
     """
-    for line in Path(path).read_text().splitlines():
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         return _log_stamp(line)
@@ -305,7 +305,7 @@ def parse_log(path: str | Path) -> list[FrameRecord]:
     """
     records = []
     first = True
-    for number, line in enumerate(Path(path).read_text().splitlines(), start=1):
+    for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
         stamp, first = (first and _log_stamp(line) is not None), False
@@ -822,7 +822,7 @@ def write_report(
     lines += [f"- {reason}" for reason in failures] + ([""] if failures else [])
 
     path = outdir / REPORT_NAME
-    path.write_text("\n".join(lines).rstrip() + "\n")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return path
 
 
@@ -882,7 +882,7 @@ def _transcribe_voice(
 
 def _load_score(ref: Mapping | str | Path) -> Mapping:
     if isinstance(ref, (str, Path)):
-        loaded = yaml.safe_load(Path(ref).read_text())
+        loaded = yaml.safe_load(Path(ref).read_text(encoding="utf-8"))
         if not isinstance(loaded, Mapping):
             raise ValueError(f"{ref}: reference score is not a YAML mapping")
         return loaded

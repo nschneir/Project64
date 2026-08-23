@@ -54,7 +54,7 @@ def test_json_end_to_end_on_a_nested_group_command(tmp_path):
     actually flip ctx.obj["json"] for a command reached through a nested
     group (main -> basic -> check), not just a top-level one."""
     src = tmp_path / "clean.bas"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     result = CliRunner().invoke(main, ["basic", "check", str(src), "--json"])
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)

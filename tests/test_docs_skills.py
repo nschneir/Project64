@@ -18,7 +18,7 @@ SKILLS = [Path("skills/c64-development/SKILL.md"),
 
 
 def _frontmatter(path):
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
     assert m, f"{path}: missing YAML front-matter"
     return yaml.safe_load(m.group(1)), text
@@ -47,7 +47,7 @@ def test_referenced_files_exist():
     for p in SKILLS:
         if not p.exists():
             continue
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         # A repo-root-relative path (skills/.../references/x.md) is resolved
         # from the repo root; a bare references/x.md is skill-local.
         # `.py` as well as `.md`: references/ now ships a tool (the branch-range
@@ -69,7 +69,7 @@ def test_cartridge_skill_exists_and_is_wired_up():
         assert topic in text, f"skill never mentions {topic}"
     # Discoverable from the umbrella skill.
     assert "cartridge-programming" in Path(
-        "skills/c64-development/SKILL.md").read_text()
+        "skills/c64-development/SKILL.md").read_text(encoding="utf-8")
 
 
 def test_disk_io_skill_exists_and_is_wired_up():
@@ -81,7 +81,7 @@ def test_disk_io_skill_exists_and_is_wired_up():
         assert topic in text, f"skill never mentions {topic}"
     # Discoverable from the umbrella skill.
     assert "disk-io-programming" in Path(
-        "skills/c64-development/SKILL.md").read_text()
+        "skills/c64-development/SKILL.md").read_text(encoding="utf-8")
 
 
 def test_disk_io_reference_commands_exist():
@@ -90,7 +90,7 @@ def test_disk_io_reference_commands_exist():
     ref = Path("skills/disk-io-programming/references/kernal-disk-io.md")
     assert ref.exists(), "the KERNAL disk-I/O reference must ship"
     valid = valid_mention_paths()
-    unknown = {c for c in mentioned_commands(ref.read_text()) if c not in valid}
+    unknown = {c for c in mentioned_commands(ref.read_text(encoding="utf-8")) if c not in valid}
     assert not unknown, f"{ref}: mentions nonexistent commands {sorted(unknown)}"
 
 
@@ -101,9 +101,13 @@ def test_disk_io_entry_points_agree_with_the_kernal_reference():
     than no copy, so every `| FFxx | NAME |` row in the new reference is
     checked against the umbrella skill's jump table.
     """
-    umbrella = Path("skills/c64-development/references/kernal-routines.md").read_text()
+    umbrella = Path("skills/c64-development/references/kernal-routines.md").read_text(
+        encoding="utf-8"
+    )
     known = dict(re.findall(r"^\|\s*(FF[0-9A-F]{2})\s*\|\s*(\w+)", umbrella, re.M))
-    ref = Path("skills/disk-io-programming/references/kernal-disk-io.md").read_text()
+    ref = Path("skills/disk-io-programming/references/kernal-disk-io.md").read_text(
+        encoding="utf-8"
+    )
     rows = re.findall(r"^\|\s*`?\$?(FF[0-9A-F]{2})`?\s*\|\s*`?(\w+)`?", ref, re.M)
     assert rows, "the reference lists no KERNAL entry points"
     for addr, name in rows:
@@ -120,7 +124,7 @@ def test_audio_lead_in_covers_assembly():
     """The section was written entirely for BASIC, and an assembly program
     has the same problem with a different fix: a lead-in consumed once per
     start, not one baked into the track data — which repeats on every loop."""
-    text = AUDIO_REF.read_text()
+    text = AUDIO_REF.read_text(encoding="utf-8")
     section = text[text.index("### Give the program a silent lead-in"):
                    text.index("## Writing a reference score")]
     assert "In assembly" in section
@@ -131,13 +135,13 @@ def test_audio_lead_in_covers_assembly():
 def test_audio_has_one_shot_cue_recipe():
     """The manoeuvre that actually made the dogfood's act scores
     deterministic, as opposed to the mitigations for window-edge fragility."""
-    text = AUDIO_REF.read_text()
+    text = AUDIO_REF.read_text(encoding="utf-8")
     assert "one-shot cue" in text
     assert "Both edges then fall in silence" in text
 
 
 def test_audio_says_durations_drift():
-    text = AUDIO_REF.read_text()
+    text = AUDIO_REF.read_text(encoding="utf-8")
     assert "jiffy" in text and "omitting `frames` is a legitimate score" in text
 
 
@@ -153,7 +157,7 @@ def test_audio_gives_the_constructive_rule_for_a_generated_score():
     this demo's generator walked its rows and multiplied: every note a frame
     too long, no leading rests. The rule is model the player one frame at a
     time and run-length encode that — the transcriber's own algorithm."""
-    text = AUDIO_REF.read_text()
+    text = AUDIO_REF.read_text(encoding="utf-8")
     section = text[text.index("#### Generate the score"):
                    text.index("To check that the table entry behind")]
     assert "one frame at a time" in section
@@ -164,7 +168,7 @@ def test_audio_gives_the_constructive_rule_for_a_generated_score():
     # The worked example has to be a real function in a file that ships.
     assert str(GENMUSIC.as_posix()) in section, "the worked example is unnamed"
     assert GENMUSIC.exists(), f"{GENMUSIC} is cited and does not exist"
-    src = GENMUSIC.read_text()
+    src = GENMUSIC.read_text(encoding="utf-8")
     for func in ("per_frame", "events"):
         assert f"def {func}(" in src, \
             f"the reference cites {func}(), which {GENMUSIC} no longer defines"
@@ -176,7 +180,7 @@ def test_audio_warns_a_score_is_hostage_to_its_window():
     and collisions the game raised on its own, passed once, and failed when
     unrelated edits moved the enemies. The fix was clearing that state before
     the window, not re-scoring it."""
-    text = AUDIO_REF.read_text()
+    text = AUDIO_REF.read_text(encoding="utf-8")
     section = text[text.index("**Score the window, not the phrase.**"):
                    text.index("Both edges are where a first")]
     assert "under your control" in section
@@ -192,7 +196,7 @@ def test_skill_says_call_ends_the_run():
     program's control flow; the skill that recommends `c64 call` did not, and
     the Ms. Muncher dogfood lost two debugging passes to a machine that looked
     wedged before re-reading the CLI reference."""
-    text = C64_DEV.read_text()
+    text = C64_DEV.read_text(encoding="utf-8")
     section = text[text.index("## Verifying a change"):]
     assert "ends that run" in section
     assert "docs/cli.md" in section
@@ -202,7 +206,7 @@ def test_skill_says_wait_does_not_resume():
     """The skill stated the stopped-state rule and separately stated that
     waits poll, and never joined them: a wait issued after `until` polls a
     stopped machine and can only time out."""
-    text = C64_DEV.read_text()
+    text = C64_DEV.read_text(encoding="utf-8")
     start = text.index("**The stopped-state rule.**")
     section = text[start:text.index("## Text encodings")]
     assert "poll" in section and "do not resume" in section
@@ -212,7 +216,7 @@ def test_skill_says_wait_does_not_resume():
 
 
 def test_skill_diagnosis_rows_present():
-    rows = C64_DEV.read_text()
+    rows = C64_DEV.read_text(encoding="utf-8")
     assert "The machine is stopped —" in rows
     assert "the program is gone" in rows
 
@@ -223,7 +227,7 @@ def test_cartridge_reference_commands_exist():
     ref = Path("skills/cartridge-programming/references/easyflash.md")
     assert ref.exists(), "the EasyFlash reference must ship"
     valid = valid_mention_paths()
-    unknown = {c for c in mentioned_commands(ref.read_text()) if c not in valid}
+    unknown = {c for c in mentioned_commands(ref.read_text(encoding="utf-8")) if c not in valid}
     assert not unknown, f"{ref}: mentions nonexistent commands {sorted(unknown)}"
 
 
@@ -247,7 +251,7 @@ def test_char_rom_image_size_is_stated_with_its_consequence():
     `$1800` and get the ROM's lowercase half — silent, because it looks like
     text. The number is only useful with the count of bases it costs."""
     for doc, (start, end) in _CHAR_ROM_BULLET.items():
-        text = doc.read_text()
+        text = doc.read_text(encoding="utf-8")
         bullet = " ".join(text[text.index(start):text.index(end)].split())
         assert "4 KB" in bullet, f"{doc} never gives the char ROM image's size"
         assert "$1800" in bullet, \
@@ -363,7 +367,7 @@ def test_char_rom_image_hides_the_1800_charset_base_live(tmp_path, session):
     from tests.vice_helpers import timeout_scale
 
     src = tmp_path / "charbase.s"
-    src.write_text(_CHARBASE_PROBE)
+    src.write_text(_CHARBASE_PROBE, encoding="utf-8")
     res = build_asm(src)
     labels = load_labels(res.labels)
     s = session
@@ -413,7 +417,7 @@ def _fixer():
 def test_asm_skill_points_at_the_branch_fixer():
     """The gotcha predicted the trap and left the reader to do 25 rewrites by
     hand. It has to say the fix is mechanical and that the script exists."""
-    text = Path("skills/6502-assembly/SKILL.md").read_text()
+    text = Path("skills/6502-assembly/SKILL.md").read_text(encoding="utf-8")
     assert FIXER.exists(), "the branch-range fixer must ship"
     assert "fix-branch-range.py" in text, "the skill never names the script"
     assert "mechanical" in text
@@ -431,14 +435,14 @@ def test_fixer_is_run_through_an_interpreter_not_executed():
     The interpreter is spelled `python3`, not `python`: on a machine with no
     `python` shim the documented pipe fails at the shell rather than at the
     script, which reads as the tool being broken."""
-    text = FIXER.read_text()
+    text = FIXER.read_text(encoding="utf-8")
     assert not text.startswith("#!"), \
         "shebang on a non-executable file — see this test's docstring"
     assert not FIXER.stat().st_mode & 0o111, \
         f"{FIXER} is executable but carries no shebang — pick one"
     assert "python3 fix-branch-range.py" in text, \
         "the module docstring must show the interpreter it needs"
-    skill = Path("skills/6502-assembly/SKILL.md").read_text()
+    skill = Path("skills/6502-assembly/SKILL.md").read_text(encoding="utf-8")
     assert "python3 skills/6502-assembly/references/fix-branch-range.py" in skill, \
         "the skill's pipe must spell python3 too"
 
@@ -480,11 +484,11 @@ def test_fixer_inverts_the_branch_over_a_jmp(tmp_path):
     src.write_text("        lda #$00\n"
                    "spin:   bne far         ; too far now\n"
                    "        nop\n"
-                   "far:    rts\n")
+                   "far:    rts\n", encoding="utf-8")
     mod = _fixer()
     report, left = mod.fix_file(src, [1], dry_run=False)
     assert left == 0, report
-    assert src.read_text() == ("        lda #$00\n"
+    assert src.read_text(encoding="utf-8") == ("        lda #$00\n"
                                "spin:   beq :+\n"
                                "        jmp far         ; too far now\n"
                                ":\n"
@@ -500,11 +504,11 @@ def test_fixer_fixes_bottom_up_so_line_numbers_stay_valid(tmp_path):
                    "        nop\n"
                    "        bmi two\n"
                    "one:    rts\n"
-                   "two:    rts\n")
+                   "two:    rts\n", encoding="utf-8")
     mod = _fixer()
     _report, left = mod.fix_file(src, [0, 2], dry_run=False)
     assert left == 0
-    text = src.read_text()
+    text = src.read_text(encoding="utf-8")
     assert "bcs :+\n        jmp one\n:\n" in text
     assert "bpl :+\n        jmp two\n:\n" in text
 
@@ -514,11 +518,11 @@ def test_fixer_reports_rather_than_touches_an_anonymous_target(tmp_path):
     branch is aiming at, so the script hands this one back."""
     src = tmp_path / "anon.s"
     before = "        bne :+\n        nop\n:       rts\n"
-    src.write_text(before)
+    src.write_text(before, encoding="utf-8")
     mod = _fixer()
     report, left = mod.fix_file(src, [0], dry_run=False)
     assert left == 1
-    assert src.read_text() == before, "a skipped branch must not be rewritten"
+    assert src.read_text(encoding="utf-8") == before, "a skipped branch must not be rewritten"
     assert "SKIPPED" in report[0] and "anonymous" in report[0]
 
 
@@ -532,21 +536,21 @@ def test_fixer_refuses_to_renumber_a_neighbouring_anonymous_label(tmp_path):
               "        bcc far\n"
               ":       nop\n"
               "far:    rts\n")
-    src.write_text(before)
+    src.write_text(before, encoding="utf-8")
     mod = _fixer()
     report, left = mod.fix_file(src, [1], dry_run=False)
     assert left == 1
-    assert src.read_text() == before
+    assert src.read_text(encoding="utf-8") == before
     assert "renumber" in report[0]
 
 
 def test_fixer_dry_run_writes_nothing(tmp_path):
     src = tmp_path / "dry.s"
     before = "        bne far\n        nop\nfar:    rts\n"
-    src.write_text(before)
+    src.write_text(before, encoding="utf-8")
     mod = _fixer()
     report, left = mod.fix_file(src, [0], dry_run=True)
-    assert left == 0 and report and src.read_text() == before
+    assert left == 0 and report and src.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.skipif(
@@ -564,7 +568,7 @@ def test_fixer_turns_a_real_failing_build_green(tmp_path):
                    'start:  lda #$00\n'
                    '        bne done\n'
                    '        .res 200, $EA\n'
-                   'done:   rts\n')
+                   'done:   rts\n', encoding="utf-8")
     with pytest.raises(BuildError) as e:
         build_asm(src)
     assert "Range error" in str(e.value)
@@ -583,11 +587,11 @@ def test_fixer_exit_code_flags_what_it_left_behind(tmp_path, monkeypatch, capsys
     import io
     mod = _fixer()
     src = tmp_path / "mix.s"
-    src.write_text("        bne :+\n        nop\n:       rts\n")
+    src.write_text("        bne :+\n        nop\n:       rts\n", encoding="utf-8")
     log = f"{src}(1): Error: Range error (204 not in [-128..127])\n"
     monkeypatch.setattr("sys.stdin", io.StringIO(log))
     assert mod.main([]) == 1
-    src.write_text("        bne far\n        nop\nfar:    rts\n")
+    src.write_text("        bne far\n        nop\nfar:    rts\n", encoding="utf-8")
     monkeypatch.setattr("sys.stdin", io.StringIO(log))
     assert mod.main([]) == 0
     monkeypatch.setattr("sys.stdin", io.StringIO("nothing to see here\n"))
@@ -611,12 +615,12 @@ def test_relocation_claim_is_the_corrected_one():
     """Neither reference may reassert that screen reads assume `$0400`, and
     both must state what is actually fixed — colour RAM."""
     for ref in (COOKBOOK_REF, HARDWARE_REF):
-        prose = " ".join(ref.read_text().split())
+        prose = " ".join(ref.read_text(encoding="utf-8").split())
         assert "screen reader assumes" not in prose, \
             f"{ref} reasserts the claim the fugue dogfood measured false"
         assert "follow `$DD00`/`$D018`" in prose, \
             f"{ref} no longer says reads follow the relocated screen"
-    hw = " ".join(HARDWARE_REF.read_text().split())
+    hw = " ".join(HARDWARE_REF.read_text(encoding="utf-8").split())
     assert "Colour RAM never moves" in hw, \
         "hardware.md no longer says which half of the pair really is fixed"
 
@@ -657,13 +661,13 @@ def test_badline_latch_rule_is_stated_with_its_consequence():
     frame — was stated nowhere, and the fugue dogfood derived its whole
     scroll design the long way around it. Both the hardware reference and
     the cookbook's budget recipe must now carry it."""
-    hw = " ".join(HARDWARE_REF.read_text().split())
+    hw = " ".join(HARDWARE_REF.read_text(encoding="utf-8").split())
     assert "on the badline at that row's *first* raster (`51 + 8*R`)" in hw, \
         "hardware.md no longer states the latch rule with its arithmetic"
     assert "writes to that row cannot affect the current frame" in hw, \
         "hardware.md no longer states the latch rule's consequence"
     assert "the moment the **last** row it touches has been latched" in hw, \
         "hardware.md no longer draws the late-arm consequence for big redraws"
-    cb = " ".join(COOKBOOK_REF.read_text().split())
+    cb = " ".join(COOKBOOK_REF.read_text(encoding="utf-8").split())
     assert 'rule for a **short** tick, and it is actively wrong for a redraw' in cb, \
         "the cookbook's budget recipe no longer scopes 'arm in the top border'"

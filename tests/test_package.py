@@ -9,7 +9,7 @@ def _pyproject_version() -> str:
     from pathlib import Path
 
     return tomllib.loads(
-        (Path(__file__).parents[1] / "pyproject.toml").read_text()
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     )["project"]["version"]
 
 
@@ -28,7 +28,7 @@ def test_changelog_has_current_version():
     from pathlib import Path
 
     version = _pyproject_version()
-    changelog = (Path(__file__).parents[1] / "CHANGELOG.md").read_text()
+    changelog = (Path(__file__).parents[1] / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## [{version}]" in changelog, \
         f"CHANGELOG.md has no entry for {version}"
 

@@ -53,7 +53,7 @@ msg:    .byte   "CART HELLO", $0D, $00
 ])
 def test_native_build_produces_a_verifiable_crt(tmp_path, cart_type, size, mode):
     src = tmp_path / "hello.s"
-    src.write_text(HELLO)
+    src.write_text(HELLO, encoding="utf-8")
     res = build_cart(src, cart_type=cart_type, title="HELLO")
     info = cart_info(res["crt"])
     assert info["mode"] == mode
@@ -75,7 +75,7 @@ def test_a_native_cart_build_pins_the_model_in_its_run_hint(tmp_path):
     about the image — but it does change which emulator the recipient runs,
     and a c64pal author was being handed `-ntsc`."""
     src = tmp_path / "hello.s"
-    src.write_text(HELLO)
+    src.write_text(HELLO, encoding="utf-8")
     res = build_cart(src, out=tmp_path / "pal.crt", title="HELLO",
                      model="c64pal")
     assert res["run"].startswith("x64sc -pal -cartcrt")
@@ -91,7 +91,7 @@ def test_ultimax_build_maps_romh_at_e000(tmp_path):
         'cart_main:\n'
         '        lda #21\n'
         '        sta $0400\n'
-        '        jmp cart_main\n'
+        '        jmp cart_main\n', encoding="utf-8"
     )
     res = build_cart(src, cart_type="ultimax", title="ULTI")
     info = cart_info(res["crt"])
@@ -114,7 +114,7 @@ def test_16k_romh_data_does_not_charge_for_the_roml_fill(tmp_path):
         '.segment "CODE"\n'
         'cart_main: jmp cart_main\n'
         '.segment "ROMH"\n'
-        'table:  .byte 42\n'
+        'table:  .byte 42\n', encoding="utf-8"
     )
     res = build_cart(src, cart_type="16k", title="ROMH")
     # Boot stub + 3-byte program + 1 byte of ROMH: nowhere near the ~8 KB the
@@ -139,7 +139,7 @@ def test_bss_variables_link_into_ram(tmp_path, cart_type, size):
         '.segment "CODE"\n'
         'cart_main:\n'
         '        inc counter\n'
-        '        jmp cart_main\n'
+        '        jmp cart_main\n', encoding="utf-8"
     )
     res = build_cart(src, cart_type=cart_type, title="BSS")
     assert cart_verify(res["crt"]) == []
@@ -150,7 +150,7 @@ def test_bss_variables_link_into_ram(tmp_path, cart_type, size):
 def test_missing_cart_main_export_explains_itself(tmp_path):
     from c64lib.cartridge import CartError
     src = tmp_path / "bad.s"
-    src.write_text('.segment "CODE"\nnope: rts\n')
+    src.write_text('.segment "CODE"\nnope: rts\n', encoding="utf-8")
     with pytest.raises(CartError, match=r"\.export cart_main"):
         build_cart(src, cart_type="8k", title="BAD")
 
@@ -165,7 +165,7 @@ def test_own_startup_suppresses_the_generated_stub(tmp_path):
         '        .word mine\n'
         '        .word mine\n'
         '        .byte $C3,$C2,$CD,$38,$30\n'
-        'mine:   jmp mine\n'
+        'mine:   jmp mine\n', encoding="utf-8"
     )
     res = build_cart(src, cart_type="8k", title="OWN")
     assert cart_verify(res["crt"]) == []
@@ -175,7 +175,7 @@ def test_own_startup_suppresses_the_generated_stub(tmp_path):
 @needs_petcat
 def test_wrapping_a_basic_program_builds_a_bootable_cart(tmp_path):
     bas = tmp_path / "hello.bas"
-    bas.write_text('10 print "wrapped basic ok"\n20 goto 20\n')
+    bas.write_text('10 print "wrapped basic ok"\n20 goto 20\n', encoding="utf-8")
     res = wrap_prg(bas, cart_type="8k", title="WRAPBAS")
     assert res["kind"] == "basic" and res["load_addr"] == 0x0801
     assert cart_verify(res["crt"]) == []
@@ -187,7 +187,7 @@ def test_wrapping_an_assembly_program_uses_the_ml_path(tmp_path):
     src.write_text(
         '.segment "LOADADDR"\n        .word $0801\n'
         '.segment "CODE"\n'
-        'start:  lda #1\n        sta $0400\n        jmp start\n'
+        'start:  lda #1\n        sta $0400\n        jmp start\n', encoding="utf-8"
     )
     res = wrap_prg(src, cart_type="8k", title="WRAPML")
     assert res["kind"] == "ml"
@@ -220,7 +220,7 @@ def test_wrapping_a_sys_stub_assembly_program_runs_it_through_basic(tmp_path):
     calls fine. The SYS stub has to be reached through the interpreter.
     """
     src = tmp_path / "canon.s"
-    src.write_text(CANONICAL_ASM)
+    src.write_text(CANONICAL_ASM, encoding="utf-8")
     res = wrap_prg(src, cart_type="8k", title="CANON")
     assert res["kind"] == "basic"
     assert cart_verify(res["crt"]) == []
@@ -235,7 +235,7 @@ def test_wrapping_a_sys_stub_assembly_program_runs_it_through_basic(tmp_path):
 def test_a_built_prg_and_its_source_agree_on_the_wrap_kind(tmp_path):
     """Wrapping foo.s and wrapping the foo.prg it builds must not disagree."""
     src = tmp_path / "canon.s"
-    src.write_text(CANONICAL_ASM)
+    src.write_text(CANONICAL_ASM, encoding="utf-8")
     prg = build_asm(src, out_prg=tmp_path / "canon.prg").prg
     from_source = wrap_prg(src, out=tmp_path / "a.crt", title="A")
     from_prg = wrap_prg(prg, out=tmp_path / "b.crt", title="B")
@@ -269,7 +269,7 @@ def test_a_9000_byte_program_wraps_into_the_full_16k_window(tmp_path):
 def write_banked_game(tmp_path):
     """A three-bank EasyFlash game: boot in bank 0 hi, main in bank 0 lo,
     and a routine in bank 1 that bank 0 reaches through bankcall."""
-    (tmp_path / "boot.s").write_text('.include "cart.inc"\n')
+    (tmp_path / "boot.s").write_text('.include "cart.inc"\n', encoding="utf-8")
     (tmp_path / "main.s").write_text("""\
 .include "cart.inc"
 .segment "JUMPTAB"
@@ -279,7 +279,7 @@ cold:   ef_call 1, 0                    ; call bank 1's entry 0
         lda #$2A
         sta $0506                       ; '*' = we came back from bank 1
 here:   jmp here
-""")
+""", encoding="utf-8")
     (tmp_path / "far.s").write_text("""\
 .include "cart.inc"
 .segment "JUMPTAB"
@@ -288,14 +288,14 @@ here:   jmp here
 shout:  lda #$41                        ; 'A' — proof bank 1 executed
         sta $0505
         rts
-""")
+""", encoding="utf-8")
     m = tmp_path / "game.ef.yaml"
     m.write_text("""\
 name: BANKED
 banks:
   0: {lo: main.s, hi: boot.s}
   1: {lo: far.s}
-""")
+""", encoding="utf-8")
     return m
 
 
@@ -330,7 +330,7 @@ def test_ef_bank_bss_links_into_ram(tmp_path):
         '.include "cart.inc"\n'
         '.segment "BSS"\n'
         'bootflag: .res 1\n'
-        'bootfill: .res $05FF\n'
+        'bootfill: .res $05FF\n', encoding="utf-8"
     )
     (tmp_path / "far.s").write_text("""\
 .include "cart.inc"
@@ -343,7 +343,7 @@ shout:  inc calls
         lda #$41                        ; 'A' — proof bank 1 executed
         sta $0505
         rts
-""")
+""", encoding="utf-8")
     res = build_easyflash(m)
     assert cart_verify(res["crt"]) == []
     assert Path(res["bin"]).stat().st_size == 1_048_576
@@ -361,7 +361,7 @@ shout:  inc calls
     (over / "boot.s").write_text(
         '.include "cart.inc"\n'
         '.segment "BSS"\n'
-        'bootflag: .res $0601\n'
+        'bootflag: .res $0601\n', encoding="utf-8"
     )
     with pytest.raises(BuildError, match="overflows memory area 'RAM'"):
         build_easyflash(m_over)
@@ -387,7 +387,9 @@ def test_a_short_raw_boot_window_is_refused(tmp_path):
     from c64lib.cartridge import CartError
     m = write_banked_game(tmp_path)
     (tmp_path / "stub.bin").write_bytes(b"\x00" * 64)
-    m.write_text(m.read_text().replace("hi: boot.s", "hi: stub.bin"))
+    m.write_text(
+        m.read_text(encoding="utf-8").replace("hi: boot.s", "hi: stub.bin"), encoding="utf-8"
+    )
     with pytest.raises(CartError, match="boot window must fill all"):
         build_easyflash(m)
 
@@ -399,7 +401,7 @@ def test_a_binary_only_manifest_writes_no_label_file(tmp_path):
     boot = tmp_path / "boot.bin"
     boot.write_bytes(b"\xFF" * 8186 + b"\x00\xE0" * 3)   # vectors at $FFFA
     m = tmp_path / "blob.ef.yaml"
-    m.write_text("name: BLOB\nbanks:\n  0: {hi: boot.bin}\n")
+    m.write_text("name: BLOB\nbanks:\n  0: {hi: boot.bin}\n", encoding="utf-8")
     res = build_easyflash(m)
     assert res["labels"] is None
     assert not (tmp_path / "blob.lbl").exists()
@@ -423,8 +425,8 @@ def test_window_overflow_names_the_bank_and_the_amount(tmp_path):
     from c64lib.cartridge import CartError
     m = write_banked_game(tmp_path)
     (tmp_path / "fat.bin").write_bytes(b"\x00" * (8192 + 17))
-    m.write_text(m.read_text().replace("  1: {lo: far.s}",
-                                       "  1: {lo: far.s, hi: fat.bin}"))
+    m.write_text(m.read_text(encoding="utf-8").replace("  1: {lo: far.s}",
+                                       "  1: {lo: far.s, hi: fat.bin}"), encoding="utf-8")
     with pytest.raises(CartError, match="bank 1 hi .* 17 over"):
         build_easyflash(m)
 
@@ -432,7 +434,7 @@ def test_window_overflow_names_the_bank_and_the_amount(tmp_path):
 def test_cart_inc_is_shipped_as_package_data():
     inc = cart_include_dir() / "cart.inc"
     assert inc.exists(), "cart.inc must ship with the package"
-    text = inc.read_text()
+    text = inc.read_text(encoding="utf-8")
     assert "bankcall" in text and "ef_boot" in text
 
 
@@ -571,7 +573,10 @@ def test_ef_call_rejects_an_entry_index_past_the_jump_table(tmp_path, index, fit
     from c64lib.build import BuildError
     m = write_banked_game(tmp_path)
     main = tmp_path / "main.s"
-    main.write_text(main.read_text().replace("ef_call 1, 0", f"ef_call 1, {index}"))
+    main.write_text(
+        main.read_text(encoding="utf-8").replace("ef_call 1, 0", f"ef_call 1, {index}"),
+        encoding="utf-8",
+    )
     if fits:
         build_easyflash(m)      # assembles; the callee simply has no such entry
         return
@@ -586,7 +591,9 @@ def test_ef_call_rejects_a_negative_entry_index(tmp_path):
     from c64lib.build import BuildError
     m = write_banked_game(tmp_path)
     main = tmp_path / "main.s"
-    main.write_text(main.read_text().replace("ef_call 1, 0", "ef_call 1, -1"))
+    main.write_text(
+        main.read_text(encoding="utf-8").replace("ef_call 1, 0", "ef_call 1, -1"), encoding="utf-8"
+    )
     with pytest.raises(BuildError, match="entry index is negative"):
         build_easyflash(m)
 
@@ -658,7 +665,7 @@ def test_a_wrapped_basic_program_actually_runs_when_the_cart_boots(tmp_path):
     from c64lib.testing import run_test
 
     bas = tmp_path / "wrapped.bas"
-    bas.write_text('10 print "wrap boot ok"\n20 goto 20\n')
+    bas.write_text('10 print "wrap boot ok"\n20 goto 20\n', encoding="utf-8")
     prg = tokenize(bas, tmp_path / "wrapped.prg", get_profile("c64").basic_version)
     res = wrap_prg(prg, cart_type="8k", title="WRAPBOOT")
     assert res["kind"] == "basic"

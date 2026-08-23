@@ -175,7 +175,7 @@ def test_assert_mem_equals_text():
 
 def test_program_bas_tokenized_and_autostarted(tmp_path):
     prog = tmp_path / "p.bas"
-    prog.write_text('10 print "hi"\n')
+    prog.write_text('10 print "hi"\n', encoding="utf-8")
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     spec = _spec(program=str(prog))
@@ -448,7 +448,7 @@ def test_call_step_resolves_symbol_and_passes_registers(tmp_path):
     s, mon = _fake_session()
     launch = Mock(return_value=s)
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:2000 .sndinit\n")
+    lbl.write_text("al C:2000 .sndinit\n", encoding="utf-8")
     prog = tmp_path / "p.prg"
     prog.write_bytes(b"\x01\x08")
     spec = _spec(program=str(prog), autorun=True,
@@ -710,7 +710,7 @@ def test_cart_spec_resolves_and_leaves_program_unset(tmp_path):
     crt = tmp_path / "game.crt"
     crt.write_bytes(b"C64 CARTRIDGE   " + bytes(48))
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("cart: game.crt\nsteps:\n  - wait: {text: HI}\n")
+    spec_file.write_text("cart: game.crt\nsteps:\n  - wait: {text: HI}\n", encoding="utf-8")
     spec = load_test(spec_file)
     assert spec["cart"] == str(crt.resolve())
     assert spec.get("program") is None
@@ -720,9 +720,9 @@ def test_cart_and_program_are_mutually_exclusive(tmp_path):
     from c64lib.testing import TestError, load_test
 
     (tmp_path / "game.crt").write_bytes(b"C64 CARTRIDGE   " + bytes(48))
-    (tmp_path / "program.s").write_text("nop\n")
+    (tmp_path / "program.s").write_text("nop\n", encoding="utf-8")
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("cart: game.crt\nprogram: program.s\nsteps: []\n")
+    spec_file.write_text("cart: game.crt\nprogram: program.s\nsteps: []\n", encoding="utf-8")
     with pytest.raises(TestError, match="cart.*program"):
         load_test(spec_file)
 
@@ -731,7 +731,7 @@ def test_missing_cart_file_is_named(tmp_path):
     from c64lib.testing import TestError, load_test
 
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("cart: gone.crt\nsteps: []\n")
+    spec_file.write_text("cart: gone.crt\nsteps: []\n", encoding="utf-8")
     with pytest.raises(TestError, match="gone.crt"):
         load_test(spec_file)
 
@@ -774,7 +774,7 @@ def test_run_test_without_cart_still_gates_on_ready(tmp_path):
 def test_run_test_loads_cart_labels_when_present(tmp_path):
     """A cart's .lbl feeds symbols to until/poke steps, exactly as a program's does."""
     crt = _crt(tmp_path / "game.crt")
-    (tmp_path / "game.lbl").write_text("al 00C000 .entry\n")
+    (tmp_path / "game.lbl").write_text("al 00C000 .entry\n", encoding="utf-8")
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])
     spec = _spec(cart=str(crt), dir=str(tmp_path),
@@ -790,7 +790,7 @@ def test_run_test_loads_disk_labels_when_present(tmp_path):
     import os
 
     img = _d64(tmp_path / "game.d64")
-    (tmp_path / "game.lbl").write_text("al 00C000 .entry\n")
+    (tmp_path / "game.lbl").write_text("al 00C000 .entry\n", encoding="utf-8")
     # The real order: `c64 package -o game.d64` writes the .lbl (beside the
     # .prg it built) and then the image. Writing them the other way round here
     # would trip the staleness guard on an image that is perfectly current.
@@ -835,7 +835,7 @@ def test_prepare_cart_passes_a_crt_through_with_its_sibling_labels(tmp_path):
     crt = _crt(tmp_path / "game.crt")
     assert prepare_cart(tmp_path, "game.crt") == (crt.resolve(), None)
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al 000801 .start\n")
+    lbl.write_text("al 000801 .start\n", encoding="utf-8")
     assert prepare_cart(tmp_path, "game.crt") == (crt.resolve(), lbl.resolve())
 
 
@@ -862,7 +862,7 @@ def test_prepare_cart_resolves_relative_to_the_spec_dir(tmp_path, monkeypatch):
 def test_prepare_cart_builds_a_source_cart(tmp_path, monkeypatch, labels):
     from c64lib import testing as testing_mod
 
-    (tmp_path / "game.s").write_text("nop\n")
+    (tmp_path / "game.s").write_text("nop\n", encoding="utf-8")
     seen = {}
 
     def fake_build_cart(source, cart_type="8k"):
@@ -884,7 +884,7 @@ def test_prepare_cart_builds_an_easyflash_manifest(tmp_path, monkeypatch, name,
                                                    labels):
     from c64lib import testing as testing_mod
 
-    (tmp_path / name).write_text("name: game\n")
+    (tmp_path / name).write_text("name: game\n", encoding="utf-8")
     seen = {}
 
     def fake_build_easyflash(manifest):
@@ -924,7 +924,7 @@ def test_disk_spec_resolves_and_leaves_program_unset(tmp_path):
 
     img = _d64(tmp_path / "game.d64")
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("disk: game.d64\nsteps:\n  - wait: {text: HI}\n")
+    spec_file.write_text("disk: game.d64\nsteps:\n  - wait: {text: HI}\n", encoding="utf-8")
     spec = load_test(spec_file)
     assert spec["disk"] == str(img.resolve())
     assert spec.get("program") is None
@@ -936,9 +936,9 @@ def test_disk_and_program_are_mutually_exclusive(tmp_path):
     from c64lib.testing import load_test
 
     _d64(tmp_path / "game.d64")
-    (tmp_path / "program.s").write_text("nop\n")
+    (tmp_path / "program.s").write_text("nop\n", encoding="utf-8")
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("disk: game.d64\nprogram: program.s\nsteps: []\n")
+    spec_file.write_text("disk: game.d64\nprogram: program.s\nsteps: []\n", encoding="utf-8")
     with pytest.raises(TestError, match="disk.*program"):
         load_test(spec_file)
 
@@ -951,7 +951,7 @@ def test_disk_and_cart_are_mutually_exclusive(tmp_path):
     _d64(tmp_path / "game.d64")
     _crt(tmp_path / "game.crt")
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("disk: game.d64\ncart: game.crt\nsteps: []\n")
+    spec_file.write_text("disk: game.d64\ncart: game.crt\nsteps: []\n", encoding="utf-8")
     with pytest.raises(TestError, match="disk.*cart"):
         load_test(spec_file)
 
@@ -960,7 +960,7 @@ def test_missing_disk_file_is_named(tmp_path):
     from c64lib.testing import load_test
 
     spec_file = tmp_path / "test.yaml"
-    spec_file.write_text("disk: gone.d64\nsteps: []\n")
+    spec_file.write_text("disk: gone.d64\nsteps: []\n", encoding="utf-8")
     with pytest.raises(TestError, match="gone.d64"):
         load_test(spec_file)
 
@@ -975,7 +975,7 @@ def test_a_contradictory_spec_is_reported_as_contradictory_not_as_a_missing_file
 
     _d64(tmp_path / "game.d64")
     _crt(tmp_path / "game.crt")
-    (tmp_path / "program.s").write_text("nop\n")
+    (tmp_path / "program.s").write_text("nop\n", encoding="utf-8")
     spec_file = tmp_path / "test.yaml"
     for text, expected in [
         ("disk: game.d64\ncart: gone.crt\nsteps: []\n", "disk.*cart"),
@@ -985,7 +985,7 @@ def test_a_contradictory_spec_is_reported_as_contradictory_not_as_a_missing_file
         ("cart: game.crt\nprogram: gone.s\nsteps: []\n", "cart.*program"),
         ("cart: gone.crt\nprogram: program.s\nsteps: []\n", "cart.*program"),
     ]:
-        spec_file.write_text(text)
+        spec_file.write_text(text, encoding="utf-8")
         with pytest.raises(TestError, match=expected) as exc:
             load_test(spec_file)
         assert "not found" not in str(exc.value), text
@@ -1000,7 +1000,7 @@ def test_a_single_key_spec_still_names_the_missing_file(tmp_path):
     for text, expected in [("cart: gone.crt\nsteps: []\n", "gone.crt"),
                            ("disk: gone.d64\nsteps: []\n", "gone.d64"),
                            ("program: gone.s\nsteps: []\n", "gone.s")]:
-        spec_file.write_text(text)
+        spec_file.write_text(text, encoding="utf-8")
         with pytest.raises(TestError, match=f"{expected} not found"):
             load_test(spec_file)
 
@@ -1009,9 +1009,9 @@ def test_is_disk_spec_parses_yaml_rather_than_sniffing_text(tmp_path):
     from c64lib.testing import is_disk_spec
 
     yes = tmp_path / "yes.yaml"
-    yes.write_text("disk: game.d64\n")
+    yes.write_text("disk: game.d64\n", encoding="utf-8")
     no = tmp_path / "no.yaml"
-    no.write_text("# disk: game.d64\nsteps:\n  - key: \"disk:\"\n")
+    no.write_text("# disk: game.d64\nsteps:\n  - key: \"disk:\"\n", encoding="utf-8")
     assert is_disk_spec(yes) is True
     assert is_disk_spec(no) is False
     assert is_disk_spec(tmp_path / "nope.yaml") is False
@@ -1079,7 +1079,7 @@ def test_prepare_disk_resolves_relative_to_the_spec_dir(tmp_path, monkeypatch):
 def test_prepare_disk_builds_a_manifest(tmp_path, monkeypatch, name):
     from c64lib import testing as testing_mod
 
-    (tmp_path / name).write_text("label: game\n")
+    (tmp_path / name).write_text("label: game\n", encoding="utf-8")
     seen = {}
 
     def fake_build_disk(manifest, model="c64"):
@@ -1175,7 +1175,7 @@ def test_prg_program_resolves_a_sibling_label_file(tmp_path):
     13 s of serial load) for the only route to symbols there was."""
     prog = tmp_path / "p.prg"
     prog.write_bytes(b"\x01\x08")
-    (tmp_path / "p.lbl").write_text("al C:c000 .entry\n")
+    (tmp_path / "p.lbl").write_text("al C:c000 .entry\n", encoding="utf-8")
     s, mon = _fake_session()
     mon.memory_read.return_value = bytes([7])
     spec = _spec(program=str(prog),
@@ -1206,7 +1206,7 @@ def test_areas_reach_the_assembler_for_an_s_program(tmp_path):
     from c64lib.build import Area, BuildResult
 
     src = tmp_path / "g.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     prg = tmp_path / "g.prg"
     prg.write_bytes(b"\x01\x08")
     res = BuildResult(prg=prg, labels=tmp_path / "g.lbl")
@@ -1237,7 +1237,7 @@ def test_a_bad_area_token_is_a_spec_error_not_a_traceback(tmp_path):
     """`parse_areas` raises ValueError, which no front end catches — a typo in
     a spec has to arrive as the same TestError every other spec mistake does."""
     src = tmp_path / "g.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     spec = _spec(program=str(src), areas=["ENGINE"])
     with pytest.raises(TestError, match=r"--area needs NAME=START:SIZE"):
         run_test(spec, launch=Mock())
@@ -1261,7 +1261,7 @@ def _stale_disk(tmp_path: Path, img_at: int, lbl_at: int) -> Path:
 
     img = _d64(tmp_path / "game.d64")
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al 00C000 .entry\n")
+    lbl.write_text("al 00C000 .entry\n", encoding="utf-8")
     os.utime(img, (img_at, img_at))
     os.utime(lbl, (lbl_at, lbl_at))
     return img
@@ -1347,7 +1347,7 @@ def test_a_disk_build_label_copy_is_never_called_stale(tmp_path):
 
     img = _d64(tmp_path / "game.d64")
     kept = tmp_path / "game.hello.lbl"
-    kept.write_text("al 00C000 .entry\n")
+    kept.write_text("al 00C000 .entry\n", encoding="utf-8")
     os.utime(img, (1_700_000_000, 1_700_000_000))
     os.utime(kept, (1_700_000_060, 1_700_000_060))
     s, mon = _fake_session()
@@ -1369,7 +1369,7 @@ def _prg_pair(tmp_path: Path, prg_at: float, lbl_at: float) -> Path:
     prg = tmp_path / "p.prg"
     prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("al C:c000 .entry\n")
+    lbl.write_text("al C:c000 .entry\n", encoding="utf-8")
     os.utime(prg, (prg_at, prg_at))
     os.utime(lbl, (lbl_at, lbl_at))
     return prg
@@ -1458,11 +1458,11 @@ def test_a_built_program_is_never_judged_stale(tmp_path):
     from c64lib.build import BuildResult
 
     src = tmp_path / "g.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     prg = tmp_path / "g.prg"
     prg.write_bytes(b"\x01\x08")
     lbl = tmp_path / "g.lbl"
-    lbl.write_text("al C:c000 .entry\n")
+    lbl.write_text("al C:c000 .entry\n", encoding="utf-8")
     # stamps the `.prg` guard would refuse outright, and the source newest of
     # the three: the spec is asking for a rebuild
     os.utime(prg, (1_700_000_000, 1_700_000_000))
@@ -1485,7 +1485,7 @@ def _cart_pair(tmp_path: Path, crt_at: float, lbl_at: float) -> Path:
 
     crt = _crt(tmp_path / "game.crt")
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al 00C000 .entry\n")
+    lbl.write_text("al 00C000 .entry\n", encoding="utf-8")
     os.utime(crt, (crt_at, crt_at))
     os.utime(lbl, (lbl_at, lbl_at))
     return crt
@@ -1579,10 +1579,10 @@ def test_a_built_cart_is_never_judged_stale(tmp_path):
     import os
 
     src = tmp_path / "game.s"
-    src.write_text("; x\n")
+    src.write_text("; x\n", encoding="utf-8")
     crt = _crt(tmp_path / "game.crt")
     lbl = tmp_path / "game.lbl"
-    lbl.write_text("al 00C000 .entry\n")
+    lbl.write_text("al 00C000 .entry\n", encoding="utf-8")
     # stamps the ready-made guard would refuse outright
     os.utime(crt, (1_700_000_000, 1_700_000_000))
     os.utime(lbl, (1_700_000_600, 1_700_000_600))
@@ -1600,13 +1600,13 @@ def test_a_built_cart_is_never_judged_stale(tmp_path):
 def test_load_test_keeps_an_areas_list(tmp_path):
     from c64lib.testing import load_test
 
-    (tmp_path / "p.s").write_text("; x\n")
+    (tmp_path / "p.s").write_text("; x\n", encoding="utf-8")
     spec_file = tmp_path / "t.yaml"
-    spec_file.write_text("program: p.s\nareas:\n  - ENGINE=$4000:$6000\n")
+    spec_file.write_text("program: p.s\nareas:\n  - ENGINE=$4000:$6000\n", encoding="utf-8")
     spec = load_test(spec_file)
     assert spec["areas"] == ["ENGINE=$4000:$6000"]
     # every other spec defaults to an empty list, never a missing key
-    (tmp_path / "u.yaml").write_text("program: p.s\n")
+    (tmp_path / "u.yaml").write_text("program: p.s\n", encoding="utf-8")
     assert load_test(tmp_path / "u.yaml")["areas"] == []
 
 
@@ -1615,9 +1615,9 @@ def test_load_test_rejects_a_bare_string_areas(tmp_path):
     it one character at a time ("got 'E'")."""
     from c64lib.testing import load_test
 
-    (tmp_path / "p.s").write_text("; x\n")
+    (tmp_path / "p.s").write_text("; x\n", encoding="utf-8")
     spec_file = tmp_path / "t.yaml"
-    spec_file.write_text("program: p.s\nareas: ENGINE=$4000:$6000\n")
+    spec_file.write_text("program: p.s\nareas: ENGINE=$4000:$6000\n", encoding="utf-8")
     with pytest.raises(TestError, match=r"list of NAME=START:SIZE"):
         load_test(spec_file)
 
@@ -1627,6 +1627,6 @@ def test_load_test_rejects_areas_beside_a_cart(tmp_path):
 
     (tmp_path / "g.crt").write_bytes(b"C64 CARTRIDGE   ")
     spec_file = tmp_path / "t.yaml"
-    spec_file.write_text("cart: g.crt\nareas:\n  - ENGINE=$4000:$6000\n")
+    spec_file.write_text("cart: g.crt\nareas:\n  - ENGINE=$4000:$6000\n", encoding="utf-8")
     with pytest.raises(TestError, match=r"areas:.*program:"):
         load_test(spec_file)

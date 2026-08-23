@@ -807,7 +807,7 @@ def c64_basic_check(source_path: str) -> dict:
     plus the exact tokenized size (38911 bytes are free)."""
     from dataclasses import asdict
 
-    text = Path(source_path).read_text()
+    text = Path(source_path).read_text(encoding="utf-8")
     issues = lint_source(text)
     errors = sum(1 for i in issues if i.severity == "error")
     return {"issues": [asdict(i) for i in issues], "errors": errors,

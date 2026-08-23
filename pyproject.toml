@@ -84,5 +84,11 @@ typeCheckingMode = "standard"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "B", "UP", "I"]
+# PLW1514 (unspecified-encoding) is still a ruff preview rule, so preview must be
+# on for it to fire at all. `explicit-preview-rules` keeps that from dragging in
+# every other preview rule under the E/F/W/B/UP/I prefixes: only preview rules
+# named by their exact code are enabled.
+preview = true
+explicit-preview-rules = true
+select = ["E", "F", "W", "B", "UP", "I", "PLW1514"]
 ignore = ["E702"]   # `a(); b()` teardown pairs in tests are house idiom

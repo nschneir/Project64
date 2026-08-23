@@ -40,7 +40,7 @@ def own_session(tmp_path, monkeypatch):
 def test_daemon_spawned_and_recorded(session):
     assert session.daemon_pid and _pid_alive(session.daemon_pid)
     assert session.socket and Path(session.socket).exists()
-    rec = json.loads((sessions_dir() / f"{session.name}.json").read_text())
+    rec = json.loads((sessions_dir() / f"{session.name}.json").read_text(encoding="utf-8"))
     assert rec["daemon_pid"] == session.daemon_pid
     assert rec["socket"] == session.socket
 
@@ -107,7 +107,7 @@ def test_idle_checkpoint_park_survives_inspection(session, tmp_path):
     STOPPED (idle event pump) — otherwise the next inspection's release()
     would destroy the parked state."""
     src = tmp_path / "hot.s"
-    src.write_text(HOT_LOOP)
+    src.write_text(HOT_LOOP, encoding="utf-8")
     res = build_asm(src)
     labels = load_labels(res.labels)
     with session.monitor() as mon:

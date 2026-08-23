@@ -104,7 +104,7 @@ def test_package_rejects_area_where_it_cannot_apply(tmp_path):
     """--area rewrites the .prg linker config, which a tokenized .bas and a
     cartridge never go through. Loud, for the same reason --cart-type is."""
     bas = tmp_path / "p.bas"
-    bas.write_text('10 print "hi"\n')
+    bas.write_text('10 print "hi"\n', encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "package", str(bas), "-o",
                                   str(tmp_path / "x.prg"),
                                   "--area", "HIGH=$4000:$2000"])
@@ -171,7 +171,7 @@ def test_package_wraps_a_program_into_a_bootable_crt(tmp_path):
 @needs_cart_build
 def test_package_format_crt_infers_the_output_path(tmp_path):
     src = tmp_path / "hello.s"
-    src.write_text(Path(SRC).read_text())
+    src.write_text(Path(SRC).read_text(encoding="utf-8"), encoding="utf-8")
     r = CliRunner().invoke(main, ["--json", "package", str(src), "--format", "crt",
                                   "--wrap"])
     assert r.exit_code == 0, r.output

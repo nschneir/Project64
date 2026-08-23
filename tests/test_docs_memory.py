@@ -13,10 +13,10 @@ REF = Path("skills/c64-development/references")
 
 
 def test_docs_exist_and_state_vectors():
-    mm = (REF / "memory-maps.md").read_text()
+    mm = (REF / "memory-maps.md").read_text(encoding="utf-8")
     for needle in ("FFFA", "FFFC", "FFFE", "0400-07E7", "D400", "DC00"):
         assert needle in mm
-    zp = (REF / "zero-page.md").read_text()
+    zp = (REF / "zero-page.md").read_text(encoding="utf-8")
     for needle in ("TXTTAB", "VARTAB", "2B/2C", "0277"):
         assert needle in zp
 
@@ -105,7 +105,7 @@ def test_user_zp_bytes_survive_basic_live(tmp_path, monkeypatch, model):
     survive heavy BASIC activity."""
     import re
 
-    section = (REF / "zero-page.md").read_text().split(
+    section = (REF / "zero-page.md").read_text(encoding="utf-8").split(
         "## Free zero page for user ML pointers")[1]
     row = re.search(r"\|\s*([0-9A-F]{2})-([0-9A-F]{2})\s*\|", section)
     assert row, "no $xx-$xx range row under the free-zero-page heading"
@@ -208,7 +208,7 @@ def _owned_machine_claims() -> list[int]:
     checked against its range — a table that miscounts is a doc bug."""
     import re
 
-    text = (REF / "zero-page.md").read_text()
+    text = (REF / "zero-page.md").read_text(encoding="utf-8")
     section = text.split("## Free zero page once your program owns the machine")[1]
     section = section.split("\n## ")[0]
     claimed: list[int] = []
@@ -254,7 +254,7 @@ def test_user_zp_bytes_survive_owned_machine_live(tmp_path, monkeypatch, model):
 
     claimed = _owned_machine_claims()
     src = tmp_path / "zpown.s"
-    src.write_text(_OWNED_MACHINE_ASM)
+    src.write_text(_OWNED_MACHINE_ASM, encoding="utf-8")
     prg = Path(build_asm(src).prg).resolve()
 
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))

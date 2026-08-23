@@ -144,7 +144,7 @@ def test_checkpoint_halt_reliability_under_warp(session, tmp_path):
     the connect-stop/resume event race in ops.wait_for_break swallowed
     genuine checkpoint stops. Hammer it: every trial must halt."""
     src = tmp_path / "hot.s"
-    src.write_text(HOT_LOOP)
+    src.write_text(HOT_LOOP, encoding="utf-8")
     res = build_asm(src)
     labels = load_labels(res.labels)
     with session.monitor() as mon:
@@ -174,7 +174,7 @@ def test_until_reliability_and_count_under_warp(session, tmp_path):
     """run_until must halt every time under warp, and --count must advance
     exactly N loop iterations (WS2+WS3)."""
     src = tmp_path / "hot2.s"
-    src.write_text(HOT_LOOP)
+    src.write_text(HOT_LOOP, encoding="utf-8")
     res = build_asm(src)
     labels = load_labels(res.labels)
     with session.monitor() as mon:

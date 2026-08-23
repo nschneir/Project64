@@ -30,7 +30,7 @@ def test_respawn_breaker_ignores_old_crashes(tmp_path, monkeypatch):
     s = _s(tmp_path, monkeypatch, name="cb2")
     old = time.time() - (RESPAWN_WINDOW * 4)
     s._respawns_path().write_text(
-        "\n".join(f"{old + i:.3f}" for i in range(RESPAWN_LIMIT - 1)))
+        "\n".join(f"{old + i:.3f}" for i in range(RESPAWN_LIMIT - 1)), encoding="utf-8")
     s._record_respawn_and_check()   # 5th overall, but the window has passed
 
 

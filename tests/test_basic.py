@@ -13,7 +13,7 @@ def test_dialect_map():
 
 def test_tokenize_command_line(tmp_path):
     src, out = tmp_path / "a.bas", tmp_path / "a.prg"
-    src.write_text('10 print "hi"\n')
+    src.write_text('10 print "hi"\n', encoding="utf-8")
     captured = {}
 
     def fake_run(cmd, **kw):
@@ -45,7 +45,7 @@ needs_petcat = pytest.mark.skipif(shutil.which("petcat") is None, reason="petcat
 @needs_petcat
 def test_real_petcat_roundtrip(tmp_path):
     src = tmp_path / "demo.bas"
-    src.write_text('10 print "hello"\n20 print 2+2\n')
+    src.write_text('10 print "hello"\n20 print 2+2\n', encoding="utf-8")
     prg = tokenize(src, tmp_path / "demo.prg", "2.0")
     data = prg.read_bytes()
     assert data[:2] == b"\x01\x08"      # load address $0801
@@ -72,6 +72,6 @@ def test_petcat_failure_surfaces_stderr(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
     monkeypatch.setattr(basic.subprocess, "run", fail)
     src = tmp_path / "p.bas"
-    src.write_text("10 print\n")
+    src.write_text("10 print\n", encoding="utf-8")
     with pytest.raises(basic.BasicError, match="boom"):
         basic.tokenize(src, tmp_path / "p.prg", "2.0")

@@ -16,7 +16,7 @@ BAD = sorted((DATA / "bad").glob("*.bas"))
 
 @pytest.mark.parametrize("path", GOOD, ids=lambda p: p.name)
 def test_good_fixtures_are_clean(path):
-    issues = lint_source(path.read_text())
+    issues = lint_source(path.read_text(encoding="utf-8"))
     assert issues == [], f"{path.name}: " + "; ".join(
         f"{i.rule}@{i.line}: {i.message}" for i in issues)
 
@@ -25,8 +25,8 @@ def test_good_fixtures_are_clean(path):
 def test_bad_fixtures_match_their_sidecar(path):
     sidecar = path.with_suffix(".expected.json")
     expected = {(e["line"], e["severity"], e["rule"])
-                for e in json.loads(sidecar.read_text())["expect"]}
-    actual = {(i.line, i.severity, i.rule) for i in lint_source(path.read_text())}
+                for e in json.loads(sidecar.read_text(encoding="utf-8"))["expect"]}
+    actual = {(i.line, i.severity, i.rule) for i in lint_source(path.read_text(encoding="utf-8"))}
     assert actual == expected, (          # key=str: file-level issues sort as None
         f"{path.name}\n  missing: {sorted(expected - actual, key=str)}\n"
         f"  unexpected: {sorted(actual - expected, key=str)}")
@@ -42,10 +42,11 @@ COOKBOOK = Path("skills/c64-development/references/cookbook.md")
 
 def _corpus() -> list[tuple[str, str]]:
     """(label, source) for every known-good BASIC program in the repo."""
-    out = [(str(p), p.read_text())
+    out = [(str(p), p.read_text(encoding="utf-8"))
            for d in CORPUS_DIRS if d.exists() for p in sorted(d.rglob("*.bas"))]
+    cookbook = COOKBOOK.read_text(encoding="utf-8")
     out += [(f"{COOKBOOK}#basic[{i}]", b) for i, b in
-            enumerate(re.findall(r"```basic\n(.*?)```", COOKBOOK.read_text(), re.S))]
+            enumerate(re.findall(r"```basic\n(.*?)```", cookbook, re.S))]
     return out
 
 

@@ -322,7 +322,7 @@ def test_format_bytes_basic_numbered_survives_petcat(tmp_path):
         pytest.skip("petcat not installed")
     numbered = format_bytes(bytes(range(63)), "basic", start_line=1000)
     src = tmp_path / "d.bas"
-    src.write_text("10 read a : print a\n" + numbered + "\n")
+    src.write_text("10 read a : print a\n" + numbered + "\n", encoding="utf-8")
     listing = detokenize(tokenize(src, tmp_path / "d.prg", "2.0"), "2.0").lower()
     assert "data 0,1,2" in listing
     assert "atn" not in listing          # the uppercase-DATA failure mode

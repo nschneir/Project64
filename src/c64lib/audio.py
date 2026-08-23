@@ -871,7 +871,7 @@ def sid_log_detail(session, frames: int, jsonl_path,
         + "".join(
             json.dumps({"frame": n, "regs": list(regs)},
                        separators=(",", ":")) + "\n"
-            for n, regs in enumerate(samples)))
+            for n, regs in enumerate(samples)), encoding="utf-8")
     # None, never an infinity: this dict is `c64 --json audio sidlog` and the
     # MCP result, and `json.dumps` spells a float infinity `Infinity`, which
     # is not JSON. Reachable only if the whole log fit inside the clock's
@@ -1008,7 +1008,7 @@ def _pin_path(session) -> Path:
 
 def _write_pin(session, state: dict) -> None:
     """Record the pin, stamped with the pid it belongs to."""
-    _pin_path(session).write_text(json.dumps({**state, "pid": session.pid}))
+    _pin_path(session).write_text(json.dumps({**state, "pid": session.pid}), encoding="utf-8")
 
 
 def _read_pin(session) -> dict | None:
@@ -1024,7 +1024,7 @@ def _read_pin(session) -> dict | None:
     if not path.exists():
         return None
     try:
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
     except OSError as e:
         # KEPT, not deleted. This failure says nothing about the file's
         # contents — a permission problem, a full or flaky filesystem — so the
@@ -1498,7 +1498,7 @@ def _read_verdict(report_path) -> tuple[str, list[str]]:
     apart. The verdict is the last section, so every `- ` line after it is one
     of its reasons.
     """
-    text = Path(report_path).read_text()
+    text = Path(report_path).read_text(encoding="utf-8")
     found = _VERDICT.search(text)
     if found is None:
         raise AudioError(f"{report_path} has no verdict line: the report was "

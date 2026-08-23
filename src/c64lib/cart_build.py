@@ -233,7 +233,7 @@ def has_own_startup(sources) -> bool:
     """
     for src in sources:
         try:
-            text = Path(src).read_text()
+            text = Path(src).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         # Strip line comments so a mention in prose does not count.
@@ -329,12 +329,12 @@ def build_cart(source, out=None, cart_type: str = "8k",
         objs = [str(obj)]
         if not has_own_startup(deps):
             stub_src = td / "_cartboot.s"
-            stub_src.write_text(boot_stub_source(cart_type))
+            stub_src.write_text(boot_stub_source(cart_type), encoding="utf-8")
             stub_obj = td / "_cartboot.o"
             _run([ca65, str(stub_src), "-o", str(stub_obj)])
             objs.append(str(stub_obj))
         cfg = td / "cart.cfg"
-        cfg.write_text(cart_linker_config(cart_type))
+        cfg.write_text(cart_linker_config(cart_type), encoding="utf-8")
         try:
             _run([ld65, "-o", str(raw), "-C", str(cfg), "-Ln", str(labels), *objs])
         except BuildError as e:
@@ -624,7 +624,7 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
         if Path(prg).resolve() != blob.resolve():
             blob.write_bytes(image)
         src_path = td / "_launcher.s"
-        src_path.write_text(launcher_source(load_addr, prog_end, kind, blob.name))
+        src_path.write_text(launcher_source(load_addr, prog_end, kind, blob.name), encoding="utf-8")
         obj = td / "_launcher.o"
         # Looked up here, not at entry: every check above is a validation
         # error about the input, and must read the same on a machine with no
@@ -634,7 +634,7 @@ def wrap_prg(source, out=None, cart_type: str = "8k", title: str | None = None,
         _run([ca65, str(src_path), "-o", str(obj), "-I", str(td),
               "--bin-include-dir", str(td)])
         cfg = td / "cart.cfg"
-        cfg.write_text(wrap_linker_config(cart_type))
+        cfg.write_text(wrap_linker_config(cart_type), encoding="utf-8")
         try:
             _run([ld65, "-o", str(raw), "-C", str(cfg), "-Ln", str(labels),
                   str(obj)])
@@ -826,7 +826,7 @@ def load_manifest(path) -> dict:
     """Parse an EasyFlash bank manifest, resolving every file against it."""
     path = Path(path)
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise CartError(f"{path}: {e}") from None
     if not isinstance(raw, dict):
@@ -924,7 +924,7 @@ def merge_bank_labels(per_window: dict[tuple[int, str], Path],
     for (bank, window), lbl in sorted(per_window.items()):
         if lbl is None or not Path(lbl).exists():
             continue
-        for name, addr in parse_labels(Path(lbl).read_text()).items():
+        for name, addr in parse_labels(Path(lbl).read_text(encoding="utf-8")).items():
             if name.startswith("__") and name.endswith("__"):
                 continue        # linker internals, not author symbols
             merged[f"b{bank:02d}{window}_{name}"] = addr
@@ -1046,12 +1046,12 @@ def _link_ef_window(ca65: str, ld65: str, td: Path, src: Path, bank: int,
     objs = [str(obj)]
     if boot and not has_own_startup(deps):
         stub = td / f"{tag}_boot.s"
-        stub.write_text(ef_boot_stub_source())
+        stub.write_text(ef_boot_stub_source(), encoding="utf-8")
         stub_obj = td / f"{tag}_boot.o"
         _run([ca65, str(stub), "-o", str(stub_obj), "-I", str(inc)])
         objs.append(str(stub_obj))
     cfg = td / f"{tag}.cfg"
-    cfg.write_text(ef_window_config(window, boot=boot))
+    cfg.write_text(ef_window_config(window, boot=boot), encoding="utf-8")
     binout, lbl = td / f"{tag}.bin", td / f"{tag}.lbl"
     _run([ld65, "-o", str(binout), "-C", str(cfg), "-Ln", str(lbl), *objs])
     return binout.read_bytes(), lbl

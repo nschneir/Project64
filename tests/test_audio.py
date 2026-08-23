@@ -596,7 +596,7 @@ def test_a_pin_left_behind_by_a_dead_session_is_discarded(vice_text, tmp_path):
     saved state in preference to what it just read live."""
     s, _ = _fake_session(pid=222, speed=200)
     audio._pin_path(s).write_text(json.dumps(
-        {"warp": True, "speed": 50, "wav": "/gone.wav", "pid": 111}))
+        {"warp": True, "speed": 50, "wav": "/gone.wav", "pid": 111}), encoding="utf-8")
     with _port(vice_text):
         out = pinned_record_start(s, str(tmp_path / "cap.wav"))
     assert out["pinned"] == {"warp": True, "speed": 200}
@@ -610,7 +610,7 @@ def test_a_dead_sessions_pin_cannot_warp_its_replacement(vice_text, tmp_path):
     vice_text.warp = False                       # the replacement is unwarped
     s, _ = _fake_session(pid=222)
     audio._pin_path(s).write_text(json.dumps(
-        {"warp": True, "speed": 100, "wav": "/gone.wav", "pid": 111}))
+        {"warp": True, "speed": 100, "wav": "/gone.wav", "pid": 111}), encoding="utf-8")
     with _port(vice_text):
         pinned_record_start(s, str(tmp_path / "cap.wav"))
         out = pinned_record_stop(s)
@@ -622,7 +622,7 @@ def test_stopping_a_session_clears_its_audio_pin():
     """Session.stop() prunes the sidecar, so a name that comes back cannot
     come back holding a pin."""
     from c64lib.session import Session, audio_pin_path
-    audio_pin_path("gone").write_text('{"pid": 1}')
+    audio_pin_path("gone").write_text('{"pid": 1}', encoding="utf-8")
     dead = Session(name="gone", pid=424242, port=1, model="c64")
     with patch("c64lib.session._pid_alive", return_value=False):
         dead.stop()
@@ -633,7 +633,7 @@ def test_an_unreadable_pin_is_reported_not_swallowed(vice_text, capsys):
     """A truncated sidecar (crash mid-write) means nobody will unpin the
     session; saying nothing leaves it at 1x with no diagnostic."""
     s, _ = _fake_session()
-    audio._pin_path(s).write_text('{"warp": tru')
+    audio._pin_path(s).write_text('{"warp": tru', encoding="utf-8")
     out = pinned_record_stop(s)
     assert out["restored"] is None
     assert "unreadable" in capsys.readouterr().err
@@ -647,7 +647,7 @@ def test_a_pin_that_cannot_be_opened_is_kept_not_deleted(vice_text, capsys, tmp_
     into a permanently unpinnable session; keep it and say so."""
     s, _ = _fake_session()
     path = audio._pin_path(s)
-    path.write_text(json.dumps({"warp": True, "speed": 100, "pid": s.pid}))
+    path.write_text(json.dumps({"warp": True, "speed": 100, "pid": s.pid}), encoding="utf-8")
     with patch.object(Path, "read_text", side_effect=PermissionError("denied")):
         out = pinned_record_stop(s)
     assert out["restored"] is None
@@ -662,7 +662,7 @@ def test_a_pin_without_a_pid_stamp_is_an_upgrade_not_a_corruption(vice_text, cap
     it just cannot be shown to belong to this session. Reporting it as
     "unreadable" described a file that parsed fine."""
     s, _ = _fake_session()
-    audio._pin_path(s).write_text(json.dumps({"warp": True, "speed": 200}))
+    audio._pin_path(s).write_text(json.dumps({"warp": True, "speed": 200}), encoding="utf-8")
     out = pinned_record_stop(s)
     assert out["restored"] is None
     err = capsys.readouterr().err
@@ -678,8 +678,8 @@ def test_load_all_prunes_a_dead_sessions_audio_pin():
     `<name>.audio` outlives every session whose name is never reused."""
     from c64lib.session import Session, audio_pin_path, sessions_dir
     (sessions_dir() / "ghost.json").write_text(json.dumps(
-        {"name": "ghost", "pid": 424242, "port": 1, "model": "c64"}))
-    audio_pin_path("ghost").write_text(json.dumps({"pid": 424242}))
+        {"name": "ghost", "pid": 424242, "port": 1, "model": "c64"}), encoding="utf-8")
+    audio_pin_path("ghost").write_text(json.dumps({"pid": 424242}), encoding="utf-8")
     with patch("c64lib.session._pid_alive", return_value=False):
         assert Session.list_all() == []
     assert not (sessions_dir() / "ghost.json").exists()
@@ -1019,7 +1019,7 @@ def _states(count: int) -> list[bytes]:
 
 
 def _lines(path) -> list[dict]:
-    return [json.loads(line) for line in Path(path).read_text().splitlines()]
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines()]
 
 
 def _rows(path) -> list[dict]:
@@ -1445,7 +1445,7 @@ def test_parse_frame_writes_rejects_what_it_cannot_aim(spec, complaint):
 def _labelled_session(tmp_path, **labels):
     """A fake session with a registered .lbl file, for the symbol tests."""
     lbl = tmp_path / "p.lbl"
-    lbl.write_text("".join(f"al C:{a:04x} .{n}\n" for n, a in labels.items()))
+    lbl.write_text("".join(f"al C:{a:04x} .{n}\n" for n, a in labels.items()), encoding="utf-8")
     s, _ = _fake_session(labels=str(lbl))
     return s
 
@@ -1680,7 +1680,7 @@ def _log(path, states, first_frame: int = 0) -> None:
     """A sid-log.jsonl as `sid_log` writes one."""
     Path(path).write_text("".join(
         json.dumps({"frame": first_frame + n, "regs": list(regs)}) + "\n"
-        for n, regs in enumerate(states)))
+        for n, regs in enumerate(states)), encoding="utf-8")
 
 
 PAL = 985248
@@ -1701,7 +1701,7 @@ def test_sid_report_writes_every_artifact_it_can_and_a_verdict(tmp_path):
     assert Path(out["report"]).name == "report.md"
     assert Path(out["piano_roll"]).exists() and Path(out["spectrogram"]).exists()
     assert out["machine"] == "c64" and out["clock_hz"] == NTSC and out["fps"] == 60
-    assert "A4" in Path(out["report"]).read_text()
+    assert "A4" in Path(out["report"]).read_text(encoding="utf-8")
 
 
 def test_sid_report_transcribes_with_the_clock_it_was_given(tmp_path):
@@ -1713,8 +1713,8 @@ def test_sid_report_transcribes_with_the_clock_it_was_given(tmp_path):
                             timing=audio.report_timing_for("c64"))
     pal = audio.sid_report(log, tmp_path / "pal",
                            timing=audio.report_timing_for("c64pal"))
-    assert "A4" in Path(ntsc["report"]).read_text()
-    assert "G#4" in Path(pal["report"]).read_text()
+    assert "A4" in Path(ntsc["report"]).read_text(encoding="utf-8")
+    assert "G#4" in Path(pal["report"]).read_text(encoding="utf-8")
     assert pal["clock_hz"] == PAL and pal["fps"] == 50
 
 
@@ -1727,7 +1727,7 @@ def test_sid_report_without_a_wav_is_a_render_only_pass(tmp_path):
     assert out["verdict"] == "PASS"
     assert out["spectrogram"] is None and out["metrics"] is None
     assert not (tmp_path / "spectrogram.png").exists()
-    assert "register log only" in Path(out["report"]).read_text()
+    assert "register log only" in Path(out["report"]).read_text(encoding="utf-8")
 
 
 def test_sid_report_never_calls_the_diff_without_a_reference_score(tmp_path):
@@ -1746,7 +1746,7 @@ def test_sid_report_fails_on_a_reference_score_that_does_not_match(tmp_path):
     log = tmp_path / "sid-log.jsonl"
     _log(log, [_voice1()] * 30)
     ref = tmp_path / "score.yaml"
-    ref.write_text("voices:\n  1:\n    - {note: C4, frames: 30}\n")
+    ref.write_text("voices:\n  1:\n    - {note: C4, frames: 30}\n", encoding="utf-8")
     out = audio.sid_report(log, tmp_path, ref_path=ref,
                            timing=audio.report_timing_for("c64"))
     assert out["verdict"] == "FAIL"
@@ -1761,13 +1761,13 @@ def test_sid_report_writes_the_reference_score_into_the_report(tmp_path):
     log = tmp_path / "sid-log.jsonl"
     _log(log, [_voice1()] * 30)
     ref = tmp_path / "score.yaml"
-    ref.write_text("voices:\n  1:\n    - {note: A4, frames: 30}\n")
+    ref.write_text("voices:\n  1:\n    - {note: A4, frames: 30}\n", encoding="utf-8")
     scored = audio.sid_report(log, tmp_path / "scored", ref_path=ref,
                               timing=audio.report_timing_for("c64"))
     plain = audio.sid_report(log, tmp_path / "plain",
                              timing=audio.report_timing_for("c64"))
-    scored_text = Path(scored["report"]).read_text()
-    plain_text = Path(plain["report"]).read_text()
+    scored_text = Path(scored["report"]).read_text(encoding="utf-8")
+    plain_text = Path(plain["report"]).read_text(encoding="utf-8")
     assert scored["verdict"] == plain["verdict"] == "PASS"
     assert str(ref) in scored_text
     assert "1 entry" in scored_text and "30 frames" in scored_text
@@ -1831,7 +1831,7 @@ def test_sid_report_says_when_nothing_played_at_all(tmp_path):
     assert out["verdict"] == "PASS" and out["failures"] == []
     assert out["nothing_played"] is True
     assert out["notes"] == 0
-    assert "**Nothing played.**" in Path(out["report"]).read_text()
+    assert "**Nothing played.**" in Path(out["report"]).read_text(encoding="utf-8")
 
 
 def test_sid_report_does_not_say_nothing_played_when_a_note_sounded(tmp_path):
@@ -1842,7 +1842,7 @@ def test_sid_report_does_not_say_nothing_played_when_a_note_sounded(tmp_path):
     out = audio.sid_report(log, tmp_path, wav_path=wav,
                            timing=audio.report_timing_for("c64"))
     assert out["nothing_played"] is False
-    assert "Nothing played" not in Path(out["report"]).read_text()
+    assert "Nothing played" not in Path(out["report"]).read_text(encoding="utf-8")
 
 
 def test_sid_report_attaches_the_peak_only_when_asked(tmp_path):
@@ -1954,7 +1954,7 @@ def test_capture_transcribes_with_the_machines_clock(vice_text, tmp_path):
         with _port(vice_text):
             out = audio.capture(_capture_session(vice, model=model), 0.2,
                                 tmp_path / model)
-        reports[model] = Path(out["report"]).read_text()
+        reports[model] = Path(out["report"]).read_text(encoding="utf-8")
     assert "A4" in reports["c64"] and "G#4" not in reports["c64"]
     assert "G#4" in reports["c64pal"]
 
@@ -2080,7 +2080,7 @@ def test_read_verdict_refuses_a_report_with_no_verdict_line(tmp_path):
     the rule. If that line ever moves, this has to say so rather than hand
     back a report nobody judged."""
     report = tmp_path / "report.md"
-    report.write_text("# SID audio verification\n\nno verdict here\n")
+    report.write_text("# SID audio verification\n\nno verdict here\n", encoding="utf-8")
     with pytest.raises(AudioError, match="no verdict line"):
         audio._read_verdict(report)
 
@@ -2123,7 +2123,7 @@ def test_capture_diagnoses_a_wav_with_no_samples(vice_text, tmp_path,
 def test_capture_passes_the_reference_score_through(vice_text, tmp_path):
     vice = FakeVice([_voice1()] * 4)
     ref = tmp_path / "score.yaml"
-    ref.write_text("voices:\n  1:\n    - {note: C4}\n")
+    ref.write_text("voices:\n  1:\n    - {note: C4}\n", encoding="utf-8")
     with _port(vice_text):
         out = audio.capture(_capture_session(vice), 0.2, tmp_path / "cap",
                             ref_path=ref)
@@ -2137,7 +2137,7 @@ def test_capture_rejects_a_bad_reference_before_it_opens_the_window(
     was named. Nothing may be pinned or armed for a score that cannot parse."""
     vice = FakeVice([_voice1()] * 4)
     ref = tmp_path / "score.yaml"
-    ref.write_text("voices:\n  4: [{note: C4}]\n")
+    ref.write_text("voices:\n  4: [{note: C4}]\n", encoding="utf-8")
     with _port(vice_text), pytest.raises(ValueError, match="voice 4"):
         audio.capture(_capture_session(vice), 0.2, tmp_path / "cap", ref_path=ref)
     assert vice.sets == []
@@ -2150,7 +2150,7 @@ def test_capture_names_unreadable_reference_yaml_before_the_window(
     translates out of a bare `yaml.YAMLError`."""
     vice = FakeVice([_voice1()] * 4)
     ref = tmp_path / "score.yaml"
-    ref.write_text("voices: {1: [\n")
+    ref.write_text("voices: {1: [\n", encoding="utf-8")
     with _port(vice_text), pytest.raises(AudioError, match="not readable YAML"):
         audio.capture(_capture_session(vice), 0.2, tmp_path / "cap", ref_path=ref)
     assert vice.sets == []
@@ -2540,7 +2540,7 @@ def test_cli_audio_report_measures_the_peak_with_peak_hz(tmp_path):
     predict for the same capture.
     """
     log = tmp_path / "sid.jsonl"
-    log.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    log.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n", encoding="utf-8")
     wav = tmp_path / "capture.wav"
     tone = np.sin(2 * np.pi * 440.0 * np.arange(44100) / 44100) * 0.5
     with wave.open(str(wav), "wb") as out:
@@ -2561,7 +2561,7 @@ def test_cli_audio_report_measures_the_peak_with_peak_hz(tmp_path):
 
 def test_cli_audio_report_peak_hz_needs_a_wav(tmp_path):
     log = tmp_path / "sid.jsonl"
-    log.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n")
+    log.write_text(json.dumps({"frame": 0, "regs": [0] * 25}) + "\n", encoding="utf-8")
     r = CliRunner().invoke(main, ["audio", "report", str(log),
                                   str(tmp_path / "out"), "--peak-hz"])
     assert r.exit_code == 1
@@ -3027,7 +3027,7 @@ def pal_session(home):
 def _load_arpeggio(session, tmp_path) -> None:
     """Assemble and autostart the fixture, and return once it is sounding."""
     src = tmp_path / "arpeggio.s"
-    src.write_text(ARPEGGIO_SRC)
+    src.write_text(ARPEGGIO_SRC, encoding="utf-8")
     built = build_asm(src, basic_start=session.profile.basic_start)
     with session.monitor() as mon:
         try:
@@ -3119,7 +3119,7 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
     # The verdict, and the findings it was reached from.
     assert out["verdict"] == "PASS", out["failures"]
     assert out["diffs"] == [] and out["anomalies"] == []
-    assert "**PASS**" in (outdir / "report.md").read_text()
+    assert "**PASS**" in (outdir / "report.md").read_text(encoding="utf-8")
     # A capture that put its session back: the verdict is about the audio,
     # this is about the machine that produced it.
     assert out["unpin_error"] is None
@@ -3190,12 +3190,12 @@ def test_capture_hears_a_live_arpeggio(pal_session, tmp_path):
     # changed with that duration in it. Without the first, a diff_score that
     # always returned [] would make everything above pass; without the second,
     # one that ignored `frames` would — and `frames` is half the reference.
-    wrong_note = yaml.safe_load(ARPEGGIO_SCORE.read_text())
+    wrong_note = yaml.safe_load(ARPEGGIO_SCORE.read_text(encoding="utf-8"))
     wrong_note["voices"][1][1]["note"] = "D4"
     assert any("D4" in diff
                for diff in sid_analysis.diff_score(events, wrong_note))
 
-    wrong_frames = yaml.safe_load(ARPEGGIO_SCORE.read_text())
+    wrong_frames = yaml.safe_load(ARPEGGIO_SCORE.read_text(encoding="utf-8"))
     wrong_frames["voices"][1][1]["frames"] = 7
     assert any("7 frames" in diff
                for diff in sid_analysis.diff_score(events, wrong_frames))
@@ -3217,7 +3217,7 @@ voices:
 
 def _score_file(tmp_path, text=THREE_VOICE_SCORE):
     path = tmp_path / "score.yaml"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return str(path)
 
 

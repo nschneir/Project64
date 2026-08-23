@@ -36,7 +36,7 @@ def _dead_pid() -> int:
 def _sleeper(tmp_path, name):
     """A live process whose command line contains `name`."""
     script = tmp_path / name
-    script.write_text("#!/bin/sh\nsleep 30\n")
+    script.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
     script.chmod(0o755)
     return subprocess.Popen([str(script)])
 
@@ -47,7 +47,7 @@ def test_emulator_spawns_are_recorded_at_popen(tmp_path, runs_dir):
     emu = _sleeper(tmp_path, "x64sc")
     other = _sleeper(tmp_path, "something-else")
     try:
-        recorded = ct._run_file().read_text().split()
+        recorded = ct._run_file().read_text(encoding="utf-8").split()
         assert str(emu.pid) in recorded
         assert str(other.pid) not in recorded
     finally:
@@ -110,7 +110,7 @@ def test_ledger_directory_is_private(tmp_path, monkeypatch):
     monkeypatch.setattr(ct, "_RUNS", tmp_path / "ledger")
     ct._record_pid(999999)
     assert (ct._RUNS.stat().st_mode & 0o777) == 0o700
-    assert ct._run_file().read_text().split() == ["999999"]
+    assert ct._run_file().read_text(encoding="utf-8").split() == ["999999"]
 
 
 def test_reap_survives_a_kill_it_is_not_allowed_to_make(tmp_path, runs_dir,
@@ -119,7 +119,7 @@ def test_reap_survives_a_kill_it_is_not_allowed_to_make(tmp_path, runs_dir,
     consume the record instead of erroring the session fixture."""
     proc = _sleeper(tmp_path, "x64sc")
     f = runs_dir / "999997.pids"
-    f.write_text(f"{proc.pid}\n")
+    f.write_text(f"{proc.pid}\n", encoding="utf-8")
 
     def denied(*_args, **_kwargs):
         raise PermissionError(1, "Operation not permitted")
@@ -143,7 +143,7 @@ def test_sweep_skips_a_ledger_entry_it_cannot_read(tmp_path, runs_dir):
     bad.mkdir()                                     # read_text raises OSError
     emu = _sleeper(tmp_path, "x64sc")
     good = runs_dir / f"{dead[1]}.pids"
-    good.write_text(f"{emu.pid}\n")
+    good.write_text(f"{emu.pid}\n", encoding="utf-8")
     try:
         ct._reap_dead_runs()
         assert emu.wait(timeout=5) is not None
@@ -155,7 +155,7 @@ def test_sweep_skips_a_ledger_entry_it_cannot_read(tmp_path, runs_dir):
 def test_reap_kills_recorded_emulators(tmp_path, runs_dir):
     proc = _sleeper(tmp_path, "x64sc")
     f = runs_dir / "999999.pids"
-    f.write_text(f"{proc.pid} 0\n")
+    f.write_text(f"{proc.pid} 0\n", encoding="utf-8")
     try:
         assert ct._reap(f) == 1
         assert proc.wait(timeout=5) is not None
@@ -168,7 +168,7 @@ def test_reap_spares_a_reused_pid(tmp_path, runs_dir):
     """The recorded pid now belongs to something else entirely."""
     proc = _sleeper(tmp_path, "not-an-emulator")
     f = runs_dir / "999998.pids"
-    f.write_text(f"{proc.pid} 0\n")
+    f.write_text(f"{proc.pid} 0\n", encoding="utf-8")
     try:
         assert ct._reap(f) == 0
         time.sleep(0.2)
@@ -182,7 +182,7 @@ def test_sweep_skips_runs_that_are_still_alive(tmp_path, runs_dir):
     runner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     emu = _sleeper(tmp_path, "x64sc")
     f = runs_dir / f"{runner.pid}.pids"
-    f.write_text(f"{emu.pid} 0\n")
+    f.write_text(f"{emu.pid} 0\n", encoding="utf-8")
     try:
         ct._reap_dead_runs()
         assert f.exists()                           # left for that run to clean
@@ -197,7 +197,7 @@ def test_sweep_reaps_a_dead_runs_leftovers(tmp_path, runs_dir):
     dead.wait()
     emu = _sleeper(tmp_path, "x64sc")
     f = runs_dir / f"{dead.pid}.pids"
-    f.write_text(f"{emu.pid} 0\n")
+    f.write_text(f"{emu.pid} 0\n", encoding="utf-8")
     try:
         ct._reap_dead_runs()
         assert emu.wait(timeout=5) is not None

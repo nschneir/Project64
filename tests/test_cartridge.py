@@ -462,7 +462,7 @@ def test_cartconv_is_only_looked_for_when_it_is_needed(monkeypatch):
 
 def test_cartconv_failure_carries_its_own_output(monkeypatch, tmp_path):
     fake = tmp_path / "cartconv"
-    fake.write_text("")
+    fake.write_text("", encoding="utf-8")
     monkeypatch.setenv("C64_TOOLS_CARTCONV", str(fake))
 
     def fail(cmd, **kw):
@@ -485,7 +485,7 @@ def test_cartconv_environment_failures_are_cart_errors(monkeypatch, tmp_path,
     """A hung, unreadable or unexecutable cartconv is an environment problem
     the caller can report — not a traceback out of subprocess."""
     fake = tmp_path / "cartconv"
-    fake.write_text("")
+    fake.write_text("", encoding="utf-8")
     monkeypatch.setenv("C64_TOOLS_CARTCONV", str(fake))
 
     def raise_it(cmd, **kw):

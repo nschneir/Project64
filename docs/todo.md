@@ -257,3 +257,59 @@ loudly if a future VICE starts filling the flag in.
 connection), `wait_for_break` must report the hit rather than time out — the
 measured reproduction above is the test's shape — and the already-stopped
 case must still return immediately.
+
+## Demo `tools/` scripts still do locale-dependent text I/O
+
+The UTF-8 sweep that put `encoding="utf-8"` on every text-mode open in
+`src/`, `tests/` and `skills/` — and the `PLW1514` ruff rule that keeps it
+that way — stopped at the lint gate's edge. Demo `tools/` scripts are
+deliberately outside both gates (AGENTS.md says why: they are the demo's own
+artifact, tested by the demo), so `ruff check demos --select PLW1514` still
+reports 5 sites, with ~14 files doing `read_text`/`write_text`/`open` in all.
+
+**Why it matters.** These are the scripts a person regenerates a demo's
+tables, score or sprites with, and several read files containing `♯`/`♭` and
+em dashes. On a Debian/Ubuntu box whose locale is not UTF-8 they raise
+`UnicodeDecodeError` exactly as `tests/test_docs_cli.py` did before the
+sweep.
+
+**Why it was not just done.** Sweeping them is mechanical and safe, but with
+`demos/` outside the ruff gate the fix would carry no regression guard, and
+bringing `demos/` into the gate is a separate decision: it currently reports
+95 ruff errors (79 of them E501), so that is a cleanup of its own, not a
+line in a UTF-8 commit.
+
+**Fix direction.** Either sweep `demos/` and accept an unguarded fix, or
+clean `demos/` up to the full ruleset and add it to
+`ruff check src tests skills`. The second is the one that stays fixed.
+
+**How to verify.** `ruff check demos --select PLW1514` reports nothing, and
+`LC_ALL=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0` runs of the demo generators
+produce byte-identical output to a UTF-8 run.
+
+## `PLW1514` guards the UTF-8 sweep only where ruff can see a `Path`
+
+The rule fires on a receiver it can prove is a `pathlib.Path` — a literal
+`Path(...)` call, or a name annotated as one — and on the builtin `open`.
+That is why it reported 129 sites while the sweep actually rewrote 575: the
+other ~446 are shapes ruff will not type-infer. Measured:
+
+    (tmp_path / "x").read_text()   # NOT flagged
+    p.read_text()                  # NOT flagged (p un-annotated)
+    tmp_path.read_text()           # flagged (tmp_path: Path)
+
+So the guard holds `src/` well, where paths are annotated and constructed
+explicitly, and holds the common test shape `tmp_path / "name"` not at all.
+New test code can reintroduce a locale-dependent read and the gate will stay
+green.
+
+**Fix direction.** Annotate the fixture-derived locals, so ruff sees the type
+(verbose, and fights the house style); or add a narrow repo check — an AST
+pass over `read_text`/`write_text`/`open` like the one that performed this
+sweep, run as a test — which needs no inference at all and is the honest
+shape of the guard. The second is cheap: the sweep script was ~120 lines and
+already distinguishes text from binary and positional from keyword
+`encoding`.
+
+**How to verify.** Add `(tmp_path / "x").read_text()` to any test file; the
+gate must go red. Today it does not.

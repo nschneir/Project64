@@ -56,7 +56,7 @@ def _write_record(name, pid, port=6502, model="c64", **extra):
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.json").write_text(
         json.dumps({"name": name, "pid": pid, "port": port, "model": model,
-                    "exe": Path(sys.executable).name, "created": 0, **extra})
+                    "exe": Path(sys.executable).name, "created": 0, **extra}), encoding="utf-8"
     )
 
 
@@ -120,7 +120,7 @@ def test_attach_by_name_reads_past_another_records_corruption(home):
     proc = _live_pid()
     try:
         _write_record("alpha", proc.pid)
-        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}', encoding="utf-8")
         assert Session.attach("alpha").pid == proc.pid
     finally:
         proc.kill()
@@ -134,7 +134,7 @@ def test_attach_separates_an_unreadable_registry_from_an_absent_session(home):
     `SessionError`, so every existing handler reports it unchanged.
     """
     sessions_dir().mkdir(parents=True, exist_ok=True)
-    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}', encoding="utf-8")
     with pytest.raises(RegistryError) as e:
         Session.attach("alpha")
     msg = str(e.value)
@@ -152,7 +152,7 @@ def test_attach_without_a_name_will_not_guess_past_an_unreadable_record(home):
     proc = _live_pid()
     try:
         _write_record("alpha", proc.pid)
-        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}', encoding="utf-8")
         with pytest.raises(RegistryError, match="truncated.json"):
             Session.attach()
     finally:
@@ -178,7 +178,7 @@ def test_list_all_still_refuses_to_skip_an_unreadable_record(home):
     proc = _live_pid()
     try:
         _write_record("only", proc.pid)
-        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+        (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}', encoding="utf-8")
         with pytest.raises(SessionError, match="truncated.json"):
             Session.list_all()
     finally:
@@ -421,7 +421,9 @@ def test_launch_failure_quotes_what_the_emulator_said(home, tmp_path, monkeypatc
     thrown away. The Debian/Ubuntu ROM-less install is exactly this case.
     """
     exe = tmp_path / "fake-x64sc"
-    exe.write_text("#!/bin/sh\necho 'Cannot load kernal ROM `kernal`.' >&2\nexit 3\n")
+    exe.write_text(
+        "#!/bin/sh\necho 'Cannot load kernal ROM `kernal`.' >&2\nexit 3\n", encoding="utf-8"
+    )
     exe.chmod(0o755)
     monkeypatch.setenv("C64_TOOLS_X64SC", str(exe))
     monkeypatch.setenv("C64_TOOLS_LAUNCH_ATTEMPTS", "1")
@@ -445,10 +447,11 @@ def test_launch_failure_never_quotes_an_older_launchs_error(home, tmp_path, monk
     silently in the words of the run before it — a confident, wrong cause.
     """
     exe = tmp_path / "fake-x64sc"
-    exe.write_text("#!/bin/sh\nexit 4\n")            # dies without a word
+    exe.write_text("#!/bin/sh\nexit 4\n", encoding="utf-8")            # dies without a word
     exe.chmod(0o755)
     log = sessions_dir() / "silent.launch.log"
-    log.write_text("Cannot load kernal ROM `kernal`.\n")   # what a previous launch said
+    # what a previous launch said
+    log.write_text("Cannot load kernal ROM `kernal`.\n", encoding="utf-8")
     monkeypatch.setenv("C64_TOOLS_X64SC", str(exe))
     monkeypatch.setenv("C64_TOOLS_LAUNCH_ATTEMPTS", "1")
     monkeypatch.setenv("C64_TOOLS_LAUNCH_DEADLINE", "5")
@@ -460,7 +463,9 @@ def test_launch_failure_never_quotes_an_older_launchs_error(home, tmp_path, monk
     assert "kernal" not in msg, "quoted the previous launch's error as this one's"
     assert "code 4" in msg, "the exit code never reaches the user"
     assert str(log) in msg, "no path to the full output"
-    assert "Cannot load kernal ROM" in log.read_text(), "the older output was destroyed"
+    assert "Cannot load kernal ROM" in log.read_text(
+        encoding="utf-8"
+    ), "the older output was destroyed"
 
 
 def test_pid_alive_permission_error_means_alive(monkeypatch):
@@ -520,7 +525,7 @@ def test_a_record_without_exe_falls_back_to_the_models_emulator(home, monkeypatc
     d.mkdir(parents=True, exist_ok=True)
     old = d / "old.json"
     old.write_text(json.dumps(
-        {"name": "old", "pid": 4242, "port": 6502, "model": "c64", "created": 0}))
+        {"name": "old", "pid": 4242, "port": 6502, "model": "c64", "created": 0}), encoding="utf-8")
     s = Session._from_record(old)           # must not raise on the missing key
     assert s.exe is None
 
@@ -584,7 +589,7 @@ def test_launch_records_the_binary_it_started(home, monkeypatch):
 
     s = Session.launch(model="c64", name="rec")
     assert s.exe == "x64sc"
-    assert json.loads((sessions_dir() / "rec.json").read_text())["exe"] == "x64sc"
+    assert json.loads((sessions_dir() / "rec.json").read_text(encoding="utf-8"))["exe"] == "x64sc"
 
 
 def test_attach_unknown_name_is_actionable(home):
@@ -601,8 +606,8 @@ def test_stop_cleans_up_dead_session(home):
     sock.parent.mkdir(parents=True, exist_ok=True)
     s = Session(name="z", pid=dead, port=6502, model="c64",
                 daemon_pid=dead, socket=str(sock))
-    s._record_path().write_text("{}")
-    sock.write_text("")                   # a stale socket file to clean up
+    s._record_path().write_text("{}", encoding="utf-8")
+    sock.write_text("", encoding="utf-8")                   # a stale socket file to clean up
     s.stop()                              # must not raise
     assert not s._record_path().exists()
     assert not sock.exists()
@@ -656,13 +661,13 @@ def test_stop_cleans_up_when_the_kill_is_refused(home, monkeypatch):
     try:
         sock = sessions_dir() / "k.sock"
         sock.parent.mkdir(parents=True, exist_ok=True)
-        sock.write_text("")
+        sock.write_text("", encoding="utf-8")
         s = Session(name="k", pid=proc.pid, port=6502, model="c64",
                     daemon_pid=proc.pid, socket=str(sock),
                     exe=Path(sys.executable).name)
         s._save()
-        s._respawns_path().write_text("0.0\n")
-        audio_pin_path("k").write_text("{}")
+        s._respawns_path().write_text("0.0\n", encoding="utf-8")
+        audio_pin_path("k").write_text("{}", encoding="utf-8")
 
         def refuse(pid, sig):
             raise PermissionError(1, "Operation not permitted")
@@ -722,7 +727,7 @@ def test_stop_all_reaps_a_session_whose_process_is_already_gone(home):
     is gone is reaped — record and socket both — never reported as a failure,
     because cleaning up after a dead run is the whole point."""
     sock = sessions_dir() / "ghost.sock"
-    sock.write_text("")
+    sock.write_text("", encoding="utf-8")
     _write_record("ghost", _dead_pid(), socket=str(sock))
     assert Session.stop_all() == ["ghost"]
     assert not (sessions_dir() / "ghost.json").exists()
@@ -747,7 +752,7 @@ def test_stop_all_discards_a_record_it_cannot_read_and_says_so(home):
     either way.
     """
     sessions_dir().mkdir(parents=True, exist_ok=True)
-    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}')
+    (sessions_dir() / "truncated.json").write_text('{"name": "t", "pid": 1}', encoding="utf-8")
     _write_record("ghost", _dead_pid())
     with pytest.raises(SessionError) as e:
         Session.stop_all()
