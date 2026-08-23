@@ -161,7 +161,8 @@ def _c1541() -> str:
     if not exe:
         raise DiskError(
             "c1541 not found. It ships with VICE — install VICE 3.5+ "
-            "(macOS: brew install vice) or set C64_TOOLS_C1541."
+            "(macOS: brew install vice; Debian/Ubuntu: apt install vice) "
+            "or set C64_TOOLS_C1541."
         )
     return exe
 

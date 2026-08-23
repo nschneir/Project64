@@ -576,7 +576,9 @@ class Session:
         if not exe:
             raise SessionError(
                 f"{profile.vice_emulator} not found. Install VICE 3.5+ "
-                "(macOS: brew install vice; Debian/Ubuntu: apt install vice) "
+                "(macOS: brew install vice; Debian/Ubuntu: apt install vice, "
+                "from contrib/multiverse — that package ships no C64 ROMs, so "
+                "also install them per /usr/share/doc/vice/README.Debian) "
                 "or set C64_TOOLS_X64SC to the binary path."
             )
         name = name or model

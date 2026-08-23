@@ -25,7 +25,8 @@ def _petcat() -> str:
     if not exe:
         raise BasicError(
             "petcat not found. It ships with VICE — install VICE 3.5+ "
-            "(macOS: brew install vice) or set C64_TOOLS_PETCAT."
+            "(macOS: brew install vice; Debian/Ubuntu: apt install vice) "
+            "or set C64_TOOLS_PETCAT."
         )
     return exe
 

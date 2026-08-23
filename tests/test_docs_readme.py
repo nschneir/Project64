@@ -24,8 +24,31 @@ MCP_DOC = Path("docs/mcp.md")
 def test_install_section_near_top():
     text = README.read_text(encoding="utf-8")
     assert text.index("## Install") < text.index("## Quickstart")
-    assert "brew install vice cc65" in text
-    assert "apt install vice cc65" in text
+    install = text[text.index("## Install"):text.index("## Quickstart")]
+    assert "brew install vice cc65" in install
+    assert "apt install vice cc65" in install
+
+    # PEP 668: Debian 12+ / Ubuntu 23.04+ mark the system Python
+    # externally-managed, so a bare `pip install -e .` fails there. Both
+    # platforms are documented venv-first so one install path serves both
+    # (and the skills' `.venv/bin/c64` contract holds by construction).
+    mac = install[install.index("macOS"):install.index("Debian / Ubuntu")]
+    debian = install[install.index("Debian / Ubuntu"):]
+    for name, block in (("macOS", mac), ("Debian / Ubuntu", debian)):
+        assert "python3 -m venv .venv" in block, \
+            f"the {name} install block must create a venv"
+        assert ".venv/bin/pip install -e ." in block, \
+            f"the {name} install block must install into the venv"
+    assert "externally-managed" in install, \
+        "the Install section must name the PEP 668 failure it avoids"
+
+    # Debian's vice is outside main, and dfsg-repacked without the ROMs —
+    # either omission leaves a follower with an emulator that cannot boot.
+    assert "contrib" in debian and "multiverse" in debian, \
+        "the Debian block must say vice lives in contrib/multiverse"
+    assert "ROM" in debian and "README.Debian" in debian, \
+        "the Debian block must warn about the missing ROMs and point at " \
+        "the package's README.Debian"
 
 
 def test_readme_links_the_agent_setup_doc():

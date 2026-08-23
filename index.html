@@ -300,8 +300,19 @@
         <button class="copy" type="button">COPY</button>
 <pre><span class="cm"># macOS</span>
 brew install vice cc65
-pip install -e .</pre>
+python3 -m venv .venv
+.venv/bin/pip install -e .
+
+<span class="cm"># Debian / Ubuntu (vice is in contrib / multiverse)</span>
+sudo apt install vice cc65
+python3 -m venv .venv
+.venv/bin/pip install -e .</pre>
       </div>
+      <p>A venv is not optional on Debian 12+ / Ubuntu 23.04+ &mdash; the system
+      Python is externally managed (PEP 668). And Debian&rsquo;s <b>vice</b> package
+      ships without the Commodore ROM images, so <b>x64sc</b> will not boot until you
+      install them from an upstream VICE release; the paths are in
+      <b>/usr/share/doc/vice/README.Debian</b>.</p>
       <p>Then drive an emulated C64:</p>
       <div class="code">
         <button class="copy" type="button">COPY</button>

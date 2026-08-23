@@ -17,22 +17,41 @@ Project64 is a set of tools, skills, and an MCP to enable agentic Commodore
 ## Install
 
 Requires **Python 3.11+**, **VICE 3.5+** (provides `x64sc` and `petcat`), and
-the **cc65** suite (`ca65`/`ld65`, for assembling 6502 programs). Then install
-this package.
+the **cc65** suite (`ca65`/`ld65`, for assembling 6502 programs). Install this
+package into a virtual environment: Debian 12+ and Ubuntu 23.04+ mark the
+system Python externally-managed (PEP 668), so a bare `pip install -e .` there
+fails with `error: externally-managed-environment`.
 
 macOS (Homebrew):
 
     brew install vice cc65
-    pip install -e .
+    python3 -m venv .venv
+    .venv/bin/pip install -e .
 
 Debian / Ubuntu:
 
     sudo apt install vice cc65
-    pip install -e .
+    python3 -m venv .venv            # Debian may need: sudo apt install python3-venv
+    .venv/bin/pip install -e .
+
+Two Debian/Ubuntu specifics, because VICE needs ROMs Debian cannot ship:
+
+- **`vice` is not in `main`.** It lives in **contrib** on Debian and in
+  **multiverse** on Ubuntu; enable that component first —
+  `sudo apt-add-repository contrib` (Debian) or
+  `sudo add-apt-repository multiverse` (Ubuntu), then `sudo apt update`.
+- **The package ships without the Commodore ROM images.** It is repacked to
+  meet the DFSG, so `x64sc` will not boot until you install the ROMs yourself:
+  take them from an upstream VICE release (vice-emu.sourceforge.io) and put
+  them where the package looks — the paths are in
+  `/usr/share/doc/vice/README.Debian`.
+
+Then run the tools as `.venv/bin/c64 ...`, or activate the environment
+(`source .venv/bin/activate`) and use `c64` directly — as the Quickstart does.
 
 ## Quickstart
 
-    pip install -e .
+    source .venv/bin/activate          # after the Install section above
     c64 session start --model c64      # boot an emulated C64 (NTSC)
     c64 run tests/programs/hello-basic/program.bas   # tokenize + load + RUN
     c64 run tests/programs/hello-asm/program.s       # assemble + load + RUN (needs cc65)
