@@ -60,8 +60,8 @@ env-blind skip guards, locale-decoded subprocess output, the unenforced
 
 One caveat on all of it: no Debian or Ubuntu host was ever in the loop — the
 Linux-specific paths are fail-fast, grounded in packaging facts, and unit-
-tested by simulating the platform (`sys.platform` monkeypatched, `/proc`
-stand-ins on disk), but nothing here has run on a real display-less Debian
+tested by simulating the platform (`sys.platform` monkeypatched, the procfs
+lookup stubbed out), but nothing here has run on a real display-less Debian
 box.
 
 ## [1.0.0] — 2026-08-14
