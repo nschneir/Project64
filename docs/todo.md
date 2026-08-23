@@ -22,8 +22,8 @@ was dropped as defused (fugue's `--align-log`, and `audio-verification.md`
 already records pin-or-omit as the standing duration tradeoff); and
 la-galaxia's `tick_overrun` flake was fixed outright by scoping both
 lifetime-mark asserts to their windows. The 1.0.0 pre-release review then
-added one item of its own (`wait_for_break`, at the end of this file), so
-five items remain, all real work.
+added one item of its own (`wait_for_break`), and every item still listed
+below is real work.
 
 The 2026-08-23 Debian/Ubuntu-focus review then landed its ten confirmed
 findings (`CHANGELOG.md`'s Unreleased section has the inventory) and left the
@@ -486,7 +486,7 @@ successive commands must share one Xvfb rather than starting two.
 ## Session identity matches a basename anywhere in a stranger's command line
 
 **Anchor:** `src/c64lib/session.py:98` (`_pid_is_session`), its caller
-`SessionRecord.is_alive()` at `:781-786`, and the `-binarymonitoraddress`
+`Session.is_alive()` at `:781-786`, and the `-binarymonitoraddress`
 argument `launch` writes into argv at `:662`.
 
 **Status:** filed 2026-08-23 by the review that produced the fix this item
@@ -503,6 +503,10 @@ session's** x64sc (or on any command line that merely mentions the string,
 `grep x64sc` included) still reads alive. On a shared build host running
 several sessions this is exactly the collision the pid-recycling fix was
 about, one level in. `stop()` then aims its SIGTERM at the wrong emulator.
+The fallback marker cuts the other way once: a pre-upgrade record — no `exe`
+field — for a session launched through `C64_TOOLS_X64SC` or `--binary` with a
+binary whose basename is not `x64sc` reads dead and is pruned while its
+emulator is still running, which the doubt-reads-as-dead bargain accepts.
 
 There is a second, smaller residue in the same function's neighbourhood:
 `stop()` still identifies the daemon by number alone
