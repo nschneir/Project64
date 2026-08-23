@@ -376,8 +376,8 @@ reviewable; it did not make these sites right.
 C-locale coercion disabled, which is what a cron job, a container or a
 stripped systemd unit can leave behind — that is ASCII, and any non-ASCII
 byte in an assembler's or `c1541`'s diagnostic raises `UnicodeDecodeError`
-from inside `subprocess.run`. Three of the four unguarded sites are on the error
-path of a build: the failure a user gets is a traceback about decoding
+from inside `subprocess.run`. Three of the four unguarded sites are on the
+error path of a build: the failure a user gets is a traceback about decoding
 instead of the compiler error that actually stopped them. The `session.py`
 trio cannot raise (they pass `errors="replace"`), but they still decode a
 command line under the host locale, so `_pid_is_session`'s substring match is
@@ -390,17 +390,36 @@ UTF-8 or ASCII. `cartridge.py`'s guard then becomes belt-and-braces rather
 than the only seatbelt in the car.
 
 **How to verify.** Under `LC_ALL=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0` — the
-same triple the `demos/` item above needs, and all three are load-bearing:
-`LC_ALL=C` alone is undone by PEP 538 coercion, which promotes `LC_CTYPE` to
-`C.UTF-8` independently of `PYTHONUTF8` — make `ca65` fail with a non-ASCII
+same triple the `demos/` item above uses — make `ca65` fail with a non-ASCII
 byte in its message (a source path with an em dash does it) and confirm
 `c64 build` reports the assembler's error rather than a `UnicodeDecodeError`.
 
-A caution for whoever picks this up on the maintainer's Mac: coercion only
-fires where a `C.UTF-8` target locale exists, so macOS returns `US-ASCII`
-for `LC_ALL=C PYTHONUTF8=0` too and the shorter recipe looks like it works.
-Debian and Ubuntu ship `C.UTF-8`. The triple is what reproduces on the host
-this item is about.
+**Which of those three variables actually does the work**, because getting
+this wrong yields a green run that proves nothing. Two separate mechanisms
+turn a "C" locale back into UTF-8, and they answer to different spellings.
+Measured with `python3 -c "import locale; print(locale.getencoding())"` on
+the maintainer's Mac, which has a `C.UTF-8` target like Debian does:
+
+    LC_ALL=C PYTHONUTF8=0                        -> US-ASCII
+    LANG=C   PYTHONUTF8=0                        -> UTF-8
+    LANG=C   PYTHONCOERCECLOCALE=0 PYTHONUTF8=0  -> US-ASCII
+    LC_ALL=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0  -> US-ASCII
+
+- **`PYTHONUTF8=0`** turns off PEP 540 UTF-8 mode. Always needed.
+- **`LC_ALL=C` beats `LANG=C`.** CPython skips PEP 538 coercion outright
+  whenever `LC_ALL` is set and non-empty, so `LC_ALL=C` reaches ASCII on its
+  own — on any platform, Debian included. `LANG=C` alone gets coerced to
+  `C.UTF-8` and silently stays UTF-8. Under `PYTHONCOERCECLOCALE=warn` the
+  interpreter says so: "Python detected LC_CTYPE=C: LC_CTYPE coerced to
+  C.UTF-8".
+- **`PYTHONCOERCECLOCALE=0`** is therefore redundant beside `LC_ALL=C` and
+  load-bearing only in the `LANG=C` spelling. It is kept in the recipe as
+  belt-and-braces, and so this item and the `demos/` one stay copy-pasteable
+  into each other.
+
+This is not a macOS-versus-Linux difference: the coercion guard is
+platform-independent, and both spellings behave here exactly as they do on
+Debian.
 
 ## "VICE 3.5+" is advertised and nothing checks it
 
