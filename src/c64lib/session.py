@@ -95,6 +95,48 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _pid_is_session(pid: int, markers: Sequence[str]) -> bool:
+    """Whether `pid` is still the process a session started, rather than
+    merely a pid that is in use.
+
+    `_pid_alive` answers for the NUMBER, and pid numbers get recycled — on a
+    busy Linux box the counter can wrap past a session's pid well within the
+    life of its record. It also reports PermissionError, i.e. somebody else's
+    process, as alive. So a record whose pid had been inherited by an
+    unrelated process read as alive forever: `_scan_records` never pruned it,
+    its name could never be relaunched, and `stop()` aimed a SIGTERM at the
+    stranger holding the number. Checking the command line for the binary the
+    session launched is what tells the two apart — the same test
+    `tests/conftest.py`'s reaper (`_is_ours`) has always applied before it
+    kills anything.
+
+    Doubt reads as DEAD, deliberately: a wrong "dead" costs a pruned record
+    for a session that can be launched again, a wrong "alive" costs a session
+    no command can clear.
+    """
+    if not _pid_alive(pid):
+        return False
+    try:
+        # /proc first where it exists: free, and no subprocess per record.
+        # `ps` is the portable fallback (macOS has no procfs) and the exact
+        # lookup conftest's reaper uses.
+        procfs = Path(f"/proc/{pid}/cmdline")
+        if procfs.exists():
+            # NUL-separated argv; markers never span two arguments, so the
+            # separators can stay as they are for a substring match.
+            cmdline = procfs.read_bytes().decode("utf-8", "replace")
+        else:
+            cmdline = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True, text=True, errors="replace",
+            ).stdout
+    except OSError:
+        # No ps on PATH, /proc unreadable, the process gone between the two
+        # calls: all of them are "cannot confirm", which is dead.
+        return False
+    return any(m and m in cmdline for m in markers)
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -345,6 +387,13 @@ class Session:
     loaded_prg: str | None = None
     loaded_at: float = 0.0
     loaded_deps: list[str] | None = None
+    # Basename of the emulator binary `launch` started. A pid alone cannot
+    # say whether the session is still there once pids get recycled, and the
+    # model name cannot say which binary ran (`--binary` and C64_TOOLS_X64SC
+    # both override it) — see `_pid_is_session`, which matches this against
+    # the pid's command line. Optional so records written before sessions had
+    # a process identity keep loading.
+    exe: str | None = None
 
     @property
     def profile(self) -> MachineProfile:
@@ -362,7 +411,7 @@ class Session:
                  "model": self.model, "labels": self.labels,
                  "daemon_pid": self.daemon_pid, "socket": self.socket,
                  "loaded_prg": self.loaded_prg, "loaded_at": self.loaded_at,
-                 "loaded_deps": self.loaded_deps,
+                 "loaded_deps": self.loaded_deps, "exe": self.exe,
                  "created": time.time()}
             )
         )
@@ -429,7 +478,11 @@ class Session:
                            daemon_pid=r.get("daemon_pid"), socket=r.get("socket"),
                            loaded_prg=r.get("loaded_prg"),
                            loaded_at=r.get("loaded_at", 0.0),
-                           loaded_deps=r.get("loaded_deps"))
+                           loaded_deps=r.get("loaded_deps"),
+                           # .get, not [...]: a record written before sessions
+                           # carried a process identity must keep loading, and
+                           # `is_alive` has a fallback for the missing name.
+                           exe=r.get("exe"))
         except KeyError as e:
             raise SessionError(
                 f"session record {path} is unreadable: missing {e.args[0]!r}"
@@ -619,7 +672,8 @@ class Session:
                 if last_exit is None:
                     _kill_proc(proc)
                 continue
-            session = cls(name=name, pid=proc.pid, port=port, model=model)
+            session = cls(name=name, pid=proc.pid, port=port, model=model,
+                          exe=Path(exe).name)
             if os.environ.get("C64_TOOLS_NO_DAEMON") != "1":
                 try:
                     # Inside the guard, not above it: _default_socket_path
@@ -722,7 +776,12 @@ class Session:
         return mon
 
     def is_alive(self) -> bool:
-        return _pid_alive(self.pid)
+        # Not `_pid_alive`: the session is alive only while its pid is still
+        # running the binary it launched (see `_pid_is_session`). A record
+        # from before `exe` existed falls back to the emulator its model
+        # launches, which is what it would have stored.
+        markers = [self.exe] if self.exe else [self.profile.vice_emulator]
+        return _pid_is_session(self.pid, markers)
 
     def stop(self) -> None:
         if self.is_alive():
@@ -735,12 +794,21 @@ class Session:
             while self.is_alive() and time.monotonic() < deadline:
                 time.sleep(0.1)
             if self.is_alive():
-                os.kill(self.pid, 15)  # SIGTERM
+                try:
+                    os.kill(self.pid, 15)  # SIGTERM
+                except (ProcessLookupError, PermissionError):
+                    # Whether the process died in the gap above or belongs to
+                    # somebody else, the signal is not what this call owes the
+                    # caller: the cleanup below is. Letting either escape here
+                    # left the record — and the socket, respawn counter and
+                    # audio pin — on disk, so the session stayed listed and
+                    # its name could never be used again.
+                    pass
         if self.daemon_pid and _pid_alive(self.daemon_pid):
             try:
                 os.kill(self.daemon_pid, 15)
-            except ProcessLookupError:
-                pass
+            except (ProcessLookupError, PermissionError):
+                pass  # same bargain as the SIGTERM above
         if self.socket:
             Path(self.socket).unlink(missing_ok=True)
         self._respawns_path().unlink(missing_ok=True)

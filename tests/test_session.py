@@ -19,6 +19,8 @@ from c64lib.session import (
     _display_available,
     _kill_proc,
     _pid_alive,
+    _pid_is_session,
+    audio_pin_path,
     sessions_dir,
 )
 
@@ -43,11 +45,18 @@ def display(monkeypatch):
 
 
 def _write_record(name, pid, port=6502, model="c64", **extra):
+    """A session record on disk, as `_save` would have written it.
+
+    `exe` names this interpreter because the live pids below are python
+    stand-ins for x64sc: liveness asks whether the pid is still running the
+    binary the record names (see `_pid_is_session`), so a fake session has to
+    name the binary it really started. Pass `exe=` to claim a different one.
+    """
     d = sessions_dir()
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.json").write_text(
         json.dumps({"name": name, "pid": pid, "port": port, "model": model,
-                    "created": 0, **extra})
+                    "exe": Path(sys.executable).name, "created": 0, **extra})
     )
 
 
@@ -461,6 +470,71 @@ def test_pid_alive_permission_error_means_alive(monkeypatch):
     assert _pid_alive(12345) is True
 
 
+# --- a live pid is not a live session --------------------------------------
+#
+# pid numbers are recycled, and `_pid_alive` answers for the number, not for
+# what is running under it (it even reports PermissionError — someone else's
+# process — as alive). A record whose pid has been inherited by an unrelated
+# process therefore read as alive forever: never pruned, its name never
+# reusable, and `stop()` aimed a SIGTERM at the stranger. Liveness now asks
+# whether the pid is still running the binary the record names.
+
+def test_a_pid_running_something_else_is_a_dead_session(home):
+    """One live pid, two records: only the one naming the binary actually
+    running under that pid is alive, and the other is pruned as dead."""
+    proc = _live_pid()
+    try:
+        _write_record("mine", proc.pid)                          # this python
+        _write_record("recycled", proc.pid, port=6503, exe="x64sc")
+        assert [s.name for s in Session.list_all()] == ["mine"]
+        assert not (sessions_dir() / "recycled.json").exists(), \
+            "a record whose pid runs something else survived the scan"
+        assert (sessions_dir() / "mine.json").exists(), \
+            "the record that DOES name the running binary was pruned too"
+    finally:
+        proc.kill()
+
+
+def test_pid_is_session_says_dead_on_doubt(home):
+    """A false "alive" is an unkillable session no command can clear; a false
+    "dead" only prunes a record for something relaunchable. So every way of
+    failing to confirm the process — gone, or nothing to match against —
+    answers dead."""
+    assert _pid_is_session(_dead_pid(), ["python"]) is False
+    proc = _live_pid()
+    try:
+        assert _pid_is_session(proc.pid, []) is False
+        assert _pid_is_session(proc.pid, [Path(sys.executable).name]) is True
+    finally:
+        proc.kill()
+
+
+def test_a_record_without_exe_falls_back_to_the_models_emulator(home, monkeypatch):
+    """Records written before sessions had a process identity must keep
+    loading — `exe` is read with `.get` — and their liveness check falls back
+    to the emulator their model would have launched, which is what they would
+    have stored."""
+    from c64lib import session as session_mod
+
+    d = sessions_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    old = d / "old.json"
+    old.write_text(json.dumps(
+        {"name": "old", "pid": 4242, "port": 6502, "model": "c64", "created": 0}))
+    s = Session._from_record(old)           # must not raise on the missing key
+    assert s.exe is None
+
+    seen = {}
+
+    def spy(pid, markers):
+        seen["markers"] = list(markers)
+        return True
+
+    monkeypatch.setattr(session_mod, "_pid_is_session", spy)
+    assert s.is_alive() is True
+    assert seen["markers"] == ["x64sc"]
+
+
 def test_kill_proc_escalates_to_sigkill():
     proc = Mock()
     proc.wait.side_effect = [subprocess.TimeoutExpired("x", 3), None]
@@ -485,6 +559,34 @@ def test_launch_rejects_duplicate_name(home, monkeypatch):
             Session.launch(model="c64")
 
 
+def test_launch_records_the_binary_it_started(home, monkeypatch):
+    """The record has to carry the process identity, not just the pid: it is
+    the only thing a later `is_alive()` can match the command line against,
+    and the binary is whatever `--binary`/`C64_TOOLS_X64SC`/PATH resolved to,
+    which the model name does not say."""
+    class FakeProc:
+        pid = 999_999_991           # never a live pid: nothing here signals it
+
+        def poll(self):
+            return None             # came up, like an x64sc whose monitor answers
+
+    class FakeMon:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def connect(self, deadline=0): pass
+        def ping(self): pass
+        def resume(self): pass
+
+    monkeypatch.setenv("C64_TOOLS_NO_DAEMON", "1")
+    monkeypatch.setenv("C64_TOOLS_X64SC", "/opt/vice/bin/x64sc")
+    monkeypatch.setattr("c64lib.session.subprocess.Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr("c64lib.session.MonitorClient", lambda **kw: FakeMon())
+
+    s = Session.launch(model="c64", name="rec")
+    assert s.exe == "x64sc"
+    assert json.loads((sessions_dir() / "rec.json").read_text())["exe"] == "x64sc"
+
+
 def test_attach_unknown_name_is_actionable(home):
     with pytest.raises(SessionError, match="c64 session start"):
         Session.attach("nosuch")
@@ -504,6 +606,80 @@ def test_stop_cleans_up_dead_session(home):
     s.stop()                              # must not raise
     assert not s._record_path().exists()
     assert not sock.exists()
+
+
+class _NoMon:
+    """A monitor whose quit() the emulator ignores, so `stop()` goes on to
+    its SIGTERM fallback."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def quit(self):
+        pass
+
+
+class _GraceExpired:
+    """`c64lib.session.time` with `stop()`'s 3s SIGTERM grace already spent:
+    what happens AFTER the wait is the subject, and the test should not sit
+    through the wait to reach it."""
+
+    def __init__(self):
+        self._first = True
+
+    def monotonic(self) -> float:
+        if self._first:          # the deadline is computed from this one
+            self._first = False
+            return 0.0
+        return 1e9
+
+    def sleep(self, _seconds: float) -> None:
+        pass
+
+
+def test_stop_cleans_up_when_the_kill_is_refused(home, monkeypatch):
+    """A signal that cannot be sent must not strand the session's state.
+
+    `os.kill` raises PermissionError on a pid owned by another user — exactly
+    what a recycled pid looks like — and the bare call let that escape before
+    anything was cleaned up: the record stayed on disk, so the session stayed
+    listed, its name could never be reused, and its socket, respawn counter
+    and audio pin outlived it.
+    """
+    from c64lib import session as session_mod
+
+    real_kill = os.kill          # the patch below reaches this test's own cleanup
+    proc = _live_pid()
+    try:
+        sock = sessions_dir() / "k.sock"
+        sock.parent.mkdir(parents=True, exist_ok=True)
+        sock.write_text("")
+        s = Session(name="k", pid=proc.pid, port=6502, model="c64",
+                    daemon_pid=proc.pid, socket=str(sock),
+                    exe=Path(sys.executable).name)
+        s._save()
+        s._respawns_path().write_text("0.0\n")
+        audio_pin_path("k").write_text("{}")
+
+        def refuse(pid, sig):
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr(session_mod.os, "kill", refuse)
+        monkeypatch.setattr(session_mod.Session, "monitor", lambda self: _NoMon())
+        monkeypatch.setattr(session_mod, "time", _GraceExpired())
+
+        s.stop()                                  # must not raise
+
+        assert not s._record_path().exists(), "the session is still listed"
+        assert not sock.exists()
+        assert not s._respawns_path().exists()
+        assert not audio_pin_path("k").exists()
+    finally:
+        real_kill(proc.pid, 9)
+        proc.wait()
 
 
 class _QuitMon:
