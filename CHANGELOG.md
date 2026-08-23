@@ -36,8 +36,9 @@ The rest, briefly:
   another) is in `docs/todo.md`.
 - **Text I/O was locale-dependent tree-wide.** Every text-mode `open`,
   `read_text` and `write_text` in `src/`, `tests/` and `skills/` — 575 sites
-  — names `utf-8`, and ruff's `PLW1514` keeps it that way. On a `LANG=C`
-  host the suite used to fail on its own documentation.
+  — names `utf-8`, and ruff's `PLW1514` keeps it that way. On a genuinely
+  non-UTF-8 locale (`LANG=C` with C-locale coercion disabled) the suite used
+  to fail on its own documentation.
 - **The install instructions did not work on Debian.** `pip install` outside
   a venv is refused by PEP 668 there; VICE lives in `contrib`/`multiverse`
   and the `apt` package ships no Commodore ROMs. All three are now in the

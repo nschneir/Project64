@@ -372,10 +372,11 @@ that commit's rule was "every text-mode `open`/`read_text`/`write_text` names
 reviewable; it did not make these sites right.
 
 **What's wrong now.** `text=True` with no `encoding=` decodes with
-`locale.getencoding()`. On a `LANG=C` Debian or Ubuntu host — a cron job, a
-container, a stripped systemd unit — that is ASCII, and any non-ASCII byte in
-an assembler's or `c1541`'s diagnostic raises `UnicodeDecodeError` from
-inside `subprocess.run`. Three of the four unguarded sites are on the error
+`locale.getencoding()`. On a genuinely non-UTF-8 host — `LANG=C` with
+C-locale coercion disabled, which is what a cron job, a container or a
+stripped systemd unit can leave behind — that is ASCII, and any non-ASCII
+byte in an assembler's or `c1541`'s diagnostic raises `UnicodeDecodeError`
+from inside `subprocess.run`. Three of the four unguarded sites are on the error
 path of a build: the failure a user gets is a traceback about decoding
 instead of the compiler error that actually stopped them. The `session.py`
 trio cannot raise (they pass `errors="replace"`), but they still decode a
@@ -388,10 +389,18 @@ sweep made: these are tool diagnostics, and every tool in the set emits
 UTF-8 or ASCII. `cartridge.py`'s guard then becomes belt-and-braces rather
 than the only seatbelt in the car.
 
-**How to verify.** Under `LC_ALL=C PYTHONUTF8=0`, make `ca65` fail with a
-non-ASCII byte in its message (a source path with an em dash does it) and
-confirm `c64 build` reports the assembler's error rather than a
-`UnicodeDecodeError`.
+**How to verify.** Under `LC_ALL=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0` — the
+same triple the `demos/` item above needs, and all three are load-bearing:
+`LC_ALL=C` alone is undone by PEP 538 coercion, which promotes `LC_CTYPE` to
+`C.UTF-8` independently of `PYTHONUTF8` — make `ca65` fail with a non-ASCII
+byte in its message (a source path with an em dash does it) and confirm
+`c64 build` reports the assembler's error rather than a `UnicodeDecodeError`.
+
+A caution for whoever picks this up on the maintainer's Mac: coercion only
+fires where a `C.UTF-8` target locale exists, so macOS returns `US-ASCII`
+for `LC_ALL=C PYTHONUTF8=0` too and the shorter recipe looks like it works.
+Debian and Ubuntu ship `C.UTF-8`. The triple is what reproduces on the host
+this item is about.
 
 ## "VICE 3.5+" is advertised and nothing checks it
 
