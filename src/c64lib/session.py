@@ -100,6 +100,24 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _display_available() -> bool:
+    """Whether this host can open a window at all.
+
+    Only Linux can answer no. x64sc there is a GTK3 build (what Debian and
+    Ubuntu package), and GTK3 needs an X11 or Wayland server to start even
+    for a `--headless` launch: SDL_VIDEODRIVER is inert on that build (see
+    `_supports_minimized`). Without a server x64sc prints "cannot open
+    display" and exits, which reaches a caller as a monitor timeout unless
+    someone checks first. Not cached: a caller may set DISPLAY between
+    launches.
+    """
+    if sys.platform != "linux":
+        return True
+    # Exported-but-empty is no display: that is what a stripped systemd or
+    # cron environment leaves behind, and X11 treats it as unset too.
+    return any(os.environ.get(var) for var in ("DISPLAY", "WAYLAND_DISPLAY"))
+
+
 @functools.cache
 def _supports_minimized(exe: str) -> bool:
     """Whether this VICE binary's own --help lists -minimized.
@@ -465,6 +483,18 @@ class Session:
         cart: str | None = None,
     ) -> Session:
         profile = get_profile(model)
+        # Before anything is spawned or logged: a display-less Linux host
+        # cannot run x64sc at all, and the failure it produces on its own
+        # (x64sc exits at startup, the monitor never answers) reads as a
+        # timeout and sends the caller hunting the wrong thing.
+        if not _display_available():
+            raise SessionError(
+                f"no display: {profile.vice_emulator} is a GTK3 build here, "
+                "so it needs an X11 or Wayland server even with --headless "
+                "(SDL_VIDEODRIVER does not apply to it). Run the command "
+                "under a virtual display — xvfb-run -a c64 session start — "
+                "or set DISPLAY to a server you already have."
+            )
         exe = binary or os.environ.get("C64_TOOLS_X64SC") or shutil.which(profile.vice_emulator)
         if not exe:
             raise SessionError(

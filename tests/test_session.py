@@ -10,6 +10,7 @@ from c64lib.session import (
     RegistryError,
     Session,
     SessionError,
+    _display_available,
     _kill_proc,
     _pid_alive,
     sessions_dir,
@@ -20,6 +21,19 @@ from c64lib.session import (
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("C64_TOOLS_HOME", str(tmp_path))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def display(monkeypatch):
+    """A display for every stubbed launch in this module.
+
+    `Session.launch` refuses to spawn on a Linux host with no X11/Wayland
+    server, which is right for a real launch and wrong for these tests: they
+    stub Popen and never open a window, so on a display-less Debian box the
+    preflight would fail them all before the stub is reached. The tests that
+    exercise the preflight itself clear these vars again.
+    """
+    monkeypatch.setenv("DISPLAY", ":0")
 
 
 def _write_record(name, pid, port=6502, model="c64", **extra):
@@ -166,6 +180,65 @@ def test_launch_missing_binary_message(home, monkeypatch):
 def test_launch_unknown_model(home):
     with pytest.raises(KeyError):
         Session.launch(model="amiga500")
+
+
+# --- the display preflight -------------------------------------------------
+#
+# The GTK3 x64sc that Debian/Ubuntu ship needs an X11 or Wayland server even
+# for a --headless launch; without one it exits at startup and the failure
+# used to reach the caller as a monitor timeout. These pin the preflight that
+# names the real cause instead.
+
+def _no_display(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+
+def test_display_available_is_true_off_linux(monkeypatch):
+    """macOS and Windows draw through the native toolkit: no env var to check."""
+    _no_display(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _display_available() is True
+
+
+def test_display_available_on_linux_follows_the_display_vars(monkeypatch):
+    _no_display(monkeypatch)
+    assert _display_available() is False
+    monkeypatch.setenv("DISPLAY", "")       # exported but empty is still none
+    assert _display_available() is False
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert _display_available() is True
+
+
+def test_launch_without_a_display_fails_before_spawning(home, monkeypatch):
+    _no_display(monkeypatch)
+    monkeypatch.setenv("C64_TOOLS_X64SC", "/usr/bin/x64sc")
+
+    def never(*a, **kw):
+        raise AssertionError("x64sc was spawned without a display")
+
+    monkeypatch.setattr("c64lib.session.subprocess.Popen", never)
+    with pytest.raises(SessionError, match="xvfb-run"):
+        Session.launch(name="no-display", headless=True)
+
+
+def test_launch_without_a_display_refuses_windowed_launches_too(home, monkeypatch):
+    """Not a headless-only rule: the GTK3 build needs a display either way."""
+    _no_display(monkeypatch)
+    monkeypatch.setenv("C64_TOOLS_X64SC", "/usr/bin/x64sc")
+    with pytest.raises(SessionError, match="xvfb-run"):
+        Session.launch(name="no-display-windowed", headless=False)
+
+
+def test_launch_with_a_display_reaches_the_binary_check(home, monkeypatch):
+    """DISPLAY set: the preflight is transparent and launch carries on."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("C64_TOOLS_X64SC", raising=False)
+    monkeypatch.setenv("PATH", "")
+    with pytest.raises(SessionError, match="[Ii]nstall"):
+        Session.launch(model="c64")
 
 
 def test_labels_path_persists(home):

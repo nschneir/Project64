@@ -85,7 +85,11 @@ Boot a fresh emulated C64.
   and VICE's sound device paces the emulation loop at real time, so a session
   waiting on a host output device that isn't there would hang instead. A build
   missing either half keeps host audio. Recording is unaffected
-  (`c64 audio record`).
+  (`c64 audio record`). On Linux `--headless` is not a substitute for a
+  display: the GTK3 `x64sc` Debian and Ubuntu ship ignores the SDL variables
+  and needs an X11 or Wayland server to start at all, so a display-less host
+  is the one place headless work must run under `xvfb-run -a` (without it,
+  `session start` refuses up front rather than timing out).
 - `--warp` — run at maximum speed (recommended for automation).
 - `--disk PATH` — attach a `.d64`/`.d71`/`.d81` image to drive 8 at boot.
   Attaching only fills the drive — the machine still boots to BASIC;

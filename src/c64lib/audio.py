@@ -1683,10 +1683,15 @@ def capture(session, seconds: float, outdir, ref_path=None, writes=None) -> dict
         what = ("missing" if recorded is None else
                 f"{recorded} bytes — a WAV header and no samples")
         raise AudioError(
-            f"VICE recorded no audio: {wav} is {what}. Under warp VICE writes "
-            f"a 0-frame WAV, so the capture window was not at real time — "
-            f"check that nothing re-warped the session mid-capture. The "
-            f"register log is still at {log}")
+            f"VICE recorded no audio: {wav} is {what}. Two known causes. The "
+            f"capture window was not at real time: under warp VICE writes a "
+            f"0-frame WAV, so check that nothing re-warped the session "
+            f"mid-capture. Or no sound device on this host drained VICE's "
+            f"output — that stalls the emulation loop before a frame is "
+            f"written, and a Linux box with no audio server is the usual way "
+            f"in; relaunch with `c64 session start --headless`, which routes "
+            f"sound to VICE's file-backed `dump` device. The register log is "
+            f"still at {log}")
 
     out = sid_report(log, outdir, wav_path=wav, ref_path=ref_path, timing=timing)
     return {**out,

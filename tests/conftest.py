@@ -29,7 +29,7 @@ import pytest
 from click.testing import Result
 
 from c64lib.screen import read_screen_text
-from c64lib.session import Session, _pid_alive
+from c64lib.session import Session, _display_available, _pid_alive
 from tests.vice_helpers import timeout_scale
 
 HAVE_X64SC = bool(shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC"))
@@ -299,6 +299,11 @@ class SharedC64:
 def _shared_c64(_c64_home, _track_launches):
     if not HAVE_X64SC:
         pytest.skip("x64sc not installed")
+    # Installed but unusable is still "cannot run the live tests": on a
+    # display-less Linux box every launch here would raise, turning the whole
+    # live suite into errors where a skip is the honest result.
+    if not _display_available():
+        pytest.skip("x64sc needs a display (set DISPLAY or run under xvfb-run)")
     shared = SharedC64()
     try:
         shared.start()
