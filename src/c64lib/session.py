@@ -621,8 +621,13 @@ class Session:
                 continue
             session = cls(name=name, pid=proc.pid, port=port, model=model)
             if os.environ.get("C64_TOOLS_NO_DAEMON") != "1":
-                sock_path = _default_socket_path(name)
                 try:
+                    # Inside the guard, not above it: _default_socket_path
+                    # touches the filesystem (per-user socket dir) and raises
+                    # SessionError on a squatted one. Raising out here would
+                    # leave the emulator already started above running and
+                    # unrecorded — the very orphan the kill below prevents.
+                    sock_path = _default_socket_path(name)
                     session.daemon_pid = _spawn_daemon(name, port, sock_path)
                 except SessionError:
                     _kill_proc(proc)            # no half-sessions

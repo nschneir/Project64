@@ -998,6 +998,27 @@ def test_launch_non_headless_keeps_the_host_sound_device(home, monkeypatch):
     assert "-soundarg" not in seen["args"]
 
 
+def test_launch_kills_the_emulator_when_the_socket_path_is_refused(home,
+                                                                   monkeypatch):
+    """`_default_socket_path` does filesystem work now and refuses a squatted
+    per-user dir; that refusal must take the already-started emulator with it.
+    Otherwise the launch leaves a VICE running that no record points at."""
+    from c64lib import session as session_mod
+
+    seen = {}
+    _stub_launch_deps(monkeypatch, session_mod, seen, HELP_WITH_DUMP)
+    killed, saved = [], []
+    monkeypatch.setattr(session_mod, "_kill_proc", lambda p: killed.append(p.pid))
+    monkeypatch.setattr(session_mod, "_default_socket_path",
+                        Mock(side_effect=SessionError("socket dir /tmp/x is a symlink")))
+    monkeypatch.setattr(session_mod.Session, "_save",
+                        lambda self: saved.append(self.name))
+    with pytest.raises(SessionError, match="is a symlink"):
+        session_mod.Session.launch(name="squatted-sock-sess", headless=True)
+    assert killed == [4242]             # the FakePopen pid: no orphan left
+    assert saved == []                  # and no half-session on disk
+
+
 def _long_home(tmp_path, monkeypatch) -> None:
     """A C64_TOOLS_HOME long enough to push the sessions-dir socket past the
     ~100-byte sun_path budget, forcing the hashed fallback."""
