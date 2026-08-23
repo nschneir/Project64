@@ -29,7 +29,12 @@ import pytest
 from click.testing import Result
 
 from c64lib.screen import read_screen_text
-from c64lib.session import Session, _display_available, _pid_alive
+from c64lib.session import (
+    Session,
+    _display_available,
+    _pid_alive,
+    _pid_is_session,
+)
 from tests.vice_helpers import timeout_scale
 
 HAVE_X64SC = bool(shutil.which("x64sc") or os.environ.get("C64_TOOLS_X64SC"))
@@ -124,7 +129,12 @@ def cli_json(argv: list[str], *, session=None, exit_code: int = 0) -> dict:
 
 # --- emulators left behind by an earlier run ------------------------------
 
-_RUNS = Path(tempfile.gettempdir()) / "c64-tools-pytest-runs"
+#: Per-uid, because on Linux this lands in a world-writable shared /tmp: with
+#: one fixed name the first developer to run the suite owns the directory, and
+#: everyone else's run either cannot write its ledger or reads pids that were
+#: never theirs to kill. macOS gives each user a private temp dir, so the
+#: suffix is redundant there and harmless.
+_RUNS = Path(tempfile.gettempdir()) / f"c64-tools-pytest-runs-{os.getuid()}"
 
 
 def _run_file() -> Path:
@@ -134,39 +144,64 @@ def _run_file() -> Path:
 def _record_pid(pid: int) -> None:
     """Remember what this run started, so a suite killed before teardown can
     be cleaned up by the next one."""
-    _RUNS.mkdir(parents=True, exist_ok=True)
+    # 0o700: the ledger is a kill list. Nobody else on the host gets to add
+    # pids to it, and nobody else needs to read which ones we hold.
+    _RUNS.mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(_run_file(), "a") as fh:
         fh.write(f"{pid}\n")
 
 
 def _is_ours(pid: int) -> bool:
     """pids get reused: only ever kill one still running an emulator or its
-    daemon. Anything else that inherited the number is left alone."""
-    out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
-                         capture_output=True, text=True).stdout
-    return "x64sc" in out or "c64lib.daemon" in out
+    daemon. Anything else that inherited the number is left alone.
+
+    ``_pid_is_session`` is the library's identical check (it grew out of this
+    one): ``/proc/<pid>/cmdline`` where procfs exists, ``ps`` elsewhere, and —
+    the reason for the reuse — False on any ``OSError``, which covers a slim
+    container with no ``ps`` on PATH at all. WHY False and not a raise: an
+    unidentifiable pid is one we must never kill, and this runs inside a
+    session-autouse fixture where raising would error the entire suite over a
+    missing tool rather than lose one leftover emulator.
+    """
+    return _pid_is_session(pid, ("x64sc", "c64lib.daemon"))
 
 
 def _reap(path: Path) -> int:
     killed = 0
     for pid in (int(word) for word in path.read_text().split()):
-        if pid and _pid_alive(pid) and _is_ours(pid):
+        if pid and _is_ours(pid):
             try:
                 os.kill(pid, signal.SIGKILL)
                 killed += 1
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
+                # Gone between the check and the signal, or — after a pid
+                # reuse on a shared host — now owned by another user. Either
+                # way it is not ours to kill, and not worth an error.
                 pass
-    path.unlink(missing_ok=True)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        # A ledger we may read but not write (a stale directory from another
+        # uid, a read-only /tmp): re-reaping already-dead pids next run is
+        # cheap, crashing every run over one undeletable file is not.
+        pass
     return killed
 
 
 def _reap_dead_runs() -> None:
     """Kill emulators orphaned by a pytest run that never reached teardown.
     Runs still alive (a suite running concurrently) are left untouched."""
-    for f in sorted(_RUNS.glob("*.pids")):
-        if f == _run_file() or _pid_alive(int(f.stem)):
-            continue
-        n = _reap(f)
+    try:
+        stale = sorted(_RUNS.glob("*.pids"))
+    except OSError:
+        return                                  # no ledger we can scan
+    for f in stale:
+        try:
+            if f == _run_file() or _pid_alive(int(f.stem)):
+                continue
+            n = _reap(f)
+        except OSError:
+            continue                            # unreadable leftover: skip it
         if n:
             print(f"\ntests: reaped {n} leftover emulator process(es) "
                   f"from pytest run {f.stem}")
