@@ -1,7 +1,12 @@
 import json
+import os
+import re
+import stat
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,6 +15,7 @@ from c64lib.session import (
     RegistryError,
     Session,
     SessionError,
+    _default_socket_path,
     _display_available,
     _kill_proc,
     _pid_alive,
@@ -990,3 +996,41 @@ def test_launch_non_headless_keeps_the_host_sound_device(home, monkeypatch):
     session_mod.Session.launch(name="windowed-audio-sess", headless=False)
     assert "-sounddev" not in seen["args"]
     assert "-soundarg" not in seen["args"]
+
+
+def _long_home(tmp_path, monkeypatch) -> None:
+    """A C64_TOOLS_HOME long enough to push the sessions-dir socket past the
+    ~100-byte sun_path budget, forcing the hashed fallback."""
+    home = tmp_path / ("d" * 90)
+    home.mkdir()
+    monkeypatch.setenv("C64_TOOLS_HOME", str(home))
+
+
+def test_default_socket_path_falls_back_into_a_private_per_user_dir(tmp_path,
+                                                                    monkeypatch):
+    """The fallback lands in shared /tmp, so it must not drop a predictably
+    named socket where any user can pre-create it: it goes in a 0700 dir
+    named for this uid, and still fits sun_path."""
+    _long_home(tmp_path, monkeypatch)
+    p = Path(_default_socket_path("work"))
+    assert len(str(p).encode()) <= 100
+    assert p.parent == Path(tempfile.gettempdir()) / f"c64-tools-{os.getuid()}"
+    assert stat.S_IMODE(p.parent.stat().st_mode) == 0o700
+    assert p.name.startswith("c64-") and p.suffix == ".sock"
+
+
+def test_default_socket_path_refuses_a_per_user_dir_owned_by_someone_else(
+        tmp_path, monkeypatch):
+    """A squatter's dir must never be used silently. Simulated by reporting a
+    uid that is not the (real, ours) owner of the pre-created dir — the same
+    mismatch another user's dir in /tmp would produce."""
+    _long_home(tmp_path, monkeypatch)
+    squatter = os.getuid() + 1
+    monkeypatch.setattr(os, "getuid", lambda: squatter)
+    d = Path(tempfile.gettempdir()) / f"c64-tools-{squatter}"
+    d.mkdir(mode=0o700, exist_ok=True)
+    try:
+        with pytest.raises(SessionError, match=re.escape(str(d))):
+            _default_socket_path("work")
+    finally:
+        d.rmdir()

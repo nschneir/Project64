@@ -463,9 +463,31 @@ def main(argv: list[str] | None = None) -> None:
     try:
         os.unlink(a.socket)
     except FileNotFoundError:
-        pass
+        pass                                # the ordinary case: nothing stale
+    except PermissionError:
+        # Only reachable if the socket's dir is not ours (Session picks a dir
+        # it owns), i.e. someone else's leftover in a shared /tmp. Report it;
+        # a traceback here would read like a daemon bug.
+        raise SystemExit(
+            f"c64 daemon: cannot remove the stale socket {a.socket} — its "
+            f"directory belongs to another user, so this session's socket "
+            f"cannot be bound. Check who owns it: ls -ld {a.socket}"
+        ) from None
+    except OSError as e:
+        raise SystemExit(
+            f"c64 daemon: cannot remove the stale socket {a.socket}: "
+            f"{e.strerror}. Remove it by hand: rm -f {a.socket}"
+        ) from None
     listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listen.bind(a.socket)
+    # bind() takes no mode; the node inherits the umask, which on a shared box
+    # can leave the whole RPC surface (memory_write, quit, ...) group- or
+    # world-reachable. Clamp for the bind, then pin the mode outright.
+    old_umask = os.umask(0o077)
+    try:
+        listen.bind(a.socket)
+    finally:
+        os.umask(old_umask)
+    os.chmod(a.socket, 0o600)
     listen.listen(1)
     print(f"c64 daemon up: session={a.name} vice_port={a.vice_port}", flush=True)
     try:

@@ -5,6 +5,7 @@ import collections
 import json
 import os
 import socket
+import stat
 import tempfile
 import threading
 import time
@@ -376,6 +377,49 @@ def test_main_serves_then_quits():
     assert not os.path.exists(sock)     # main() cleaned up its socket
     fake.close()
     os.rmdir(sockdir)                   # empty now that main() unlinked the socket
+
+
+def test_main_binds_a_socket_only_its_owner_can_reach():
+    """The socket can land in shared /tmp, where a group- or world-writable
+    node would hand any local user the RPC surface (memory_write, quit, ...)."""
+    fake = FakeVice(_vice_handlers())
+    sockdir = tempfile.mkdtemp(dir="/tmp")      # short: see sun_path note above
+    sock = os.path.join(sockdir, "s.sock")
+    t = threading.Thread(
+        target=main,
+        args=(["--name", "t", "--vice-port", str(fake.port), "--socket", sock],),
+        daemon=True)
+    t.start()
+    deadline = time.monotonic() + 5
+    while not os.path.exists(sock) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    mode = stat.S_IMODE(os.stat(sock).st_mode)
+    client = DaemonMonitorClient(sock)
+    client.quit()
+    client.close()
+    t.join(timeout=5)
+    fake.close()
+    os.rmdir(sockdir)
+    assert mode == 0o600
+
+
+def test_main_reports_a_stale_socket_it_cannot_remove():
+    """An undeletable leftover is a foreign socket in a shared dir; the daemon
+    must name it and exit, not spew a PermissionError traceback."""
+    fake = FakeVice(_vice_handlers())
+    sockdir = tempfile.mkdtemp(dir="/tmp")
+    sock = os.path.join(sockdir, "s.sock")
+    open(sock, "wb").close()
+    os.chmod(sockdir, 0o500)                    # read+exec only: unlink -> EACCES
+    try:
+        with pytest.raises(SystemExit) as e:
+            main(["--name", "t", "--vice-port", str(fake.port), "--socket", sock])
+        assert sock in str(e.value)
+    finally:
+        os.chmod(sockdir, 0o700)
+        os.unlink(sock)
+        os.rmdir(sockdir)
+        fake.close()
 
 
 def test_connection_error_marshalled_and_daemon_quits():

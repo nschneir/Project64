@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -221,12 +222,35 @@ _LAUNCH_POLL_INTERVAL = 0.5
 def _default_socket_path(name: str) -> str:
     """Unix-socket path for a session's daemon. macOS caps sun_path at ~104
     bytes; long C64_TOOLS_HOME values (pytest tmp dirs) fall back to a
-    hashed name under the system temp dir."""
+    hashed name under a per-user dir in the system temp dir."""
     p = sessions_dir() / f"{name}.sock"
     if len(str(p).encode()) <= 100:
         return str(p)
     digest = hashlib.sha1(str(p).encode()).hexdigest()[:12]
-    return str(Path(tempfile.gettempdir()) / f"c64-{digest}.sock")
+    # The temp dir is shared and world-writable on Linux (/tmp), and this name
+    # is derived, not secret: bare in /tmp another user could pre-create the
+    # socket the daemon then binds. So own the parent instead — 0700 and proven
+    # ours. Budget: tempdir (~50 bytes) + "c64-tools-<uid>/" + "c64-<12 hex>.sock"
+    # is ~85, inside the ~100-byte sun_path limit this fallback exists to respect.
+    uid = os.getuid()
+    d = Path(tempfile.gettempdir()) / f"c64-tools-{uid}"
+    try:
+        d.mkdir(mode=0o700, exist_ok=True)
+    except FileExistsError:             # exist_ok covers a dir, not a planted file
+        raise SessionError(
+            f"the daemon socket dir {d} exists but is not a directory — remove "
+            f"whatever is squatting there: ls -ld {d}"
+        ) from None
+    st = d.lstat()                      # lstat: a symlink here is the attack
+    if stat.S_ISLNK(st.st_mode) or st.st_uid != uid:
+        raise SessionError(
+            f"the daemon socket dir {d} is a symlink or belongs to another user "
+            f"(uid {st.st_uid}, not {uid}) — someone else's; inspect and remove "
+            f"it as its owner: ls -ld {d}"
+        )
+    os.chmod(d, 0o700)                  # mkdir's mode is umask-masked, and an
+                                        # exist_ok dir keeps whatever it had
+    return str(d / f"c64-{digest}.sock")
 
 
 def _spawn_daemon(name: str, vice_port: int, sock_path: str) -> int:
