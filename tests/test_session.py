@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -189,6 +190,9 @@ def test_launch_disk8_args(home, tmp_path, monkeypatch):
     class FakeProc:
         pid = 999_999_990  # never a live pid, so record pruning stays deterministic
 
+        def poll(self):
+            return None      # still running, like an x64sc that came up
+
         def terminate(self):
             pass
 
@@ -239,6 +243,9 @@ def test_launch_retries_transient_monitor_failure(home, monkeypatch):
             self.killed = False
             procs.append(self)
 
+        def poll(self):
+            return None
+
         def terminate(self):
             self.killed = True
 
@@ -281,6 +288,9 @@ def test_launch_exhausts_attempts_and_kills_all(home, monkeypatch):
             self.killed = False
             procs.append(self)
 
+        def poll(self):
+            return None      # an emulator that is up but mute, not one that died
+
         def terminate(self):
             self.killed = True
 
@@ -291,6 +301,9 @@ def test_launch_exhausts_attempts_and_kills_all(home, monkeypatch):
             self.killed = True
 
     monkeypatch.setenv("C64_TOOLS_LAUNCH_ATTEMPTS", "2")
+    # This fake refuses instantly, so without a short deadline the attempt loop
+    # would keep re-offering the connect for the default 20s per attempt.
+    monkeypatch.setenv("C64_TOOLS_LAUNCH_DEADLINE", "0.2")
     monkeypatch.setattr("c64lib.session.subprocess.Popen", lambda *a, **k: FakeProc())
     monkeypatch.setattr("c64lib.session.shutil.which", lambda n: "/usr/bin/x64sc")
 
@@ -305,9 +318,37 @@ def test_launch_exhausts_attempts_and_kills_all(home, monkeypatch):
 
     monkeypatch.setattr("c64lib.session.MonitorClient", FakeMon)
 
-    with pytest.raises(SessionError, match="never answered after 2"):
+    with pytest.raises(SessionError, match="never answered after 2") as e:
         Session.launch(model="c64", name="doomed")
     assert len(procs) == 2 and all(p.killed for p in procs)   # both cleaned up
+    # A still-running emulator has said nothing yet, so the message can only
+    # point at where it will say it.
+    assert str(sessions_dir() / "doomed.launch.log") in str(e.value)
+
+
+def test_launch_failure_quotes_what_the_emulator_said(home, tmp_path, monkeypatch):
+    """An x64sc that dies on its own — no ROMs, no display, a flag its build
+    rejects — used to be reported as "monitor never answered": both its
+    streams went to DEVNULL, so the one sentence naming the real cause was
+    thrown away. The Debian/Ubuntu ROM-less install is exactly this case.
+    """
+    exe = tmp_path / "fake-x64sc"
+    exe.write_text("#!/bin/sh\necho 'Cannot load kernal ROM `kernal`.' >&2\nexit 3\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("C64_TOOLS_X64SC", str(exe))
+    monkeypatch.setenv("C64_TOOLS_LAUNCH_ATTEMPTS", "1")
+    monkeypatch.setenv("C64_TOOLS_LAUNCH_DEADLINE", "5")
+
+    started = time.monotonic()
+    with pytest.raises(SessionError) as e:
+        Session.launch(model="c64", name="romless")
+    elapsed = time.monotonic() - started
+
+    msg = str(e.value)
+    assert "Cannot load kernal ROM" in msg, "the emulator's own diagnosis is still lost"
+    assert "code 3" in msg, "the exit code never reaches the user"
+    assert str(sessions_dir() / "romless.launch.log") in msg, "no path to the full output"
+    assert elapsed < 3.0, "sat out the whole connect deadline after the child had exited"
 
 
 def test_pid_alive_permission_error_means_alive(monkeypatch):

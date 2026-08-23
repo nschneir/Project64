@@ -136,6 +136,11 @@ Daemon output goes to `<sessions-dir>/<name>.daemon.log`; a crashed daemon
 is respawned automatically by the next command (repeated crashes error out
 and ask for a session restart). `C64_TOOLS_NO_DAEMON=1` disables it.
 
+The emulator's own output goes to `<sessions-dir>/<name>.launch.log`. When
+x64sc refuses to start — missing ROMs, no usable display, a flag this build
+rejects — it says so there and exits, and `start` reports its exit code and
+quotes those lines instead of blaming the monitor for not answering.
+
 ### `c64 session ensure`
 
 Attach to a running session, or start one if none exists. Idempotent:

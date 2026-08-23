@@ -194,6 +194,11 @@ def _supports_sound_dump(exe: str) -> bool:
 RESPAWN_LIMIT = 5
 RESPAWN_WINDOW = 30.0
 
+# How long a launch waits for the monitor before checking whether the emulator
+# is still alive. Short enough that a child which exits immediately is noticed
+# at once, long enough that the connect retry does not become a busy loop.
+_LAUNCH_POLL_INTERVAL = 0.5
+
 
 def _default_socket_path(name: str) -> str:
     """Unix-socket path for a session's daemon. macOS caps sun_path at ~104
@@ -233,6 +238,35 @@ def _spawn_daemon(name: str, vice_port: int, sock_path: str) -> int:
         time.sleep(0.1)
     _kill_proc(proc)
     raise SessionError(f"session daemon failed to start (see {log_path})")
+
+
+def _connect_while_alive(
+    mon: MonitorClient, proc: subprocess.Popen, deadline: float
+) -> None:
+    """`mon.connect(deadline)`, but give up as soon as `proc` has exited.
+
+    `MonitorClient.connect` watches only the socket, so an emulator that died
+    on a missing ROM or an unusable display would otherwise cost the full
+    deadline on every attempt before anyone looked at why.
+    """
+    end = time.monotonic() + deadline
+    while True:
+        remaining = end - time.monotonic()
+        try:
+            mon.connect(deadline=min(_LAUNCH_POLL_INTERVAL, remaining))
+            return
+        except ConnectionError:
+            if proc.poll() is not None or remaining <= _LAUNCH_POLL_INTERVAL:
+                raise
+
+
+def _log_tail(path: Path, lines: int = 5) -> str:
+    """The last `lines` of a launch log, for quoting in an error message."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return ""
+    return "\n".join(text.splitlines()[-lines:]).strip()
 
 
 def _kill_proc(proc: subprocess.Popen) -> None:
@@ -497,22 +531,28 @@ class Session:
         attempts = int(os.environ.get("C64_TOOLS_LAUNCH_ATTEMPTS", "2"))
         deadline = float(os.environ.get("C64_TOOLS_LAUNCH_DEADLINE", "20"))
         last_err: Exception | None = None
+        last_exit: int | None = None
+        # Both streams go to a log rather than DEVNULL: when x64sc refuses to
+        # start (no ROMs, no usable display, a flag this build rejects) it says
+        # so on stderr and exits, and that sentence is the whole diagnosis.
+        log_path = sessions_dir() / f"{name}.launch.log"
         for _ in range(max(1, attempts)):
             port = _free_port()
             args = base_args + [
                 "-binarymonitor", "-binarymonitoraddress", f"ip4://127.0.0.1:{port}",
             ]
-            proc = subprocess.Popen(
-                args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            with open(log_path, "ab") as log:
+                proc = subprocess.Popen(args, env=env, stdout=log, stderr=log)
             try:
                 with MonitorClient(port=port) as mon:
-                    mon.connect(deadline=deadline)
+                    _connect_while_alive(mon, proc, deadline)
                     mon.ping()
                     mon.resume()  # connecting/commands leave the machine stopped
             except (ConnectionError, TimeoutError) as e:
                 last_err = e
-                _kill_proc(proc)
+                last_exit = proc.poll()
+                if last_exit is None:
+                    _kill_proc(proc)
                 continue
             session = cls(name=name, pid=proc.pid, port=port, model=model)
             if os.environ.get("C64_TOOLS_NO_DAEMON") != "1":
@@ -526,9 +566,17 @@ class Session:
             session._respawns_path().unlink(missing_ok=True)  # fresh breaker
             session._save()
             return session
+        if last_exit is not None:
+            tail = _log_tail(log_path)
+            said = f", saying:\n{tail}\nFull output" if tail else ", printing nothing. Log"
+            raise SessionError(
+                f"{Path(exe).name} exited with code {last_exit} before its monitor "
+                f"answered ({max(1, attempts)} attempt(s))"
+                f"{said}: {log_path}"
+            )
         raise SessionError(
             f"VICE started but its monitor never answered after {max(1, attempts)} "
-            f"attempt(s): {last_err}"
+            f"attempt(s): {last_err}. Its output is in {log_path}"
         )
 
     @classmethod
