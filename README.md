@@ -30,8 +30,8 @@ macOS (Homebrew):
 
 Debian / Ubuntu:
 
-    sudo apt install vice cc65
-    python3 -m venv .venv            # Debian may need: sudo apt install python3-venv
+    sudo apt install vice cc65       # enable contrib/multiverse first (below)
+    python3 -m venv .venv            # Debian may need: apt install python3-venv
     .venv/bin/pip install -e .
 
 Two Debian/Ubuntu specifics, because VICE needs ROMs Debian cannot ship:

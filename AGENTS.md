@@ -21,7 +21,9 @@ Where things are documented (don't duplicate them here):
 ## Commands
 
 ```sh
-pip install -e ".[dev]"        # install with pytest + coverage
+python3 -m venv .venv               # PEP 668: Debian 12+/Ubuntu 23.04+ refuse a
+.venv/bin/pip install -e ".[dev]"   # system-Python pip — and the skills want .venv
+source .venv/bin/activate           # the commands below assume it is active
 
 pytest                          # full suite (vice-marked tests need x64sc/VICE on PATH)
 pytest -m "not vice"            # unit tests only — no emulator required
@@ -292,7 +294,7 @@ To cut a release, in one commit:
 
 1. Bump `version` in `pyproject.toml`.
 2. Add a `## [<version>] — <date>` section to `CHANGELOG.md`.
-3. `pip install -e ".[dev]"` (refresh the editable install so
+3. `.venv/bin/pip install -e ".[dev]"` (refresh the editable install so
    `__version__` and its test see the new version), then `pytest -m "not
    vice"` — the two lock tests above must pass.
 4. Merge to `main`. CI tags `v<version>` and publishes the release.
