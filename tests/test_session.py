@@ -351,6 +351,30 @@ def test_launch_failure_quotes_what_the_emulator_said(home, tmp_path, monkeypatc
     assert elapsed < 3.0, "sat out the whole connect deadline after the child had exited"
 
 
+def test_launch_failure_never_quotes_an_older_launchs_error(home, tmp_path, monkeypatch):
+    """The launch log is append-only and shared by every launch of this session
+    name, so quoting its last lines outright would report an emulator that died
+    silently in the words of the run before it — a confident, wrong cause.
+    """
+    exe = tmp_path / "fake-x64sc"
+    exe.write_text("#!/bin/sh\nexit 4\n")            # dies without a word
+    exe.chmod(0o755)
+    log = sessions_dir() / "silent.launch.log"
+    log.write_text("Cannot load kernal ROM `kernal`.\n")   # what a previous launch said
+    monkeypatch.setenv("C64_TOOLS_X64SC", str(exe))
+    monkeypatch.setenv("C64_TOOLS_LAUNCH_ATTEMPTS", "1")
+    monkeypatch.setenv("C64_TOOLS_LAUNCH_DEADLINE", "5")
+
+    with pytest.raises(SessionError) as e:
+        Session.launch(model="c64", name="silent")
+
+    msg = str(e.value)
+    assert "kernal" not in msg, "quoted the previous launch's error as this one's"
+    assert "code 4" in msg, "the exit code never reaches the user"
+    assert str(log) in msg, "no path to the full output"
+    assert "Cannot load kernal ROM" in log.read_text(), "the older output was destroyed"
+
+
 def test_pid_alive_permission_error_means_alive(monkeypatch):
     def kill(pid, sig):
         raise PermissionError

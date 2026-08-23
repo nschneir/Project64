@@ -260,10 +260,18 @@ def _connect_while_alive(
                 raise
 
 
-def _log_tail(path: Path, lines: int = 5) -> str:
-    """The last `lines` of a launch log, for quoting in an error message."""
+def _log_tail(path: Path, since: int = 0, lines: int = 5) -> str:
+    """The last `lines` a launch log grew past byte `since`, for quoting in an
+    error message.
+
+    The offset is what keeps the quote honest: the log is append-only and
+    shared by every launch of this session name, so reading from byte 0 would
+    let a mute emulator be reported in the words of the run before it.
+    """
     try:
-        text = path.read_text(errors="replace")
+        with open(path, "rb") as f:
+            f.seek(since)
+            text = f.read().decode(errors="replace")
     except OSError:
         return ""
     return "\n".join(text.splitlines()[-lines:]).strip()
@@ -534,8 +542,11 @@ class Session:
         last_exit: int | None = None
         # Both streams go to a log rather than DEVNULL: when x64sc refuses to
         # start (no ROMs, no usable display, a flag this build rejects) it says
-        # so on stderr and exits, and that sentence is the whole diagnosis.
+        # so on stderr and exits, and that sentence is the whole diagnosis. The
+        # log is append-only and outlives the launch, so where it already ends
+        # is remembered: only what THIS launch adds may be quoted back.
         log_path = sessions_dir() / f"{name}.launch.log"
+        log_start = log_path.stat().st_size if log_path.exists() else 0
         for _ in range(max(1, attempts)):
             port = _free_port()
             args = base_args + [
@@ -567,7 +578,7 @@ class Session:
             session._save()
             return session
         if last_exit is not None:
-            tail = _log_tail(log_path)
+            tail = _log_tail(log_path, since=log_start)
             said = f", saying:\n{tail}\nFull output" if tail else ", printing nothing. Log"
             raise SessionError(
                 f"{Path(exe).name} exited with code {last_exit} before its monitor "
