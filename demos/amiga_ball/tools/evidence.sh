@@ -29,7 +29,7 @@
 #    frame anchor and `mainloop` is not: the main loop free-runs, so
 #    `until mainloop --count N` counts loops, not frames (SPEC.md Section 10.2).
 #    Inspection never advances the machine, so the same script produces the same
-#    frames every time -- `md5 evidence/*.png` is identical across runs, and a
+#    frames every time -- `cksum evidence/*.png` is identical across runs, and a
 #    PNG that churns means an unanchored capture, not an acceptable wobble.
 #
 # 2. Never `wait --mem/--text` straight after an `until`.  A wait polls and does
@@ -46,7 +46,7 @@
 #
 # 4. `c64 call` only as the final action before a capture.  Not used here at
 #    all: a call's fake return address ends the run, and `freeze` reaches every
-#    state this demo has to show without one.  That is also why rule 1's md5
+#    state this demo has to show without one.  That is also why rule 1's cksum
 #    promise holds for all fifteen PNGs.
 #
 # 5. A capture that needs a key uses `key hold KEY --at <anchor>`.  Not

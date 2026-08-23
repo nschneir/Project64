@@ -685,9 +685,9 @@ and again 8 frames later, in one file, labelled.
 
 ```sh
 sh demos/amiga_ball/tools/evidence.sh
-md5 demos/amiga_ball/evidence/*.png > /tmp/ev1
+cksum demos/amiga_ball/evidence/*.png > /tmp/ev1
 sh demos/amiga_ball/tools/evidence.sh
-md5 demos/amiga_ball/evidence/*.png > /tmp/ev2
+cksum demos/amiga_ball/evidence/*.png > /tmp/ev2
 diff /tmp/ev1 /tmp/ev2
 ```
 
