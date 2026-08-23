@@ -6,6 +6,57 @@ day the release was tagged. Project64 is a Commodore 64 port of
 lives in that repository (and in this one's git history before the fork
 commit).
 
+## [Unreleased]
+
+Project64 was written on a Mac and had never been read as a Debian or Ubuntu
+program. A high-effort review of the tree from that angle — the install path,
+the headless case, the shared host, the non-UTF-8 locale — produced ten
+confirmed findings, and all ten are fixed here. The shape of most of them is
+the same: something that cannot fail on a single-user macOS desktop, and
+fails silently or unreadably everywhere else.
+
+The largest is that a Linux box with no display could not tell you so.
+Debian and Ubuntu package `x64sc` as a GTK3 build, which needs an X11 or
+Wayland server to start even for a `--headless` launch, and what a user got
+was a monitor connect timeout naming a socket. `Session.launch` now refuses
+before it spawns anything, with `xvfb-run -a` in the message, and the suite
+skips its `vice`-marked tests on the same check rather than failing every one
+of them. When a launch does fail for some other reason, the emulator's own
+stderr is now quoted back — this launch's output only, not a stale log.
+
+The rest, briefly:
+
+- **A shared `/tmp` is somebody else's `/tmp`.** The daemon's control socket
+  is now per-user and mode-checked, and a refused socket path kills the
+  emulator it was opened for instead of orphaning it.
+- **A pid number is not a process.** `is_alive()` asks whether the pid is
+  still running the binary the session launched, so a recycled pid can no
+  longer make a dead record immortal — a record no command could clear, and
+  a `stop()` that signalled a stranger. The residue (one x64sc versus
+  another) is in `docs/todo.md`.
+- **Text I/O was locale-dependent tree-wide.** Every text-mode `open`,
+  `read_text` and `write_text` in `src/`, `tests/` and `skills/` — 575 sites
+  — names `utf-8`, and ruff's `PLW1514` keeps it that way. On a `LANG=C`
+  host the suite used to fail on its own documentation.
+- **The install instructions did not work on Debian.** `pip install` outside
+  a venv is refused by PEP 668 there; VICE lives in `contrib`/`multiverse`
+  and the `apt` package ships no Commodore ROMs. All three are now in the
+  README, in that order, and `caffeinate` is labelled as the macOS remedy it
+  is rather than advice for everyone.
+- **The reaper needed `ps`.** The suite's leftover-emulator cleanup keeps a
+  per-uid ledger, so it still works on a host without `ps` and never touches
+  another user's process.
+- **A determinism gate used BSD `md5`.** On Debian the shell created the
+  redirection targets, `md5` exited 127, and `diff` compared two empty files
+  — the gate false-PASSED. It uses `cksum`, which is POSIX.
+
+Seven things the review verified and did not fix are written up in
+`docs/todo.md` rather than left in a branch: the two edges the UTF-8 sweep
+stopped at (`PLW1514` only sees a receiver it can prove is a `Path`, and
+`demos/` is outside the lint gate), and five of Linux portability —
+env-blind skip guards, locale-decoded subprocess output, the unenforced
+"VICE 3.5+", first-class xvfb, and the session-identity residue above.
+
 ## [1.0.0] — 2026-08-14
 
 One-point-oh gates on the code being right rather than on a feature: a

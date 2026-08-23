@@ -25,6 +25,12 @@ lifetime-mark asserts to their windows. The 1.0.0 pre-release review then
 added one item of its own (`wait_for_break`, at the end of this file), so
 five items remain, all real work.
 
+The 2026-08-23 Debian/Ubuntu-focus review then landed its ten confirmed
+findings (`CHANGELOG.md`'s Unreleased section has the inventory) and left the
+items below it verified but did not fix — everything from the UTF-8 sweep's
+two edges to the five Linux-portability findings that were judged out of the
+branch's scope rather than out of the tree's.
+
 ## No capture can be anchored to the frame top, and every evidence PNG churns
 
 **Anchor:** `docs/graphics-and-sprites.md` §5 (the churn note after the rules
@@ -313,3 +319,177 @@ already distinguishes text from binary and positional from keyword
 
 **How to verify.** Add `(tmp_path / "x").read_text()` to any test file; the
 gate must go red. Today it does not.
+
+## Nine skip guards ask PATH and never ask the env override
+
+**Anchor:** `tests/conftest.py:40-44` (`HAVE_X64SC` / `HAVE_C1541`, the
+resolution order every guard should mirror) against the guards in
+`tests/test_basic.py:42`, `tests/test_basic_tokens.py:120`,
+`tests/test_packaging.py:16`, `tests/test_docs_rom_basic.py:39`,
+`tests/test_docs_cookbook.py:79`, `tests/test_sprites.py:321` (all six
+`petcat`), plus `tests/test_cli_cart.py:16` (`cartconv`),
+`tests/test_integration_cart.py:17` (`ca65`, `ld65`, `cartconv`) and
+`tests/test_disk_build.py:20` (`ca65`, `ld65`).
+
+**Status:** filed 2026-08-23 by the Debian/Ubuntu review. Verified by reading
+every `shutil.which` in `tests/`: the x64sc guards all spell
+`which("x64sc") or os.environ.get("C64_TOOLS_X64SC")`, and one site in
+`test_docs_cookbook.py` (`:451`) gets `ca65` right, so the shape is already
+house style — these nine are the ones that were not converted.
+
+**What's wrong now.** `src/` resolves every external tool as *env override
+first, PATH second* — `C64_TOOLS_PETCAT`, `C64_TOOLS_CA65`, `C64_TOOLS_LD65`,
+`C64_TOOLS_CARTCONV`, `C64_TOOLS_C1541`, `C64_TOOLS_X64SC` are all read. The
+nine guards above ask `shutil.which` alone. So on the exact host the
+overrides exist for — a Debian box with VICE or cc65 installed somewhere
+`PATH` does not name, which is the normal shape of a hand-built VICE or a
+`/opt` cc65 — the library will happily run the tool and the tests silently
+skip. A green run reports coverage it did not have, and the skip reason
+("petcat not installed") is false on that machine.
+
+**Fix direction.** Mechanical: give each tool one module-level predicate in
+`tests/conftest.py` beside `HAVE_X64SC`/`HAVE_C1541` (`HAVE_PETCAT`,
+`HAVE_CA65`, `HAVE_LD65`, `HAVE_CARTCONV`) and have the nine guards import it,
+so there is one resolution order in the suite rather than a spelling per file.
+Better still, resolve through the same `src/` helper the library uses, which
+cannot drift from it at all.
+
+**How to verify.** Move `petcat` out of `PATH`, point `C64_TOOLS_PETCAT` at
+it, and run the six petcat files: they must run, not skip. Today they skip.
+
+## Subprocess output is decoded in whatever the host locale says
+
+**Anchor:** `src/c64lib/basic.py:42` (petcat), `src/c64lib/build.py:112`
+(ca65/ld65), `src/c64lib/disk.py:171` (c1541), and the three
+`errors="replace"` sites in `src/c64lib/session.py` (`:131`, `:182`, `:232`).
+The one site already thought about is `src/c64lib/cartridge.py:258`, which
+catches `UnicodeDecodeError` and turns it into a `CartError`.
+
+**Status:** filed 2026-08-23. Deliberately out of the UTF-8 sweep's scope —
+that commit's rule was "every text-mode `open`/`read_text`/`write_text` names
+`utf-8`", guarded by `PLW1514`, and `subprocess.run(text=True)` is neither an
+`open` nor a shape `PLW1514` sees. Excluding it kept the sweep mechanical and
+reviewable; it did not make these sites right.
+
+**What's wrong now.** `text=True` with no `encoding=` decodes with
+`locale.getencoding()`. On a `LANG=C` Debian or Ubuntu host — a cron job, a
+container, a stripped systemd unit — that is ASCII, and any non-ASCII byte in
+an assembler's or `c1541`'s diagnostic raises `UnicodeDecodeError` from
+inside `subprocess.run`. Three of the four unguarded sites are on the error
+path of a build: the failure a user gets is a traceback about decoding
+instead of the compiler error that actually stopped them. The `session.py`
+trio cannot raise (they pass `errors="replace"`), but they still decode a
+command line under the host locale, so `_pid_is_session`'s substring match is
+comparing mojibake against a UTF-8 marker on such a host.
+
+**Fix direction.** `encoding="utf-8", errors="replace"` on all seven — the
+same treatment `cartridge.py` reached for, and the same argument the file
+sweep made: these are tool diagnostics, and every tool in the set emits
+UTF-8 or ASCII. `cartridge.py`'s guard then becomes belt-and-braces rather
+than the only seatbelt in the car.
+
+**How to verify.** Under `LC_ALL=C PYTHONUTF8=0`, make `ca65` fail with a
+non-ASCII byte in its message (a source path with an em dash does it) and
+confirm `c64 build` reports the assembler's error rather than a
+`UnicodeDecodeError`.
+
+## "VICE 3.5+" is advertised and nothing checks it
+
+**Anchor:** `README.md:19` ("Requires **Python 3.11+**, **VICE 3.5+**"), and
+the four error hints that repeat the figure — `src/c64lib/session.py:578`,
+`src/c64lib/cartridge.py:245`, `src/c64lib/disk.py:163`,
+`src/c64lib/basic.py:27`.
+
+**Status:** filed 2026-08-23. The number is a documented requirement with no
+enforcement anywhere in the tree: nothing runs `x64sc --version`, and no
+capability is probed except `-minimized` (`_supports_minimized`, which
+probes `--help` for exactly one flag and caches per binary path).
+
+**What's wrong now.** Debian oldstable and Ubuntu LTS both ship VICE builds
+older than the binary-monitor era this toolset is built on. On such a host
+`x64sc` starts, `-binarymonitor` is either rejected outright or ignored, and
+what the user sees is a monitor connect timeout — a failure that names the
+socket, not the version. The person who installed VICE from `apt` and read
+the README has no way to connect the two.
+
+**Fix direction (not ruled).** The cheapest honest check is the shape
+`_supports_minimized` already uses: probe `--help` once per binary path for
+`-binarymonitor` and fail the launch with "this VICE has no binary monitor —
+Project64 needs VICE 3.5+" when it is absent. Parsing `--version` is the
+other option and is worse: the string format has moved across releases and a
+distro patchlevel says nothing about the feature. Whichever lands, the
+figure in the README and the four hints should be generated from, or at
+least verified against, the thing the code actually requires.
+
+**How to verify.** Point `C64_TOOLS_X64SC` at a VICE older than 3.5 (or at a
+stub whose `--help` omits `-binarymonitor`) and run `c64 session start`: it
+must say the version is too old, not time out on a monitor connection.
+
+## Nothing in the tree manages Xvfb; the preflight only points at it
+
+**Anchor:** `src/c64lib/session.py:572` (the launch refusal naming
+`xvfb-run -a c64 session start`), `_display_available()` beside it, and the
+suite-side skips at `tests/conftest.py:71` and `:355`.
+
+**Status:** filed 2026-08-23, and **deliberately scoped out** — the review's
+finding was "a headless Linux launch fails obscurely", and failing fast with
+the remedy in the message closes that. This item is the larger thing the fix
+did not attempt.
+
+**What's wrong now.** On a Linux host with no display the toolset now says
+what to do, and the user does it: every `c64` invocation, every pytest run,
+every MCP server start has to be wrapped in `xvfb-run -a` by hand. Nothing
+starts an Xvfb, nothing reuses one across invocations (so a wrapped run pays
+a server start per command), and nothing verifies one is actually usable
+before the emulator is launched — `_display_available()` only checks that
+`DISPLAY` or `WAYLAND_DISPLAY` is non-empty, which a stale value satisfies.
+
+**Fix direction (not ruled, and explicitly conditional).** Revisit if Linux
+CI lands: at that point a session-scoped Xvfb — started once, `DISPLAY`
+exported into the children, torn down at the end — is worth building, and
+the natural home is beside the session record so one display serves the
+daemon and every command that talks to it. Until then the wrapper is the
+user's move and the fast failure is the whole contract.
+
+**How to verify.** Whatever lands, `c64 session start` on a display-less
+Linux box must work with no wrapper and no exported `DISPLAY`, and two
+successive commands must share one Xvfb rather than starting two.
+
+## Session identity matches a basename anywhere in a stranger's command line
+
+**Anchor:** `src/c64lib/session.py:98` (`_pid_is_session`), its caller
+`SessionRecord.is_alive()` at `:781-786`, and the `-binarymonitoraddress`
+argument `launch` writes into argv at `:662`.
+
+**Status:** filed 2026-08-23 by the review that produced the fix this item
+narrows. Before it, `is_alive()` asked `_pid_alive` — the pid NUMBER — and a
+recycled pid made a dead record immortal. `_pid_is_session` closes the case
+that matters (the number now has to belong to a process running the
+emulator) and the residue is the case below.
+
+**What's wrong now.** The marker is the emulator's basename — `self.exe`, or
+the model's `vice_emulator` for a record written before `exe` existed — and
+the test is `m in cmdline` over the whole command line. So the check cannot
+tell one x64sc from another: a recycled pid that lands on **another
+session's** x64sc (or on any command line that merely mentions the string,
+`grep x64sc` included) still reads alive. On a shared build host running
+several sessions this is exactly the collision the pid-recycling fix was
+about, one level in. `stop()` then aims its SIGTERM at the wrong emulator.
+
+There is a second, smaller residue in the same function's neighbourhood:
+`stop()` still identifies the daemon by number alone
+(`_pid_alive(self.daemon_pid)` at `:809`), so the daemon half of a session
+keeps the original bug.
+
+**Fix direction.** The discriminator is already in argv: `launch` passes
+`-binarymonitoraddress ip4://127.0.0.1:{port}` with the session's own port,
+and the record stores that port. Require BOTH the exe basename and that
+port string to appear in the command line and the check identifies *this*
+session's emulator rather than any emulator. Keep the existing
+doubt-reads-as-dead bargain — a record from before the port was recorded
+falls back to today's behaviour. The daemon pid wants the same treatment
+against whatever its own argv carries.
+
+**How to verify.** Start two sessions, take the pid of the first, and hand
+it to the second record's `is_alive()`: it must report dead. Today it
+reports alive, because both command lines contain `x64sc`.
