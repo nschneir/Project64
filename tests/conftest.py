@@ -40,19 +40,33 @@ HAVE_C1541 = bool(os.environ.get("C64_TOOLS_C1541") or shutil.which("c1541"))
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip ``needs_c1541`` tests when c1541 is absent.
+    """Skip ``needs_c1541`` tests when c1541 is absent, and ``vice`` tests when
+    the installed x64sc has nowhere to draw.
 
     A real marker rather than a per-file ``skipif`` because these tests are
     validated locally and nowhere else (see AGENTS.md): a ``skipif`` is
     invisible to ``-m``, so the subset could not be *asked* for — only run by
     naming whole files. ``pytest -m "needs_c1541 and not vice"`` selects it.
+
+    The display half is here rather than in ``_shared_c64`` alone because ten
+    ``vice`` tests call ``Session.launch`` themselves instead of taking the
+    shared machine, and on a display-less Linux host every one of those
+    launches now raises — the live suite would error where a skip is the
+    honest result. Gated on ``HAVE_X64SC`` so a host without VICE keeps the
+    per-file skipif's more precise reason, and a no-op wherever a display
+    exists, macOS included (see ``c64lib.session._display_available``).
     """
-    if HAVE_C1541:
-        return
-    skip = pytest.mark.skip(reason="c1541 (VICE) not installed")
-    for item in items:
-        if "needs_c1541" in item.keywords:
-            item.add_marker(skip)
+    if not HAVE_C1541:
+        skip_c1541 = pytest.mark.skip(reason="c1541 (VICE) not installed")
+        for item in items:
+            if "needs_c1541" in item.keywords:
+                item.add_marker(skip_c1541)
+    if HAVE_X64SC and not _display_available():
+        skip_display = pytest.mark.skip(
+            reason="x64sc needs a display (set DISPLAY or run under xvfb-run)")
+        for item in items:
+            if "vice" in item.keywords:
+                item.add_marker(skip_display)
 
 #: Top-left screen cell. The boot screen clear overwrites it, which is how the
 #: reset below proves the machine really rebooted instead of us reading the
